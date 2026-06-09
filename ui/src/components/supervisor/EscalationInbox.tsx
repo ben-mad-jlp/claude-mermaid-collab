@@ -11,6 +11,7 @@ const KIND_GLYPH: Record<string, string> = {
   decision: '🔀',
   blocker: '⛔',
   approval: '✅',
+  'epic-ready-to-land': '🚀',
 };
 
 const KIND_OPTIONS = ['all', 'question', 'decision', 'blocker', 'approval'];
@@ -27,8 +28,19 @@ export const EscalationInbox: React.FC<EscalationInboxProps> = ({ serverId, onJu
   const escalations = useSupervisorStore((s) => s.escalations);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
+  const landEpic = useSupervisorStore((s) => s.landEpic);
 
   const [statusFilter, setStatusFilter] = useState<'open' | 'resolved'>('open');
+  const [landing, setLanding] = useState<string | null>(null);
+
+  const onLand = async (e: Escalation) => {
+    setLanding(e.id);
+    try {
+      await landEpic(serverId, e.project, e.id);
+    } finally {
+      setLanding(null);
+    }
+  };
   const [kindFilter, setKindFilter] = useState<string>('all');
 
   useEffect(() => {
@@ -135,6 +147,16 @@ export const EscalationInbox: React.FC<EscalationInboxProps> = ({ serverId, onJu
                 >
                   Jump to session
                 </button>
+                {e.status === 'open' && e.kind === 'epic-ready-to-land' && (
+                  <button
+                    onClick={() => void onLand(e)}
+                    disabled={landing === e.id}
+                    className="px-2 py-0.5 text-2xs font-semibold rounded bg-emerald-600 text-white border border-emerald-700 hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                    title="Re-derive land-readiness server-side, then merge this epic onto master"
+                  >
+                    {landing === e.id ? 'Landing…' : '🚀 Land'}
+                  </button>
+                )}
                 {e.status === 'open' && (
                   <button
                     onClick={() => void resolveEscalation(serverId, e.id, 'resolved')}

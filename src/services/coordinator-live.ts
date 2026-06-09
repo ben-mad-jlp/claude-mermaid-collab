@@ -3,7 +3,7 @@ import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
 import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
-import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject } from './supervisor-store';
+import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { ensureSession, runTodoInSession } from './claude-launch';
 import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
@@ -386,6 +386,112 @@ export function resolveEpicId(todo: Todo, project: string): string {
     depth++;
   }
   return INBOX_EPIC_ID;
+}
+
+// --- FBPE P4: the land click — human-gated epic→master land ---------------------
+// Per-project land mutex: concurrent LAND clicks for the same target repo must not
+// race two merges into master. Each land chains onto the previous one for that
+// project so they serialise; the chain is fault-tolerant (a failed/throwing land
+// does not wedge the next click).
+const landChains = new Map<string, Promise<unknown>>();
+function withLandMutex<T>(project: string, fn: () => Promise<T>): Promise<T> {
+  const prev = landChains.get(project) ?? Promise.resolve();
+  // Run fn whether the previous land resolved or rejected (serialise, don't wedge).
+  const next = prev.then(fn, fn);
+  landChains.set(project, next.then(() => {}, () => {}));
+  return next;
+}
+
+export interface LandEpicOutcome {
+  ok: boolean;
+  landed: boolean;
+  conflict?: boolean;
+  reason: string;
+  epicId?: string;
+  epicBranch?: string;
+  masterSha?: string;
+}
+
+/**
+ * The land click (FBPE P4). Given an open 'epic-ready-to-land' escalation, RE-DERIVE
+ * land-readiness server-side at click time (never trust the summary baked into the
+ * card at roll-up) and, on a green proof, perform ONE --no-ff epic→master merge behind
+ * the per-project land mutex, then remove the epic branch/worktree and resolve the
+ * card. A conflict leaves master UNTOUCHED and re-surfaces a 'needs human rebase, then
+ * re-land' escalation (the original card stays open).
+ */
+export async function landEpic(project: string, escalationId: string): Promise<LandEpicOutcome> {
+  const esc = getEscalation(escalationId);
+  if (!esc) return { ok: false, landed: false, reason: 'escalation-not-found' };
+  if (esc.kind !== 'epic-ready-to-land') return { ok: false, landed: false, reason: 'not-a-land-escalation' };
+  const todoId = esc.todoId;
+  if (!todoId) return { ok: false, landed: false, reason: 'no-todo-link' };
+  const child = getTodo(project, todoId);
+  if (!child) return { ok: false, landed: false, reason: 'todo-not-found' };
+  const targetProject = child.targetProject ?? project;
+  const epicId = resolveEpicId(child, project);
+  const wm = getWorktreeManager(targetProject);
+  const epicBranch = wm.epicBranchName(epicId);
+
+  return withLandMutex(targetProject, async (): Promise<LandEpicOutcome> => {
+    try {
+      // RE-DERIVE the land_epic proof from ground truth: every epic child done+accepted
+      // in the store; tsc clean IN the epic's accumulation worktree; the epic branch
+      // dry-merges cleanly into a master checkout. The click NEVER trusts the summary.
+      const epicChildIds = listTodos(project, { includeCompleted: true })
+        .filter((t) => t.parentId === epicId && t.status !== 'dropped')
+        .map((t) => t.id);
+      const epic = await wm.ensureEpic(epicId).catch(() => null);
+      const verdict = validateStewardProof(
+        'land_epic',
+        { kind: 'epic-landable', epicId, epicBranch },
+        {
+          project,
+          dependsOn: [],
+          getDep: (cid) => {
+            const d = getTodo(project, cid);
+            return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
+          },
+          epicChildIds,
+          epicWorktreeCwd: epic?.path ?? targetProject,
+          masterCwd: targetProject,
+        },
+      );
+      if (!verdict.ok) {
+        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'rejected', reason: verdict.reason }) });
+        return { ok: false, landed: false, reason: verdict.reason, epicId, epicBranch };
+      }
+
+      // Green proof → perform the real single --no-ff epic→master merge.
+      const land = await wm.landEpicToMaster(epicId);
+      if (land.conflict) {
+        // Master untouched. Re-surface as a human-rebase request; the ready-to-land
+        // card stays open so the human can re-land after resolving.
+        createEscalation({
+          project,
+          session: esc.session,
+          todoId,
+          kind: 'assumption-invalidated',
+          questionText: `Land conflict: epic ${epicBranch} did not merge cleanly into master (master untouched). Rebase ${epicBranch} onto master, resolve conflicts, then re-land.`,
+        });
+        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'conflict' }) });
+        return { ok: false, landed: false, conflict: true, reason: 'epic-merge-conflict', epicId, epicBranch };
+      }
+      if (!land.landed) {
+        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'failed', reason: land.reason }) });
+        return { ok: false, landed: false, reason: land.reason ?? 'land-failed', epicId, epicBranch };
+      }
+
+      // Landed — remove the epic branch + worktree (gated on land success), resolve the card.
+      await wm.removeEpic(epicId, targetProject).catch(() => {});
+      resolveEscalation(escalationId, 'resolved');
+      recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha }) });
+      return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha };
+    } catch (e) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
+      return { ok: false, landed: false, reason: e instanceof Error ? e.message : String(e), epicId, epicBranch };
+    }
+  });
 }
 
 /** Wire the Coordinator daemon to the real todo-store + a live worker launcher. */

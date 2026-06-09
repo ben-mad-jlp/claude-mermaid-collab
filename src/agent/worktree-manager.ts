@@ -75,6 +75,25 @@ export interface CommitMergeOpts {
   timeoutMs?: number;
 }
 
+export interface LandOpts {
+  /** Branch to land onto (default 'master'). */
+  baseRef?: string;
+  onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void;
+  timeoutMs?: number;
+}
+
+/** Result of landing an epic's accumulation branch onto master (FBPE P4). */
+export interface LandResult {
+  /** The epic branch merged into master and the master ref was advanced. */
+  landed: boolean;
+  /** The merge hit a conflict — master is UNTOUCHED (merge aborted, ref not advanced). */
+  conflict: boolean;
+  /** The new master sha after the --no-ff land merge (landed === true). */
+  masterSha?: string;
+  /** Machine reason on a non-landed outcome (e.g. 'epic-merge-conflict', 'non-git'). */
+  reason?: string;
+}
+
 export interface EnsureOpts {
   /** Branch the new worktree off this ref instead of the detected base branch.
    *  Used by the isolation model to branch each worker off the LATEST integration
@@ -752,6 +771,149 @@ export class WorktreeManager {
     opts: CommitMergeOpts,
   ): Promise<MergeBackResult> {
     return this.commitAndMergeToEpic(sessionId, INBOX_EPIC_ID, opts);
+  }
+
+  // ---------------------------------------------------------------------------
+  // landEpicToMaster — the land click (FBPE P4). Merge an epic's accumulation
+  // branch (collab/epic/<id8>) onto master with a single --no-ff merge, then
+  // advance the master branch ref to the result. A conflict ABORTS the merge and
+  // leaves master entirely untouched (ref never advanced) → { conflict: true }.
+  //
+  // The merge runs in a DETACHED master checkout (a throwaway `__land-master__`
+  // worktree pinned at master's tip) so it never needs to check out the `master`
+  // branch itself — that branch is typically live in the project's main working
+  // tree, and `git worktree add <master>` would fail "already checked out". The
+  // master branch ref is then advanced via a compare-and-swap `update-ref` on the
+  // pre-land sha (the per-project land mutex serialises lands; the CAS is a second
+  // backstop against a racing ref move). The land worktree is always torn down.
+  // ---------------------------------------------------------------------------
+  async landEpicToMaster(epicId: string, opts?: LandOpts): Promise<LandResult> {
+    if (!(await this.isGitRepo())) return { landed: false, conflict: false, reason: 'non-git' };
+    const baseRef = opts?.baseRef ?? 'master';
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+    const onProgress = opts?.onProgress;
+    const epicBranch = this.epicBranchName(epicId);
+
+    // The epic branch must exist to land.
+    const branchOk =
+      (
+        await this.runGit(
+          this.opts.projectRoot,
+          ['rev-parse', '--verify', '--quiet', `refs/heads/${epicBranch}`],
+          QUICK_TIMEOUT_MS,
+        ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
+      ).code === 0;
+    if (!branchOk) return { landed: false, conflict: false, reason: `epic-branch-missing:${epicBranch}` };
+
+    // Capture master's pre-land sha for the compare-and-swap ref advance.
+    const baseShaRes = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-parse', '--verify', `refs/heads/${baseRef}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (baseShaRes.code !== 0) return { landed: false, conflict: false, reason: `base-ref-missing:${baseRef}` };
+    const oldBaseSha = baseShaRes.stdout.trim();
+
+    const wtPath = path.join(this.opts.baseDir, '__land-master__');
+    await fs.mkdir(this.opts.baseDir, { recursive: true });
+    // Clear any stale land worktree from a crashed run before adding.
+    await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(() => ({
+      code: 0,
+      stdout: '',
+      stderr: '',
+    }));
+
+    const addRes = await this.runGit(
+      this.opts.projectRoot,
+      ['worktree', 'add', '--detach', wtPath, oldBaseSha],
+      timeoutMs,
+      onProgress,
+    );
+    if (addRes.code !== 0) {
+      return {
+        landed: false,
+        conflict: false,
+        reason: `land-worktree-add-failed: ${addRes.stderr.trim() || addRes.stdout.trim()}`,
+      };
+    }
+
+    try {
+      const mergeMessage =
+        `collab: land epic ${this.epicId8(epicId)} → ${baseRef}\n\n` +
+        `Collab-Epic: ${epicId}\nCollab-Land: ${epicBranch}`;
+      const mergeRes = await this.runGit(
+        wtPath,
+        ['merge', '--no-ff', '-m', mergeMessage, epicBranch],
+        timeoutMs,
+        onProgress,
+      );
+      if (mergeRes.code !== 0) {
+        // Conflict — abort so the checkout is pristine; the master ref is NEVER
+        // advanced below, so master stays exactly where it was.
+        await this.runGit(wtPath, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({
+          code: 0,
+          stdout: '',
+          stderr: '',
+        }));
+        return { landed: false, conflict: true, reason: 'epic-merge-conflict' };
+      }
+
+      const shaRes = await this.runGit(wtPath, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
+      const masterSha = shaRes.code === 0 ? shaRes.stdout.trim() : '';
+      if (!masterSha) return { landed: false, conflict: false, reason: 'merge-sha-unresolved' };
+
+      // Advance master to the merge result — CAS on the pre-land sha. `update-ref`
+      // works whether or not `master` is checked out elsewhere.
+      const updateRes = await this.runGit(
+        this.opts.projectRoot,
+        ['update-ref', `refs/heads/${baseRef}`, masterSha, oldBaseSha],
+        QUICK_TIMEOUT_MS,
+      );
+      if (updateRes.code !== 0) {
+        return { landed: false, conflict: false, reason: `base-ref-cas-failed: ${updateRes.stderr.trim()}` };
+      }
+      return { landed: true, conflict: false, masterSha };
+    } finally {
+      // Always tear down the throwaway detached land worktree.
+      await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(
+        () => ({ code: 0, stdout: '', stderr: '' }),
+      );
+      await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(() => ({
+        code: 0,
+        stdout: '',
+        stderr: '',
+      }));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // removeEpic — tear down an epic's accumulation worktree + branch after a
+  // successful land (FBPE P4). Idempotent + best-effort: a missing worktree or
+  // branch is fine. Gated by the caller on land success — never call this on a
+  // conflict (the branch must survive for the human to rebase + re-land).
+  // ---------------------------------------------------------------------------
+  async removeEpic(epicId: string, _project?: string): Promise<void> {
+    if (!(await this.isGitRepo())) return;
+    const branch = this.epicBranchName(epicId);
+    const wtPath = path.join(this.opts.baseDir, `__epic-${this.epicId8(epicId)}__`);
+    await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(() => ({
+      code: 0,
+      stdout: '',
+      stderr: '',
+    }));
+    // The epic branch is now merged into master — delete it unconditionally (-D);
+    // a missing branch is swallowed so the call stays idempotent.
+    await this.runGit(this.opts.projectRoot, ['branch', '-D', branch], QUICK_TIMEOUT_MS).catch(() => ({
+      code: 0,
+      stdout: '',
+      stderr: '',
+    }));
   }
 
   // ===========================================================================
