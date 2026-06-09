@@ -15,7 +15,7 @@ import { WorktreeManager, INBOX_EPIC_ID } from '../worktree-manager.ts';
  *      per-lane-worktree fix would introduce).
  */
 
-/** The Inbox-epic accumulation branch — what ensureIntegration resolves to now. */
+/** The Inbox-epic accumulation branch — what ensureEpic(INBOX_EPIC_ID) resolves to. */
 const EPIC_BRANCH = `collab/epic/${INBOX_EPIC_ID}`;
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -61,25 +61,25 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     await fs.rm(persistDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('ensureIntegration creates the integration branch + worktree', async () => {
-    const integ = await mgr.ensureIntegration();
+  it('ensureEpic(INBOX_EPIC_ID) creates the Inbox-epic branch + worktree', async () => {
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
     expect(integ).not.toBeNull();
     expect(integ!.branch).toBe(EPIC_BRANCH);
     // Branch exists in the repo.
     const verify = await runGit(repo, ['rev-parse', '--verify', `refs/heads/${EPIC_BRANCH}`]);
     expect(verify.code).toBe(0);
     // Idempotent — second call returns the same path without error.
-    const again = await mgr.ensureIntegration();
+    const again = await mgr.ensureEpic(INBOX_EPIC_ID);
     expect(again!.path).toBe(integ!.path);
   });
 
   it('commits a worker worktree and merges it into integration', async () => {
-    const integ = await mgr.ensureIntegration();
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
     const wt = await mgr.ensure('worker-a', { baseBranch: integ!.branch });
     expect(wt.path).not.toBe(repo); // a real worktree, not the shared tree
 
     await fs.writeFile(path.join(wt.path, 'a.txt'), 'from-a\n');
-    const res = await mgr.commitAndMergeToIntegration('worker-a', { message: 'todo a' });
+    const res = await mgr.commitAndMergeToEpic('worker-a', INBOX_EPIC_ID, { message: 'todo a' });
     expect(res.committed).toBe(true);
     expect(res.merged).toBe(true);
     expect(res.conflict).toBe(false);
@@ -91,12 +91,12 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
   });
 
   it('preserves dependent-todo data-flow: a later worker sees a prior merged dep', async () => {
-    const integ = await mgr.ensureIntegration();
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
 
     // Worker A produces a.txt and merges it.
     const wtA = await mgr.ensure('lane-1', { baseBranch: integ!.branch });
     await fs.writeFile(path.join(wtA.path, 'a.txt'), 'A-output\n');
-    const ra = await mgr.commitAndMergeToIntegration('lane-1', { message: 'A' });
+    const ra = await mgr.commitAndMergeToEpic('lane-1', INBOX_EPIC_ID, { message: 'A' });
     expect(ra.merged).toBe(true);
     await mgr.remove('lane-1');
 
@@ -108,7 +108,7 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
 
     // B builds on it and merges back.
     await fs.writeFile(path.join(wtB.path, 'b.txt'), 'B-output\n');
-    const rb = await mgr.commitAndMergeToIntegration('lane-2', { message: 'B' });
+    const rb = await mgr.commitAndMergeToEpic('lane-2', INBOX_EPIC_ID, { message: 'B' });
     expect(rb.merged).toBe(true);
 
     // Integration holds BOTH.
@@ -130,7 +130,7 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     await runGit(repo, ['add', '-A']);
     await runGit(repo, ['commit', '-q', '-m', 'add packages']);
 
-    const integ = await mgr.ensureIntegration();
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
     const wt = await mgr.ensure('deps-lane', { baseBranch: integ!.branch });
 
     // Root node_modules is a symlink resolving to the main repo's deps.
@@ -161,7 +161,7 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     await runGit(repo, ['add', '-A']);
     await runGit(repo, ['commit', '-q', '-m', 'add packages without node_modules ignore']);
 
-    const integ = await mgr.ensureIntegration();
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
     const wt = await mgr.ensure('excl-lane', { baseBranch: integ!.branch });
 
     // The symlinks exist...
@@ -180,18 +180,18 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
   });
 
   it('reports a conflict and leaves integration untouched (never corrupts it)', async () => {
-    const integ = await mgr.ensureIntegration();
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
 
     // Lane 1 sets shared.txt and merges.
     const wt1 = await mgr.ensure('c-1', { baseBranch: integ!.branch });
     await fs.writeFile(path.join(wt1.path, 'shared.txt'), 'one\n');
-    await mgr.commitAndMergeToIntegration('c-1', { message: 'one' });
+    await mgr.commitAndMergeToEpic('c-1', INBOX_EPIC_ID, { message: 'one' });
 
     // Lane 2 branched off the ORIGINAL integration (before lane 1's merge) edits the
     // same file divergently → conflict on merge-back.
     const wt2 = await mgr.ensure('c-2', { baseBranch: 'main' });
     await fs.writeFile(path.join(wt2.path, 'shared.txt'), 'two\n');
-    const res = await mgr.commitAndMergeToIntegration('c-2', { message: 'two' });
+    const res = await mgr.commitAndMergeToEpic('c-2', INBOX_EPIC_ID, { message: 'two' });
     expect(res.conflict).toBe(true);
     expect(res.merged).toBe(false);
 
