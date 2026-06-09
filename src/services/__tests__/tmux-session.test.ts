@@ -50,6 +50,19 @@ describe('healStaleTmuxSession', () => {
     expect(calls.some((c) => c[1] === 'kill-session')).toBe(false);
   });
 
+  it('spares an isolated worker started in the project worktree dir', async () => {
+    // Under MERMAID_WORKER_ISOLATION the worker's pane legitimately starts in
+    // <project>/.collab/agent-sessions/worktrees/<lane>; killing it on click was
+    // the bare-shell-on-attach bug. It must NOT be treated as stale.
+    const { calls } = stubTmux({
+      hasSession: 0,
+      startPath: '/Users/me/proj/.collab/agent-sessions/worktrees/backend-2',
+    });
+    const healed = await healStaleTmuxSession('mc-proj-backend2', '/Users/me/proj');
+    expect(healed).toBe(false);
+    expect(calls.some((c) => c[1] === 'kill-session')).toBe(false);
+  });
+
   it('does nothing when the session does not exist', async () => {
     const { calls } = stubTmux({ hasSession: 1 });
     const healed = await healStaleTmuxSession('mc-proj-sess', '/Users/me/proj');
