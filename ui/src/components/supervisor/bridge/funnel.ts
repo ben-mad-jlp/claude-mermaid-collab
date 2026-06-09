@@ -92,6 +92,30 @@ export const FUNNEL_LABELS: Record<FunnelKey, string> = FUNNEL_SEGMENTS.reduce(
   {} as Record<FunnelKey, string>,
 );
 
+/** How long a DONE todo stays counted in the Bridge progress funnel. Past this,
+ *  a completed todo drops out of the bar so the Done bucket reflects RECENT
+ *  throughput, not all-time history. Override via the helper's `maxAgeMs` arg. */
+export const DONE_RECENT_MS = 24 * 60 * 60 * 1000; // 1 day
+
+/**
+ * Drop DONE todos whose `completedAt` is older than `maxAgeMs` (default 1 day) so
+ * they no longer show in the Bridge progress funnel. Non-done todos and done todos
+ * with no/recent completedAt are kept. Pure (now injected for testability).
+ */
+export function withRecentDoneOnly(
+  todos: SessionTodo[],
+  maxAgeMs: number = DONE_RECENT_MS,
+  now: number = Date.now(),
+): SessionTodo[] {
+  return todos.filter((t) => {
+    if (t.status !== 'done') return true;
+    if (!t.completedAt) return true; // no timestamp → can't age it out; keep
+    const ts = new Date(t.completedAt).getTime();
+    if (!Number.isFinite(ts)) return true;
+    return now - ts <= maxAgeMs;
+  });
+}
+
 /** First matching segment wins, so each todo lands in exactly one bucket. */
 export function bucketTodo(t: SessionTodo): FunnelKey | null {
   for (const seg of FUNNEL_SEGMENTS) {

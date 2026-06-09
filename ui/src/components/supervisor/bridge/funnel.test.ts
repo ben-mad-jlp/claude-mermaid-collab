@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FUNNEL_SEGMENTS, FUNNEL_LABELS, bucketTodo } from './funnel';
+import { FUNNEL_SEGMENTS, FUNNEL_LABELS, bucketTodo, withRecentDoneOnly, DONE_RECENT_MS } from './funnel';
 import type { SessionTodo } from '@/types/sessionTodo';
 
 function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
@@ -24,6 +24,27 @@ function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
     ...p,
   } as SessionTodo;
 }
+
+describe('withRecentDoneOnly', () => {
+  const now = 1_000_000_000_000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+
+  it('keeps done todos completed within the window', () => {
+    const t = todo({ id: 'a', status: 'done', completedAt: iso(now - DONE_RECENT_MS + 1000) });
+    expect(withRecentDoneOnly([t], DONE_RECENT_MS, now)).toHaveLength(1);
+  });
+
+  it('drops done todos completed past the window', () => {
+    const t = todo({ id: 'b', status: 'done', completedAt: iso(now - DONE_RECENT_MS - 1000) });
+    expect(withRecentDoneOnly([t], DONE_RECENT_MS, now)).toHaveLength(0);
+  });
+
+  it('keeps non-done todos and done todos with no completedAt', () => {
+    const ready = todo({ id: 'c', status: 'ready' });
+    const doneNoTs = todo({ id: 'd', status: 'done', completedAt: null });
+    expect(withRecentDoneOnly([ready, doneNoTs], DONE_RECENT_MS, now)).toHaveLength(2);
+  });
+});
 
 describe('funnel segment colors (single source)', () => {
   it('every segment carries a non-empty bg fill', () => {
