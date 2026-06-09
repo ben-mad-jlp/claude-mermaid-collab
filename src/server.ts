@@ -7,7 +7,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 import { config } from './config';
-import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR, MERMAID_AUTO_SUPERVISOR } from './config';
+import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
 import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { SERVER_VERSION } from './mcp/server';
@@ -162,21 +162,6 @@ try {
   startTmuxReaper();
 } catch (err) {
   console.warn(`mermaid-collab: tmux reaper start skipped — ${err instanceof Error ? err.message : String(err)}`);
-}
-
-// Server-owned supervisor liveness: ensure a supervisor WATCHDOG is always alive
-// (no fresh heartbeat → auto-spawn; stale → respawn). Opt-in so only one always-on
-// host races to spawn the single global supervisor. Planning stays human-initiated.
-let stopSupervisorLiveness: (() => void) | null = null;
-if (MERMAID_AUTO_SUPERVISOR) {
-  try {
-    const mod = await import('./services/supervisor-liveness.js');
-    mod.startSupervisorLiveness();
-    stopSupervisorLiveness = mod.stopSupervisorLiveness;
-    console.log('🛡️  Supervisor liveness loop started (server-owned auto-spawn/respawn)');
-  } catch (err) {
-    console.error(`mermaid-collab: supervisor liveness start failed — ${err instanceof Error ? err.message : String(err)}`);
-  }
 }
 
 // Initialize shared services (stateless, no storage)
@@ -531,7 +516,6 @@ const armIdle = () => {
 process.on('SIGINT', () => {
   cancelIdle();
   cancelSupervisorHeartbeat();
-  stopSupervisorLiveness?.();
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();
@@ -544,7 +528,6 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   cancelIdle();
   cancelSupervisorHeartbeat();
-  stopSupervisorLiveness?.();
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();

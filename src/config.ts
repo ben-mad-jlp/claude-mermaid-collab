@@ -101,18 +101,6 @@ export const MERMAID_AUTO_START_COORDINATOR =
   (process.env.MERMAID_AUTO_START_COORDINATOR ?? '1') !== '0';
 
 /**
- * Server-owned supervisor liveness (heartbeat → auto-spawn → respawn). When on,
- * the always-on server ensures a supervisor WATCHDOG lane is always alive: no
- * fresh supervisor heartbeat → claude-launch one; stale → respawn. Only the
- * watchdog (reconcile/escalate) is auto-spawned; planning stays human-initiated.
- * OPT-IN (default OFF): it spawns a headless Claude lane, and several server
- * instances must not each race to spawn the single global supervisor — enable it
- * on exactly one always-on host with `MERMAID_AUTO_SUPERVISOR=1`.
- */
-export const MERMAID_AUTO_SUPERVISOR =
-  (process.env.MERMAID_AUTO_SUPERVISOR ?? '0') !== '0';
-
-/**
  * Project the global supervisor session lives in. MUST be a trusted directory.
  * Defaults to a dedicated, always-writable workspace at
  * `~/.mermaid-collab/supervisor` — not MERMAID_PROJECT, which in the packaged
