@@ -332,6 +332,16 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                   </span>
                 </span>
               )}
+              {/* Executor — the worker that ran the todo. claimedBy while in_progress;
+                  completedBy persists it after completion (stamped by the backend). */}
+              {(todo.claimedBy ?? todo.completedBy) && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-gray-400 dark:text-gray-500">Executor</span>
+                  <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
+                    {todo.claimedBy ?? todo.completedBy}
+                  </span>
+                </span>
+              )}
             </div>
 
             <div className="mt-5 border-t border-gray-100 dark:border-gray-800 pt-5">
