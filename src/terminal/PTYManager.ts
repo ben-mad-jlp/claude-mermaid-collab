@@ -69,7 +69,22 @@ export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: str
     // VSCode extension, which no longer hosts terminals.)
     return `${ensureBase} ; ${styleStatus(base)} ; tmux attach-session -d -t '${base}'`;
   }
-  const ensureGrouped = `(tmux has-session -t '${grouped}' 2>/dev/null || tmux new-session -d -s '${grouped}' -t '${base}')`;
+  // Stale-group guard (the GROUPED analog of healStaleTmuxSession's base heal).
+  // A grouped session is created ONCE and reused on every later click via
+  // has-session. But grouping binds to a session *object*, not its name: when a
+  // worker dies and a NEW base takes the same name (`mc-<repo>-<lane>`), the old
+  // `vscode-collab-<base>` survives in the OLD (now-orphaned) group — pointing at
+  // the previous worker's window, not the live base. has-session still sees it, so
+  // it's reused, and the user attaches to a dead window ("[process exited: 0]").
+  // Detect this by comparing `#{session_group}`: tmux assigns the same group name
+  // to grouped+base while they're grouped together, but a freshly recreated
+  // standalone base has an empty/different group. Reuse ONLY when the groups match;
+  // otherwise kill the stale grouped session and recreate it against the live base.
+  // A still-current grouped session matches and is reused unchanged.
+  const groupOf = (sess: string) => `"$(tmux display-message -p -t '${sess}' '#{session_group}' 2>/dev/null)"`;
+  const ensureGrouped =
+    `(tmux has-session -t '${grouped}' 2>/dev/null && [ ${groupOf(base)} = ${groupOf(grouped)} ] ` +
+    `|| { tmux kill-session -t '${grouped}' 2>/dev/null ; tmux new-session -d -s '${grouped}' -t '${base}' ; })`;
   return `${ensureBase} ; ${ensureGrouped} ; ${styleStatus(grouped)} ; tmux attach-session -d -t '${grouped}'`;
 }
 

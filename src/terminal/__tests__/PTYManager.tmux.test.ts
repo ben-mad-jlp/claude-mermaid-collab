@@ -30,6 +30,28 @@ describe('buildTmuxAttachCommand', () => {
     expect(cmd.trimEnd().endsWith(`tmux attach-session -d -t '${grouped}'`)).toBe(true);
   });
 
+  describe('stale grouped-session detection (recreated worker under same lane name)', () => {
+    it('only reuses an existing grouped session when its group matches the live base', () => {
+      // has-session alone is not enough: the grouped session must still be grouped
+      // with the LIVE base. We compare #{session_group} of base vs grouped.
+      expect(cmd).toContain(`tmux display-message -p -t '${base}' '#{session_group}'`);
+      expect(cmd).toContain(`tmux display-message -p -t '${grouped}' '#{session_group}'`);
+      // The reuse condition pairs has-session with the group-equality check.
+      expect(cmd).toMatch(
+        new RegExp(`has-session -t '${grouped}'[^|]*&&[^|]*session_group`),
+      );
+    });
+
+    it('kills the stale grouped session before recreating it against the live base', () => {
+      const kill = cmd.indexOf(`tmux kill-session -t '${grouped}'`);
+      const recreate = cmd.indexOf(`new-session -d -s '${grouped}' -t '${base}'`);
+      expect(kill).toBeGreaterThan(-1);
+      expect(recreate).toBeGreaterThan(-1);
+      // kill happens before the recreate so the new group binds to the live base.
+      expect(kill).toBeLessThan(recreate);
+    });
+  });
+
   describe('without a grouped session (direct base attach)', () => {
     const direct = buildTmuxAttachCommand(base);
 
