@@ -23,7 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type StewardVerb = 'reset_todo' | 'override_accept_todo';
+export type StewardVerb = 'reset_todo' | 'override_accept_todo' | 'land_epic';
 
 /** Machine-checkable proof a steward cites; the server re-derives each predicate. */
 export type StewardProof =
@@ -36,7 +36,14 @@ export type StewardProof =
   // provably in-tree AND the whole tree compiles (tsc clean). If the tree is green
   // NOW, the gate's original rejection was spurious/stale, so accepting is safe.
   // No change-set needed (unlike `override`), so the daemon can re-derive it fully.
-  | { kind: 'override-clean'; artifactPath?: string; artifactSymbol?: string };
+  | { kind: 'override-clean'; artifactPath?: string; artifactSymbol?: string }
+  // epic-landable (FBPE P3): an epic's accumulation branch is provably ready to land
+  // on master. The server re-derives three predicates from ground truth: (1) every
+  // child of `epicId` is done+accepted in the store; (2) `tsc` is clean IN the epic's
+  // accumulation worktree; (3) the epic branch dry-merges cleanly into a master
+  // checkout. This proof only SURFACES readiness (the land_epic verb is read-only at
+  // P3 — it never mutates master), so absence/red proof annotates the card, never acts.
+  | { kind: 'epic-landable'; epicId: string; epicBranch: string };
 
 /** Minimal dependency view the gate reads from the store (never from the proof). */
 export interface DepView {
@@ -53,36 +60,69 @@ export interface ProofContext {
   getDep: (id: string) => DepView | null;
   /** Files this todo touched (its change-set) — used to prove a gate error is foreign. */
   changeSetFiles?: string[];
+  /** epic-landable (land_epic) — ids of the epic's direct children. The store-truth
+   *  gate requires every one done+accepted (resolved via getDep, mirroring dep-done). */
+  epicChildIds?: string[];
+  /** epic-landable — cwd of the epic's accumulation worktree; `tsc` runs HERE (the
+   *  worktree-cwd seam) rather than against the tracking project root. */
+  epicWorktreeCwd?: string;
+  /** epic-landable — cwd of a master checkout where the dry-merge is attempted. */
+  masterCwd?: string;
   /** Override the real git/tsc/grep/fs predicates (tests inject fakes). */
   runners?: Partial<ProofRunners>;
 }
 
 export interface ProofRunners {
-  /** Count of commits HEAD has that master doesn't — `git rev-list --count HEAD..master` is 0 when not behind. */
-  commitsBehindMaster: (project: string) => number;
-  tscClean: (project: string) => boolean;
+  /** Count of commits the cwd's HEAD is behind `baseRef` — `git rev-list --count HEAD..<baseRef>`
+   *  is 0 when not behind. The worktree-cwd seam: cwd and baseRef are BOTH explicit so the
+   *  same predicate works in the tracking project (HEAD..master) or any epic/master checkout. */
+  commitsBehindMaster: (cwd: string, baseRef?: string) => number;
+  /** `tsc --noEmit` in `cwd`. The worktree-cwd seam: for epic-landable this is the epic's
+   *  accumulation worktree, not the tracking project root. */
+  tscClean: (cwd: string) => boolean;
   grepPresent: (project: string, symbol: string) => boolean;
   fileExists: (project: string, relPath: string) => boolean;
+  /** epic-landable: dry `git merge --no-commit --no-ff <epicBranch>` in a master checkout,
+   *  then `git merge --abort` — true iff the merge applies cleanly (no conflict). Never
+   *  commits; always aborts so the master checkout is left pristine. */
+  epicMergeClean: (masterCwd: string, epicBranch: string) => boolean;
 }
 
 export interface ProofResult {
   ok: boolean;
   /** Machine reason: 'ok' | 'no-proof' | 'wrong-proof-for-verb' | 'merged-failed' |
    *  'tsc-failed' | 'grep-mismatch' | 'hallucinated-resolve' | 'override-default-defer' |
-   *  'override-no-in-tree-artifact' | 'override-error-not-foreign'. */
+   *  'override-no-in-tree-artifact' | 'override-error-not-foreign' |
+   *  'epic-children-incomplete' | 'epic-merge-conflict'. */
   reason: string;
 }
 
 const realRunners: ProofRunners = {
-  commitsBehindMaster(project) {
-    const out = execFileSync('git', ['rev-list', '--count', 'HEAD..master'], { cwd: project, encoding: 'utf8' });
+  commitsBehindMaster(cwd, baseRef = 'master') {
+    const out = execFileSync('git', ['rev-list', '--count', `HEAD..${baseRef}`], { cwd, encoding: 'utf8' });
     return parseInt(out.trim(), 10) || 0;
   },
-  tscClean(project) {
+  tscClean(cwd) {
     try {
-      execFileSync('npx', ['tsc', '--noEmit'], { cwd: project, encoding: 'utf8', stdio: 'pipe' });
+      execFileSync('npx', ['tsc', '--noEmit'], { cwd, encoding: 'utf8', stdio: 'pipe' });
       return true;
     } catch {
+      return false;
+    }
+  },
+  epicMergeClean(masterCwd, epicBranch) {
+    const abort = () => {
+      // Best-effort: only succeeds when a merge is in progress (MERGE_HEAD set).
+      try { execFileSync('git', ['merge', '--abort'], { cwd: masterCwd, stdio: 'pipe' }); } catch { /* nothing to abort */ }
+    };
+    try {
+      execFileSync('git', ['merge', '--no-commit', '--no-ff', epicBranch], { cwd: masterCwd, stdio: 'pipe' });
+      // Clean (or already-up-to-date) merge — abort to leave the checkout pristine.
+      abort();
+      return true;
+    } catch {
+      // Conflict (or other failure) — abort and report not-clean. Master is untouched.
+      abort();
       return false;
     }
   },
@@ -117,6 +157,26 @@ export function validateStewardProof(
 ): ProofResult {
   if (!proof) return { ok: false, reason: 'no-proof' };
   const r: ProofRunners = { ...realRunners, ...ctx.runners };
+
+  // land_epic (FBPE P3): re-derive epic-landability from ground truth. Read-only —
+  // a green verdict only SURFACES the epic as ready-to-land; it never mutates master.
+  if (verb === 'land_epic') {
+    if (proof.kind !== 'epic-landable') return { ok: false, reason: 'wrong-proof-for-verb' };
+    // (1) Store truth — every child of the epic done AND not rejected (mirrors dep-done).
+    for (const childId of ctx.epicChildIds ?? []) {
+      const child = ctx.getDep(childId);
+      if (!child || child.status !== 'done' || child.acceptanceStatus === 'rejected') {
+        return { ok: false, reason: 'epic-children-incomplete' };
+      }
+    }
+    // (2) tsc clean IN the epic's accumulation worktree (the worktree-cwd seam).
+    if (!r.tscClean(ctx.epicWorktreeCwd ?? ctx.project)) return { ok: false, reason: 'tsc-failed' };
+    // (3) The epic branch dry-merges cleanly into a master checkout (no commit, aborted).
+    if (!r.epicMergeClean(ctx.masterCwd ?? ctx.project, proof.epicBranch)) {
+      return { ok: false, reason: 'epic-merge-conflict' };
+    }
+    return { ok: true, reason: 'ok' };
+  }
 
   if (verb === 'reset_todo') {
     switch (proof.kind) {
