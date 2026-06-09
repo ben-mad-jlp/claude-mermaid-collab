@@ -12,6 +12,8 @@
     "setup": "./setup.sh",
     "setup:start": "./setup.sh --start",
     "build": "cd ui && bun run build",
+    "build:sidecar:linux": "bun run scripts/build-sidecar-linux.ts",
+    "install:linux-headless": "bash scripts/install-linux-headless.sh",
     "deploy": "bash scripts/deploy-desktop.sh",
     "deploy:no-build": "bash scripts/deploy-desktop.sh --no-build",
     "server": "bun run bin/mermaid-collab.ts",
