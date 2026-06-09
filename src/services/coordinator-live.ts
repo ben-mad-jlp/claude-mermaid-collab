@@ -679,8 +679,21 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (claudePresent === false && !isClaudeTuiPresent(pane)) {
           const now = Date.now();
           const prevDead = deadTracker.get(tmux);
-          if (!prevDead) { deadTracker.set(tmux, { since: now, escalated: false }); continue; }
-          if (prevDead.escalated || now - prevDead.since < DEAD_GRACE_MS) continue;
+          if (prevDead?.escalated) continue;
+          if (!prevDead) deadTracker.set(tmux, { since: now, escalated: false });
+          // Restart-robust grace (the bug this fixes): the in-memory deadTracker is
+          // wiped on every sidecar restart (deploy / app relaunch / crash), so a
+          // dead worker could silently hold its slot forever if restarts kept
+          // out-pacing the 45s confirmation. Use the PERSISTED claim age as the
+          // primary clock — a worker claimed > DEAD_GRACE_MS ago with NO Claude in
+          // its pane is past cold-start and genuinely dead, regardless of restarts.
+          // The in-memory timer remains a fallback for the (rare) no-claimedAt case.
+          const claimTs = t.claimedAt ? new Date(t.claimedAt as unknown as string).getTime() : NaN;
+          const claimAgeMs = Number.isFinite(claimTs) ? now - claimTs : Infinity;
+          const inMemAgeMs = now - (deadTracker.get(tmux)?.since ?? now);
+          const deadForMs = Math.max(claimAgeMs, inMemAgeMs);
+          if (deadForMs < DEAD_GRACE_MS) continue;
+          const prev = deadTracker.get(tmux)!;
           try {
             createEscalation({
               project,
@@ -693,13 +706,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
                 `running and showed RED without raising anything. The lane has been reset and the ` +
                 `claim reclaimed. Re-open/retry with guidance, or drop it. (63a59bd6 auto-detected).`,
             });
-            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'dead-claude-live-tmux', deadMs: now - prevDead.since }) });
+            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'dead-claude-live-tmux', deadMs: deadForMs }) });
             // Reset the lane: kill the dud bare-shell tmux, free the pool slot, and
             // reclaim the claim (retry-budget-aware → ready or blocked).
             await killTmuxSession(tmux);
             markIdle(session);
             await reclaimClaim(project, t.id);
-            prevDead.escalated = true;
+            prev.escalated = true;
             stalled.push(t.id);
           } catch { /* escalation/recovery best-effort; never abort the tick */ }
           continue;
