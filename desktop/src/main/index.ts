@@ -7,6 +7,7 @@ import { ServerProxy } from './server-proxy';
 import { ConnectionStore } from './connection-store';
 import { WatchAggregator } from './watch-aggregator';
 import { enableCdp, publishDiscovery } from 'electron-agent-bridge/electron-main';
+import { installLinuxAutostart } from './linux-autostart';
 
 // Phase 0.1 — Electron shell skeleton.
 // Single-instance lock so a second launch focuses the first window.
@@ -406,6 +407,19 @@ async function bootstrap(): Promise<void> {
   serviceOpts = { cdpPort, controlUrl, controlToken };
 
   await startServicesGuarded();
+
+  // Linux: register a login autostart entry (packaged builds only). Safe to do
+  // even when a headless systemd unit owns :9002 — the ServerSupervisor's P0
+  // handshake attaches to a running server instead of double-binding, so the
+  // autostart entry just launches the GUI and ownership sorts itself out.
+  if (process.platform === 'linux' && app.isPackaged) {
+    try {
+      const result = installLinuxAutostart({ exec: process.execPath });
+      console.log(`[bootstrap] linux autostart: ${result}`);
+    } catch (err) {
+      console.warn('[bootstrap] linux autostart failed (non-fatal):', err);
+    }
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
