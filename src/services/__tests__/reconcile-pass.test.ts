@@ -434,6 +434,82 @@ describe('runReconcilePass — epic-rollup sweep wiring', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Verified-done escalation auto-close (Phase 2)
+// ---------------------------------------------------------------------------
+
+describe('runReconcilePass — verified-done escalation auto-close', () => {
+  it('closes an open escalation whose linked todo is done+accepted', async () => {
+    const project = freshProject();
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'gated work', status: 'in_progress' });
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd',
+      kind: 'blocker',
+      questionText: 'blocked on gated work',
+      todoId: todo.id,
+    });
+    // Settle the todo out-of-band (no completeTodo event fires).
+    await updateTodo(project, todo.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeUndefined();
+    const audits = listSupervisorAudit({ project, kind: 'reconcile' });
+    expect(audits.some((a) => (a.detail ?? '').includes('verified-done') && (a.detail ?? '').includes(escalation.id))).toBe(true);
+  });
+
+  it('closes an open escalation whose linked todo was dropped', async () => {
+    const project = freshProject();
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'abandoned work', status: 'in_progress' });
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd2',
+      kind: 'blocker',
+      questionText: 'blocked on abandoned work',
+      todoId: todo.id,
+    });
+    await updateTodo(project, todo.id, { status: 'dropped' });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeUndefined();
+    const audits = listSupervisorAudit({ project, kind: 'reconcile' });
+    expect(audits.some((a) => (a.detail ?? '').includes('todo-dropped') && (a.detail ?? '').includes(escalation.id))).toBe(true);
+  });
+
+  it('leaves open an escalation whose linked todo is done but UNACCEPTED', async () => {
+    const project = freshProject();
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'ungated work', status: 'in_progress' });
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd3',
+      kind: 'blocker',
+      questionText: 'blocked on ungated work',
+      todoId: todo.id,
+    });
+    await updateTodo(project, todo.id, { status: 'done', acceptanceStatus: null });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeDefined();
+  });
+
+  it('leaves open an escalation with no linked todo', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd4',
+      kind: 'question',
+      questionText: 'no todo link',
+    });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeDefined();
+  });
+});
+
 // Expose for manual import in other test helpers (not required but documents the
 // rate-limit constant is exported from the module under test).
 describe('NUDGE_COOLDOWN_MS constant', () => {
