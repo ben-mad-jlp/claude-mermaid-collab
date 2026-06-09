@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { validateUiSpec, type JsonRenderSpec } from './escalation-ui-schema';
+import { trackingProjectRoot } from './project-registry';
 
 /**
  * GLOBAL supervisor store (single connection).
@@ -686,9 +687,16 @@ export function createEscalation(input: {
   operatorGated?: boolean;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
+  // Normalize the worktree cwd → tracking repo root. Under worker isolation a
+  // worker's cwd is a worktree at <repo>/.collab/agent-sessions/worktrees/<lane>;
+  // storing that raw path orphans the escalation from the repo-root inbox (the
+  // human never sees it, the card stays yellow, await_human_decision times out).
+  // Mirrors the todo-store fix. Same-repo (non-isolated) callers pass the root
+  // already, so trackingProjectRoot is an identity no-op for them.
+  const project = trackingProjectRoot(input.project);
   const existing = d
     .query("SELECT * FROM escalation WHERE project = ? AND session = ? AND questionText = ? AND status = 'open'")
-    .get(input.project, input.session, input.questionText) as EscalationRow | null;
+    .get(project, input.session, input.questionText) as EscalationRow | null;
   if (existing) return { escalation: mapEscalationRow(existing), isNew: false };
 
   const id = crypto.randomUUID();
@@ -712,11 +720,11 @@ export function createEscalation(input: {
   const routedTo = routeEscalation(input.kind, operatorGated === 1);
   d.prepare(
     'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, proof, stewardAttempts, suggestedActionJson) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-  ).run(id, input.project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null);
+  ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, routedTo, operatorGated, null, 0, null);
   return {
     escalation: {
       id,
-      project: input.project,
+      project,
       session: input.session,
       kind: input.kind,
       questionText: input.questionText,
