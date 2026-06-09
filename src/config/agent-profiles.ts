@@ -1,5 +1,6 @@
 import type { RuntimeMode } from '../agent/contracts';
 import { manifestProfile, inferTypeFromManifest } from './project-manifest';
+import { TECH_PACKS } from './tech-packs';
 
 /**
  * Agent-profile registry (PCS Phase 3). A todo's `type` resolves to a profile
@@ -35,7 +36,7 @@ export interface AgentProfile {
   capability?: Capability;
 }
 
-export type AgentProfileType = 'default' | 'frontend' | 'backend' | 'api' | 'ui' | 'library';
+export type AgentProfileType = 'default' | 'frontend' | 'backend' | 'api' | 'ui' | 'library' | 'cad';
 
 /**
  * Capability — the ONE small global taxonomy worth having (per e8fddf63): what a
@@ -83,6 +84,23 @@ export const AGENT_PROFILES: Record<AgentProfileType, AgentProfile> = {
   api:      { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
   ui:       { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
   library:  { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  // `cad` is the one domain profile that ships WARM out of the box: it carries the
+  // shared `cad` tech-pack's domain context (the bsync session/parts/instances/
+  // face_index model, script-vs-verb guidance, part-authoring + STEP export, the P1
+  // geometry gate, coordinate convention, pytest) AND its allowedTools — so a
+  // `type:cad` todo routes here and the worker starts without re-deriving the model
+  // cold, even when the target repo ships no .collab/project.json manifest. The
+  // allowedTools use SERVER-level MCP tokens (mcp__build123d-ocp-mcp / mcp__bsync-
+  // desktop) — they auto-allow every CAD/viewer verb of those servers under
+  // runtimeMode 'edit', so CAD tool calls don't stall on a permission prompt (the
+  // real CAD-arm V2 permission-stall) without resorting to a bypass. A repo that
+  // wants different CAD context/tools still overrides via its manifest `cad` profile.
+  cad: {
+    allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS} ${TECH_PACKS.cad.allowedTools}`,
+    runtimeMode: 'edit',
+    contextPrompt: TECH_PACKS.cad.contextPrompt,
+    ...(TECH_PACKS.cad.model ? { model: TECH_PACKS.cad.model } : {}),
+  },
 };
 
 export const DEFAULT_PROFILE_TYPE: AgentProfileType = 'default';
@@ -165,6 +183,10 @@ export function resolveProfile(type?: string | null, project?: string, capabilit
  * the task spans domains → `default` (full). No files / no match → `default`.
  */
 const PATH_RULES: Array<{ type: AgentProfileType; test: RegExp }> = [
+  // CAD/geometry first: a Python source, a STEP/3MF part, or a parts/cad/assemblies
+  // dir routes to the warm `cad` profile (build123d/bsync). Ahead of `library`/`ui`
+  // so a `parts/foo.py` doesn't get mis-claimed by a generic dir rule.
+  { type: 'cad', test: /\.(py|step|stp|3mf|stl)$|(^|\/)(cad|parts|assemblies|geometry)\//i },
   { type: 'ui', test: /\.(tsx|jsx|css|scss)$|(^|\/)(ui|components|views|pages)\// },
   { type: 'frontend', test: /(^|\/)(ui|web|client|frontend)\// },
   { type: 'api', test: /(^|\/)(routes|api|controllers|endpoints)\/|\.route\.|\bapi\b/ },
