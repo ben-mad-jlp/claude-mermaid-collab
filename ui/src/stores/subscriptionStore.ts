@@ -10,6 +10,9 @@ interface SubscribedSession {
   status: 'active' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
   contextPercent?: number;
+  /** Last-known status carried across a reopen but not yet confirmed by a live
+   *  event — the card dims (lighter) instead of going gray. Cleared on any event. */
+  stale?: boolean;
 }
 
 interface SubscribeOpts {
@@ -46,20 +49,27 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, any>;
     const out: Record<string, SubscribedSession> = {};
-    // Transient state (status, contextPercent, claudeSessionId, claudePid)
-    // doesn't carry across an app reopen — those reflect what was true the
-    // last time a WS event fired, which is stale by the time the user comes
-    // back. Reset them on hydrate so cards start "unknown" and the WatchAggregator's
-    // live events repopulate as they arrive. The identity (serverId/project/session)
-    // and the user-set fields stay persisted.
+    // On reopen we no longer have a live confirmation of each session's status,
+    // but wiping to 'unknown' (gray) hides the useful last-known state. Instead
+    // keep the LAST-KNOWN status and flag it `stale` so the card dims (lighter)
+    // rather than going gray — the WatchAggregator's live events clear `stale` as
+    // they arrive. Coerce a stale 'active' down to 'waiting' so a reopened card
+    // never shows a fake "running now" amber pulse. contextPercent/pid stay reset
+    // (no live source yet). Identity + user-set fields stay persisted.
     const now = Date.now();
+    const VALID = new Set(['active', 'waiting', 'permission', 'unknown']);
     for (const [k, v] of Object.entries(raw)) {
+      const lastKnown = VALID.has(v.status) ? v.status : 'unknown';
+      const coerced = lastKnown === 'active' ? 'waiting' : lastKnown;
       out[k] = {
         serverId: typeof v.serverId === 'string' ? v.serverId : '',
         project: v.project,
         session: v.session,
-        status: 'unknown',
+        status: coerced,
         lastUpdate: now,
+        // Only mark stale when there's a real last-known status to dim; a genuine
+        // 'unknown' stays gray (nothing to fade).
+        stale: coerced !== 'unknown',
       };
     }
     return out;
@@ -140,7 +150,8 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
       const statusGroupChanged = isActiveGroup(existing.status) !== isActiveGroup(newStatus);
       const lastUpdate = statusGroupChanged ? Date.now() : existing.lastUpdate;
       const pidUpdate = claudePid !== undefined ? { claudePid } : {};
-      const next = { ...state.subscriptions, [key]: { ...existing, claudeSessionId, status: newStatus, lastUpdate, ...pidUpdate } };
+      // A live event confirms the status — clear the hydrate `stale` dim.
+      const next = { ...state.subscriptions, [key]: { ...existing, claudeSessionId, status: newStatus, lastUpdate, stale: false, ...pidUpdate } };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return { subscriptions: next };
     });
