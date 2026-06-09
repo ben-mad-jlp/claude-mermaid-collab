@@ -55,11 +55,40 @@ export const TECH_PACKS: Record<string, TechPack> = {
     id: 'cad',
     description: 'OpenCascade / build123d parametric CAD modeling (geometry, assemblies, joints).',
     contextPrompt:
-      'You are working in a build123d / OpenCascade CAD codebase. Deliverables are ' +
-      'geometry, not just code: a script that runs is not a part that exists — a part ' +
-      'must validate as a non-empty solid (volume > 0), stay within its declared ' +
-      'envelope, and export to a clean STEP. Verify with the build123d/bsync MCP verbs ' +
-      '(validate_geometry, mass_properties, analyze_dof, check_clearance), not tsc/pytest alone.',
+      'You are working in a build123d / OpenCascade CAD codebase via the build123d-ocp-mcp ' +
+      'and bsync-desktop MCP servers. Start with this domain model so you do NOT re-derive it ' +
+      'cold:\n' +
+      '\n' +
+      '• SESSION / PARTS / INSTANCES / FACE_INDEX. A bsync SESSION holds named PARTS (each a ' +
+      'solid body) and INSTANCES (placed copies of a part in an assembly, each with its own ' +
+      'transform). Geometry verbs address faces/edges by a stable FACE_INDEX into the part\'s ' +
+      'topology — capture the index from get_faces / get_topology and reuse it; never assume ' +
+      'face ordering is stable across a re-build. When several workers share a session, pass ' +
+      'session_id on EVERY call so lanes don\'t stomp each other.\n' +
+      '• SCRIPT vs DISPATCHER VERBS. Prefer the dispatcher MCP verbs (create_primitive, ' +
+      'make_hole, fuse, add_connection, add_motor, analyze_dof, check_clearance, ' +
+      'validate_geometry, step_save/export_*, get_cut_list, auto_drawing, …) for modeling steps ' +
+      '— they are gated, observable, and undo-able. Drop to run_script (raw build123d Python) ' +
+      'ONLY for logic the dispatcher verbs can\'t express; a free-form script is harder to ' +
+      'verify and bypasses the gate.\n' +
+      '• AUTHOR A PART + EXPORT STEP. Build the solid with the modeling verbs (or run_script), ' +
+      'confirm it is a valid non-empty body, then export with step_save / export_* — the STEP ' +
+      'must re-import clean, because the assembly stage consumes your part through it.\n' +
+      '• GEOMETRY GATE (P1) — a script that RUNS is not a part that EXISTS. Before reporting ' +
+      'done, verify the geometry, not just the code: validate_geometry (valid, non-empty solid), ' +
+      'get_model_info / get_mass_properties (volume > 0, bounding box within the declared ' +
+      'envelope), analyze_dof (exactly the DOF the spec declares — a revolute joint adds 1, a ' +
+      'coupled gripper nets 1), check_clearance (zero interference in the declared pose), and a ' +
+      'reproducible STEP export. An empty / invalid / wrong-scale / wrong-DOF / interfering part ' +
+      'is a FAIL. A SOLVER/tool limitation (a coupled mechanism that can\'t be driven, a ' +
+      'constraint verb that crashes) is an ESCALATION, not a rejection — name the verb and its ' +
+      'return.\n' +
+      '• COORDINATE CONVENTION. build123d / OpenCascade is right-handed, +Z up, millimetres; ' +
+      'global origin is the assembly datum unless the spec says otherwise.\n' +
+      '• TEST / RUN. Use the project\'s OWN interpreter — run the bsync/build123d test suite with ' +
+      'pytest under the project\'s pinned Python (e.g. `python3.10 -m pytest`), NOT ambient ' +
+      'python3; the wrong runtime false-fails passing geometry. tsc/vitest say nothing about ' +
+      'whether a solid is valid — for geometry deliverables the geometry gate above is the bar.',
     allowedTools: 'mcp__build123d-ocp-mcp mcp__bsync-desktop',
   },
   'web-react': {

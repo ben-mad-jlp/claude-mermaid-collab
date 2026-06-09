@@ -45,6 +45,7 @@ describe('resolveType', () => {
     expect(resolveType('api')).toBe('api');
     expect(resolveType('ui')).toBe('ui');
     expect(resolveType('library')).toBe('library');
+    expect(resolveType('cad')).toBe('cad'); // CAD is a first-class routing type, not → general
   });
   it('absorbs null/unknown/default/multi-domain into general', () => {
     expect(resolveType(null)).toBe('general');
@@ -60,6 +61,7 @@ describe('resolveType', () => {
   });
   it('typeForFiles infers via PATH_RULES then maps to routing-type space', () => {
     expect(typeForFiles(['ui/src/App.tsx'])).toBe('ui');
+    expect(typeForFiles(['parts/arm.py'])).toBe('cad'); // CAD dirs / .py → cad pool
     expect(typeForFiles(undefined)).toBe('general'); // no files → default → general
     expect(typeForFiles(['ui/App.tsx', 'src/services/x.ts'])).toBe('general'); // multi-domain
   });

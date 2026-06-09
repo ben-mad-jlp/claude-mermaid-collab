@@ -27,7 +27,25 @@ describe('tech-pack registry', () => {
     expect(TECH_PACKS.cad?.id).toBe('cad');
     expect(TECH_PACKS.cad?.contextPrompt).toContain('build123d');
     expect(TECH_PACKS.cad?.allowedTools).toContain('mcp__build123d');
+    expect(TECH_PACKS.cad?.allowedTools).toContain('mcp__bsync-desktop');
     expect(TECH_PACKS['web-react']?.contextPrompt).toContain('React');
+  });
+
+  it('the cad pack carries the bsync domain model so a worker starts warm', () => {
+    const ctx = TECH_PACKS.cad!.contextPrompt;
+    // session/parts/instances/face_index model
+    expect(ctx).toContain('FACE_INDEX');
+    expect(ctx).toContain('INSTANCES');
+    // script-vs-dispatcher-verb guidance
+    expect(ctx).toContain('run_script');
+    // P1 geometry-gate commands
+    expect(ctx).toContain('validate_geometry');
+    expect(ctx).toContain('analyze_dof');
+    expect(ctx).toContain('check_clearance');
+    // authoring + STEP export, coordinate convention, pytest
+    expect(ctx).toContain('step_save');
+    expect(ctx).toMatch(/millimet|mm/);
+    expect(ctx).toContain('pytest');
   });
 
   it('resolveTechPacks resolves known ids, drops unknown + duplicate ids', () => {
