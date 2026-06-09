@@ -16,10 +16,12 @@ process.env.MERMAID_SUPERVISOR_DIR = supDir;
 
 import {
   runTriagePass,
+  runDriveLandPass,
   isTriageEligible,
   isSuggestionFresh,
   TRIAGE_CAP,
   AUTO_RESOLVE_CAP,
+  EPIC_LAND_CAP,
 } from '../triage-pass';
 import { confirmSuggestion, dismissSuggestion } from '../triage-execute';
 import {
@@ -256,5 +258,48 @@ describe('confirmSuggestion / dismissSuggestion', () => {
     expect(res.ok).toBe(true);
     expect(getEscalation(escalation.id)?.suggestedAction).toBeNull();
     expect(getEscalation(escalation.id)?.status).toBe('open');
+  });
+});
+
+describe('drive auto-land (decision 647beb2b)', () => {
+  it('lands open epic-ready-to-land cards via landEpic, capped at EPIC_LAND_CAP', async () => {
+    const project = freshProject();
+    // Three land cards; distinct questionText so dedupe in createEscalation keeps them.
+    for (let i = 0; i < 3; i++) {
+      createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: `land epic ${i}?` });
+    }
+    const landed: string[] = [];
+    await runDriveLandPass(project, {
+      landEpic: async (_p, escId) => { landed.push(escId); return { ok: true, landed: true, reason: 'landed' }; },
+    });
+    expect(landed.length).toBe(EPIC_LAND_CAP); // capped, not all 3
+  });
+
+  it('isTriageEligible skips epic-ready-to-land (deterministic path, not Grok)', () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'land it?' });
+    expect(isTriageEligible(escalation, () => null)).toBe(false);
+  });
+
+  it('does NOT land below drive (autoResolve falsy → runDriveLandPass not invoked)', async () => {
+    const project = freshProject();
+    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'land below drive?' });
+    let landCalls = 0;
+    // No autoResolve → the land card is also Grok-ineligible, so the pass is a no-op for it.
+    await runTriagePass(project, {
+      landEpic: async () => { landCalls++; return { ok: true, landed: true, reason: 'landed' }; },
+      grok: async () => { throw new Error('grok must not be called'); },
+    } as any);
+    expect(landCalls).toBe(0);
+  });
+
+  it('a conflict (landed=false) is audited but does not throw', async () => {
+    const project = freshProject();
+    createEscalation({ project, session: 'coordinator', kind: 'epic-ready-to-land', questionText: 'conflicting epic?' });
+    await runDriveLandPass(project, {
+      landEpic: async () => ({ ok: false, landed: false, conflict: true, reason: 'merge-conflict' }),
+    });
+    // No throw = pass; the card stays open for the human-rebase path (landEpic owns that).
+    expect(true).toBe(true);
   });
 });

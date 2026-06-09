@@ -27,6 +27,7 @@ import {
 } from './supervisor-store.ts';
 import { classifyEscalation, AUTO_RESOLVE_MIN_CONFIDENCE, type TriageDeps } from './grok-triage.ts';
 import { confirmSuggestion } from './triage-execute.ts';
+import { landEpic, type LandEpicOutcome } from './coordinator-live.ts';
 import { getTodo } from './todo-store.ts';
 
 /** Max Grok classifications per project per tick. Keeps a backlog from fanning out
@@ -36,6 +37,10 @@ export const TRIAGE_CAP = 3;
 /** Phase 3 (drive): max UNATTENDED auto-resolutions per project per tick. A hard
  *  ceiling on silent autonomy — the rest wait for a human or the next tick. */
 export const AUTO_RESOLVE_CAP = 2;
+
+/** Drive: max UNATTENDED epic lands per project per tick. Landing mutates master
+ *  (irreversible), so cap it tightly — the rest wait for the next tick. */
+export const EPIC_LAND_CAP = 2;
 
 /** Escalation kinds only a human decides — never sent to Grok (fail-open to human). */
 const HUMAN_FLOOR_KINDS = new Set(['approval', 'decision', 'assumption-invalidated', 'operator-gated']);
@@ -70,6 +75,9 @@ export function isTriageEligible(
   if (esc.status !== 'open') return false;
   if (esc.session === FAILOPEN_SESSION) return false;
   if (HUMAN_FLOOR_KINDS.has(esc.kind)) return false;
+  // 'epic-ready-to-land' is handled by the deterministic drive auto-land path
+  // (runDriveLandPass) — landing is a proof, not a judgment, so Grok never sees it.
+  if (esc.kind === 'epic-ready-to-land') return false;
   if (esc.operatorGated) return false;
   if (isSuggestionFresh(esc, getTodoFn)) return false;
   return true;
@@ -89,6 +97,50 @@ export interface TriagePassDeps extends TriageDeps {
   /** Confirm executor (defaults to the real proof-gated confirm). Injectable so the
    *  auto-resolve path is unit-testable without shelling out to git/tsc. */
   confirm?: (project: string, escalationId: string) => Promise<{ ok: boolean; reason: string }>;
+  /** Drive auto-land executor (defaults to the real proof-gated landEpic). Injectable
+   *  for unit tests so the land path doesn't shell out to git. */
+  landEpic?: (project: string, escalationId: string) => Promise<LandEpicOutcome>;
+}
+
+/**
+ * Drive-only deterministic auto-land (decision 647beb2b). At level=drive the orchestrator
+ * passes autoResolve=true; for each open 'epic-ready-to-land' card (up to EPIC_LAND_CAP)
+ * we call landEpic, which RE-DERIVES the full proof server-side (children done+accepted,
+ * tsc clean in the epic worktree, clean dry --no-ff merge) and is self-gating — a conflict
+ * leaves master UNTOUCHED and re-surfaces a human-rebase card. NOT Grok-classified:
+ * landing is a proof, not a judgment. Below drive this is never called, so the card waits
+ * for the human LAND button. Fail-open per card: a throw never aborts the rest.
+ */
+export async function runDriveLandPass(project: string, deps: TriagePassDeps = {}): Promise<void> {
+  const listOpen = deps.listOpen ?? listOpenEscalations;
+  const land = deps.landEpic ?? landEpic;
+  const cards = listOpen()
+    .filter((e) => e.project === project && e.status === 'open' && e.kind === 'epic-ready-to-land')
+    .slice(0, EPIC_LAND_CAP);
+  for (const esc of cards) {
+    try {
+      const result = await land(project, esc.id);
+      recordSupervisorAudit({
+        kind: result.landed ? 'reconcile' : 'classify',
+        project,
+        session: esc.session,
+        detail: JSON.stringify({
+          source: 'triage-auto-land', // the "what did drive land" review surface
+          escalationId: esc.id,
+          todoId: esc.todoId,
+          landed: result.landed,
+          conflict: result.conflict ?? false,
+          masterSha: result.masterSha,
+          reason: result.reason,
+        }),
+      });
+    } catch (err) {
+      console.warn(
+        `[triage-pass] auto-land failed for ${esc.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 }
 
 /**
@@ -103,6 +155,13 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
       const t = getTodo(p, id);
       return t ? { updatedAt: t.updatedAt } : null;
     });
+
+  // Drive-only: land ready epics deterministically FIRST (decision 647beb2b), before
+  // spending Grok on the remaining blocker/question cards. Self-gated by landEpic; a
+  // no-op below drive (autoResolve false) where the human clicks LAND instead.
+  if (deps.autoResolve) {
+    await runDriveLandPass(project, deps);
+  }
 
   const open = listOpen().filter((e) => e.project === project);
   const eligible = open.filter((e) => isTriageEligible(e, getTodoRevision));
