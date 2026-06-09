@@ -27,6 +27,7 @@ import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboardi
 import { useUIStore } from '@/stores/uiStore';
 import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
 import { AddProjectDialog } from '@/components/dialogs';
+import { OrchestratorLevelBadge } from '@/components/supervisor/bridge/OrchestratorLevelBadge';
 
 /**
  * Reduce a project's session-card statuses to ONE combined health status — the
@@ -558,9 +559,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       )}
                       <span className="text-gray-500 dark:text-gray-400 font-normal">{projSessions.length}</span>
                     </button>
-                    {/* Orchestrator level ladder moved to the Bridge CommandBar
-                        (it crowded the sidebar rows). The per-project row keeps
-                        the at-a-glance coordinator dot only. */}
+                    {/* Read-only Orchestrator level indicator (just the current
+                        level). Changing it lives on the interactive ladder in the
+                        Bridge CommandBar — kept off the row so it doesn't crowd. */}
+                    <OrchestratorLevelBadge project={project} />
                     <button
                       type="button"
                       data-testid="supervisor-project-remove"
