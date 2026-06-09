@@ -86,6 +86,15 @@ export function getOrchestratorLevel(project: string): OrchestratorLevel {
   return coerce(row?.level);
 }
 
+/** List every project that has an explicitly-set level (synchronous — for the
+ *  daemon health snapshot / UI). Projects with no row use the 'build' default and
+ *  are not listed here. */
+export function listOrchestratorProjects(): Array<{ project: string; level: OrchestratorLevel }> {
+  const d = openDb();
+  const rows = d.query('SELECT project, level FROM orchestrator_config').all() as Array<{ project: string; level: string }>;
+  return rows.map((r) => ({ project: r.project, level: coerce(r.level) }));
+}
+
 /** Persist the autonomy level for a project. Unknown values are clamped to 'build'. */
 export function setOrchestratorLevel(project: string, level: OrchestratorLevel): void {
   const safe = coerce(level);

@@ -14,7 +14,7 @@
  *             deferred to later phases (escalations already route to human).
  */
 
-import { getOrchestratorLevel, levelRank } from './orchestrator-config.js';
+import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { projectRegistry } from './project-registry.js';
@@ -150,14 +150,13 @@ export function getOrchestratorHealth(): {
   lastTickAt: number | null;
   projects: Array<{ project: string; level: string }>;
 } {
-  // Best-effort synchronous snapshot — level reads are cheap (SQLite).
+  // Synchronous snapshot of the projects with an explicitly-set level (SQLite is
+  // cheap + sync). Projects on the 'build' default with no row aren't listed.
   let projects: Array<{ project: string; level: string }> = [];
   try {
-    // projectRegistry.list() is async; for the health snapshot we skip it and
-    // return an empty array rather than blocking (caller can call tick for detail).
-    projects = [];
+    projects = listOrchestratorProjects();
   } catch {
-    // ignore
+    // ignore — health stays best-effort
   }
   return {
     running: isOrchestratorRunning(),

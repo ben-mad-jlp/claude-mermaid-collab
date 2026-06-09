@@ -32,6 +32,25 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
   const [level, setLevel] = useState<OrchestratorLevel>('build');
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Single daemon-health signal (the daemon is global; the dot just reflects it).
+  const [daemonUp, setDaemonUp] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const mc = (window as any).mc;
+        const path = '/api/orchestrator/health';
+        const data = mc?.invokeOnServer
+          ? (await mc.invokeOnServer('local', { path, method: 'GET' }))?.body
+          : await (await fetch(path)).json();
+        if (!cancelled) setDaemonUp(!!data?.running);
+      } catch { if (!cancelled) setDaemonUp(false); }
+    };
+    void probe();
+    const id = setInterval(probe, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   // Fetch current level on mount / project change.
   useEffect(() => {
@@ -71,7 +90,8 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
           const path = '/api/orchestrator/level';
           const body = { project, level: next };
           if (mc?.invokeOnServer) {
-            await mc.invokeOnServer('local', { path, method: 'POST', body });
+            const res = await mc.invokeOnServer('local', { path, method: 'POST', body });
+            if (!res?.ok || (typeof res.status === 'number' && res.status >= 400)) setLevel(prev);
           } else {
             const r = await fetch(path, {
               method: 'POST',
@@ -100,6 +120,13 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
       title={LEVEL_TITLE[level]}
       className={`flex items-center rounded overflow-hidden border text-3xs font-medium select-none shrink-0 transition-opacity ${busy ? 'opacity-60' : ''} ${loaded ? '' : 'opacity-50'} border-gray-300 dark:border-gray-600`}
     >
+      {/* Daemon-health dot — green when the Orchestrator daemon is running. */}
+      <span
+        data-testid="orchestrator-health-dot"
+        title={daemonUp == null ? 'Orchestrator daemon: checking…' : daemonUp ? 'Orchestrator daemon: running' : 'Orchestrator daemon: down'}
+        className={`shrink-0 w-1.5 h-1.5 rounded-full mx-1 ${daemonUp == null ? 'bg-gray-300 dark:bg-gray-600' : daemonUp ? 'bg-success-500' : 'bg-danger-500'}`}
+        aria-hidden="true"
+      />
       {LEVELS.map((stop, idx) => {
         const isActive = stop === level;
         // Determine segment color:
