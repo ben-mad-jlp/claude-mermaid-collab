@@ -102,6 +102,13 @@ export function isOrchestratorSession(session: string): boolean {
   return role === 'supervisor' || role === 'steward' || role === 'planner';
 }
 
+/** Ephemeral coordinator-spawned worker sessions are named `worker-<hash>`.
+ *  They are short-lived executors of a single claimed todo — not something a
+ *  human subscribes to in the Watching list. Detected by name prefix. */
+export function isWorkerSession(session: string): boolean {
+  return (session.split(/[-_]/)[0]?.toLowerCase() ?? '') === 'worker';
+}
+
 /** Single-glyph role badge derived from the session-name prefix. */
 export function roleGlyph(session: string): string {
   const role = session.split(/[-_]/)[0]?.toLowerCase() ?? '';

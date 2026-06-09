@@ -19,6 +19,7 @@ import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { ServerIcon } from '@/components/ServerIcon';
 import { SessionCard, capsCache, type SessionCardData } from '@/components/layout/SessionCard';
+import { isWorkerSession } from '@/lib/liveness';
 
 type SubscribedSession = SessionCardData;
 
@@ -169,6 +170,9 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
     // surface it twice in the subscribe list.
     const seen = new Set<string>();
     const uniqueCrossServer = crossServerSessions.filter((s) => {
+      // Drop ephemeral coordinator-spawned worker sessions (worker-<hash>) — they
+      // execute a single claimed todo and aren't something a human subscribes to.
+      if (isWorkerSession(s.name)) return false;
       const k = `${s.serverId}:${s.project}:${s.name}`;
       if (seen.has(k)) return false;
       seen.add(k);
