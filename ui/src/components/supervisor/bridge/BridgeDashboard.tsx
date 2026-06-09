@@ -184,7 +184,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     // (a manually-watched worker), still excluding orchestrators.
     const known = new Set(fromSupervised.map((s) => s.session));
     const extra = projectSubs.filter((s) => !isOrchestratorSession(s.session) && !known.has(s.session));
-    return [...fromSupervised, ...extra];
+    // Hide workers that have gone GRAY (status 'unknown' — stale past the liveness
+    // window / never reported): a dead or long-idle lane shouldn't clutter the
+    // roster. A still-known status (active/waiting/permission, even if dimmed) stays.
+    return [...fromSupervised, ...extra].filter((s) => s.status !== 'unknown');
   }, [supervised, projectSubs, project, serverScope, sessionStatuses]);
 
   // Graph-only view of the todos: the FleetGraph should not show finished noise —
