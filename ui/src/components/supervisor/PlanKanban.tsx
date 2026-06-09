@@ -100,6 +100,7 @@ function PlanCard({
     >
       <div className="text-xs leading-tight text-gray-800 dark:text-gray-100">{todo.title}</div>
       <div className="flex items-center gap-1.5 text-3xs text-gray-500 dark:text-gray-400">
+        <span className="font-mono text-gray-400 dark:text-gray-500" title={todo.id}>#{todo.id.slice(-4)}</span>
         {depCount > 0 && <span className="font-mono" title={`${depCount} dependencies`}>⊸{depCount}</span>}
         {unblocks > 0 && (
           <span
