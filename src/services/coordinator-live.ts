@@ -493,7 +493,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // pins the identity even if the spawn later fails (a released todo leaves
       // in_progress, so it won't linger as a phantom worker in the fleet view).
       if (todo.sessionName !== poolName) {
-        try { await updateTodo(project, todo.id, { sessionName: poolName }); }
+        // executedBySession pins the WORKER lane as the durable executor (distinct
+        // from claimedBy=coordinator). Set alongside sessionName here at launch.
+        try { await updateTodo(project, todo.id, { sessionName: poolName, executedBySession: poolName }); }
         catch (e) { recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, sessionNamePersist: 'failed', reason: e instanceof Error ? e.message : String(e) }) }); }
       }
 
@@ -591,7 +593,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         markBusy(poolName, todo.id, ensured.tmux ?? tmuxBaseName(targetProject, poolName));
         // Claim continues under the pool session name (todo.sessionName = poolName)
         // so reclaim/lease semantics and the dead-claim reaper key off it.
-        try { await updateTodo(project, todo.id, { sessionName: poolName }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
+        // executedBySession pins the durable executor (the worker lane).
+        try { await updateTodo(project, todo.id, { sessionName: poolName, executedBySession: poolName }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
         // POOL-2: auto-subscribe the pool session into the supervisor's Watching
         // list so a card appears. Idempotent (addSupervised INSERT OR IGNORE on PK,
         // addWatchedProject no-ops when watched) — safe to re-run when a warm pool

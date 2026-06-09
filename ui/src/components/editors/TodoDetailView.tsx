@@ -332,17 +332,22 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                   </span>
                 </span>
               )}
-              {/* Executor — the WORKER session the todo ran under (sessionName),
-                  which persists across in_progress + done. NOT claimedBy: that's
-                  the coordinator's reservation, not the worker. */}
-              {todo.sessionName && todo.sessionName !== todo.assigneeSession && (
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="text-gray-400 dark:text-gray-500">Executor</span>
-                  <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
-                    {todo.sessionName}
+              {/* Executor — the WORKER session that ran the todo. Prefer the
+                  dedicated executedBySession; fall back to sessionName for rows
+                  written before that column existed. NOT claimedBy (that's the
+                  coordinator's reservation lock). */}
+              {(() => {
+                const executor = todo.executedBySession ?? todo.sessionName;
+                if (!executor || executor === todo.assigneeSession) return null;
+                return (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-gray-400 dark:text-gray-500">Executor</span>
+                    <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
+                      {executor}
+                    </span>
                   </span>
-                </span>
-              )}
+                );
+              })()}
             </div>
 
             <div className="mt-5 border-t border-gray-100 dark:border-gray-800 pt-5">

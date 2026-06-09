@@ -43,6 +43,11 @@ export interface Todo {
   completedAt: string | null;
   asanaGid: string | null;
   sessionName: string | null;
+  /** The WORKER session that actually ran this todo — the pool lane the Coordinator
+   *  launched for it. Distinct from `claimedBy` (always the coordinator's reservation
+   *  lock) and from `sessionName` (overloaded: worker lane OR creating session).
+   *  Persists across completion; the UI surfaces it as the "Executor". */
+  executedBySession: string | null;
   blueprintId: string | null;
   /** Agent-profile type (frontend/backend/api/ui/library/…), or null = default. Drives worker launch params. */
   type: string | null;
@@ -99,6 +104,7 @@ export interface CreateTodoInput {
   dependsOn?: string[];
   link?: TodoLink | null;
   sessionName?: string | null;
+  executedBySession?: string | null;
   blueprintId?: string | null;
   type?: string | null;
   targetProject?: string | null;
@@ -121,6 +127,7 @@ export type UpdateTodoPatch = Partial<{
   link: TodoLink | null;
   asanaGid: string | null;
   sessionName: string | null;
+  executedBySession: string | null;
   blueprintId: string | null;
   type: string | null;
   targetProject: string | null;
@@ -154,6 +161,7 @@ interface TodoRow {
   completedAt: string | null;
   asanaGid: string | null;
   sessionName: string | null;
+  executedBySession: string | null;
   blueprintId: string | null;
   type: string | null;
   targetProject: string | null;
@@ -189,6 +197,7 @@ CREATE TABLE IF NOT EXISTS todos (
   completedAt TEXT,
   asanaGid TEXT,
   sessionName TEXT,
+  executedBySession TEXT,
   blueprintId TEXT,
   type TEXT,
   targetProject TEXT,
@@ -229,6 +238,7 @@ function openDb(project: string): Database {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
   addColumnIfMissing(db, 'todos', 'sessionName', 'sessionName TEXT');
+  addColumnIfMissing(db, 'todos', 'executedBySession', 'executedBySession TEXT');
   addColumnIfMissing(db, 'todos', 'blueprintId', 'blueprintId TEXT');
   addColumnIfMissing(db, 'todos', 'type', 'type TEXT');
   addColumnIfMissing(db, 'todos', 'targetProject', 'targetProject TEXT');
@@ -318,6 +328,7 @@ function rowToTodo(row: TodoRow): Todo {
     completedAt: row.completedAt,
     asanaGid: row.asanaGid,
     sessionName: row.sessionName ?? null,
+    executedBySession: row.executedBySession ?? null,
     blueprintId: row.blueprintId ?? null,
     type: row.type ?? null,
     targetProject: row.targetProject ?? null,
@@ -372,8 +383,8 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        sessionName, executedBySession, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -383,7 +394,7 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null
     );
     return getTodo(project, id)!;
   });
@@ -428,6 +439,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       link: patch.link !== undefined ? patch.link : existing.link,
       asanaGid: patch.asanaGid !== undefined ? patch.asanaGid : existing.asanaGid,
       sessionName: patch.sessionName !== undefined ? patch.sessionName : existing.sessionName,
+      executedBySession: patch.executedBySession !== undefined ? patch.executedBySession : existing.executedBySession,
       blueprintId: patch.blueprintId !== undefined ? patch.blueprintId : existing.blueprintId,
       type: patch.type !== undefined ? patch.type : existing.type,
       targetProject: patch.targetProject !== undefined ? patch.targetProject : existing.targetProject,
@@ -443,12 +455,12 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     const clearClaim = status !== 'in_progress';
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
+        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
         completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL' : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-      next.asanaGid, next.sessionName, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
+      next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
       completedAt, completedBy, nowIso(), id
     );
     return getTodo(project, id)!;

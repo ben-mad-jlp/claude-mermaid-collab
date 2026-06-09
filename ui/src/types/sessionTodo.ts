@@ -29,6 +29,9 @@ export interface SessionTodo {
   asanaGid: string | null;
   // Work-graph fields (PCS) — present on unified todos; optional for back-compat.
   sessionName?: string | null;
+  /** The WORKER session that ran this todo (the coordinator's pool lane). Distinct
+   *  from claimedBy (the coordinator's reservation lock). Persists across done. */
+  executedBySession?: string | null;
   kind?: string | null;
   acceptanceStatus?: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy?: string | null;
