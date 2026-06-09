@@ -89,7 +89,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   return (
     <div
       data-testid="bridge-escalation-inbox"
-      className={`rounded-lg border p-2 space-y-2 ${
+      className={`rounded-lg border p-3 space-y-3 ${
         open.length > 0
           ? 'border-danger-300 dark:border-danger-700 bg-danger-50/60 dark:bg-danger-900/20'
           : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
@@ -109,7 +109,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
       {open.length === 0 ? (
         <p className="text-2xs text-gray-500 dark:text-gray-400">✓ No open escalations — all clear.</p>
       ) : (
-        <div className="space-y-1.5 max-h-72 overflow-y-auto">
+        <div className="space-y-2 max-h-72 overflow-y-auto">
           {open.map((e, idx) => {
             const hasOptions = !!e.options && e.options.length > 0;
             const isActive = idx === clampedActive;
@@ -118,7 +118,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                 key={e.id}
                 onMouseEnter={() => setActiveIdx(idx)}
                 data-active={isActive || undefined}
-                className={`px-2 py-1.5 rounded border bg-white dark:bg-gray-800/60 space-y-1 ${
+                className={`px-3 py-2.5 rounded border bg-white dark:bg-gray-800/60 space-y-2 ${
                   isActive
                     ? 'border-accent-400 dark:border-accent-600 ring-1 ring-accent-300 dark:ring-accent-700'
                     : 'border-gray-200 dark:border-gray-700'
@@ -151,7 +151,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                     </button>
                   )}
                 </div>
-                <div className="text-2xs leading-snug text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
+                <div className="text-xs leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">
                   {e.questionText}
                 </div>
                 {/* Orch P2: inline Grok-suggested action (level `propose`). Amber
@@ -161,39 +161,39 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                   <div
                     data-testid="escalation-suggestion"
                     data-bucket={e.suggestedAction.bucket}
-                    className="mt-1 rounded border border-warning-300 dark:border-warning-700 bg-warning-50/70 dark:bg-warning-900/20 px-1.5 py-1 space-y-1"
+                    className="mt-1 rounded border border-warning-300 dark:border-warning-700 bg-warning-50/70 dark:bg-warning-900/20 px-2.5 py-2 space-y-1.5"
                   >
                     <div className="flex items-center gap-1.5">
-                      <span className="text-3xs">🤖</span>
-                      <span className="text-3xs font-semibold uppercase tracking-wide text-warning-700 dark:text-warning-300">
+                      <span className="text-2xs">🤖</span>
+                      <span className="text-2xs font-semibold uppercase tracking-wide text-warning-700 dark:text-warning-300">
                         {e.suggestedAction.bucket}
                       </span>
-                      <span className="text-3xs text-gray-400 dark:text-gray-500" title="Grok confidence">
+                      <span className="text-2xs text-gray-400 dark:text-gray-500" title="Grok confidence">
                         {Math.round((e.suggestedAction.confidence ?? 0) * 100)}%
                       </span>
                     </div>
-                    <div className="text-3xs leading-snug text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
+                    <div className="text-2xs leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
                       {e.suggestedAction.rationale}
                     </div>
-                    <div className="flex items-center gap-1.5 pt-0.5">
+                    <div className="flex items-center gap-2 pt-1">
                       {e.suggestedAction.verb ? (
                         <button
                           type="button"
                           data-testid="suggestion-confirm"
                           onClick={() => void confirmSuggestion(serverScope, e.project, e.id)}
                           title={`Confirm — server re-validates the proof, then runs ${e.suggestedAction.verb}`}
-                          className="px-1.5 py-0.5 text-3xs font-medium rounded bg-warning-500 text-white hover:bg-warning-600 transition-colors"
+                          className="px-2 py-1 text-2xs font-medium rounded bg-warning-500 text-white hover:bg-warning-600 transition-colors"
                         >
                           Confirm {e.suggestedAction.verb}
                         </button>
                       ) : (
-                        <span className="text-3xs italic text-gray-500 dark:text-gray-400">classify-only — decide below</span>
+                        <span className="text-2xs italic text-gray-500 dark:text-gray-400">classify-only — decide below</span>
                       )}
                       <button
                         type="button"
                         data-testid="suggestion-dismiss"
                         onClick={() => void dismissSuggestion(serverScope, e.project, e.id)}
-                        className="px-1.5 py-0.5 text-3xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        className="px-2 py-1 text-2xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
                         title="Dismiss the suggestion (the escalation stays open)"
                       >
                         Dismiss
@@ -202,7 +202,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                   </div>
                 )}
                 {hasOptions ? (
-                  <div className="space-y-1 pt-0.5">
+                  <div className="space-y-1.5 pt-1">
                     {e.options!.map((opt, optIdx) => {
                       const recommended = e.recommended === opt.id;
                       return (
@@ -211,7 +211,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                           type="button"
                           onClick={() => void decideEscalation(serverScope, e.id, opt.id)}
                           title={opt.detail ? `${opt.label} — ${opt.detail}` : opt.label}
-                          className={`w-full flex items-start gap-1.5 px-1.5 py-1 rounded text-left text-2xs transition-colors border ${
+                          className={`w-full flex items-start gap-2 px-2.5 py-1.5 rounded text-left text-2xs transition-colors border ${
                             recommended
                               ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/30 text-accent-800 dark:text-accent-200 hover:bg-accent-100 dark:hover:bg-accent-900/50'
                               : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -238,11 +238,11 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                     })}
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1.5 pt-0.5">
+                  <div className="flex items-center gap-1.5 pt-1">
                     <button
                       type="button"
                       onClick={() => void resolveEscalation(serverScope, e.id, 'resolved')}
-                      className="px-1.5 py-0.5 text-3xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      className="px-2 py-1 text-2xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
                       title="Mark resolved"
                     >
                       Resolve
@@ -252,7 +252,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
               </div>
             );
           })}
-          <p className="text-3xs text-gray-400 dark:text-gray-500 px-0.5 pt-0.5">
+          <p className="text-3xs text-gray-400 dark:text-gray-500 px-0.5 pt-1">
             <kbd className="font-mono">1–9</kbd> answer · <kbd className="font-mono">↵</kbd> ★recommended · <kbd className="font-mono">J</kbd> jump
           </p>
         </div>
