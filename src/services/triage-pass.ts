@@ -29,6 +29,7 @@ import { classifyEscalation, AUTO_RESOLVE_MIN_CONFIDENCE, type TriageDeps } from
 import { confirmSuggestion } from './triage-execute.ts';
 import { landEpic, type LandEpicOutcome } from './coordinator-live.ts';
 import { getTodo } from './todo-store.ts';
+import { getWebSocketHandler } from './ws-handler-manager.js';
 
 /** Max Grok classifications per project per tick. Keeps a backlog from fanning out
  *  cost; the remainder are picked up on subsequent ticks. */
@@ -133,6 +134,19 @@ export async function runDriveLandPass(project: string, deps: TriagePassDeps = {
           masterSha: result.masterSha,
           reason: result.reason,
         }),
+      });
+      // Drive narration: broadcast the autonomous land decision live so the
+      // EventStream shows what drive landed (or why it left a conflict for a human).
+      getWebSocketHandler()?.broadcast({
+        type: 'drive.auto_landed',
+        project,
+        escalationId: esc.id,
+        epicId: result.epicId,
+        epicBranch: result.epicBranch,
+        landed: result.landed,
+        conflict: result.conflict ?? false,
+        masterSha: result.masterSha,
+        reason: result.reason,
       });
     } catch (err) {
       console.warn(
