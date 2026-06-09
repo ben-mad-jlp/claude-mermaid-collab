@@ -135,6 +135,10 @@ export interface SessionCardData {
   status: 'active' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
   contextPercent?: number;
+  /** True when the status is the LAST-KNOWN one but no fresh update has arrived
+   *  within the staleness window (an idle session sends no heartbeat). The card
+   *  keeps its status color but renders dimmed — "idle a while", not "gone". */
+  stale?: boolean;
 }
 
 /**
@@ -225,6 +229,10 @@ export const SessionCard: React.FC<{
           ? 'bg-success-300 hover:bg-success-400 border border-success-500'
           : 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
 
+  // Stale (idle, no fresh heartbeat) → keep the status color but dim it, so an idle
+  // session reads as "idle a while" rather than flipping to gray/unknown.
+  const staleDim = sub.stale && sub.status !== 'unknown' ? 'opacity-50' : '';
+
   const ctx = sub.contextPercent;
   const ctxHigh = ctx !== undefined && ctx > 78;
   const ctxWarn = ctx !== undefined && ctx > 68 && ctx <= 78;
@@ -233,7 +241,7 @@ export const SessionCard: React.FC<{
     <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-info-400' : ''}`}>
       {/* Colored status card */}
       <div
-        className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg} ${ctxHigh ? 'ring-2 ring-danger-500 ring-inset' : ''}`}
+        className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg} ${staleDim} ${ctxHigh ? 'ring-2 ring-danger-500 ring-inset' : ''}`}
         draggable={draggable}
         onDragStart={draggable && subKey ? (e) => onDragStart?.(e, subKey) : undefined}
         onDragOver={draggable && subKey ? (e) => onDragOver?.(e, subKey) : undefined}

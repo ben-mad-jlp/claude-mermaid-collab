@@ -160,7 +160,11 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
 
   // Persisted status source: map keyed `${project}:${session}` -> status.
   // Polled from GET /api/session-status?project= per distinct (serverId, project).
+  // We keep the LAST-KNOWN status even when it goes stale (idle sessions send no
+  // heartbeat) and track staleness separately, so the card dims rather than
+  // flipping to gray/unknown.
   const [fetchedStatuses, setFetchedStatuses] = useState<Record<string, string>>({});
+  const [staleStatuses, setStaleStatuses] = useState<Record<string, boolean>>({});
 
   // Load supervised sessions / escalations for the active routing server, and
   // refresh on an interval so newly-supervised sessions appear.
@@ -366,6 +370,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       const results = await Promise.all(pairs.map((p) => fetchOne(p.serverId, p.project)));
       if (cancelled) return;
       const map: Record<string, string> = {};
+      const staleMap: Record<string, boolean> = {};
       pairs.forEach((p, i) => {
         for (const row of results[i]) {
           const stale = typeof row.updatedAt === 'number' && now - row.updatedAt > STALE_MS;
@@ -373,10 +378,16 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           // on which server we routed through — supervised rows may carry a
           // different/blank serverId than the active one.
           const key = `${row.project}:${row.session}`;
-          map[key] = stale ? 'unknown' : row.status;
+          // Keep the last-known status; flag staleness separately so the card dims
+          // instead of flipping to gray (idle sessions emit no heartbeat).
+          map[key] = row.status;
+          staleMap[key] = stale;
         }
       });
-      if (!cancelled) setFetchedStatuses(map);
+      if (!cancelled) {
+        setFetchedStatuses(map);
+        setStaleStatuses(staleMap);
+      }
     };
 
     void poll();
@@ -406,10 +417,18 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const cardDataFor = useCallback(
     (s: SupervisedSession): SessionCardData => {
       const matched = findSubscription(s.project, s.session);
-      const status = (matched?.status && matched.status !== 'unknown'
-        ? matched.status
-        : (fetchedStatuses[`${s.project}:${s.session}`] as SessionCardData['status'])) ?? 'unknown';
+      const key = `${s.project}:${s.session}`;
+      const useMatched = !!(matched?.status && matched.status !== 'unknown');
+      const status = (useMatched
+        ? matched!.status
+        : (fetchedStatuses[key] as SessionCardData['status'])) ?? 'unknown';
       const serverId = matched?.serverId || s.serverId || activeId || 'local';
+      // Stale = the chosen source has aged past the window. For the live
+      // subscription, derive from its lastUpdate; for the polled fallback, use the
+      // staleness the poll recorded. Drives the dimmed (not gray) card.
+      const stale = useMatched
+        ? typeof matched!.lastUpdate === 'number' && Date.now() - matched!.lastUpdate > 120_000
+        : !!staleStatuses[key];
       return {
         serverId,
         project: s.project,
@@ -418,9 +437,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         status,
         lastUpdate: matched?.lastUpdate ?? Date.now(),
         contextPercent: matched?.contextPercent,
+        stale,
       };
     },
-    [findSubscription, fetchedStatuses, activeId],
+    [findSubscription, fetchedStatuses, staleStatuses, activeId],
   );
 
   // Navigate: mirror the Watching panel — update local session state for
