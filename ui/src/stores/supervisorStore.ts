@@ -306,6 +306,10 @@ interface SupervisorState {
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
+  /** FBPE P4: the land click — land a green 'epic-ready-to-land' escalation onto
+   *  master. Server re-derives readiness, merges, removes the epic, resolves the
+   *  card. Returns the server outcome (landed / conflict / rejected). */
+  landEpic: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; landed: boolean; conflict?: boolean; reason: string }>;
   /** Orch P2: confirm an inline Grok suggestion → server re-validates the proof
    *  gate then applies the verb. Returns the server result message. */
   confirmSuggestion: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; reason: string }>;
@@ -619,6 +623,30 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
       return { escalations };
     });
+  },
+
+  landEpic: async (serverId, project, id) => {
+    const res = await invoke(serverId, '/api/supervisor/escalations/land', 'POST', { project, escalationId: id });
+    const result = (res?.body as { ok?: boolean; landed?: boolean; conflict?: boolean; reason?: string }) ?? {};
+    const landed = !!result.landed;
+    // On a successful land the escalation is resolved server-side; reflect that
+    // locally so the card leaves the open inbox immediately. A conflict/rejection
+    // leaves the card open (and may add a re-land escalation on the next poll).
+    if (landed) {
+      set((state) => {
+        const escalations = state.escalations.map((e) =>
+          e.id === id ? { ...e, status: 'resolved', resolvedAt: Date.now() } : e,
+        );
+        localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
+        return { escalations };
+      });
+    }
+    return {
+      ok: !!result.ok,
+      landed,
+      conflict: result.conflict,
+      reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed'),
+    };
   },
 
   confirmSuggestion: async (serverId, project, id) => {

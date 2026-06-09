@@ -26,7 +26,7 @@ import { listObjects, listTypes } from '../services/system-object-store.ts';
 import { bom } from '../services/system-object-bom.ts';
 import { satisfy } from '../services/system-object-edges.ts';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
-import { startCoordinator, stopCoordinator, isCoordinatorRunning } from '../services/coordinator-live.ts';
+import { startCoordinator, stopCoordinator, isCoordinatorRunning, landEpic } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
@@ -228,6 +228,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       if (!id || !status) return jsonError('id and status are required', 400);
       resolveEscalation(id, status);
       return Response.json({ ok: true });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/escalations/land — the land click (FBPE P4). Re-derives
+  // land-readiness server-side, performs ONE --no-ff epic→master merge behind the
+  // per-project land mutex, removes the epic branch/worktree, and resolves the card.
+  // A conflict leaves master untouched and re-surfaces a human-rebase escalation.
+  if (url.pathname === '/api/supervisor/escalations/land' && req.method === 'POST') {
+    try {
+      const { project, escalationId } = (await req.json()) as { project?: string; escalationId?: string };
+      if (!project || !escalationId) return jsonError('project and escalationId are required', 400);
+      const result = await landEpic(project, escalationId);
+      getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+      return Response.json(result);
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
