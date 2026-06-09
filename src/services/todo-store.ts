@@ -567,6 +567,33 @@ export function reclaimClaim(project: string, id: string): Promise<'ready' | 'bl
 }
 
 /**
+ * Force-reclaim an ORPHANED in_progress todo — one left in_progress with NO live
+ * claim: claimedBy/claimToken NULL (e.g. wiped by a daemon restart), or a claim
+ * past its lease whose worker is gone. Unlike reclaimClaim, this does NOT require
+ * `claimToken IS NOT NULL`: an orphan's defining trait is the ABSENCE of a claim,
+ * so reclaimClaim silently no-ops on exactly the rows the orphan reaper must
+ * rescue (the 19b097a1 ~9h stuck-leaf gap). Same retry-cap semantics as
+ * reclaimClaim: → 'ready', or 'blocked' once MAX_CLAIM_RETRIES is exceeded.
+ * Returns the new status, or null if the row wasn't in_progress.
+ */
+export function reclaimOrphan(project: string, id: string): Promise<'ready' | 'blocked' | null> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const row = db.query(
+      `SELECT retryCount FROM todos WHERE id=? AND status='in_progress'`
+    ).get(id) as { retryCount: number } | undefined;
+    if (!row) return null;
+    const next: 'ready' | 'blocked' = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES ? 'blocked' : 'ready';
+    db.prepare(
+      `UPDATE todos SET status=?, claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+       retryCount=retryCount+1, updatedAt=? WHERE id=?`
+    ).run(next, nowIso(), id);
+    return next;
+  });
+}
+
+/**
  * Release a claim WITHOUT a retry penalty — for a todo the coordinator claimed
  * but then could NOT spawn a worker for (pool at capacity, deferred BEFORE any
  * spawn attempt). Unlike reclaimClaim (which charges a retry for a dead/failed

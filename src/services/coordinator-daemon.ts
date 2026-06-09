@@ -29,6 +29,14 @@ export interface CoordinatorDeps {
   /** Reclaim claims whose worker is hard-dead (tmux gone), without waiting for
    *  the lease. Returns reclaimed-to-ready + retry-exhausted (parked blocked) ids. Optional. */
   reapDeadClaims?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
+  /** Claim-INDEPENDENT sweep: reclaim a LEAF left in_progress with no live claim
+   *  (claimedBy NULL after a daemon restart, or a claim past its lease with a dead
+   *  worker) once it's older than the orphan grace. reapDeadClaims keys on a held
+   *  claim + tmux liveness and releaseExpiredClaims on a live lease, so a leaf with
+   *  claimedBy/claimedAt NULL is invisible to both (the 19b097a1 ~9h gap). Reaped
+   *  to 'ready' (retry-budget-aware). Returns reclaimed + retry-exhausted ids.
+   *  Survives daemon restarts (ages off persisted updatedAt). Optional. */
+  reapOrphanedLeaves?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
   /** Free pool SLOTS whose backing worker tmux is gone, independent of any todo's
    *  status. reapDeadClaims only visits in_progress todos, so a slot orphaned by a
    *  dropped/abandoned todo would otherwise stay wedged 'busy' forever (889e3e26).
@@ -83,6 +91,17 @@ export async function runTick(
       released.push(...dead.reclaimed);
       exhausted.push(...dead.exhausted);
     } catch { /* reaping must not abort the tick */ }
+  }
+  // Claim-independent orphan reap: a LEAF stuck in_progress with no live claim
+  // (claimedBy NULL after a restart, or a lease-expired dead worker) is invisible
+  // to releaseExpiredClaims (no live lease) AND reapDeadClaims (no claimToken) — so
+  // sweep it to 'ready' here, retry-budget-aware (the 19b097a1 ~9h gap).
+  if (deps.reapOrphanedLeaves) {
+    try {
+      const orphans = await deps.reapOrphanedLeaves(project);
+      released.push(...orphans.reclaimed);
+      exhausted.push(...orphans.exhausted);
+    } catch { /* orphan reaping must not abort the tick */ }
   }
   // Free pool slots orphaned by dropped/abandoned todos (their worker tmux gone).
   if (deps.reapDeadPoolSlots) {

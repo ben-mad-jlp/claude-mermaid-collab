@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
-  claimTodo, releaseExpiredClaims, reclaimClaim, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
+  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
 } from '../todo-store';
 
@@ -232,6 +232,33 @@ describe('todo-store new fields and functions', () => {
     expect(getTodo(project, t.id)!.retryCount).toBe(1);
     // not in_progress anymore → null
     expect(await reclaimClaim(project, t.id)).toBeNull();
+  });
+
+  test('reclaimOrphan: reclaims an in_progress todo with NO claimToken (the gap reclaimClaim misses)', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready', parentId: 'epic-1' });
+    // Simulate an orphan: in_progress but claimedBy/claimToken NULL (e.g. wiped by a
+    // daemon restart). reclaimClaim no-ops here (guards on claimToken IS NOT NULL).
+    await updateTodo(project, t.id, { status: 'in_progress' });
+    expect(getTodo(project, t.id)!.claimToken).toBeNull();
+    expect(await reclaimClaim(project, t.id)).toBeNull(); // reclaimClaim CAN'T rescue it
+    const next = await reclaimOrphan(project, t.id);     // reclaimOrphan CAN
+    expect(next).toBe('ready');
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('ready');
+    expect(after.retryCount).toBe(1); // retry-budget-aware
+    // not in_progress anymore → null
+    expect(await reclaimOrphan(project, t.id)).toBeNull();
+  });
+
+  test('reclaimOrphan: parks to blocked once the retry cap is exceeded (budget-aware)', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    let status: 'ready' | 'blocked' | null = null;
+    for (let i = 0; i <= MAX_CLAIM_RETRIES + 1; i++) {
+      await updateTodo(project, t.id, { status: 'in_progress' });
+      status = await reclaimOrphan(project, t.id);
+    }
+    expect(status).toBe('blocked');
+    expect(getTodo(project, t.id)!.retryCount).toBeGreaterThan(MAX_CLAIM_RETRIES);
   });
 
   test('releaseClaim: returns a live claim to ready with NO retry penalty; false for non-claims (DOGFOOD #3)', async () => {
