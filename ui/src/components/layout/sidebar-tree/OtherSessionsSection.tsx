@@ -185,8 +185,12 @@ export const OtherSessionsSection: React.FC = () => {
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const activeProject = useUIStore((s) => s.activeProject);
 
-  // Project in scope: explicit selection → current session's project.
-  const project = activeProject ?? currentSession?.project ?? null;
+  // Project in scope: the OPEN session's project drives "other sessions" (its
+  // siblings). Only when no session is open do we fall back to the Bridge's
+  // activeProject. (Previously activeProject won, a plan-studio-era leftover: a
+  // stale Bridge project selection made clicking a session in the sidebar show
+  // OTHER sessions/todos from the wrong project instead of the clicked one's.)
+  const project = currentSession?.project ?? activeProject ?? null;
 
   // The project's OTHER sessions (exclude the one already rendered above).
   const otherSessions = React.useMemo(() => {
