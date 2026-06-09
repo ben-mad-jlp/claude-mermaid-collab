@@ -14,6 +14,11 @@ export interface PTYSession {
   lastActivity: Date;
   hasReceivedResize: boolean;
   deferReplay: boolean;
+  /** True when this PTY is a `tmux attach-session` (vs a bare interactive shell).
+   *  A tmux attach is disposable — detaching it leaves the underlying tmux
+   *  session (and its scrollback) intact — so it is safe to reap on last client
+   *  disconnect. A bare shell IS the session, so it must persist across reconnects. */
+  isTmux: boolean;
 }
 
 export interface PTYSessionInfo {
@@ -162,6 +167,7 @@ export class PTYManager {
       lastActivity: new Date(),
       hasReceivedResize: false,
       deferReplay: false,
+      isTmux: !!options?.tmux,
     };
 
     try {
@@ -364,6 +370,7 @@ export class PTYManager {
         lastActivity: new Date(),
         hasReceivedResize: false,
         deferReplay: false,
+        isTmux: false,
       };
 
       try {
@@ -478,6 +485,18 @@ export class PTYManager {
     }
 
     session.websockets.delete(ws);
+
+    // Reap tmux-attach PTYs once the last client disconnects. Every "create
+    // terminal" mints a fresh UUID session + a new `tmux attach` PTY; without
+    // this, detach only drops the websocket and the attach process lingers in
+    // the Map forever — so each worker-card click leaked a PTY (connects with
+    // no matching closes). Killing the attach detaches from, but does NOT kill,
+    // the underlying tmux session, so its scrollback survives for the next
+    // attach. Bare (non-tmux) shells ARE the session and must persist across
+    // reconnects, so they are never reaped here.
+    if (session.isTmux && session.websockets.size === 0) {
+      this.kill(sessionId);
+    }
   }
 
   /**

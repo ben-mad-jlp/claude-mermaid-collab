@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rename, unlink, open } from 'fs/promises';
 import * as fs from 'fs';
 import { join, dirname, basename } from 'path';
 import { homedir } from 'os';
+import { isTransientProjectPath } from './project-registry.js';
 
 export interface Session {
   project: string;
@@ -362,6 +363,14 @@ export class SessionRegistry {
     // Validate each session's existence (check both new and old locations)
     for (const session of registry.sessions) {
       try {
+        // A worker-worktree-local `.collab` (…/.collab/agent-sessions/worktrees/<lane>)
+        // is never a real project — it's a per-todo isolation checkout. Such rows
+        // get backfilled in as pseudo-projects (e.g. `backend-1/backend-1`); treat
+        // them as stale so this read-modify-write self-heals them out of the registry.
+        if (isTransientProjectPath(session.project)) {
+          staleSessions.push(session);
+          continue;
+        }
         // Check new location first
         const newSessionPath = join(session.project, '.collab', getWorkspacesDir(), session.session);
         // Check todos directory
@@ -524,6 +533,10 @@ export class SessionRegistry {
   ): Promise<Session[]> {
     const found: Session[] = [];
     for (const project of projectRoots) {
+      // Never scan a worker-worktree-local `.collab` — it would re-ingest the
+      // lane's own session folder as a pseudo-project every reconcile, churning
+      // backfill in a loop. Worktree checkouts are not projects.
+      if (isTransientProjectPath(project)) continue;
       const sessionsDir = join(project, '.collab', getWorkspacesDir());
       let entries: fs.Dirent[];
       try {
