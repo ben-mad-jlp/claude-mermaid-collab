@@ -61,7 +61,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
   _closeDb,
 } from '../supervisor-store';
-import { createTodo } from '../todo-store';
+import { createTodo, updateTodo, getTodo, sweepEpicRollups } from '../todo-store';
 
 // -----------------------------------------------------------------------
 // Per-project todo DB isolation: use a temp directory as the "project path"
@@ -274,6 +274,239 @@ describe('runReconcilePass — only affects its own project', () => {
     await runReconcilePass(projectA);
 
     expect(tmuxCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Epic-rollup sweep
+// ---------------------------------------------------------------------------
+
+/** Create an epic (root) + N children, with each child settled to the given
+ *  status/acceptance DIRECTLY (out-of-band — never through completeTodo, so the
+ *  event-driven rollup never fires and the epic is left in_progress). */
+async function makeEpicWithChildren(
+  project: string,
+  children: Array<{ status: 'done' | 'in_progress' | 'dropped'; acceptance?: 'accepted' | 'pending' | 'rejected' | null }>,
+): Promise<{ epicId: string; childIds: string[] }> {
+  const epic = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] sweep test', status: 'in_progress' });
+  const childIds: string[] = [];
+  for (const c of children) {
+    const child = await createTodo(project, { ownerSession: 'w', title: 'child', parentId: epic.id, status: 'ready' });
+    await updateTodo(project, child.id, { status: c.status, acceptanceStatus: c.acceptance ?? null });
+    childIds.push(child.id);
+  }
+  return { epicId: epic.id, childIds };
+}
+
+describe('sweepEpicRollups — rolls up epics whose children all settled', () => {
+  it('rolls up an epic when every non-dropped child is done+accepted', async () => {
+    const project = freshProject();
+    const { epicId } = await makeEpicWithChildren(project, [
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'done', acceptance: 'accepted' },
+    ]);
+
+    const { rolledUp, flagged } = await sweepEpicRollups(project);
+
+    expect(rolledUp).toContain(epicId);
+    expect(flagged).toHaveLength(0);
+    expect(getTodo(project, epicId)?.status).toBe('done');
+    expect(getTodo(project, epicId)?.acceptanceStatus).toBe('accepted');
+  });
+
+  it('ignores dropped children when judging all-done (drops do not block rollup)', async () => {
+    const project = freshProject();
+    const { epicId } = await makeEpicWithChildren(project, [
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'dropped' },
+    ]);
+
+    const { rolledUp } = await sweepEpicRollups(project);
+
+    expect(rolledUp).toContain(epicId);
+    expect(getTodo(project, epicId)?.status).toBe('done');
+  });
+
+  it('does NOT roll up an epic with an open (in_progress) child', async () => {
+    const project = freshProject();
+    const { epicId } = await makeEpicWithChildren(project, [
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'in_progress' },
+    ]);
+
+    const { rolledUp, flagged } = await sweepEpicRollups(project);
+
+    expect(rolledUp).not.toContain(epicId);
+    expect(flagged).toHaveLength(0); // not all done → not flagged either
+    expect(getTodo(project, epicId)?.status).toBe('in_progress');
+  });
+
+  it('FLAGS (does not close) an epic whose children are all done but some UNACCEPTED — the 34a22538 case', async () => {
+    const project = freshProject();
+    // 3 done+accepted, 2 done but acceptance=null (legacy done-unaccepted).
+    const { epicId } = await makeEpicWithChildren(project, [
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'done', acceptance: null },
+      { status: 'done', acceptance: null },
+    ]);
+
+    const { rolledUp, flagged } = await sweepEpicRollups(project);
+
+    expect(rolledUp).not.toContain(epicId);
+    expect(getTodo(project, epicId)?.status).toBe('in_progress'); // left in_progress
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]).toMatchObject({ epicId, children: 5, unaccepted: 2 });
+  });
+
+  it('rolls up a NESTED epic chain bottom-up in one sweep', async () => {
+    const project = freshProject();
+    // root → mid (epic) → leaf(done+accepted). root also has another direct
+    // done+accepted child. Closing mid should let root roll up in the same call.
+    const root = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] root', status: 'in_progress' });
+    const mid = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] mid', parentId: root.id, status: 'in_progress' });
+    const leaf = await createTodo(project, { ownerSession: 'w', title: 'leaf', parentId: mid.id, status: 'ready' });
+    await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
+    const rootChild = await createTodo(project, { ownerSession: 'w', title: 'root-child', parentId: root.id, status: 'ready' });
+    await updateTodo(project, rootChild.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    const { rolledUp } = await sweepEpicRollups(project);
+
+    expect(rolledUp).toContain(mid.id);
+    expect(rolledUp).toContain(root.id);
+    expect(getTodo(project, root.id)?.status).toBe('done');
+    expect(getTodo(project, mid.id)?.status).toBe('done');
+  });
+
+  it('is idempotent — a second sweep closes nothing', async () => {
+    const project = freshProject();
+    const { epicId } = await makeEpicWithChildren(project, [{ status: 'done', acceptance: 'accepted' }]);
+
+    await sweepEpicRollups(project);
+    const second = await sweepEpicRollups(project);
+
+    expect(second.rolledUp).toHaveLength(0);
+    expect(getTodo(project, epicId)?.status).toBe('done');
+  });
+
+  it('never closes a childless epic', async () => {
+    const project = freshProject();
+    const epic = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] empty', status: 'in_progress' });
+
+    const { rolledUp, flagged } = await sweepEpicRollups(project);
+
+    expect(rolledUp).not.toContain(epic.id);
+    expect(flagged).toHaveLength(0);
+    expect(getTodo(project, epic.id)?.status).toBe('in_progress');
+  });
+});
+
+describe('runReconcilePass — epic-rollup sweep wiring', () => {
+  it('rolls up a settled epic and records a reconcile audit (no land card raised)', async () => {
+    const project = freshProject();
+    const { epicId } = await makeEpicWithChildren(project, [
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'done', acceptance: 'accepted' },
+    ]);
+
+    await runReconcilePass(project);
+
+    expect(getTodo(project, epicId)?.status).toBe('done');
+    const audits = listSupervisorAudit({ project, kind: 'reconcile' });
+    expect(audits.some((a) => (a.detail ?? '').includes('epic-children-all-done-accepted') && (a.detail ?? '').includes(epicId))).toBe(true);
+    // The sweep raises NO escalations (land cards stay on the event path only).
+    expect(listOpenEscalations().filter((e) => e.project === project)).toHaveLength(0);
+  });
+
+  it('records an all-done-but-unaccepted flag audit and leaves the epic in_progress', async () => {
+    const project = freshProject();
+    const { epicId } = await makeEpicWithChildren(project, [
+      { status: 'done', acceptance: 'accepted' },
+      { status: 'done', acceptance: null },
+    ]);
+
+    await runReconcilePass(project);
+
+    expect(getTodo(project, epicId)?.status).toBe('in_progress');
+    const audits = listSupervisorAudit({ project, kind: 'reconcile' });
+    expect(audits.some((a) => (a.detail ?? '').includes('epic-all-done-but-unaccepted') && (a.detail ?? '').includes(epicId))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Verified-done escalation auto-close (Phase 2)
+// ---------------------------------------------------------------------------
+
+describe('runReconcilePass — verified-done escalation auto-close', () => {
+  it('closes an open escalation whose linked todo is done+accepted', async () => {
+    const project = freshProject();
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'gated work', status: 'in_progress' });
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd',
+      kind: 'blocker',
+      questionText: 'blocked on gated work',
+      todoId: todo.id,
+    });
+    // Settle the todo out-of-band (no completeTodo event fires).
+    await updateTodo(project, todo.id, { status: 'done', acceptanceStatus: 'accepted' });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeUndefined();
+    const audits = listSupervisorAudit({ project, kind: 'reconcile' });
+    expect(audits.some((a) => (a.detail ?? '').includes('verified-done') && (a.detail ?? '').includes(escalation.id))).toBe(true);
+  });
+
+  it('closes an open escalation whose linked todo was dropped', async () => {
+    const project = freshProject();
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'abandoned work', status: 'in_progress' });
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd2',
+      kind: 'blocker',
+      questionText: 'blocked on abandoned work',
+      todoId: todo.id,
+    });
+    await updateTodo(project, todo.id, { status: 'dropped' });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeUndefined();
+    const audits = listSupervisorAudit({ project, kind: 'reconcile' });
+    expect(audits.some((a) => (a.detail ?? '').includes('todo-dropped') && (a.detail ?? '').includes(escalation.id))).toBe(true);
+  });
+
+  it('leaves open an escalation whose linked todo is done but UNACCEPTED', async () => {
+    const project = freshProject();
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'ungated work', status: 'in_progress' });
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd3',
+      kind: 'blocker',
+      questionText: 'blocked on ungated work',
+      todoId: todo.id,
+    });
+    await updateTodo(project, todo.id, { status: 'done', acceptanceStatus: null });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeDefined();
+  });
+
+  it('leaves open an escalation with no linked todo', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({
+      project,
+      session: 'worker-vd4',
+      kind: 'question',
+      questionText: 'no todo link',
+    });
+
+    await runReconcilePass(project);
+
+    expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeDefined();
   });
 });
 

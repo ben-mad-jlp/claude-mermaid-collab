@@ -567,6 +567,33 @@ export function reclaimClaim(project: string, id: string): Promise<'ready' | 'bl
 }
 
 /**
+ * Force-reclaim an ORPHANED in_progress todo — one left in_progress with NO live
+ * claim: claimedBy/claimToken NULL (e.g. wiped by a daemon restart), or a claim
+ * past its lease whose worker is gone. Unlike reclaimClaim, this does NOT require
+ * `claimToken IS NOT NULL`: an orphan's defining trait is the ABSENCE of a claim,
+ * so reclaimClaim silently no-ops on exactly the rows the orphan reaper must
+ * rescue (the 19b097a1 ~9h stuck-leaf gap). Same retry-cap semantics as
+ * reclaimClaim: → 'ready', or 'blocked' once MAX_CLAIM_RETRIES is exceeded.
+ * Returns the new status, or null if the row wasn't in_progress.
+ */
+export function reclaimOrphan(project: string, id: string): Promise<'ready' | 'blocked' | null> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const row = db.query(
+      `SELECT retryCount FROM todos WHERE id=? AND status='in_progress'`
+    ).get(id) as { retryCount: number } | undefined;
+    if (!row) return null;
+    const next: 'ready' | 'blocked' = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES ? 'blocked' : 'ready';
+    db.prepare(
+      `UPDATE todos SET status=?, claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+       retryCount=retryCount+1, updatedAt=? WHERE id=?`
+    ).run(next, nowIso(), id);
+    return next;
+  });
+}
+
+/**
  * Release a claim WITHOUT a retry penalty — for a todo the coordinator claimed
  * but then could NOT spawn a worker for (pool at capacity, deferred BEFORE any
  * spawn attempt). Unlike reclaimClaim (which charges a retry for a dead/failed
@@ -822,6 +849,107 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       parentId = parent.parentId;
     }
     return { completed: getTodo(project, id)!, promoted, rolledUp };
+  });
+}
+
+/** An epic the sweep left in_progress because every child is `done` but at least
+ *  one is not explicitly `accepted` (policy (b): never silently close ungated
+ *  work — surface it as a flag instead). */
+export interface EpicRollupFlag {
+  epicId: string;
+  /** Count of non-dropped children. */
+  children: number;
+  /** How many of those children are `done` but not `acceptanceStatus==='accepted'`. */
+  unaccepted: number;
+}
+
+export interface EpicSweepResult {
+  /** Epic ids the sweep rolled up to `done` this pass (all children done+accepted). */
+  rolledUp: string[];
+  /** Epics whose children all settled `done` but some are not accepted — left
+   *  in_progress, surfaced for a human/gate to resolve (one entry per epic). */
+  flagged: EpicRollupFlag[];
+}
+
+/**
+ * Periodic epic-rollup sweep (orchestrator reconcile pass).
+ *
+ * The event-driven rollup in {@link completeTodo} only fires when a CHILD
+ * completes through that path — an epic whose children settled out-of-band
+ * (legacy todos completed before the gate existed, bulk edits, cross-session
+ * completions) is never re-evaluated and sits `in_progress` forever. This sweep
+ * is the catch-up: for each `in_progress` parent (epic) whose non-dropped
+ * children are ALL `done` AND explicitly `accepted`, it performs the same
+ * transition the event path performs (status=done, acceptance=accepted, claim
+ * cleared) — recursing upward via a bounded fixpoint so closing a nested child
+ * epic can in turn unblock its parent.
+ *
+ * Policy for done-but-UNACCEPTED children (policy (b), the 34a22538 case): an
+ * epic whose children are all `done` but some are not `accepted` is NOT closed —
+ * the sweep never silently closes ungated work. It is returned in `flagged`
+ * instead, leaving the epic `in_progress` for explicit acceptance/gating.
+ *
+ * This sweep ONLY mutates todo status; it raises NO escalations or land cards
+ * (the 'epic-ready-to-land' surface stays exclusively on the event path). It is
+ * idempotent (a re-run on an already-rolled-up graph closes nothing) and bounded
+ * (at most one pass per parent epic).
+ */
+export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const rolledUp: string[] = [];
+    const flagged: EpicRollupFlag[] = [];
+    const flaggedSeen = new Set<string>();
+
+    // Bound: each pass may close child epics that then unblock parent epics, so
+    // re-evaluate until a pass closes nothing. The number of distinct parents is
+    // a strict upper bound on how many epics can ever close, so the loop is
+    // always finite (per-tick bounded).
+    const parentIds = new Set(
+      listTodos(project, { includeCompleted: true })
+        .filter((t) => t.parentId != null && t.status !== 'dropped')
+        .map((t) => t.parentId as string),
+    );
+    const maxPasses = parentIds.size + 1;
+
+    for (let pass = 0; pass < maxPasses; pass++) {
+      const all = listTodos(project, { includeCompleted: true });
+      const childrenByParent = new Map<string, Todo[]>();
+      for (const t of all) {
+        if (t.parentId == null || t.status === 'dropped') continue;
+        const arr = childrenByParent.get(t.parentId) ?? [];
+        arr.push(t);
+        childrenByParent.set(t.parentId, arr);
+      }
+
+      let closedThisPass = 0;
+      for (const epic of all) {
+        if (epic.status !== 'in_progress') continue;
+        const children = childrenByParent.get(epic.id);
+        if (!children || children.length === 0) continue; // not an epic / no live children
+        if (!children.every((c) => c.status === 'done')) continue; // a child still open
+
+        const unaccepted = children.filter((c) => c.acceptanceStatus !== 'accepted');
+        if (unaccepted.length === 0) {
+          // All children done + accepted → roll the epic up (mirrors the event path).
+          const ts = nowIso();
+          db.prepare(
+            `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
+              claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`,
+          ).run(ts, ts, epic.id);
+          rolledUp.push(epic.id);
+          closedThisPass++;
+        } else if (!flaggedSeen.has(epic.id)) {
+          // Policy (b): done-but-unaccepted children → flag, never auto-close.
+          flagged.push({ epicId: epic.id, children: children.length, unaccepted: unaccepted.length });
+          flaggedSeen.add(epic.id);
+        }
+      }
+      if (closedThisPass === 0) break;
+    }
+
+    return { rolledUp, flagged };
   });
 }
 

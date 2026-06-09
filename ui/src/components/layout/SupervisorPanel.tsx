@@ -139,10 +139,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // the project index; escalation counts + coordinator state badge each row;
   // clicking a row drives the Bridge. watch === supervise (add/remove couples).
   const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
-  const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
   const escalations = useSupervisorStore((s) => s.escalations);
   const loadProjects = useSupervisorStore((s) => s.loadProjects);
-  const loadCoordinator = useSupervisorStore((s) => s.loadCoordinator);
   const addProject = useSupervisorStore((s) => s.addProject);
   const removeProject = useSupervisorStore((s) => s.removeProject);
   const activeProject = useUIStore((s) => s.activeProject);
@@ -178,7 +176,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       // Restart front door within the staleness window when the supervisor dies.
       void loadConfig(serverScope);
       void loadLiveness(serverScope);
-      // Unified tree: the watched-project set + per-project coordinator dots.
+      // Unified tree: the watched-project set drives the rail.
       void loadProjects(serverScope);
     };
     refresh();
@@ -186,11 +184,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     return () => clearInterval(id);
   }, [serverScope, loadSupervised, loadEscalations, loadConfig, loadLiveness, loadProjects]);
 
-  // Coordinator state for every watched project (drives the per-row ●/○ dot).
   const watchedList = Array.isArray(watchedProjects) ? watchedProjects : [];
-  useEffect(() => {
-    watchedList.forEach((w) => w.project && void loadCoordinator(serverScope, w.project));
-  }, [serverScope, watchedList, loadCoordinator]);
 
   // Front-door state: no config saved → 'none' (Become the Supervisor); config
   // present but the heartbeat has gone stale (or never registered) → 'crashed'
@@ -238,7 +232,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         project,
         sessions: (m.get(project) ?? []).slice().sort((a, b) => a.session.localeCompare(b.session)),
         escalationCount: escalationCounts[project] ?? 0,
-        coordinatorRunning: !!coordinatorByProject[project],
       }))
       .sort((a, b) => {
         if ((b.escalationCount > 0 ? 1 : 0) !== (a.escalationCount > 0 ? 1 : 0)) {
@@ -247,7 +240,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         if (a.escalationCount !== b.escalationCount) return b.escalationCount - a.escalationCount;
         return a.project.localeCompare(b.project);
       });
-  }, [supervised, watchedList, escalationCounts, coordinatorByProject]);
+  }, [supervised, watchedList, escalationCounts]);
 
   // Display labels, parent-qualified only where basenames collide.
   const projectLabels = useMemo(

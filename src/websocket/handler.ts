@@ -102,8 +102,7 @@ export type WSMessage =
   // escalation table stays the source of truth; the panel feed just narrates.
   | { type: 'steward_action'; project: string; id: string; action: string; proof?: string }
   | { type: 'steward_handback'; project: string; id: string; reason?: string }
-  | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> }
-  | { type: 'coordinator_status'; project: string; running: boolean };
+  | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();

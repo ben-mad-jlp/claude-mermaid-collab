@@ -33,7 +33,7 @@ mock.module('../todo-store', () => ({
   reclaimClaim: async () => 'ready',
 }));
 
-import { makeCoordinatorDeps, startCoordinator, stopCoordinator, isCoordinatorRunning, autoStartCoordinator, isCoordinatorAutoManaged, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, getCoordinatorLiveness, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle } from '../worker-pool';
 import type { Todo } from '../todo-store';
@@ -112,60 +112,6 @@ describe('resolveWorkerProfile', () => {
   });
 });
 
-describe('startCoordinator / stopCoordinator / isCoordinatorRunning', () => {
-  const PROJECT = 'test-coordinator-live-a';
-
-  afterEach(() => {
-    stopCoordinator(PROJECT);
-  });
-
-  it('starts and returns true; isCoordinatorRunning is true', () => {
-    expect(startCoordinator(PROJECT, 3_600_000)).toBe(true);
-    expect(isCoordinatorRunning(PROJECT)).toBe(true);
-  });
-
-  it('starting again returns false (already running)', () => {
-    startCoordinator(PROJECT, 3_600_000);
-    expect(startCoordinator(PROJECT, 3_600_000)).toBe(false);
-  });
-
-  it('stopCoordinator returns true and isCoordinatorRunning becomes false', () => {
-    startCoordinator(PROJECT, 3_600_000);
-    expect(stopCoordinator(PROJECT)).toBe(true);
-    expect(isCoordinatorRunning(PROJECT)).toBe(false);
-  });
-
-  it('stopCoordinator returns false when not running', () => {
-    expect(stopCoordinator(PROJECT)).toBe(false);
-  });
-});
-
-describe('autoStartCoordinator (always-on + self-respawn)', () => {
-  const PROJECT = 'test-coordinator-live-auto';
-
-  afterEach(() => {
-    stopCoordinator(PROJECT);
-  });
-
-  it('starts the loop and registers the project as auto-managed', () => {
-    expect(autoStartCoordinator(PROJECT, 3_600_000)).toBe(true);
-    expect(isCoordinatorRunning(PROJECT)).toBe(true);
-    expect(isCoordinatorAutoManaged(PROJECT)).toBe(true);
-  });
-
-  it('is idempotent: a second call does not (re)start an already-running loop', () => {
-    autoStartCoordinator(PROJECT, 3_600_000);
-    expect(autoStartCoordinator(PROJECT, 3_600_000)).toBe(false);
-    expect(isCoordinatorAutoManaged(PROJECT)).toBe(true);
-  });
-
-  it('an explicit stop opts the project out of auto-respawn', () => {
-    autoStartCoordinator(PROJECT, 3_600_000);
-    expect(stopCoordinator(PROJECT)).toBe(true);
-    expect(isCoordinatorRunning(PROJECT)).toBe(false);
-    expect(isCoordinatorAutoManaged(PROJECT)).toBe(false);
-  });
-});
 
 describe('launchWorker auto-subscribe into Watching (POOL-2)', () => {
   const PROJECT = 'test-coordinator-live-spawn';
@@ -439,45 +385,6 @@ describe('launchWorker cross-project target (SEAM·collab)', () => {
     const opts = ensureSessionOpts.at(-1)!;
     expect(opts.project).toBe(TRACKING);
     expect(opts.contextPrompt ?? '').not.toMatch(/CROSS-PROJECT TODO/);
-  });
-});
-
-describe('coordinator self-liveness (1cb49878)', () => {
-  // A huge interval keeps the tick from firing during the test, so we exercise the
-  // registration + liveness contract deterministically (no real runTick / I/O).
-  const P = '/tmp/coord-liveness-test';
-  const BIG = 10_000_000;
-  afterEach(() => { stopCoordinator(P); });
-
-  it('start registers a healthy (non-stale) loop and reports liveness', () => {
-    expect(startCoordinator(P, BIG)).toBe(true);
-    expect(isCoordinatorRunning(P)).toBe(true);
-    const live = getCoordinatorLiveness(P, BIG);
-    expect(live.running).toBe(true);
-    expect(live.stale).toBe(false);
-    expect(live.lastTickAt).not.toBeNull();
-  });
-
-  it('a second start on a healthy loop is a no-op (returns false)', () => {
-    expect(startCoordinator(P, BIG)).toBe(true);
-    expect(startCoordinator(P, BIG)).toBe(false); // healthy → genuine no-op
-  });
-
-  it('stop clears the loop and its heartbeat', () => {
-    startCoordinator(P, BIG);
-    expect(stopCoordinator(P)).toBe(true);
-    expect(isCoordinatorRunning(P)).toBe(false);
-    expect(getCoordinatorLiveness(P, BIG).running).toBe(false);
-    expect(getCoordinatorLiveness(P, BIG).lastTickAt).toBeNull();
-  });
-
-  it('a registered-but-STALE loop is force-restarted by start (the wedge fix)', async () => {
-    expect(startCoordinator(P, BIG)).toBe(true);
-    // intervalMs=0 makes the staleness window 0 → any elapsed time counts as stale.
-    // Wait a beat so (now - seededHeartbeat) > 0 deterministically.
-    await new Promise((r) => setTimeout(r, 3));
-    expect(getCoordinatorLiveness(P, 0).stale).toBe(true);
-    expect(startCoordinator(P, 0)).toBe(true); // stale → force-restart, NOT a no-op
   });
 });
 

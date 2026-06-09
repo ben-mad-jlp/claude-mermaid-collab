@@ -68,9 +68,6 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
-  const coordinatorByProject = useSupervisorStore((s) => s.coordinatorByProject);
-  const loadCoordinator = useSupervisorStore((s) => s.loadCoordinator);
-  const setCoordinator = useSupervisorStore((s) => s.setCoordinator);
   const loadAudit = useSupervisorStore((s) => s.loadAudit);
   const auditByProject = useSupervisorStore((s) => s.auditByProject);
   const requirementsByProject = useSupervisorStore((s) => s.requirementsByProject);
@@ -108,14 +105,13 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     if (project) railProjects.add(project);
     for (const p of railProjects) {
       void loadProjectTodos(serverScope, p);
-      void loadCoordinator(serverScope, p);
     }
     if (project) {
       void loadAudit(serverScope, project);
       void loadRequirements(serverScope, project);
       void loadCoverage(serverScope, project);
     }
-  }, [serverScope, project, watchedProjects, loadEscalations, loadProjectTodos, loadCoordinator, loadAudit, loadRequirements, loadCoverage]);
+  }, [serverScope, project, watchedProjects, loadEscalations, loadProjectTodos, loadAudit, loadRequirements, loadCoverage]);
 
   useEffect(() => {
     resyncBridge();
@@ -219,7 +215,6 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     });
   }, [todos]);
 
-  const running = !!coordinatorByProject[project];
   const readyCount = useMemo(
     () => todos.filter((t) => t.status === 'ready' && !t.claimedBy).length,
     [todos],

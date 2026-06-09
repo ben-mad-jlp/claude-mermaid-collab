@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, releaseClaim } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim } from './todo-store';
+import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS } from './coordinator-core';
 import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
@@ -924,6 +925,43 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       }
       return { reclaimed, exhausted };
     },
+    reapOrphanedLeaves: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
+      // CLAIM-INDEPENDENT sweep (gap 2026-06-09, real instance 19b097a1): a LEAF left
+      // status=in_progress with claimedBy/claimedAt NULL is invisible to BOTH existing
+      // reapers — releaseExpiredClaims needs a live lease, reapDeadClaims needs a
+      // claimToken — so it never ages out (sat ~9h across 3 deploys). The in-memory
+      // deadTracker only holds workers THIS process spawned, wiped on every restart;
+      // this sweep instead ages off the PERSISTED updatedAt, so it survives restarts.
+      const reclaimed: string[] = [];
+      const exhausted: string[] = [];
+      const now = new Date().toISOString();
+      const candidates = planOrphanReap(
+        listTodos(project, { status: 'in_progress' }),
+        now,
+        DEFAULT_ORPHAN_GRACE_MS,
+      );
+      for (const c of candidates) {
+        // Case B (claim past lease): only reap once the worker's tmux is confirmed
+        // gone — a still-live worker on an over-long task must not be yanked. Case A
+        // (claimedBy NULL → needsTmuxProbe false) has no live claim by definition.
+        if (c.needsTmuxProbe && c.sessionName && await isTmuxAlive(tmuxBaseName(project, c.sessionName))) continue;
+        // reclaimOrphan (NOT reclaimClaim) reclaims regardless of claimToken — an
+        // orphan's whole problem is the missing token. Retry-budget-aware: → ready,
+        // or blocked once the retry cap is exceeded.
+        const next = await reclaimOrphan(project, c.id);
+        if (next == null) continue; // raced to a terminal state — nothing to reap
+        if (c.sessionName) markIdle(c.sessionName); // free any pool slot it held
+        if (next === 'ready') reclaimed.push(c.id);
+        else exhausted.push(c.id);
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: c.sessionName ?? 'orphan-reap',
+          detail: JSON.stringify({ source: 'orphan-reap', todoId: c.id, outcome: next, hadClaim: c.needsTmuxProbe }),
+        });
+      }
+      return { reclaimed, exhausted };
+    },
     reapDeadPoolSlots: async (_project: string): Promise<string[]> => {
       // Slot-level reconciliation: a slot records its tmux at markBusy, so we can
       // free it on its worker's death regardless of the todo's status (dropped,
@@ -1139,137 +1177,16 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
   };
 }
 
-const timers = new Map<string, ReturnType<typeof setInterval>>();
-/** Per-project heartbeat: when the LAST tick COMPLETED (resolved or threw), not
- *  when it fired. A registered timer whose runTick hangs forever keeps firing but
- *  never completes — so we key liveness on completion, which goes stale if the
- *  tick body wedges. (1cb49878) */
-const lastTickAt = new Map<string, number>();
-/** A loop is considered wedged if no tick has COMPLETED within this many intervals. */
-const STALE_TICK_INTERVALS = 4;
-
-function isTickStale(project: string, intervalMs: number): boolean {
-  const last = lastTickAt.get(project);
-  if (last == null) return false; // just started, no completed tick yet — not stale
-  return Date.now() - last > intervalMs * STALE_TICK_INTERVALS;
-}
-
-/** Tear down a project's timer WITHOUT touching auto-manage (unlike stopCoordinator,
- *  which also opts out of respawn). Used to force-restart a wedged loop. */
-function clearTimer(project: string): void {
-  const t = timers.get(project);
-  if (t) clearInterval(t);
-  timers.delete(project);
-  lastTickAt.delete(project);
-}
-
 /** Run one coordinator pass for `project` — claim ready todos, launch workers,
  *  reap dead claims, and evaluate gates. Safe to call repeatedly; all re-entrancy
  *  guards (coldStartsInFlight, lastSpawnAttempt, cold-start caps) are module-level
  *  and prevent double-claiming across overlapping calls.
  *
- *  This is the primary entry-point for the Orchestrator daemon. The internal
- *  setInterval in startCoordinator delegates here so both paths share identical
- *  logic. */
+ *  This is THE build-tick entry-point: the Orchestrator daemon's tick calls it
+ *  directly (orchestrator-live). The old per-project coordinator setInterval loop
+ *  + its respawn watchdog were retired once the Orchestrator took ownership of the
+ *  build/reconcile cadence (decision 9cb065a3, scope A). */
 export async function runBuildPass(project: string): Promise<void> {
   const deps = makeCoordinatorDeps();
   await runTick(deps, project);
-}
-
-/** Start a per-project coordinator tick loop. Returns false if a HEALTHY loop is
- *  already running; if a loop is registered but WEDGED (no completed tick within
- *  STALE_TICK_INTERVALS), force-restarts it and returns true. Explicit-start only
- *  (never auto-started at boot). The stale-recovery path is what lets both an
- *  explicit start AND the auto-respawn watchdog rescue a dead loop — previously a
- *  wedged loop reported running:true and start no-op'd forever (1cb49878). */
-export function startCoordinator(project: string, intervalMs = 30_000): boolean {
-  if (timers.has(project)) {
-    if (!isTickStale(project, intervalMs)) return false; // healthy → genuine no-op
-    clearTimer(project); // wedged → force-restart below
-  }
-  const mark = () => lastTickAt.set(project, Date.now()); // stamp on COMPLETION
-  const t = setInterval(() => {
-    void runBuildPass(project).then(mark, mark); // mark whether it resolves or throws
-  }, intervalMs);
-  (t as { unref?: () => void }).unref?.();
-  timers.set(project, t);
-  lastTickAt.set(project, Date.now()); // seed so a fresh loop isn't judged stale
-  return true;
-}
-
-/** Coordinator liveness for visibility/diagnostics: is a timer registered, when
- *  did the last tick complete, and is the loop wedged (stale heartbeat)? */
-export function getCoordinatorLiveness(project: string, intervalMs = 30_000): {
-  running: boolean;
-  lastTickAt: number | null;
-  stale: boolean;
-} {
-  return {
-    running: timers.has(project),
-    lastTickAt: lastTickAt.get(project) ?? null,
-    stale: timers.has(project) && isTickStale(project, intervalMs),
-  };
-}
-
-export function stopCoordinator(project: string): boolean {
-  // An explicit stop also opts the project out of auto-respawn — otherwise the
-  // watchdog would immediately fight a deliberate UI/operator "Stop daemon".
-  autoManaged.delete(project);
-  maybeStopWatchdog();
-  const t = timers.get(project);
-  if (!t) return false;
-  clearInterval(t);
-  timers.delete(project);
-  lastTickAt.delete(project);
-  return true;
-}
-
-export function isCoordinatorRunning(project: string): boolean {
-  return timers.has(project);
-}
-
-// --- Always-on auto-start + self-respawn (PCS infra) ---
-//
-// Projects registered via autoStartCoordinator() are kept running by a single
-// global watchdog: it periodically re-asserts startCoordinator() for each, so a
-// loop that died (e.g. cleared by a crash recovery path) is respawned on the
-// next sweep. The daemon is safe to leave always-on — it only ever claims todos
-// already in `ready`, which only the Planner sets post-approval, so an empty
-// ready-queue idles. An explicit stopCoordinator() opts a project back out.
-const autoManaged = new Map<string, number>(); // project → intervalMs
-let watchdog: ReturnType<typeof setInterval> | null = null;
-const WATCHDOG_INTERVAL_MS = 30_000;
-
-function maybeStopWatchdog(): void {
-  if (autoManaged.size === 0 && watchdog) {
-    clearInterval(watchdog);
-    watchdog = null;
-  }
-}
-
-function ensureWatchdog(): void {
-  if (watchdog) return;
-  const w = setInterval(() => {
-    for (const [project, intervalMs] of autoManaged) {
-      // Idempotent: startCoordinator returns false (no-op) if already running,
-      // and respawns the loop if it had died.
-      startCoordinator(project, intervalMs);
-    }
-  }, WATCHDOG_INTERVAL_MS);
-  (w as { unref?: () => void }).unref?.();
-  watchdog = w;
-}
-
-/** Start a coordinator for `project` and keep it always-on: it is respawned by
- *  a watchdog if its loop ever dies. Idempotent. Returns whether the loop was
- *  (re)started by this call. */
-export function autoStartCoordinator(project: string, intervalMs = 30_000): boolean {
-  autoManaged.set(project, intervalMs);
-  ensureWatchdog();
-  return startCoordinator(project, intervalMs);
-}
-
-/** True if `project` is registered for always-on auto-respawn. */
-export function isCoordinatorAutoManaged(project: string): boolean {
-  return autoManaged.has(project);
 }
