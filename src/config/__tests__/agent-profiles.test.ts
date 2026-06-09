@@ -5,10 +5,12 @@ import {
   DEFAULT_CAPABILITY,
   DEFAULT_PROFILE_TYPE,
   capabilitySpec,
+  inferProfileType,
   resolveCapability,
   resolveProfile,
   type Capability,
 } from '../agent-profiles';
+import { TECH_PACKS } from '../tech-packs';
 
 describe('capability layer (Profile L1)', () => {
   it('defines exactly the three global capabilities', () => {
@@ -60,6 +62,32 @@ describe('capability layer (Profile L1)', () => {
     it('headless is bypass', () => {
       expect(capabilitySpec('headless').runtimeMode).toBe('bypass');
     });
+  });
+});
+
+describe('cad profile (ships WARM out of the box)', () => {
+  it('carries the cad tech-pack domain context + tools without a manifest', () => {
+    const p = resolveProfile('cad');
+    expect(p).toBe(AGENT_PROFILES.cad); // global object identity (no project)
+    // Domain context is injected (worker does not start cold): the contextPrompt is
+    // the shared cad tech-pack fragment with the bsync domain model.
+    expect(p.contextPrompt).toBe(TECH_PACKS.cad.contextPrompt);
+    expect(p.contextPrompt).toContain('FACE_INDEX');
+    expect(p.contextPrompt).toContain('validate_geometry');
+    expect(p.contextPrompt).toContain('pytest');
+    // allowedTools include the build123d + bsync MCP servers (server-level tokens →
+    // every CAD/viewer verb auto-allowed, no permission stall) AND still let it work.
+    expect(p.allowedTools).toContain('mcp__build123d-ocp-mcp');
+    expect(p.allowedTools).toContain('mcp__bsync-desktop');
+    expect(p.allowedTools).toContain('Edit');
+    expect(p.runtimeMode).toBe('edit'); // scoped allowlist, NOT bypass
+  });
+
+  it('PATH_RULES route .py / STEP / parts dirs to cad', () => {
+    expect(inferProfileType(['parts/bracket.py'])).toBe('cad');
+    expect(inferProfileType(['cad/arm.step'])).toBe('cad');
+    expect(inferProfileType(['src/geometry/gripper.py'])).toBe('cad');
+    expect(inferProfileType(['assemblies/base.3mf'])).toBe('cad');
   });
 });
 

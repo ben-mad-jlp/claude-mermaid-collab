@@ -33,6 +33,7 @@ export type PoolType =
   | 'api'
   | 'ui'
   | 'library'
+  | 'cad'
   | 'general';
 
 /** All pool types, in a stable order (config defaults + iteration). */
@@ -42,6 +43,7 @@ export const POOL_TYPES: readonly PoolType[] = [
   'api',
   'ui',
   'library',
+  'cad',
   'general',
 ] as const;
 
@@ -71,6 +73,7 @@ export const POOL_CONFIG: PoolConfig = {
   api: slotsFor('api', DEFAULT_SLOTS_PER_TYPE),
   ui: slotsFor('ui', DEFAULT_SLOTS_PER_TYPE),
   library: slotsFor('library', DEFAULT_SLOTS_PER_TYPE),
+  cad: slotsFor('cad', DEFAULT_SLOTS_PER_TYPE),
   general: slotsFor('general', DEFAULT_SLOTS_PER_TYPE),
 };
 
@@ -103,7 +106,7 @@ export function resolveType(todoType?: string | null): PoolType {
   }
   if (todoType === 'default') return 'general';
   // Recognized agent-profile type? (e.g. a future profile-only type.)
-  const known: AgentProfileType[] = ['default', 'frontend', 'backend', 'api', 'ui', 'library'];
+  const known: AgentProfileType[] = ['default', 'frontend', 'backend', 'api', 'ui', 'library', 'cad'];
   if ((known as string[]).includes(todoType)) {
     return profileTypeToType(todoType as AgentProfileType);
   }
