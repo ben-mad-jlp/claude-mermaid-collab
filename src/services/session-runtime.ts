@@ -18,7 +18,7 @@
  * Pure core (`buildSessionRuntimes`) takes already-fetched rows so it is
  * unit-testable over fixtures with a fake clock; the thin wrappers
  * (`listSessionRuntimes` / `getSessionRuntime`) wire the real stores. This
- * mirrors the inject-the-I/O pattern in context-watchdog.ts / supervisor-liveness.ts.
+ * mirrors the inject-the-I/O pattern in context-watchdog.ts.
  */
 
 import { getStatuses, type SessionStatusRow, type ClaudeStatus } from './session-status-store.js';

@@ -1037,7 +1037,7 @@ export function assertSupervisorOwner(epoch: number | undefined, role = 'supervi
  * Heartbeat: refresh ONLY supervisor_identity.updatedAt to "now". No-op if no
  * supervisor is registered (id=1 row absent). Returns true if a row was
  * touched. This is what lets the UI distinguish a live supervisor from a
- * crashed/stale one — register_supervisor writes updatedAt once; this keeps
+ * crashed/stale one — setSupervisorIdentity writes updatedAt once; this keeps
  * it advancing while the supervisor is alive.
  */
 export function touchSupervisorIdentity(epoch?: number, role = 'supervisor'): boolean {
