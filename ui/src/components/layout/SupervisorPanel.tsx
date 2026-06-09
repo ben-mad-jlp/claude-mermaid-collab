@@ -506,7 +506,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               No projects yet — add one below
             </div>
           ) : (
-            byProject.map(({ project, sessions: projSessions, escalationCount, coordinatorRunning }, i) => {
+            byProject.map(({ project, sessions: projSessions, escalationCount }, i) => {
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
@@ -546,11 +546,9 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       <span className="flex-shrink-0">
                         <ClaudePixAvatar status={combined} />
                       </span>
-                      <span
-                        className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${coordinatorRunning ? 'bg-success-500' : 'border border-gray-400 dark:border-gray-500'}`}
-                        title={coordinatorRunning ? 'Coordinator running' : 'Coordinator off'}
-                        aria-hidden="true"
-                      />
+                      {/* Orchestrator level dot (replaces the old coordinator dot) —
+                          colored by level with an outline; hover shows the level. */}
+                      <OrchestratorLevelBadge project={project} />
                       <span className="truncate" title={project}>{projName}</span>
                       {escalationCount > 0 && (
                         <span data-testid="supervisor-project-badge" className="shrink-0 text-3xs font-bold text-danger-600 dark:text-danger-400">
@@ -559,10 +557,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       )}
                       <span className="text-gray-500 dark:text-gray-400 font-normal">{projSessions.length}</span>
                     </button>
-                    {/* Read-only Orchestrator level indicator (just the current
-                        level). Changing it lives on the interactive ladder in the
-                        Bridge CommandBar — kept off the row so it doesn't crowd. */}
-                    <OrchestratorLevelBadge project={project} />
                     <button
                       type="button"
                       data-testid="supervisor-project-remove"

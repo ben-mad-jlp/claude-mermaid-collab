@@ -63,7 +63,10 @@ export const OrchestratorLevelBadge: React.FC<OrchestratorLevelBadgeProps> = ({ 
       title={`Orchestrator level: ${level} (change it on the Bridge)`}
       className="shrink-0 inline-flex items-center"
     >
-      <span className={`inline-block w-2 h-2 rounded-full ${LEVEL_DOT[level]}`} aria-hidden="true" />
+      <span
+        className={`inline-block w-2.5 h-2.5 rounded-full ring-1 ring-gray-400/70 dark:ring-gray-500/70 ${LEVEL_DOT[level]}`}
+        aria-hidden="true"
+      />
     </span>
   );
 };
