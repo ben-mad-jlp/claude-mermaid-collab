@@ -1,0 +1,97 @@
+/**
+ * Per-project autonomy level for the unified Orchestrator daemon.
+ *
+ * The Orchestrator is the single daemon that replaces the ad-hoc
+ * "auto-start coordinator on project registration" pattern with a
+ * controllable, per-project autonomy knob (design-unified-orchestrator-daemon,
+ * decision f0ec0b06). This module owns the level type and its durable store;
+ * daemon logic lives in orchestrator-live.ts (a later task).
+ */
+
+import Database from 'bun:sqlite';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+
+/** How autonomously the Orchestrator acts for a project.
+ *
+ *  off     — daemon does nothing; coordinator not started.
+ *  build   — start coordinator and drive todos (today's default behavior).
+ *  nudge   — drive todos + surface idle/stalled workers proactively.
+ *  propose — nudge + propose next steps / auto-promote ready todos.
+ *  consult — full autonomy: propose + auto-answer steward-routed escalations.
+ */
+export type OrchestratorLevel = 'off' | 'build' | 'nudge' | 'propose' | 'consult';
+
+export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'consult'];
+
+const LEVEL_RANK: Record<OrchestratorLevel, number> = {
+  off: 0,
+  build: 1,
+  nudge: 2,
+  propose: 3,
+  consult: 4,
+};
+
+/** Numeric rank for a level (off=0 … consult=4). Higher = more autonomous. */
+export function levelRank(l: OrchestratorLevel): number {
+  return LEVEL_RANK[l];
+}
+
+// --- Persistence (reuses the supervisor.db SQLite store) -------------------------
+
+const DDL = `
+CREATE TABLE IF NOT EXISTS orchestrator_config (
+  project TEXT PRIMARY KEY,
+  level   TEXT NOT NULL DEFAULT 'build',
+  updatedAt INTEGER NOT NULL
+);
+`;
+
+let db: Database | null = null;
+
+function openDb(): Database {
+  if (db) return db;
+  const dir = process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'supervisor.db');
+  db = new Database(path);
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec(DDL);
+  return db;
+}
+
+/** For tests: drop the cached handle so a fresh DB opens on next use. */
+export function _closeDb(): void {
+  if (db) {
+    try { db.close(); } catch { /* ignore */ }
+    db = null;
+  }
+}
+
+/** Coerce an arbitrary string to a valid OrchestratorLevel, defaulting to 'build'. */
+function coerce(raw: unknown): OrchestratorLevel {
+  if (typeof raw === 'string' && (ORCH_LEVELS as string[]).includes(raw)) {
+    return raw as OrchestratorLevel;
+  }
+  return 'build';
+}
+
+/** Return the persisted autonomy level for a project. Defaults to 'build' when unset. */
+export function getOrchestratorLevel(project: string): OrchestratorLevel {
+  const d = openDb();
+  const row = d
+    .query('SELECT level FROM orchestrator_config WHERE project = ?')
+    .get(project) as { level: string } | undefined;
+  return coerce(row?.level);
+}
+
+/** Persist the autonomy level for a project. Unknown values are clamped to 'build'. */
+export function setOrchestratorLevel(project: string, level: OrchestratorLevel): void {
+  const safe = coerce(level);
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, updatedAt) VALUES (?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET level = excluded.level, updatedAt = excluded.updatedAt`,
+  ).run(project, safe, Date.now());
+}

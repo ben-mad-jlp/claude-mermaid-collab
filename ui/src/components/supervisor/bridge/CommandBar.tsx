@@ -9,15 +9,14 @@
  */
 
 import React from 'react';
-import { GlobalRoleSwitches } from './GlobalRoleSwitches';
 
 export interface CommandBarProps {
   liveCount: number;
   inflightCount: number;
   needsYouCount: number;
-  /** Routing scope for the Coordinator switch. */
+  /** Routing scope (kept for API compatibility). */
   serverScope: string;
-  /** Active project — drives the per-project Coordinator switch on the same line. */
+  /** Active project. */
   project?: string;
 }
 
@@ -25,7 +24,6 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   liveCount,
   inflightCount,
   needsYouCount,
-  serverScope,
   project,
 }) => {
   const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : null;
@@ -46,9 +44,6 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           {projectName}
         </span>
       )}
-
-      {/* Per-project Coordinator on/off. */}
-      <GlobalRoleSwitches serverScope={serverScope} project={project} />
 
       {/* Glanceable FLEET pulse — absorbed AlertRibbon. */}
       <div data-testid="bridge-glance" className="ml-auto flex items-center gap-3 text-xs">

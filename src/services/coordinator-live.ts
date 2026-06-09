@@ -862,6 +862,19 @@ function clearTimer(project: string): void {
   lastTickAt.delete(project);
 }
 
+/** Run one coordinator pass for `project` — claim ready todos, launch workers,
+ *  reap dead claims, and evaluate gates. Safe to call repeatedly; all re-entrancy
+ *  guards (coldStartsInFlight, lastSpawnAttempt, cold-start caps) are module-level
+ *  and prevent double-claiming across overlapping calls.
+ *
+ *  This is the primary entry-point for the Orchestrator daemon. The internal
+ *  setInterval in startCoordinator delegates here so both paths share identical
+ *  logic. */
+export async function runBuildPass(project: string): Promise<void> {
+  const deps = makeCoordinatorDeps();
+  await runTick(deps, project);
+}
+
 /** Start a per-project coordinator tick loop. Returns false if a HEALTHY loop is
  *  already running; if a loop is registered but WEDGED (no completed tick within
  *  STALE_TICK_INTERVALS), force-restarts it and returns true. Explicit-start only
@@ -873,10 +886,9 @@ export function startCoordinator(project: string, intervalMs = 30_000): boolean 
     if (!isTickStale(project, intervalMs)) return false; // healthy → genuine no-op
     clearTimer(project); // wedged → force-restart below
   }
-  const deps = makeCoordinatorDeps();
   const mark = () => lastTickAt.set(project, Date.now()); // stamp on COMPLETION
   const t = setInterval(() => {
-    void runTick(deps, project).then(mark, mark); // mark whether it resolves or throws
+    void runBuildPass(project).then(mark, mark); // mark whether it resolves or throws
   }, intervalMs);
   (t as { unref?: () => void }).unref?.();
   timers.set(project, t);

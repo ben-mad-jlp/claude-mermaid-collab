@@ -551,16 +551,15 @@ export function isStewardLive(now: number = Date.now()): boolean {
 }
 
 /**
- * Create-time routing WITH the fail-open overlay (design §3/§4/§5): the pure
- * `routeOf` table decides by kind, but an escalation only reaches the steward when
- * the steward is enabled, NOT paused, AND live. Paused or stale/dead → everything
- * fails open to the human. This is the single place create-time routing is decided.
+ * Create-time routing — Phase 1 (decision f0ec0b06): the ex-Steward triage now
+ * runs in the Orchestrator daemon (Grok), not a session. Until Phase 2 wires it,
+ * EVERY escalation goes to the human unconditionally.
+ *
+ * routeOf / isStewardArmed / isStewardPaused / isStewardLive / verbs / proof-gate
+ * are all retained DORMANT below — they are reused unchanged in Phase 2.
  */
-export function routeEscalation(kind: string, operatorGated: boolean, now: number = Date.now()): EscalationRoute {
-  if (!isStewardArmed()) return 'human'; // the single arm/off switch (folds the env arm)
-  if (isStewardPaused()) return 'human';
-  if (!isStewardLive(now)) return 'human';
-  return routeOf(kind, operatorGated);
+export function routeEscalation(_kind: string, _operatorGated: boolean, _now: number = Date.now()): EscalationRoute {
+  return 'human';
 }
 
 /** Sentinel session for the single fail-open summary escalation (keeps it deduped). */

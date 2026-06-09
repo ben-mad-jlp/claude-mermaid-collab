@@ -134,12 +134,14 @@ describe('createEscalation persists routing', () => {
     expect(getEscalation(escalation.id)?.routedTo).toBe('human');
   });
 
-  it('routes a blocker to the steward when auto is ON and a LIVE steward is registered, and persists it', () => {
+  it('routes a blocker to human even when auto is ON and a LIVE steward is registered (Phase 1: routeEscalation always returns human)', () => {
+    // Phase 1 (decision f0ec0b06): routeEscalation is unconditionally 'human'.
+    // routeOf still returns 'steward' for blocker when armed — tested separately above.
     process.env.MERMAID_STEWARD_AUTO = 'true';
     setSupervisorIdentity('/p', 'stew', '', 'steward'); // live (updatedAt=now)
     const { escalation } = createEscalation({ project: '/p', session: 'w2', kind: 'blocker', questionText: 'q2' });
-    expect(escalation.routedTo).toBe('steward');
-    expect(getEscalation(escalation.id)?.routedTo).toBe('steward');
+    expect(escalation.routedTo).toBe('human');
+    expect(getEscalation(escalation.id)?.routedTo).toBe('human');
   });
 
   it('operatorGated escalation stays human even with auto ON', () => {
@@ -154,16 +156,17 @@ describe('P4 reclaim + liveness — pause, fail-open, supersede (design §4/§5)
   beforeEach(() => { freshDb(); process.env.MERMAID_STEWARD_AUTO = '1'; });
   afterEach(() => { delete process.env.MERMAID_STEWARD_AUTO; });
 
-  it('PAUSE stops routing: a paused steward routes a steward-kind to human', () => {
+  it('PAUSE stops routing: a paused steward routes a steward-kind to human (Phase 1: always human regardless)', () => {
+    // Phase 1: routeEscalation is always 'human'; pause mechanics are correct but dormant.
     setSupervisorIdentity('/p', 'stew', '', 'steward'); // live
-    expect(routeEscalation('blocker', false)).toBe('steward'); // baseline: live + unpaused
+    expect(routeEscalation('blocker', false)).toBe('human'); // Phase 1: always human
     setStewardPause(true);
     expect(isStewardPaused()).toBe(true);
     expect(routeEscalation('blocker', false)).toBe('human'); // paused → human
     const { escalation } = createEscalation({ project: '/p', session: 'w', kind: 'blocker', questionText: 'paused-q' });
     expect(escalation.routedTo).toBe('human');
     setStewardPause(false);
-    expect(routeEscalation('blocker', false)).toBe('steward'); // resumed
+    expect(routeEscalation('blocker', false)).toBe('human'); // Phase 1: still human after resume
   });
 
   it('FAIL-OPEN: a stale/dead steward routes everything to human', () => {
@@ -176,13 +179,16 @@ describe('P4 reclaim + liveness — pause, fail-open, supersede (design §4/§5)
   });
 
   it('FAIL-OPEN surfaces exactly ONE summary escalation (deduped), counting queued steward work', () => {
-    setSupervisorIdentity('/p', 'stew', '', 'steward'); // live now → these route to steward
+    // Phase 1 (decision f0ec0b06): routeEscalation always returns 'human', so no
+    // escalations are stored with routedTo='steward'. stewardFailOpenScan counts
+    // routedTo='steward' rows — that count is 0. The stale/summary logic still works.
+    setSupervisorIdentity('/p', 'stew', '', 'steward'); // live now → Phase 1: routes to human
     createEscalation({ project: '/p', session: 'w1', kind: 'blocker', questionText: 'queued-1' });
     createEscalation({ project: '/p', session: 'w2', kind: 'question', questionText: 'queued-2' });
     const stale = getSupervisorIdentity('steward')!.updatedAt + SUPERVISOR_STALE_AFTER_MS + 1;
     const first = stewardFailOpenScan(stale);
     expect(first.stale).toBe(true);
-    expect(first.queued).toBe(2);
+    expect(first.queued).toBe(0); // Phase 1: nothing routes to steward, so backlog is 0
     expect(first.escalationId).not.toBeNull();
     // Re-scan must NOT create a second summary — same id.
     const second = stewardFailOpenScan(stale + 1_000);
@@ -214,27 +220,28 @@ describe('runtime ON/OFF switch (live human off-switch)', () => {
     expect(isStewardEnabled()).toBe(true);
   });
 
-  it('toggling OFF routes a steward-kind to human; ON resumes (one-loop honor)', () => {
+  it('toggling OFF routes a steward-kind to human; ON resumes (Phase 1: always human, switch is dormant)', () => {
+    // Phase 1: routeEscalation is unconditionally 'human'; ON/OFF switch is dormant.
     setSupervisorIdentity('/p', 'stew', '', 'steward'); // live
-    expect(routeEscalation('blocker', false)).toBe('steward'); // baseline ON
+    expect(routeEscalation('blocker', false)).toBe('human'); // Phase 1: always human
 
     setStewardEnabled(false);
     expect(isStewardEnabled()).toBe(false);
-    expect(routeEscalation('blocker', false)).toBe('human'); // OFF → human within the loop
+    expect(routeEscalation('blocker', false)).toBe('human'); // OFF → human
     const { escalation } = createEscalation({ project: '/p', session: 'w', kind: 'blocker', questionText: 'off-q' });
-    expect(escalation.routedTo).toBe('human'); // new escalations flip to human while OFF
+    expect(escalation.routedTo).toBe('human'); // new escalations are human
 
     setStewardEnabled(true);
-    expect(routeEscalation('blocker', false)).toBe('steward'); // ON → resumes
+    expect(routeEscalation('blocker', false)).toBe('human'); // Phase 1: still human after re-enable
   });
 
-  it('is INDEPENDENT of pause (either OFF or paused routes to human)', () => {
+  it('is INDEPENDENT of pause (either OFF or paused routes to human; Phase 1: always human)', () => {
     setSupervisorIdentity('/p', 'stew', '', 'steward');
     setStewardEnabled(false);
     setStewardPause(false);
     expect(routeEscalation('blocker', false)).toBe('human'); // off-switch alone suffices
     setStewardEnabled(true);
-    expect(routeEscalation('blocker', false)).toBe('steward');
+    expect(routeEscalation('blocker', false)).toBe('human'); // Phase 1: still human even when armed+live
   });
 
   it('persists across a store reopen (durable, survives a poll/restart)', () => {

@@ -11,12 +11,6 @@ import {
   getEscalation,
   recordEscalationDecision,
   getSupervisorIdentity,
-  clearSupervisorIdentity,
-  isStewardEnabled,
-  setStewardEnabled,
-  getStewardMode,
-  setStewardMode,
-  type StewardMode,
   SUPERVISOR_HEARTBEAT_INTERVAL_MS,
   SUPERVISOR_STALE_AFTER_MS,
   getPeer,
@@ -35,8 +29,6 @@ import { specCoverage, decideRequirement, type RequirementDecision } from '../se
 import { startCoordinator, stopCoordinator, isCoordinatorRunning } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
-import { tmuxBaseName } from '../services/tmux-naming.ts';
-import { terminalManager } from '../services/terminal-manager.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 
 function jsonError(message: string, status: number): Response {
@@ -367,97 +359,43 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     });
   }
 
-  // GET /api/supervisor/steward-identity[?project=] — the Steward panel's front
-  // door. Mirrors /api/supervisor/identity's liveness math (heartbeat staleness),
-  // but reads the INDEPENDENT 'steward' role row (separate epoch line). Also
-  // surfaces the SCARY observability metric the panel leads with:
-  // `overrideAccepts` — how many todos the steward force-accepted past the gate
-  // (override_accept_todo stamps completedBy='steward'); scoped to ?project= when
-  // given, 0 otherwise. No new WS events — REST-poll on the panel's 10s cadence.
+  // GET /api/supervisor/steward-identity — Retired in Phase 1 (decision f0ec0b06)
+  // — the Orchestrator daemon replaces the Supervisor/Steward sessions; kept as a
+  // dormant no-op for back-compat so any stale callers get a well-typed response.
   if (url.pathname === '/api/supervisor/steward-identity' && req.method === 'GET') {
-    const project = url.searchParams.get('project');
-    const overrideAccepts = project
-      ? listTodos(project, { includeCompleted: true }).filter((t) => t.completedBy === 'steward').length
-      : 0;
-    const identity = getSupervisorIdentity('steward');
-    const switchedOn = isStewardEnabled();
-    const mode = getStewardMode();
-    if (!identity) {
-      // No steward registered: report not-running so the panel renders the
-      // definitive "Become the Steward" front door rather than flashing crashed.
-      return Response.json({
-        identity: null,
-        running: false,
-        stale: true,
-        ageMs: null,
-        overrideAccepts,
-        switchedOn,
-        mode,
-        heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
-        staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
-      });
-    }
-    const ageMs = Date.now() - identity.updatedAt;
-    const stale = ageMs > SUPERVISOR_STALE_AFTER_MS;
     return Response.json({
-      ...identity,
-      identity,
-      running: !stale,
-      stale,
-      ageMs,
-      overrideAccepts,
-      switchedOn,
-      mode,
+      identity: null,
+      running: false,
+      stale: true,
+      ageMs: null,
+      overrideAccepts: 0,
+      switchedOn: false,
+      mode: 'off',
       heartbeatIntervalMs: SUPERVISOR_HEARTBEAT_INTERVAL_MS,
       staleAfterMs: SUPERVISOR_STALE_AFTER_MS,
     });
   }
 
-  // POST /api/supervisor/steward/mode { mode: 'off'|'auto'|'dogfood' } — the
-  // human's 3-way steward control. off = all→human (disabled); auto = auto-answer
-  // only; dogfood = auto-answer + proactive drive. Persistent; supersedes the
-  // older boolean /steward/enabled (which remains for back-compat).
+  // POST /api/supervisor/steward/mode — Retired in Phase 1 (decision f0ec0b06)
+  // — the Orchestrator daemon replaces the Supervisor/Steward sessions; kept as a
+  // dormant no-op for back-compat.
   if (url.pathname === '/api/supervisor/steward/mode' && req.method === 'POST') {
-    const { mode } = (await req.json()) as { mode?: StewardMode };
-    if (mode !== 'off' && mode !== 'auto' && mode !== 'dogfood') {
-      return jsonError("mode ('off' | 'auto' | 'dogfood') required", 400);
-    }
-    setStewardMode(mode);
-    return Response.json({ mode, switchedOn: mode !== 'off' });
+    return Response.json({ ok: true, note: 'retired' });
   }
 
-  // POST /api/supervisor/steward/enabled { enabled } — the live human ON/OFF
-  // switch (StewardPanel toggle). PERSISTENT; while OFF the router sends every
-  // escalation to the human and the running steward idles. Distinct from the
-  // env arm (MERMAID_STEWARD_AUTO) and the transient steward_pause.
+  // POST /api/supervisor/steward/enabled — Retired in Phase 1 (decision f0ec0b06)
+  // — the Orchestrator daemon replaces the Supervisor/Steward sessions; kept as a
+  // dormant no-op for back-compat.
   if (url.pathname === '/api/supervisor/steward/enabled' && req.method === 'POST') {
-    const { enabled } = (await req.json()) as { enabled?: boolean };
-    if (typeof enabled !== 'boolean') return jsonError('enabled (boolean) required', 400);
-    setStewardEnabled(enabled);
-    return Response.json({ switchedOn: enabled });
+    return Response.json({ ok: true, note: 'retired' });
   }
 
-  // POST /api/supervisor/role/stop { role: 'steward' | 'supervisor' } — the OFF
-  // half of the Bridge role switch. Symmetric to /api/ide/launch-session (start):
-  // kill the role's tmux session (read project+session from its identity row) and
-  // clear the identity so liveness flips to not-running immediately. Coordinator
-  // has its own start/stop (/api/supervisor/coordinator); this covers the two
-  // global LLM roles, which previously had a start path but no stop.
+  // POST /api/supervisor/role/stop — Retired in Phase 1 (decision f0ec0b06)
+  // — the Orchestrator daemon replaces the Supervisor/Steward sessions; no tmux
+  // session is spawned for these roles anymore. Kept as a dormant no-op for
+  // back-compat so stale callers don't crash.
   if (url.pathname === '/api/supervisor/role/stop' && req.method === 'POST') {
-    const { role } = (await req.json()) as { role?: string };
-    if (role !== 'steward' && role !== 'supervisor') {
-      return jsonError("role must be 'steward' or 'supervisor'", 400);
-    }
-    const identity = getSupervisorIdentity(role);
-    if (identity) {
-      try {
-        await terminalManager.killTmuxSession(tmuxBaseName(identity.project, identity.session));
-      } catch {
-        /* best-effort: the tmux may already be gone; still clear identity below */
-      }
-    }
-    clearSupervisorIdentity(role);
-    return Response.json({ stopped: true, role });
+    return Response.json({ stopped: false, reason: 'role sessions retired (orchestrator daemon)' });
   }
 
   // ── SPEC API SURFACE (design-system-object-ui §8) ──────────────────────────

@@ -34,6 +34,7 @@ import { handleWorktreeFilesAPI } from './routes/worktree-files';
 import { handleArtifactAPI } from './routes/artifact-api.js';
 import { handleIdeRoutes } from './routes/ide-routes.js';
 import { handleSupervisorRoutes } from './routes/supervisor-routes.js';
+import { handleOrchestratorRoutes } from './routes/orchestrator-routes.js';
 import { touchSupervisorIdentity, SUPERVISOR_HEARTBEAT_INTERVAL_MS } from './services/supervisor-store.js';
 import { handleBrowserRoutes } from './routes/browser-routes.js';
 import { sessionRegistry, SessionRegistryCorruptError } from './services/session-registry';
@@ -140,47 +141,16 @@ try {
   }
 }
 
-// Auto-start the per-project Coordinator daemon for the local home project, and
-// keep it always-on (a watchdog self-respawns it if its loop dies). No manual
-// Start click required. Safe by design: the daemon only claims todos already in
-// `ready` (set only by the Planner post-approval), so an empty ready-queue
-// idles. Gated by the local single-writer guard (project dir must exist here)
-// and MERMAID_AUTO_START_COORDINATOR.
-if (MERMAID_AUTO_START_COORDINATOR && existsSync(MERMAID_PROJECT)) {
+// Orchestrator Daemon Phase 1: a single daemon enumerates all registered
+// projects each tick and dispatches build/reconcile by per-project level.
+// Per-project autoStartCoordinator boot loops are no longer needed here.
+if (MERMAID_AUTO_START_COORDINATOR) {
   try {
-    const { autoStartCoordinator } = await import('./services/coordinator-live.js');
-    autoStartCoordinator(MERMAID_PROJECT);
-    console.log(`🤖 Coordinator daemon auto-started (always-on) for ${MERMAID_PROJECT}`);
-
-    // 51db1fe2: MERMAID_PROJECT is the desktop app's Resources dir — NOT a real
-    // dev repo with todos. The actual projects live in the registry, and they
-    // were NOT auto-managed: every app/sidecar restart silently left their
-    // coordinators stopped, so over-lease claims piled up un-reaped and ready
-    // work never got claimed (had to be hand-started each time). Auto-manage every
-    // REGISTERED project that has active work (ready OR in-progress todos) so a
-    // coordinator survives restarts — to claim ready work AND reap stuck claims.
-    // Idle projects (no active todos) are skipped so we don't spawn surprise
-    // workers across unrelated repos; the global cold-start cap still bounds total
-    // concurrent spawns across all projects.
-    try {
-      const { projectRegistry } = await import('./services/project-registry.js');
-      const { listReadyTodos, listTodos } = await import('./services/todo-store.js');
-      for (const p of await projectRegistry.list()) {
-        if (p.path === MERMAID_PROJECT || !existsSync(p.path)) continue;
-        let active = false;
-        try {
-          active = listReadyTodos(p.path).length > 0 || listTodos(p.path, { status: 'in_progress' }).length > 0;
-        } catch { active = false; } // no todos DB / unreadable → nothing to manage
-        if (active) {
-          autoStartCoordinator(p.path);
-          console.log(`🤖 Coordinator auto-started for registered project with active work: ${p.path}`);
-        }
-      }
-    } catch (err) {
-      console.warn(`mermaid-collab: registered-project coordinator auto-start skipped — ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const { startOrchestrator } = await import('./services/orchestrator-live.js');
+    startOrchestrator();
+    console.log('🧭 Orchestrator daemon started');
   } catch (err) {
-    console.error(`mermaid-collab: coordinator auto-start failed — ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`mermaid-collab: orchestrator start failed — ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -396,6 +366,11 @@ const server = Bun.serve<WsData>({
 
     if (url.pathname.startsWith('/api/supervisor')) {
       const res = await handleSupervisorRoutes(req, url);
+      if (res) return res;
+    }
+
+    if (url.pathname.startsWith('/api/orchestrator')) {
+      const res = await handleOrchestratorRoutes(req, url);
       if (res) return res;
     }
 
