@@ -1,0 +1,16 @@
+#!/bin/sh
+# postrm — clean up after file removal.
+set -e
+
+case "$1" in
+  purge|remove)
+    # Files under /usr/lib/mermaid-collab and the unit are removed by dpkg.
+    # Nothing else to scrub: per-user runtime state lives under the user's
+    # ~/.local/share and is intentionally left alone (data, not package files).
+    :
+    ;;
+  upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+    ;;
+esac
+
+exit 0

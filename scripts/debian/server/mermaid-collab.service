@@ -1,0 +1,51 @@
+# mermaid-collab — headless sidecar (systemd USER unit, packaged)
+#
+# Shipped by the mermaid-collab-server .deb to
+#   /usr/lib/systemd/user/mermaid-collab.service
+# (the standard location for distro-packaged systemd *user* units).
+#
+# Identical in behaviour to scripts/systemd/mermaid-collab.service (the P1
+# install-script variant) EXCEPT the binary + handshake live at fixed FHS
+# system paths under /usr/lib/mermaid-collab/ instead of the per-user
+# ~/.local/share staging dir. It is still a *user* unit: each user runs their
+# own sidecar (so the spawned orchestrator/worker tmux sessions run as that
+# user with their git/claude/tmux on PATH).
+#
+# The package postinst runs `systemctl --global enable mermaid-collab.service`
+# so it is wanted by every user's default.target; surviving reboot on a
+# headless box still needs `loginctl enable-linger <user>` (postinst prints
+# this — the package can't know which user should linger).
+
+[Unit]
+Description=Mermaid Collab headless sidecar (mc-server) on :9002
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# Port + headless markers. PATH is set explicitly so the spawned orchestrator/
+# worker sessions can find tmux/git/claude/bun without an interactive login shell.
+Environment=PORT=9002
+Environment=MERMAID_HEADLESS=1
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Take-over-or-refuse handshake (P0 protocol) BEFORE we try to bind :9002.
+# Exit 3 = a healthy current owner already holds the port; the failed
+# ExecStartPre makes systemd treat the start as failed (we do not double-bind).
+ExecStartPre=/usr/lib/mermaid-collab/mc-port-handshake.sh
+
+# The compiled sidecar runs the HTTP server in the foreground (Type=simple).
+ExecStart=/usr/lib/mermaid-collab/mc-server
+
+Restart=on-failure
+RestartSec=3
+
+# Give the orchestrator a moment to reap tmux workers on shutdown.
+TimeoutStopSec=20
+KillMode=mixed
+
+[Install]
+WantedBy=default.target
