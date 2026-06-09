@@ -1,0 +1,11 @@
+{
+  "todoId": "0e541dbf-8654-4f5d-8c4b-b0a3c10a8076",
+  "session": "worker-0e541dbf",
+  "outcome": "escalated",
+  "retryReason": "wrong-cmd",
+  "layer": "collab",
+  "verbsTried": ["get_todo"],
+  "failingVerb": "get_todo",
+  "failingReturn": "disk I/O error",
+  "summary": "get_todo returns persistent 'disk I/O error' across 4 attempts with backoff; cannot read the todo spec, so cannot execute or gate. Collab-layer DB failure, not a modeling/spec issue."
+}

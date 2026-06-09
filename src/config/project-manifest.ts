@@ -29,8 +29,8 @@
  * A malformed/absent manifest NEVER breaks the global defaults — it just yields
  * null and the hard-coded profiles stand.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { RuntimeMode } from '../agent/contracts';
 import type { Capability } from './agent-profiles';
 
@@ -144,6 +144,29 @@ export function inferTypeFromManifest(project: string, files?: string[] | null):
     }
   }
   return null;
+}
+
+/**
+ * Declare a tech-pack id in a project's manifest (the L4d ADOPT path — attach an
+ * approved/adopted pack to THIS project so its resolver picks it up). Idempotent:
+ * an id already present is a no-op. Preserves any other manifest fields, creates
+ * `.collab/project.json` (with `version: 1`) when absent, and invalidates the
+ * cache so a subsequent {@link loadProjectManifest} sees the write. Returns the
+ * resulting packs[] list.
+ */
+export function addManifestPack(project: string, packId: string): string[] {
+  const id = packId.trim();
+  if (!id) throw new Error('addManifestPack: packId is required');
+  const existing = loadProjectManifest(project);
+  const manifest: ProjectManifest = existing ? { ...existing } : { version: 1 };
+  const packs = [...(manifest.packs ?? [])];
+  if (!packs.includes(id)) packs.push(id);
+  manifest.packs = packs;
+  const path = join(project, MANIFEST_REL);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(manifest, null, 2), 'utf8');
+  cache.set(project, manifest);
+  return packs;
 }
 
 /** Test seam: drop the cached manifest for a project (or all projects). */

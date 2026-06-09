@@ -17,6 +17,19 @@ const DATA_DIR = join(homedir(), '.mermaid-collab');
 const REGISTRY_PATH = join(DATA_DIR, 'sessions.json');
 
 /**
+ * Single chokepoint for the `.collab/<workspaces>/` directory segment.
+ *
+ * Step 1 of the session→workspace migration: every hardcoded
+ * `join(project, '.collab', 'sessions', ...)` literal that creates, scans, or
+ * resolves a session/workspace folder routes through this helper so the eventual
+ * rename happens in exactly one place. At this step it STILL returns 'sessions'
+ * → ZERO behavior change. Do NOT flip this to 'workspaces' yet.
+ */
+export function getWorkspacesDir(): string {
+  return 'sessions';
+}
+
+/**
  * Thrown when sessions.json exists but is unreadable/corrupt and the
  * sessions.json.bak rolling backup cannot be used to recover. The caller
  * (MCP/HTTP handler) should log this loudly and surface it to the
@@ -268,7 +281,7 @@ export class SessionRegistry {
       await this.save(registry);
 
       // Ensure directories exist (new structure: .collab/sessions/<name>/)
-      const sessionPath = join(project, '.collab', 'sessions', session);
+      const sessionPath = join(project, '.collab', getWorkspacesDir(), session);
       await mkdir(join(sessionPath, 'diagrams'), { recursive: true });
       await mkdir(join(sessionPath, 'documents'), { recursive: true });
       await mkdir(join(sessionPath, 'designs'), { recursive: true });
@@ -350,7 +363,7 @@ export class SessionRegistry {
     for (const session of registry.sessions) {
       try {
         // Check new location first
-        const newSessionPath = join(session.project, '.collab', 'sessions', session.session);
+        const newSessionPath = join(session.project, '.collab', getWorkspacesDir(), session.session);
         // Check todos directory
         const todosSessionPath = join(session.project, '.collab', 'todos', session.session);
         // Then old location for backwards compatibility
@@ -511,7 +524,7 @@ export class SessionRegistry {
   ): Promise<Session[]> {
     const found: Session[] = [];
     for (const project of projectRoots) {
-      const sessionsDir = join(project, '.collab', 'sessions');
+      const sessionsDir = join(project, '.collab', getWorkspacesDir());
       let entries: fs.Dirent[];
       try {
         if (!fs.existsSync(sessionsDir)) continue;
@@ -555,7 +568,7 @@ export class SessionRegistry {
     }
 
     // Check regular sessions first
-    const newPath = join(project, '.collab', 'sessions', session, type);
+    const newPath = join(project, '.collab', getWorkspacesDir(), session, type);
     if (fs.existsSync(newPath)) {
       return newPath;
     }
@@ -588,7 +601,7 @@ export class SessionRegistry {
       throw new Error('Invalid session name: must be alphanumeric with hyphens only');
     }
 
-    const snippetsPath = join(project, '.collab', 'sessions', session, 'snippets');
+    const snippetsPath = join(project, '.collab', getWorkspacesDir(), session, 'snippets');
     await mkdir(snippetsPath, { recursive: true });
   }
 

@@ -1,0 +1,11 @@
+{
+  "todoId": "028999b3-3b6f-4bfd-bf4c-bafabaa6d5e1",
+  "session": "worker-028999b3",
+  "outcome": "escalated",
+  "retryReason": "wrong-cmd",
+  "layer": "collab",
+  "verbsTried": ["get_todo"],
+  "failingVerb": "get_todo",
+  "failingReturn": "todo not found: 028999b3-3b6f-4bfd-bf4c-bafabaa6d5e1",
+  "summary": "Coordinator claimed a todo id that does not exist in the store (consistent 'todo not found' across 2 attempts). DB is otherwise responsive now. Likely a lost/phantom claim, possibly from the earlier todos-DB disk-I/O corruption. Nothing to execute."
+}

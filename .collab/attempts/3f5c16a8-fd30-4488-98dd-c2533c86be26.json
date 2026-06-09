@@ -1,0 +1,11 @@
+{
+  "todoId": "3f5c16a8-fd30-4488-98dd-c2533c86be26",
+  "session": "worker-3f5c16a8",
+  "outcome": "accepted",
+  "retryReason": "none",
+  "layer": "none",
+  "verbsTried": ["get_todo", "complete_todo"],
+  "failingVerb": null,
+  "failingReturn": null,
+  "summary": "StewardPanel polish (3 tweaks): (1) relabeled front-door heading+button 'Become the Steward'/'Start steward' -> 'Launch the Steward'; (2) one-click launch (fixed 'steward' name, no input) already present from prior retry; (3) added a real SessionCard for the (project,'steward') session merged from the subscription feed, clickable to open its terminal via activateSessionCard, alongside the loud override-count + Pause/Take over. tsc clean for change-set; StewardPanel.test.tsx 6/6 pass (added card-render + relabel assertions)."
+}
