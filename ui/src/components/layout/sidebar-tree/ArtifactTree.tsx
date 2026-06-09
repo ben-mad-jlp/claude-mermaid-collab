@@ -30,7 +30,6 @@ import { EmbedsSection } from './sections/EmbedsSection';
 import { PinsSection } from './sections/PinsSection';
 import { RecentSection } from './sections/RecentSection';
 import { ArchivedSection } from './sections/ArchivedSection';
-import { OtherSessionsSection } from './OtherSessionsSection';
 import {
   getActionsForNode,
   type ArtifactType,
@@ -1298,9 +1297,6 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
           setSelection={setSelection}
           toTabDescriptor={toTabDescriptor}
         />
-        {/* Lazy per-session expand — browse other sessions' artifacts on
-            demand. Hidden in Studio, which is strictly single-session. */}
-        {!studio && <OtherSessionsSection />}
       </div>
 
       {contextMenu && (
