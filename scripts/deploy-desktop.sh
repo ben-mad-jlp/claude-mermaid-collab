@@ -41,6 +41,27 @@ die() { printf '\033[1;31m[deploy] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 port_pid() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1; }
 app_running() { pgrep -f "$APP_PATH/Contents/MacOS" >/dev/null 2>&1; }
 
+# Settle/kill loop: a detached/source-spawned sidecar (bun run src/server.ts from
+# the plugin cache, or the app's own detached mc-server) can survive the app kill
+# and keep re-grabbing the port. Rather than wait-then-die, actively kill whatever
+# holds the port — TERM then KILL — until it's free or we give up.
+free_port() {
+  local tries="${1:-20}" pid
+  for _ in $(seq 1 "$tries"); do
+    pid="$(port_pid)"
+    [ -z "$pid" ] && return 0
+    kill "$pid" 2>/dev/null || true
+    # Also sweep stray sidecars by name so a respawn can't immediately re-bind.
+    pkill -f "bun run src/server.ts" 2>/dev/null || true
+    pkill -f "Resources/mc-server" 2>/dev/null || true
+    sleep 0.5
+    pid="$(port_pid)"
+    [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
+    sleep 0.5
+  done
+  [ -z "$(port_pid)" ]
+}
+
 # ── 1. build ────────────────────────────────────────────────────────────────
 if [ "$DO_BUILD" = 1 ]; then
   log "building sidecar (mc-server)…"
@@ -69,12 +90,15 @@ log "swapped (rollback: restore mc-server.bak-$TS / ui/dist.bak-$TS)"
 restart() {
   log "force-quitting the app (so the detached sidecar dies and the port frees)…"
   pkill -9 -f "Mermaid Collab" 2>/dev/null || true
-  for _ in $(seq 1 15); do
-    if ! app_running && [ -z "$(port_pid)" ]; then break; fi
-    sleep 1
-  done
+  # Wait for the app's own processes to exit.
+  for _ in $(seq 1 15); do app_running || break; sleep 1; done
   app_running && die "app processes did not exit"
-  [ -n "$(port_pid)" ] && die "port $PORT still held by PID $(port_pid)"
+  # Then settle/kill anything still squatting the port (a respawned/source-spawned
+  # sidecar that survives the app kill and keeps re-grabbing it).
+  if [ -n "$(port_pid)" ]; then
+    log "port $PORT still held (PID $(port_pid)) — killing the squatting sidecar…"
+    free_port 20 || die "port $PORT still held by PID $(port_pid) after settle/kill"
+  fi
   log "relaunching by full path…"
   open "$APP_PATH"
 }
