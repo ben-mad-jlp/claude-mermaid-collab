@@ -58,17 +58,21 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
     // (no live source yet). Identity + user-set fields stay persisted.
     const now = Date.now();
     const VALID = new Set(['active', 'waiting', 'permission', 'unknown']);
+    // Past this age the persisted status is too old to trust as "idle a while" —
+    // show it gray (genuinely unknown) rather than a dimmed live-looking color.
+    const GONE_MS = 15 * 60_000;
     for (const [k, v] of Object.entries(raw)) {
-      const lastKnown = VALID.has(v.status) ? v.status : 'unknown';
+      const age = typeof v.lastUpdate === 'number' ? now - v.lastUpdate : Infinity;
+      const lastKnown = VALID.has(v.status) && age <= GONE_MS ? v.status : 'unknown';
       const coerced = lastKnown === 'active' ? 'waiting' : lastKnown;
       out[k] = {
         serverId: typeof v.serverId === 'string' ? v.serverId : '',
         project: v.project,
         session: v.session,
         status: coerced,
-        lastUpdate: now,
+        lastUpdate: typeof v.lastUpdate === 'number' ? v.lastUpdate : now,
         // Only mark stale when there's a real last-known status to dim; a genuine
-        // 'unknown' stays gray (nothing to fade).
+        // 'unknown' (or too-old) stays gray (nothing to fade).
         stale: coerced !== 'unknown',
       };
     }

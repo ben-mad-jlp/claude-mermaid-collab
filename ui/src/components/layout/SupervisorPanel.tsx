@@ -340,7 +340,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     }
 
     let cancelled = false;
-    const STALE_MS = 120_000;
+    // Two-tier staleness: past DIM_MS the status is shown DIMMED (last-known, idle
+    // a while); past GONE_MS it's genuinely stale → 'unknown' (gray). Without the
+    // GONE cutoff a days-old 'active'/'permission' row would render as a live-looking
+    // card forever (the bug: clicking it opens an idle shell).
+    const DIM_MS = 120_000; // 2 min → dim
+    const GONE_MS = 15 * 60_000; // 15 min → gray (matches useSessionStatuses)
 
     const fetchOne = async (
       serverId: string,
@@ -373,15 +378,14 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       const staleMap: Record<string, boolean> = {};
       pairs.forEach((p, i) => {
         for (const row of results[i]) {
-          const stale = typeof row.updatedAt === 'number' && now - row.updatedAt > STALE_MS;
+          const age = typeof row.updatedAt === 'number' ? now - row.updatedAt : Infinity;
           // Keyed by project:session (serverId-agnostic) so lookups don't depend
           // on which server we routed through — supervised rows may carry a
           // different/blank serverId than the active one.
           const key = `${row.project}:${row.session}`;
-          // Keep the last-known status; flag staleness separately so the card dims
-          // instead of flipping to gray (idle sessions emit no heartbeat).
-          map[key] = row.status;
-          staleMap[key] = stale;
+          // < DIM: live (full color). DIM..GONE: last-known, DIMMED. > GONE: gray.
+          map[key] = age > GONE_MS ? 'unknown' : row.status;
+          staleMap[key] = age > DIM_MS;
         }
       });
       if (!cancelled) {
@@ -418,16 +422,19 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     (s: SupervisedSession): SessionCardData => {
       const matched = findSubscription(s.project, s.session);
       const key = `${s.project}:${s.session}`;
-      const useMatched = !!(matched?.status && matched.status !== 'unknown');
+      // Live-subscription age: past 15 min a 'live' status is genuinely stale →
+      // fall through to the polled value (which already applies the gray cutoff)
+      // rather than trusting a days-old WS status as if active.
+      const matchedAge = typeof matched?.lastUpdate === 'number' ? Date.now() - matched.lastUpdate : Infinity;
+      const useMatched = !!(matched?.status && matched.status !== 'unknown' && matchedAge <= 15 * 60_000);
       const status = (useMatched
         ? matched!.status
         : (fetchedStatuses[key] as SessionCardData['status'])) ?? 'unknown';
       const serverId = matched?.serverId || s.serverId || activeId || 'local';
-      // Stale = the chosen source has aged past the window. For the live
-      // subscription, derive from its lastUpdate; for the polled fallback, use the
-      // staleness the poll recorded. Drives the dimmed (not gray) card.
+      // Stale (dim, not gray) once past the short window. The live branch dims after
+      // 2 min; the polled branch uses the staleness the poll recorded (also gray > 15 min).
       const stale = useMatched
-        ? typeof matched!.lastUpdate === 'number' && Date.now() - matched!.lastUpdate > 120_000
+        ? matchedAge > 120_000
         : !!staleStatuses[key];
       return {
         serverId,
