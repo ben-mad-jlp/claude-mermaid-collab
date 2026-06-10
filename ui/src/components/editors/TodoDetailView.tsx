@@ -128,6 +128,18 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
     }
   }, [todo, currentSession, upsertSessionTodo]);
 
+  // Unstick a wedged todo: server-side resetTodo clears the claim/lease/retry/
+  // acceptance state and re-queues it `ready` so the Orchestrator can claim it again.
+  const resetStuck = useCallback(async () => {
+    if (!todo || !currentSession) return;
+    try {
+      const updated = await api.resetTodo(currentSession.project, todo.id);
+      upsertSessionTodo(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset todo.');
+    }
+  }, [todo, currentSession, upsertSessionTodo]);
+
   const changeAssignee = useCallback(async (value: string) => {
     if (!todo || !currentSession) return;
     const assigneeSession = value || null;
@@ -245,6 +257,16 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
         {/* Edit controls — pushed right and kept together as a shrink-0 cluster
             that wraps to its own line rather than overflowing. */}
         <div className="ml-auto flex items-center gap-2 shrink-0">
+          {!editing && (status === 'in_progress' || status === 'blocked') && (
+            <button
+              data-testid="todo-detail-reset"
+              onClick={resetStuck}
+              title="Clear the worker claim/lease and re-queue this todo as ready so the Orchestrator can assign it again"
+              className="px-2 py-1 text-sm rounded text-warning-700 dark:text-warning-300 hover:bg-warning-50 dark:hover:bg-warning-900/30"
+            >
+              ↺ Reset
+            </button>
+          )}
           {editing ? (
             <>
               <button

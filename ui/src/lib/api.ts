@@ -152,6 +152,7 @@ export interface ApiClient {
   getSessionTodos(project: string, session: string, includeCompleted?: boolean, status?: TodoStatus, assigneeSession?: string): Promise<SessionTodo[]>;
   addSessionTodo(project: string, session: string, title: string, opts?: { status?: TodoStatus; assigneeSession?: string; priority?: number; dueDate?: string; description?: string; link?: SessionTodoLink }): Promise<SessionTodo>;
   patchSessionTodo(project: string, session: string, id: string, updates: { title?: string; completed?: boolean; link?: SessionTodoLink | null; status?: TodoStatus; assigneeSession?: string | null; priority?: number; dueDate?: string; description?: string }): Promise<SessionTodo>;
+  resetTodo(project: string, id: string): Promise<SessionTodo>;
   removeSessionTodo(project: string, session: string, id: string): Promise<void>;
   reorderSessionTodos(project: string, session: string, orderedIds: string[]): Promise<SessionTodo[]>;
   clearCompletedSessionTodos(project: string, session: string): Promise<{ removedCount: number }>;
@@ -728,6 +729,23 @@ export const api: ApiClient = {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project, session, ...updates }),
+    });
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    const data = await response.json();
+    return data.todo;
+  },
+
+  /**
+   * Reset a stuck todo: clear claim/lease/retry/acceptance and put it back to
+   * `ready` so the Orchestrator can claim it again.
+   */
+  async resetTodo(project: string, id: string): Promise<SessionTodo> {
+    const response = await fetch('/api/supervisor/todos/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, id }),
     });
     if (!response.ok) {
       throw new Error(response.statusText);

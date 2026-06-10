@@ -146,6 +146,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // RESET A STUCK TODO — clear the claim/lease/retry/acceptance state and put it
+  // back to `ready` so the Orchestrator's Build pass can claim it again. The UI
+  // "unstick" button on the todo detail view; wraps todo-store resetTodo.
+  if (url.pathname === '/api/supervisor/todos/reset' && req.method === 'POST') {
+    try {
+      const { project, id } = (await req.json()) as { project?: string; id?: string };
+      if (!project || !id) return jsonError('project and id are required', 400);
+      const { resetTodo } = await import('../services/todo-store.ts');
+      const todo = await resetTodo(project, id, 'ready');
+      getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+      return Response.json({ todo });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   // AUDIT TRACE (observability) — unified orchestration trace from the supervisor audit log.
   if (url.pathname === '/api/supervisor/audit' && req.method === 'GET') {
     const project = url.searchParams.get('project') ?? undefined;
