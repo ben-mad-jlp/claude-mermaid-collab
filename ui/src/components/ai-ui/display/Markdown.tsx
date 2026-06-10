@@ -23,7 +23,11 @@ export const Markdown: React.FC<MarkdownProps> = ({
   ariaLabel,
   unstyled = false,
 }) => {
-  const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // Follow the APP theme (the `.dark` class on <html>), not the OS preference —
+  // otherwise an OS-dark machine renders dark code blocks while the app is in
+  // light/sepia (the "sepia/light markdown is terrible" bug).
+  const isDarkMode =
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
 
   // Custom renderers for markdown elements
   const components = {
@@ -85,14 +89,14 @@ export const Markdown: React.FC<MarkdownProps> = ({
 
       if (hasBlockChildren) {
         return (
-          <div className="mb-3 text-black dark:text-white leading-relaxed" {...props}>
+          <div className="mb-3 text-gray-900 dark:text-gray-100 leading-relaxed" {...props}>
             {children}
           </div>
         );
       }
 
       return (
-        <p className="mb-3 text-black dark:text-white leading-relaxed" {...props}>
+        <p className="mb-3 text-gray-900 dark:text-gray-100 leading-relaxed" {...props}>
           {children}
         </p>
       );
@@ -104,10 +108,10 @@ export const Markdown: React.FC<MarkdownProps> = ({
       />
     ),
     ul: ({ node, ...props }: any) => (
-      <ul className="list-disc list-inside mb-3 text-black dark:text-white" {...props} />
+      <ul className="list-disc list-inside mb-3 text-gray-900 dark:text-gray-100" {...props} />
     ),
     ol: ({ node, ...props }: any) => (
-      <ol className="list-decimal list-inside mb-3 text-black dark:text-white" {...props} />
+      <ol className="list-decimal list-inside mb-3 text-gray-900 dark:text-gray-100" {...props} />
     ),
     li: ({ node, ...props }: any) => <li className="mb-1" {...props} />,
     table: ({ node, ...props }: any) => (
@@ -139,7 +143,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
     ),
     td: ({ node, ...props }: any) => (
       <td
-        className="px-4 py-2 text-black dark:text-white border-r border-gray-300 dark:border-gray-600"
+        className="px-4 py-2 text-gray-900 dark:text-gray-100 border-r border-gray-300 dark:border-gray-600"
         {...props}
       />
     ),
@@ -211,7 +215,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
   if (unstyled) {
     return (
       <div
-        className="prose prose-sm dark:prose-invert max-w-none text-black dark:text-white prose-p:text-black dark:prose-p:text-white prose-headings:text-black dark:prose-headings:text-white prose-li:text-black dark:prose-li:text-white prose-strong:text-black dark:prose-strong:text-white"
+        className="prose prose-sm dark:prose-invert max-w-none text-gray-900 dark:text-gray-100 prose-p:text-gray-900 dark:prose-p:text-white prose-headings:text-gray-900 dark:prose-headings:text-white prose-li:text-gray-900 dark:prose-li:text-white prose-strong:text-gray-900 dark:prose-strong:text-white"
         role="region"
         aria-label={ariaLabel || 'Markdown content'}
       >
