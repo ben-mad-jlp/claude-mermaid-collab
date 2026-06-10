@@ -208,9 +208,8 @@ async function capturePane(tmux: string): Promise<string> {
 /** A Claude TUI pane is ACTIVELY WORKING when it shows a spinner with an elapsed
  *  timer (e.g. "✻ Zesting… (26s · ↓ 1.1k tokens)") or the interrupt hint. When the
  *  worker has ended its turn and sits at the input prompt awaiting a human, neither
- *  is present. Exported so the tmux-reaper's idle-at-prompt path uses the IDENTICAL
- *  "is this lane working?" test (idle = alive Claude + not actively working). */
-export function isActivelyWorking(pane: string): boolean {
+ *  is present. */
+function isActivelyWorking(pane: string): boolean {
   return /\(\d+(?:m\s*\d+)?s\s*·/.test(pane) || /esc to interrupt/i.test(pane);
 }
 

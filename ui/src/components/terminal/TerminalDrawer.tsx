@@ -97,7 +97,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
     const onOk = () => {
       useNotificationStore.getState().addToast({
         type: 'success', title: 'Terminal reset',
-        message: 'Re-asserted mouse/scroll modes.', duration: 3000,
+        message: 'Restored drag-to-copy + app scrollback (tmux mouse off).', duration: 3000,
       });
     };
     const mc = (window as any).mc;
@@ -261,7 +261,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         <button
           type="button"
           onClick={resetActiveTerminal}
-          title="Reset terminal (unstick mouse/scroll)"
+          title="Reset terminal modes (restore drag-to-copy + app scrollback)"
           style={{
             cursor: 'pointer', color: '#6e7681', background: 'none',
             border: 'none', padding: '4px 8px', fontSize: 12,

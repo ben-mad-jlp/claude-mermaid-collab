@@ -348,7 +348,7 @@ describe('TerminalManager', () => {
         // Session should be created successfully, even if unbind-key fails on this tmux version
         await manager.createTmuxSession(sessionName);
 
-        // Verify session was created and has mouse enabled
+        // Verify session was created (mouse is set off; app owns the wheel)
         const sessions = await manager.listActiveTmuxSessions('test-unbind-h-');
         expect(sessions).toContain(sessionName);
       } finally {
@@ -368,7 +368,7 @@ describe('TerminalManager', () => {
         // Session should be created successfully, even if unbind-key fails on this tmux version
         await manager.createTmuxSession(sessionName);
 
-        // Verify session was created and has mouse enabled
+        // Verify session was created (mouse is set off; app owns the wheel)
         const sessions = await manager.listActiveTmuxSessions('test-unbind-v-');
         expect(sessions).toContain(sessionName);
       } finally {
@@ -388,9 +388,9 @@ describe('TerminalManager', () => {
         // Session should be created successfully
         await manager.createTmuxSession(sessionName);
 
-        // Verify mouse is still enabled (unbind should not interfere with mouse)
+        // Verify mouse is set off (unbind should not interfere with the mouse option)
         const mouseCheck = execSync(`tmux show-options -t ${sessionName} mouse 2>&1 || true`).toString();
-        expect(mouseCheck).toContain('on');
+        expect(mouseCheck).toContain('off');
       } finally {
         // Cleanup
         try {
@@ -448,9 +448,9 @@ describe('TerminalManager', () => {
         // Session should be created successfully with mouse enabled
         await manager.createTmuxSession(sessionName);
 
-        // Verify mouse scrolling still works (mouse should be on)
+        // Verify mouse stays off (app owns the wheel; xterm owns drag-to-copy)
         const mouseCheck = execSync(`tmux show-options -t ${sessionName} mouse 2>&1 || true`).toString();
-        expect(mouseCheck).toContain('on');
+        expect(mouseCheck).toContain('off');
       } finally {
         // Cleanup
         try {

@@ -117,14 +117,21 @@ export class TerminalManager {
         await execAsync(`tmux new-session -d -s ${tmuxSessionName}`);
       }
 
-      // Enable mouse scrolling for the session
-      await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`);
-      // Stop the wheel masquerading as arrow keys: with `mouse on` and an
-      // alternate-screen app that isn't grabbing the mouse, tmux's default
-      // `alternate-scroll on` translates wheel up/down into ↑/↓ arrow keys.
-      // Turning it off only affects that window (apps that grab the mouse are
-      // untouched; the bare shell still gets copy-mode scrollback).
-      await execAsync(`tmux set-option -t ${tmuxSessionName} alternate-scroll off`);
+      // Keep tmux's mouse OFF so tmux stays transparent to the mouse: the inner
+      // app (Claude Code's TUI) owns the wheel (its own scrollback) and xterm.js
+      // owns drag-to-select/copy. Turning `mouse on` makes tmux capture the mouse
+      // at its own layer — which (a) hijacks drag into tmux copy-mode (selection
+      // clears on mouse-up, breaking copy) and (b) with the default
+      // `alternate-scroll on` translates the wheel into ↑/↓ arrow keys for
+      // alternate-screen apps that aren't grabbing the mouse. Both bugs are
+      // structurally impossible while mouse is off. (verified 2026-06-10)
+      await execAsync(`tmux set-option -t ${tmuxSessionName} mouse off`);
+      // Belt-and-suspenders: even if mouse is ever toggled on, never translate
+      // the wheel into arrow keys. alternate-scroll is a WINDOW option (needs -w)
+      // and may not exist on older tmux — best-effort so it never aborts creation.
+      try {
+        await execAsync(`tmux set-option -wt ${tmuxSessionName} alternate-scroll off`);
+      } catch { /* unsupported tmux — not critical */ }
 
       // Disable terminal splitting by unbinding split keys
       // Unbind horizontal split (Ctrl+B %)
@@ -146,9 +153,11 @@ export class TerminalManager {
 
       // Check if session already exists (exit code 1 with "duplicate session")
       if (errorMsg.includes('duplicate session') || errorMsg.includes('already exists')) {
-        // If duplicate: That's OK, session exists - still enable mouse mode and attempt unbind keys
-        await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`);
-        await execAsync(`tmux set-option -t ${tmuxSessionName} alternate-scroll off`);
+        // If duplicate: That's OK, session exists - still assert mouse-off mode and attempt unbind keys
+        await execAsync(`tmux set-option -t ${tmuxSessionName} mouse off`);
+        try {
+          await execAsync(`tmux set-option -wt ${tmuxSessionName} alternate-scroll off`);
+        } catch { /* unsupported tmux — not critical */ }
         try {
           await execAsync(`tmux unbind-key -t ${tmuxSessionName} %`);
         } catch {
@@ -167,11 +176,14 @@ export class TerminalManager {
     }
   }
 
-  /** Re-assert mouse modes on a live tmux session (unstick a wedged terminal:
-   *  e.g. wheel masquerading as arrow keys). Best-effort; never throws. */
+  /** Restore the good terminal mode on a live tmux session: mouse OFF (tmux stays
+   *  transparent so the app owns the wheel and xterm owns drag-to-copy) +
+   *  alternate-scroll off. Unsticks a terminal wedged into tmux-owns-the-mouse
+   *  state (drag-select clears on release; wheel sends arrow keys). Best-effort;
+   *  never throws. (verified 2026-06-10) */
   async resetTmuxModes(tmuxSessionName: string): Promise<void> {
-    try { await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`); } catch { /* best-effort */ }
-    try { await execAsync(`tmux set-option -t ${tmuxSessionName} alternate-scroll off`); } catch { /* best-effort */ }
+    try { await execAsync(`tmux set-option -t ${tmuxSessionName} mouse off`); } catch { /* best-effort */ }
+    try { await execAsync(`tmux set-option -wt ${tmuxSessionName} alternate-scroll off`); } catch { /* best-effort */ }
   }
 
   /**
