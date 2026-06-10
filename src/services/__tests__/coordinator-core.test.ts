@@ -75,6 +75,12 @@ describe('planCoordinatorTick', () => {
     expect(plan.toClaim).toContain('leaf');
   });
 
+  test('human-assigned todo is NEVER claimed (park-from-daemon)', () => {
+    const note = makeTodo({ id: 'note', status: 'ready', dependsOn: [], assigneeKind: 'human' } as any);
+    const plan = planCoordinatorTick([note], NOW);
+    expect(plan.toClaim).not.toContain('note');
+  });
+
   test('ready todo with a pending (non-done) dep → NOT in toClaim', () => {
     const dep = makeTodo({ id: 'dep1', status: 'in_progress' });
     const todo = makeTodo({ id: 'a', status: 'ready', dependsOn: ['dep1'] });
@@ -128,6 +134,13 @@ describe('planOrphanReap', () => {
   test('ACCEPTANCE: epic (parentId NULL) is never reaped', () => {
     const epic = makeTodo({ id: 'e', status: 'in_progress', parentId: null, updatedAt: STALE, claimedBy: null });
     expect(planOrphanReap([epic], NOW, GRACE)).toHaveLength(0);
+  });
+
+  test('human-assigned in_progress leaf is NEVER reaped (a [SESSION] note authored in_progress)', () => {
+    // The exact regression: a hand-authored in_progress note with claimedBy NULL looked
+    // identical to an orphaned worker claim and got reclaimed → claimed → worked.
+    const note = leaf({ id: 'note', assigneeKind: 'human' } as any);
+    expect(planOrphanReap([note], NOW, GRACE)).toHaveLength(0);
   });
 
   test('ACCEPTANCE: a leaf with a LIVE claim (lease not expired) is untouched', () => {

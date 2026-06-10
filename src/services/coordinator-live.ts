@@ -968,6 +968,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // session/tmux is actually gone (hard-dead worker), then free its pool slot so
       // the slot isn't wedged busy on a vanished session.
       for (const t of listTodos(project, { status: 'in_progress' })) {
+        if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
         // Identity is the persisted pool lane. No sessionName → the todo was never
         // spawned under a lane (or its persist raced); treat as dead and reclaim,
         // rather than fabricating a `worker-<id8>` name that points at no real tmux.
@@ -1005,6 +1006,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const snap = await procSnapshot();
       const fastReaped = new Set<string>();
       for (const t of inProgress) {
+        if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
         if (t.parentId == null) continue; // epics are containers — never reaped
         const session = t.sessionName;
         if (!session) continue;           // never-spawned leaf → grace sweep handles it

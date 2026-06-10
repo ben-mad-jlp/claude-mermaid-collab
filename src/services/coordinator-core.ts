@@ -47,6 +47,7 @@ export function planOrphanReap(todos: Todo[], now: string, graceMs: number): Orp
   const out: OrphanReapCandidate[] = [];
   for (const t of todos) {
     if (t.status !== 'in_progress') continue;
+    if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — the daemon never reaps/works it
     if (t.parentId == null) continue; // epics are containers — never reaped
     if (nowMs - new Date(t.updatedAt).getTime() <= graceMs) continue; // within grace
     if (t.claimedBy == null) {
@@ -109,6 +110,7 @@ export function planCoordinatorTick(todos: Todo[], now: string): CoordinatorTick
   }
   for (const t of todos) {
     if (t.status === 'ready') {
+      if (t.assigneeKind === 'human') continue; // human-owned — the daemon never claims it (park-from-daemon)
       if (openChildParents.has(t.id)) continue; // container — never claim
       // Mirror todo-store.depSatisfied: a dep satisfies only when 'done' AND not
       // rejected. A rejected dep (SI-3) never silently satisfies its dependents.
