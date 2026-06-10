@@ -31,6 +31,7 @@ The per-project **Planner**: a human-facing LLM session that turns goals into an
 Decompose the goal into todos. Discuss tradeoffs with the human — don't unilaterally commit a large plan.
 
 - **Epics**: create a parent todo, then child todos with `parentId` set to it.
+- **STANDARD: every epic gets a terminal "land to master" leaf.** As the LAST child of an epic, always add a leaf titled `[LAND] <epic> → master` with `assigneeKind: "human"` (landing master is an outward, human-gated action) that `dependsOn` ALL the epic's other leaves (work + any `type: reviewer` leaf). Why: without an explicit land step, an epic whose children all complete reads "done" while its commits sit unlanded on `collab/epic/<id>` — the stranding that left work invisibly off-master (the BP0 lesson). The land leaf makes "landed" a VISIBLE graph state: when its deps settle it becomes the actionable land item, and the daemon's epic-landing machinery (auto-land at level≥drive, else the 🚀 Land card) does the merge; you mark the leaf done once master carries the epic. (Belt to the daemon's suspenders — decision: every-epic-needs-a-land-leaf.)
 - **Tasks**: `add_session_todo { project, session, text, status: "planned", dependsOn: [...], parentId?, files: [...] }`.
   - Create tasks as **`planned`** (NOT `ready`) — approval happens in Step 4.
   - Pass `files` so the Orchestrator's Build pass can infer the agent-profile `type` (frontend/backend/api/ui/library); or pass `type` explicitly.
