@@ -60,6 +60,12 @@ export interface CoordinatorDeps {
    *  failed verdict overrides a worker 'accepted' to 'rejected' so unverified work
    *  never lands — the #6/#7 lesson made enforceable (5374e299). Optional. */
   runGate?: (project: string, todoId: string) => Promise<GateVerdict | null>;
+  /** Notify the UI that this project's todos changed (broadcast session_todos_updated)
+   *  after a DAEMON-driven transition — reclaim→ready, retry-exhaust→blocked, claim→
+   *  in_progress, reap. Without this the only session_todos_updated broadcasts come
+   *  from the MCP tool handlers, so a daemon-side block/reclaim leaves the Bridge
+   *  showing a stale in-flight card until a manual refresh. Optional. */
+  notifyTodosChanged?: (project: string) => void;
 }
 
 export interface TickResult { released: string[]; exhausted: string[]; claimed: string[]; spawned: string[]; }
@@ -136,6 +142,12 @@ export async function runTick(
     } catch {
       // one bad todo must not abort the whole tick; the lease handles recovery
     }
+  }
+  // Push the daemon-driven status changes to the UI (reclaim/exhaust/claim) so the
+  // Bridge doesn't show a stale in-flight card after a block/reclaim happened
+  // entirely server-side (no MCP tool call to ride the existing broadcast).
+  if (released.length || exhausted.length || claimed.length) {
+    try { deps.notifyTodosChanged?.(project); } catch { /* notify must not abort the tick */ }
   }
   return { released, exhausted, claimed, spawned };
 }

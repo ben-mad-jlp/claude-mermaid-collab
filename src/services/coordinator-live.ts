@@ -4,6 +4,7 @@ import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTo
 import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, levelRank } from './orchestrator-config';
 import { getStatus } from './session-status-store';
+import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
@@ -675,6 +676,13 @@ export async function landEpic(project: string, escalationId: string): Promise<L
 /** Wire the Coordinator daemon to the real todo-store + a live worker launcher. */
 export function makeCoordinatorDeps(): CoordinatorDeps {
   return {
+    // Push daemon-driven todo-status changes to the UI (the Bridge otherwise only
+    // hears session_todos_updated from MCP tool calls, so a server-side block/reclaim
+    // left a stale in-flight card). Best-effort; never throws.
+    notifyTodosChanged: (project: string) => {
+      try { getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' } as any); }
+      catch { /* broadcast is best-effort */ }
+    },
     listReadyTodos,
     // Readiness-gates P4: claim-time liveness probe filter. A todo carrying a
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set

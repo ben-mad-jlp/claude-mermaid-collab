@@ -84,6 +84,28 @@ function makeDeps(overrides: Partial<CoordinatorDeps> = {}): CoordinatorDeps & {
 }
 
 describe('runTick', () => {
+  test('notifyTodosChanged fires when the daemon changes a todo status (exhausted→blocked)', async () => {
+    const calls: string[] = [];
+    const deps = makeDeps({
+      releaseExpiredClaims: async () => ({ released: [], exhausted: ['dead'] }),
+      escalateExhausted: async () => {},
+      notifyTodosChanged: (p) => calls.push(p),
+    });
+    await runTick(deps, 'proj');
+    expect(calls).toEqual(['proj']); // the stale-Bridge-card fix: server-side block now pushes
+  });
+
+  test('notifyTodosChanged does NOT fire when nothing changed (no churn → no broadcast)', async () => {
+    const calls: string[] = [];
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      releaseExpiredClaims: async () => ({ released: [], exhausted: [] }),
+      notifyTodosChanged: (p) => calls.push(p),
+    });
+    await runTick(deps, 'proj');
+    expect(calls).toEqual([]);
+  });
+
   test('two ready todos, both claimed and spawned', async () => {
     const todos = [makeTodo('a'), makeTodo('b')];
     const deps = makeDeps({

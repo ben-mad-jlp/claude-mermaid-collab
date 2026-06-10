@@ -101,6 +101,9 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // project so the rail is live without visiting each. The heavier detail-only
   // loaders (audit/requirements/coverage) stay scoped to the ACTIVE project to
   // keep resync cheap at 15+ projects (doc risk #2).
+  // Bumped by the ↺ refresh button to force an immediate worker-card (session-status)
+  // re-poll — otherwise the cards only refresh on useSessionStatuses' 10s interval.
+  const [statusRefreshNonce, setStatusRefreshNonce] = useState(0);
   const resyncBridge = useCallback(() => {
     void loadEscalations(serverScope, 'open');
     const railProjects = new Set<string>(watchedProjects.map((w) => w.project).filter(Boolean));
@@ -113,6 +116,8 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
       void loadRequirements(serverScope, project);
       void loadCoverage(serverScope, project);
     }
+    // Force the worker cards (polled session statuses) to refresh now, not in ≤10s.
+    setStatusRefreshNonce((n) => n + 1);
   }, [serverScope, project, watchedProjects, loadEscalations, loadProjectTodos, loadAudit, loadRequirements, loadCoverage]);
 
   useEffect(() => {
@@ -130,8 +135,18 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     const sub = client.onConnect(() => {
       resyncBridge();
     });
-    return () => sub.unsubscribe();
-  }, [resyncBridge]);
+    // Live-update the Bridge todo cards on ANY session_todos_updated — including
+    // DAEMON-driven transitions (reclaim→blocked, retry-exhaust, claim→in_progress)
+    // which now broadcast (coordinator notifyTodosChanged). Without this the Bridge
+    // only resynced on mount/reconnect/manual-↺, so a server-side block left a stale
+    // in-flight card. Targeted reload of just the affected project's todos.
+    const msgSub = client.onMessage((msg: any) => {
+      if (msg?.type === 'session_todos_updated' && typeof msg.project === 'string' && msg.project) {
+        void loadProjectTodos(serverScope, msg.project);
+      }
+    });
+    return () => { sub.unsubscribe(); msgSub.unsubscribe(); };
+  }, [resyncBridge, serverScope, loadProjectTodos]);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {
@@ -169,7 +184,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // Per decision 5d54e01e (ANY-ALIVE-IS-PRESENT): working → bright, idle → dimmed
   // but listed, dead_shell/no_tmux → hidden. Orchestrator/role sessions
   // (supervisor/steward/planner) drive the work-graph, not workers — excluded.
-  const sessionStatuses = useSessionStatuses(serverScope, project || undefined);
+  const sessionStatuses = useSessionStatuses(serverScope, project || undefined, statusRefreshNonce);
   const fleet = useFleetStatus(serverScope, project || undefined);
   const workerSubs = useMemo(() => {
     const subBySession = new Map(projectSubs.map((s) => [s.session, s]));

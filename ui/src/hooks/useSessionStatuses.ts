@@ -32,6 +32,10 @@ const POLL_MS = 10_000;
 export function useSessionStatuses(
   serverScope: string,
   project: string | undefined,
+  /** Bump to force an IMMEDIATE re-poll (e.g. the Bridge ↺ refresh button) instead
+   *  of waiting up to POLL_MS for the next interval tick — so worker cards refresh
+   *  on demand, not just every 10s. */
+  refreshNonce?: number,
 ): Record<string, SessionStatusEntry> {
   const [statuses, setStatuses] = useState<Record<string, SessionStatusEntry>>({});
 
@@ -76,7 +80,7 @@ export function useSessionStatuses(
       cancelled = true;
       clearInterval(id);
     };
-  }, [serverScope, project]);
+  }, [serverScope, project, refreshNonce]);
 
   return statuses;
 }
