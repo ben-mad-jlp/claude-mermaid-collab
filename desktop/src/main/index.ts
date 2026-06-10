@@ -1,5 +1,11 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, nativeImage, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, Menu, screen } from 'electron';
+import {
+  loadWindowState,
+  saveWindowState,
+  resolveInitialBounds,
+  type WindowState,
+} from './window-state';
 import { ServerSupervisor, getFreePort } from './server-supervisor';
 import { BrowserPaneManager } from './browser-pane';
 import { DesktopControl } from './desktop-control';
@@ -348,6 +354,11 @@ function setupMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/** Path to the persisted main-window bounds (userData/window-state.json). */
+function windowStateFile(): string {
+  return join(app.getPath('userData'), 'window-state.json');
+}
+
 function createWindow(): void {
   const appIcon = loadAppIcon();
   // macOS shows the dock icon from the bundle, but unpackaged dev runs default
@@ -356,9 +367,17 @@ function createWindow(): void {
     app.dock.setIcon(appIcon);
   }
 
+  // Restore the size/position from the last session (dropping an off-screen
+  // position if a display was disconnected since).
+  const workAreas = screen.getAllDisplays().map((d) => d.workArea);
+  const initial = resolveInitialBounds(loadWindowState(windowStateFile()), workAreas);
+
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 800,
+    width: initial.width,
+    height: initial.height,
+    ...(typeof initial.x === 'number' && typeof initial.y === 'number'
+      ? { x: initial.x, y: initial.y }
+      : {}),
     show: true,
     icon: appIcon,
     webPreferences: {
@@ -366,6 +385,32 @@ function createWindow(): void {
       sandbox: true,
       preload: join(__dirname, '../preload/index.js'),
     },
+  });
+  if (initial.isMaximized) mainWindow.maximize();
+
+  // Persist size/position on move/resize (debounced) and on close, so the next
+  // launch reopens where the user left off.
+  const persistBounds = () => {
+    if (!mainWindow) return;
+    const maximized = mainWindow.isMaximized();
+    // When maximized, getBounds() is the full screen; getNormalBounds() is the
+    // pre-maximize size we want to restore TO after un-maximizing.
+    const b = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+    const state: WindowState = {
+      x: b.x, y: b.y, width: b.width, height: b.height, isMaximized: maximized,
+    };
+    saveWindowState(windowStateFile(), state);
+  };
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  const persistBoundsDebounced = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistBounds, 400);
+  };
+  mainWindow.on('resize', persistBoundsDebounced);
+  mainWindow.on('move', persistBoundsDebounced);
+  mainWindow.on('close', () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    persistBounds();
   });
 
   // electron-vite injects ELECTRON_RENDERER_URL in dev; in prod load the built file.
