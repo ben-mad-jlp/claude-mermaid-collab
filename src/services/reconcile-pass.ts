@@ -30,6 +30,7 @@ import {
   getSupervisedLaunchProject,
 } from './supervisor-store.ts';
 import { listTodos, getTodo, sweepEpicRollups } from './todo-store.ts';
+import { surfaceEpicLand } from './coordinator-live.ts';
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
 import { deriveLiveness } from './session-runtime.ts';
@@ -169,12 +170,19 @@ export async function runReconcilePass(project: string): Promise<void> {
   // completions, bulk edits, cross-session) stays in_progress forever. This
   // sweep is the periodic catch-up: roll up epics whose non-dropped children are
   // ALL done+accepted; leave (and flag) epics with done-but-unaccepted children
-  // so ungated work is never silently closed. It raises NO escalations or land
-  // cards — the 'epic-ready-to-land' surface stays on the event path only.
+  // so ungated work is never silently closed.
+  //
+  // SELF-HEALING LAND SURFACE (design-epic-landing P2): for each epic rolled up
+  // HERE (out-of-band — completeTodo's event path never fired), call the SAME
+  // surfaceEpicLand the event path uses. It raises a deduped 'epic-ready-to-land'
+  // card every tick until landed (so stranded work can't hide), and at level>=drive
+  // auto-lands a green epic via the existing safe landEpic path. This lifts the old
+  // mute that left rolled-up epics silent — the exact gap behind the incident.
   // -------------------------------------------------------------------------
   try {
     const { rolledUp, flagged } = await sweepEpicRollups(project);
     for (const epicId of rolledUp) {
+      await surfaceEpicLand(project, epicId, { sessionHint: 'coordinator' });
       recordSupervisorAudit({
         kind: 'reconcile',
         project,
