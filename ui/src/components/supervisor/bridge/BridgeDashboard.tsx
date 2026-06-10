@@ -329,6 +329,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             needsYouCount={openEscalationCount}
             serverScope={serverScope}
             project={project}
+            onRefresh={resyncBridge}
           />
         }
         left={
@@ -378,19 +379,6 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                       )}
                     </button>
                   ))}
-                  <button
-                    type="button"
-                    data-testid="bridge-refresh"
-                    title="Refresh bridge data"
-                    aria-label="Refresh bridge data"
-                    onClick={resyncBridge}
-                    className="ml-auto px-2 self-center p-1 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                  >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 4 23 10 17 10" />
-                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                    </svg>
-                  </button>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto p-2">
                   {bridgeTab === 'escalations' && (

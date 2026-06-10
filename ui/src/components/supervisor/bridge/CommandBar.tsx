@@ -19,6 +19,8 @@ export interface CommandBarProps {
   serverScope: string;
   /** Active project. */
   project?: string;
+  /** Re-fetch all Bridge data for the current scope. */
+  onRefresh?: () => void;
 }
 
 export const CommandBar: React.FC<CommandBarProps> = ({
@@ -26,6 +28,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   inflightCount,
   needsYouCount,
   project,
+  onRefresh,
 }) => {
   const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : null;
   return (
@@ -35,8 +38,22 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     >
       {/* Row 1 — identity + project + the Orchestrator level ladder. */}
       <div className="flex items-center gap-3">
-        <span className="text-base" role="img" aria-label="bridge">⤢</span>
         <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Bridge</span>
+        {onRefresh && (
+          <button
+            type="button"
+            data-testid="bridge-refresh"
+            title="Refresh bridge data"
+            aria-label="Refresh bridge data"
+            onClick={onRefresh}
+            className="p-1 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </button>
+        )}
         {/* Active project — the Bridge is per-project. */}
         {projectName && (
           <span
