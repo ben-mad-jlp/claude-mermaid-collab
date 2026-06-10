@@ -42,6 +42,7 @@ import { downloadArtifact } from '../../../lib/downloadArtifact';
 import { emailArtifact } from '../../../lib/emailArtifact';
 import { api } from '../../../lib/api';
 import { useTabsStore, useSessionTabs } from '../../../stores/tabsStore';
+import { useDataLoader } from '../../../hooks/useDataLoader';
 import { ConfirmDialog } from '../../dialogs/ConfirmDialog';
 import type { Item, ItemType } from '../../../types/item';
 
@@ -175,6 +176,18 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
   const clearSelection = useSidebarTreeStore((s) => s.clearSelection);
 
   const sessionSearchCache = React.useRef<Map<string, string>>(new Map());
+
+  const { loadSessionItems } = useDataLoader();
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => {
+    if (!currentSession || refreshing) return;
+    setRefreshing(true);
+    try {
+      await loadSessionItems(currentSession.serverId, currentSession.project, currentSession.name);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const openPermanent = useTabsStore((s) => s.openPermanent);
   const openPreview = useTabsStore((s) => s.openPreview);
@@ -1016,6 +1029,20 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
             onChange={handleFileInputChange}
           />
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Refresh items"
+              aria-label="Refresh items"
+              data-testid="sidebar-refresh"
+              className="p-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+            >
+              <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+            </button>
             <button
               type="button"
               onClick={() => {
