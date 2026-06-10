@@ -78,12 +78,12 @@ const SKILLS = 'Skill(mermaid-collab:*)';
  * real work (vary hard limits via runtimeMode, not by removing Edit/Write).
  */
 export const AGENT_PROFILES: Record<AgentProfileType, AgentProfile> = {
-  default:  { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
-  frontend: { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
-  backend:  { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
-  api:      { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
-  ui:       { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
-  library:  { allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  default:  { allowedTools: `Bash Edit Write Read Agent ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  frontend: { allowedTools: `Bash Edit Write Read Agent ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  backend:  { allowedTools: `Bash Edit Write Read Agent ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  api:      { allowedTools: `Bash Edit Write Read Agent ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  ui:       { allowedTools: `Bash Edit Write Read Agent ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
+  library:  { allowedTools: `Bash Edit Write Read Agent ${MCP} ${SKILLS}`, runtimeMode: 'edit' },
   // `cad` is the one domain profile that ships WARM out of the box: it carries the
   // shared `cad` tech-pack's domain context (the bsync session/parts/instances/
   // face_index model, script-vs-verb guidance, part-authoring + STEP export, the P1
@@ -96,7 +96,7 @@ export const AGENT_PROFILES: Record<AgentProfileType, AgentProfile> = {
   // real CAD-arm V2 permission-stall) without resorting to a bypass. A repo that
   // wants different CAD context/tools still overrides via its manifest `cad` profile.
   cad: {
-    allowedTools: `Bash Edit Write Read ${MCP} ${SKILLS} ${TECH_PACKS.cad.allowedTools}`,
+    allowedTools: `Bash Edit Write Read Agent ${MCP} ${SKILLS} ${TECH_PACKS.cad.allowedTools}`,
     runtimeMode: 'edit',
     contextPrompt: TECH_PACKS.cad.contextPrompt,
     ...(TECH_PACKS.cad.model ? { model: TECH_PACKS.cad.model } : {}),
@@ -112,9 +112,9 @@ export const DEFAULT_PROFILE_TYPE: AgentProfileType = 'default';
  * gated separately in {@link resolveCapability} (constraint 64f813bd).
  */
 export const CAPABILITIES: Record<Capability, Pick<AgentProfile, 'allowedTools' | 'runtimeMode'>> = {
-  edit:     { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'edit' },
+  edit:     { allowedTools: `Bash Edit Write Read Agent ${MCP}`, runtimeMode: 'edit' },
   reviewer: { allowedTools: `Read Grep Glob ${MCP}`, runtimeMode: 'read-only' },
-  headless: { allowedTools: `Bash Edit Write Read ${MCP}`, runtimeMode: 'bypass' },
+  headless: { allowedTools: `Bash Edit Write Read Agent ${MCP}`, runtimeMode: 'bypass' },
 };
 
 /**

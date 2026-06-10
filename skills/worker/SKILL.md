@@ -2,7 +2,7 @@
 name: worker
 description: Ephemeral per-todo worker — executes one claimed work-graph todo, runs the mechanical acceptance gate, and reports completion. Spawned by the Orchestrator daemon's Build pass; not normally invoked by hand.
 user-invocable: true
-allowed-tools: Bash, Edit, Write, Read, mcp__plugin_mermaid-collab_mermaid__get_todo, mcp__plugin_mermaid-collab_mermaid__complete_todo, mcp__plugin_mermaid-collab_mermaid__escalation_create
+allowed-tools: Bash, Edit, Write, Read, Agent, mcp__plugin_mermaid-collab_mermaid__get_todo, mcp__plugin_mermaid-collab_mermaid__complete_todo, mcp__plugin_mermaid-collab_mermaid__escalation_create
 ---
 
 # Worker
@@ -53,6 +53,44 @@ If the todo's deliverable is **geometry** (a CAD part, an assembly, a joint or b
 - **Empty / invalid / wrong-DOF / interfering geometry you can fix in scope →** fix and re-run.
 - **…you cannot fix →** `rejected`.
 - **The failure is a SOLVER / tool limitation, not your modeling** (e.g. a coupled mechanism can't be driven, `same_orientation`/`parallel-3d` crashes) → **escalate** (Step 4c), do NOT report rejected. This is the attribution that matters: a bad change is `rejected`; a tool limitation is an escalation. **In your completion/escalation message, name the verb that failed and its return** so the failure can be attributed (collab-layer vs bsync-layer) until structured friction-notes exist.
+
+## Step 3.5 — Completeness review (behavioral leaves only)
+
+The mechanical gate (Step 3) only proves the change **compiles and its scoped tests pass** — it cannot tell whether the change-set actually + fully satisfies the spec (missing cases, spec drift, stopped-early). For a non-trivial behavioral leaf, run ONE read-only completeness/bug review over your OWN change-set after the mechanical gate is green and BEFORE `complete_todo`.
+
+**TRIGGER — run it only when the leaf is NON-TRIVIAL and BEHAVIORAL** (acceptance is more than "it compiles"). **SKIP** for trivial/non-behavioral leaves — a pure rename, formatting, a one-line config/string change, a doc-only edit. Skipping is correct there: no review agent is spawned, no false tax. When you skip, note "Step 3.5 skipped — trivial/non-behavioral leaf" and proceed to Step 4.
+
+**Code leaves** — spawn exactly ONE read-only agent:
+
+```
+Tool: Agent
+Args: {
+  subagent_type: "general-purpose",
+  description: "Completeness review: <short todo title>",
+  prompt: "
+You are a READ-ONLY reviewer. Do NOT edit, write, or run any skill/agent — you have Read/Grep/Glob/Bash(read-only) only. Your job is to judge whether a change-set fully and correctly satisfies its spec.
+
+SPEC (todo title + description):
+<paste the todo title + description verbatim>
+
+CHANGE-SET (this lane only — never whole-repo):
+<paste the output of `git diff` for ONLY the files this todo touched — get them via `git diff --name-only`, then diff exactly those paths>
+
+Judge: does the change-set FULLY and CORRECTLY satisfy the spec? Report concrete, specific gaps/bugs only — missing cases, spec drift, work that stopped early, off-by-one/logic errors. For each: file:line, what's wrong, why it violates the spec. If the change-set is complete and correct, say so explicitly. Do not suggest scope-creep improvements beyond the spec. Read-only — propose nothing you would write.
+  "
+}
+```
+
+Get the change-set the same way Step 3 does: `git diff --name-only` to find YOUR files, then `git diff -- <those paths>` — never pass the whole-repo diff (it would include sibling lanes' in-flight edits).
+
+**`type:cad` leaves** — do NOT run the code review above. Use the **cad-fitness-review** pattern instead (render the artifact + judge it against the domain fitness rubric); the code diff says nothing about whether the geometry is a good part.
+
+**OUTCOME:**
+- **Clean** (no real gaps) → proceed to Step 4 (`complete_todo` accepted).
+- **Gap that is IN-SCOPE and fixable** → fix it, then **re-run the mechanical gate (Step 3) AND this review** before accepting. Do not accept on the first pass if the reviewer found a real in-scope gap.
+- **Gap that is OUT-OF-SCOPE / a material spec problem** → `escalation_create` (Step 4c). Do NOT silently accept, and do NOT park — raise it.
+
+**Invariants:** the review agent is **read-only and depth-1** — it has NO Edit/Write/Skill and cannot spawn its own Agent/Skill, so it cannot recurse or mutate the tree. Spawn exactly ONE review agent per leaf (fix-and-re-review loops re-run it, but one at a time).
 
 ## Step 4 — Report completion
 
