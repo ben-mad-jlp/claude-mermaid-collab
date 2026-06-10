@@ -42,6 +42,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _clearManifestCache } from '../../config/project-manifest';
 
+// Isolate the GLOBAL supervisor.db so launchWorker's addSupervised/addWatchedProject
+// (coordinator-live.ts) NEVER pollute the real ~/.mermaid-collab registry the live
+// Bridge reads. Without this, every run of this suite re-registered
+// `test-coordinator-live-*` as watched projects that kept reappearing in the Bridge
+// after the human removed them. Set before any supervisor-store call (the DB opens
+// lazily, reading this env in openDb()).
+process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-coord-live-supervisor-'));
+// Absolute tmp roots so the spawn/pool/xproj suites create their .collab scratch
+// under /tmp instead of littering the repo cwd. Basenames are preserved so
+// tmuxBaseName slugs (and name assertions) are unchanged.
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'mc-coord-live-projects-'));
+
 describe('makeCoordinatorDeps', () => {
   it('returns an object with all required function properties', () => {
     const deps = makeCoordinatorDeps();
@@ -114,7 +126,7 @@ describe('resolveWorkerProfile', () => {
 
 
 describe('launchWorker auto-subscribe into Watching (POOL-2)', () => {
-  const PROJECT = 'test-coordinator-live-spawn';
+  const PROJECT = join(TEST_ROOT, 'test-coordinator-live-spawn');
 
   const makeTodo = (id: string): Todo =>
     ({ id, type: 'frontend' } as Todo);
@@ -174,7 +186,7 @@ describe('launchWorker auto-subscribe into Watching (POOL-2)', () => {
 import { markIdle as resetPoolSlotIdle } from '../worker-pool';
 
 describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
-  const PROJECT = 'test-coordinator-live-pool';
+  const PROJECT = join(TEST_ROOT, 'test-coordinator-live-pool');
 
   const makeTodo = (id: string, type: string | null): Todo =>
     ({ id, type } as Todo);
@@ -355,7 +367,7 @@ describe('PID-based liveness (63a59bd6 — dead Claude in a live tmux)', () => {
 });
 
 describe('launchWorker cross-project target (SEAM·collab)', () => {
-  const TRACKING = 'test-coordinator-live-xproj';
+  const TRACKING = join(TEST_ROOT, 'test-coordinator-live-xproj');
   const TARGET = '/repos/build123d-ocp-mcp';
 
   afterEach(() => {
