@@ -34,7 +34,7 @@ import { WorkerRoster } from './WorkerRoster';
 import { StreamTicker } from './StreamTicker';
 import { PlanPanel } from '../PlanPanel';
 import { DecisionCard } from './focal/DecisionCard';
-import { funnelCounts } from './funnel';
+import { funnelCounts, excludeEpics } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useFeatureFlags } from '@/config/featureFlags';
@@ -276,7 +276,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     () => projectSubs.filter((s) => s.status === 'active').length,
     [projectSubs],
   );
-  const inflightCount = useMemo(() => funnelCounts(todos).inflight, [todos]);
+  const inflightCount = useMemo(() => funnelCounts(excludeEpics(todos)).inflight, [todos]);
 
   const projectStreamEvents = useMemo(
     () => streamEvents.filter((e) => !e.project || e.project === project),

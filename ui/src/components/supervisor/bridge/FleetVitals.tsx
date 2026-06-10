@@ -8,7 +8,7 @@
 import React, { useMemo } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { CoverageRollup } from '@/stores/supervisorStore';
-import { FUNNEL_SEGMENTS, funnelCounts, withRecentDoneOnly } from './funnel';
+import { FUNNEL_SEGMENTS, funnelCounts, withRecentDoneOnly, excludeEpics } from './funnel';
 import { SpecCoverageCard } from './SpecCoverageCard';
 
 export interface FleetVitalsProps {
@@ -18,9 +18,10 @@ export interface FleetVitalsProps {
 }
 
 export const FleetVitals: React.FC<FleetVitalsProps> = ({ todos, coverage }) => {
-  // Age out done todos older than ~1 day so the progress bar shows RECENT
-  // throughput, not all-time done history.
-  const funnelTodos = useMemo(() => withRecentDoneOnly(todos), [todos]);
+  // Count only WORK todos (drop epic/container parents) and age out done todos
+  // older than ~1 day so the progress bar shows RECENT throughput of real work,
+  // not epics nor all-time done history.
+  const funnelTodos = useMemo(() => withRecentDoneOnly(excludeEpics(todos)), [todos]);
   const counts = useMemo(() => funnelCounts(funnelTodos), [funnelTodos]);
   const total = funnelTodos.length;
 

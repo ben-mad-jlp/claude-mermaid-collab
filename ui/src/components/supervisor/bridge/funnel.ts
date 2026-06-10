@@ -147,6 +147,19 @@ export function statusStyle(t: SessionTodo): StatusStyle | null {
   return k ? STATUS_STYLE[k] : null;
 }
 
+/**
+ * Drop EPIC/container todos so the progress funnel counts only WORK todos. An
+ * epic is emergent — a todo that is the `parentId` of another todo in the set
+ * (same definition useFleetGraph / BridgeDashboard use). Counting epics
+ * double-counts (the epic + its children) and, worse, a container left
+ * `in_progress` after its children finish sticks forever in the In-flight bucket.
+ */
+export function excludeEpics(todos: SessionTodo[]): SessionTodo[] {
+  const parentIds = new Set<string>();
+  for (const t of todos) if (t.parentId) parentIds.add(t.parentId);
+  return todos.filter((t) => !parentIds.has(t.id));
+}
+
 export function funnelCounts(todos: SessionTodo[]): Record<FunnelKey, number> {
   const counts: Record<FunnelKey, number> = {
     backlog: 0,

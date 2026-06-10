@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FUNNEL_SEGMENTS, FUNNEL_LABELS, bucketTodo, withRecentDoneOnly, DONE_RECENT_MS } from './funnel';
+import { FUNNEL_SEGMENTS, FUNNEL_LABELS, bucketTodo, withRecentDoneOnly, DONE_RECENT_MS, excludeEpics, funnelCounts } from './funnel';
 import type { SessionTodo } from '@/types/sessionTodo';
 
 function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
@@ -83,5 +83,28 @@ describe('funnel segment colors (single source)', () => {
     }
     expect(FUNNEL_LABELS.inflight).toBe('In-flight');
     expect(FUNNEL_LABELS.ready).toBe('Ready');
+  });
+
+  it('excludeEpics drops container parents, keeps work todos', () => {
+    const list = [
+      todo({ id: 'epic', status: 'in_progress' }),
+      todo({ id: 'child1', status: 'done', parentId: 'epic' }),
+      todo({ id: 'child2', status: 'done', parentId: 'epic' }),
+      todo({ id: 'orphan', status: 'ready' }),
+    ];
+    const work = excludeEpics(list);
+    expect(work.map((t) => t.id).sort()).toEqual(['child1', 'child2', 'orphan']);
+  });
+
+  it("a stuck in_progress epic with all-done children no longer pollutes the In-flight count", () => {
+    const list = [
+      todo({ id: 'epic', status: 'in_progress' }), // container left in_progress
+      todo({ id: 'c1', status: 'done', parentId: 'epic' }),
+      todo({ id: 'c2', status: 'done', parentId: 'epic' }),
+    ];
+    // Raw count would mis-bucket the epic as in-flight; excluding epics fixes it.
+    expect(funnelCounts(list).inflight).toBe(1);          // the bug
+    expect(funnelCounts(excludeEpics(list)).inflight).toBe(0); // the fix
+    expect(funnelCounts(excludeEpics(list)).done).toBe(2);
   });
 });

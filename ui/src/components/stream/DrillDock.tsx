@@ -17,7 +17,7 @@ import { EscalationInbox } from '@/components/supervisor/EscalationInbox';
 import TodoDetailView from '@/components/editors/TodoDetailView';
 import TracePanel from '@/components/supervisor/TracePanel';
 import { WorkerDetail } from './WorkerDetail';
-import { FUNNEL_SEGMENTS, todosInSegment, type FunnelKey } from '@/components/supervisor/bridge/funnel';
+import { FUNNEL_SEGMENTS, todosInSegment, excludeEpics, type FunnelKey } from '@/components/supervisor/bridge/funnel';
 
 interface SubLike {
   serverId: string;
@@ -89,7 +89,7 @@ const FocusView: React.FC<{
         />
       );
     case 'funnel': {
-      const list = todosInSegment(todos, target.segment);
+      const list = todosInSegment(excludeEpics(todos), target.segment);
       return (
         <div className="p-2 space-y-1">
           {list.length === 0 ? (
