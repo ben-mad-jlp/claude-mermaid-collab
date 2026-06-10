@@ -10,6 +10,7 @@ import { config } from './config';
 import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
 import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
+import { writeLock, releaseLock, currentExePath, serverOwner } from './services/port-ownership';
 import { SERVER_VERSION } from './mcp/server';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
@@ -493,6 +494,19 @@ if (typeof server.port !== 'number' || server.port === 0) {
 const actualPort = server.port;
 const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 
+// Canonical :9002 ownership lockfile (design-ubuntu-native §4b). Record who owns
+// the port so any other starter can read it and run the take-over-or-refuse
+// handshake instead of silently shadowing us. Best-effort — never block startup.
+try {
+  writeLock({
+    pid: process.pid,
+    exePath: currentExePath(),
+    version: SERVER_VERSION,
+    port: actualPort,
+    owner: serverOwner(),
+  });
+} catch { /* best-effort lock write */ }
+
 // Supervisor + steward liveness heartbeat: while this server is alive, keep the
 // registered roles' updatedAt advancing so the UI can tell a running role from a
 // crashed/stale one. No-op until each role registers. Both roles are kept fresh
@@ -518,6 +532,7 @@ const armIdle = () => {
   cancelIdle();
   idleTimer = setTimeout(async () => {
     try { await removeInstance(sessionId); } catch {}
+    try { releaseLock(); } catch {}
     process.exit(0);
   }, MERMAID_IDLE_SHUTDOWN_MS);
 };
@@ -528,6 +543,7 @@ process.on('SIGINT', () => {
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();
+  try { releaseLock(); } catch {}
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);
@@ -540,6 +556,7 @@ process.on('SIGTERM', () => {
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
   chromeManager?.stop();
+  try { releaseLock(); } catch {}
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);

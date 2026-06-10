@@ -51,6 +51,8 @@ import {
 } from '../mcp/workflow/task-sync';
 import { mergeSettings, readSettings, writeSettings, patchSettings } from '../agent/settings-store.js';
 import { tmuxBaseName } from '../services/tmux-naming.js';
+import { SERVER_VERSION } from '../mcp/server';
+import { currentExePath, serverOwner } from '../services/port-ownership';
 
 /**
  * Expand ~ to home directory in paths
@@ -148,6 +150,14 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
 
   return Response.json({
     healthy,
+    // Identity block (design-ubuntu-native §4a) — the canonical port-ownership
+    // handshake reads these to tell a current/rightful owner from a stale shadow.
+    // `ok` is always true here: if this route answers, the API is up.
+    ok: true,
+    version: SERVER_VERSION,
+    exePath: currentExePath(),
+    startedAt: new Date(serverStartTime).toISOString(),
+    owner: serverOwner(),
     services: {
       api: { running: apiRunning, port },
       ui: { running: uiRunning, port: UI_PORT },

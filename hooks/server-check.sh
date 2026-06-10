@@ -24,6 +24,15 @@ check_server() {
   curl --silent --fail --max-time 1 "http://localhost:$PORT/api/health" > /dev/null 2>&1
 }
 
+# Open a path/URL with the platform's launcher (macOS `open`, Linux `xdg-open`).
+open_native() {
+  if command -v open > /dev/null 2>&1; then
+    open "$1" > /dev/null 2>&1 || true
+  elif command -v xdg-open > /dev/null 2>&1; then
+    xdg-open "$1" > /dev/null 2>&1 || true
+  fi
+}
+
 wait_for_server() {
   local elapsed=0
   while [ "$elapsed" -lt "$MAX_WAIT" ]; do
@@ -45,7 +54,7 @@ fi
 # Prefer the canonical desktop UI app when it's installed.
 if [ -d "$APP_PATH" ]; then
   echo "Launching the canonical Mermaid Collab app…" >&2
-  open "$APP_PATH" > /dev/null 2>&1 || true
+  open_native "$APP_PATH"
   wait_for_server
   # The app launched but its sidecar didn't answer in time. Do NOT fall back to a
   # source server — that reintroduces the port race the canonical-app rule exists
@@ -56,6 +65,13 @@ if [ -d "$APP_PATH" ]; then
 fi
 
 # No desktop app installed — fall back to the source server (plain plugin user).
+# Re-probe immediately before spawning: if ANYTHING already holds :9002 (a server
+# that came up between the top-of-script check and now), do NOT spawn a competitor
+# that would shadow it. The hook is never a canonical owner — it may only spawn
+# when the port is genuinely free (design-ubuntu-native §4d).
+if check_server; then
+  exit 0
+fi
 echo "No desktop app found; starting mermaid-collab server from source…" >&2
 cd "$PROJECT_ROOT" && bun run src/server.ts > /dev/null 2>&1 &
 

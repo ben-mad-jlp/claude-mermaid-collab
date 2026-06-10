@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { ServerSupervisor, resolveSecretsEnv, resolveFlagsEnv } from '../server-supervisor';
 
 function fakeChild(pid = 12345) {
@@ -16,22 +19,53 @@ const failFetch = (async () => {
   throw new Error('ECONNREFUSED');
 }) as unknown as typeof fetch;
 
+/** A /api/health fetch stub that returns the canonical identity block. */
+function identityFetch(identity: { version?: string; pid?: number; exePath?: string; owner?: string }): typeof fetch {
+  return (async () =>
+    new Response(JSON.stringify({ ok: true, version: '5.90.1', pid: 1, exePath: '', owner: 'desktop', ...identity }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as unknown as typeof fetch;
+}
+
+const portFree = async () => false;
+const portBusy = async () => true;
+
 const baseOpts = {
   repoRoot: '/repo',
   project: '/repo',
   session: 's',
   host: '127.0.0.1',
+  // Keep the port-ownership handshake off the real network in unit tests; each
+  // case drives the probe + health response explicitly.
+  portInUseImpl: portFree,
 };
 
 describe('ServerSupervisor', () => {
-  beforeEach(() => vi.restoreAllMocks());
-  afterEach(() => vi.restoreAllMocks());
+  // Isolate the port-ownership lockfile ($XDG_RUNTIME_DIR/mermaid-collab/server.lock)
+  // to a fresh temp dir per test, so the handshake never reads/writes the real
+  // shared lock — and can never SIGTERM the vitest worker by mistaking a lock
+  // that records the worker's own pid for a hung server.
+  let prevXdg: string | undefined;
+  let tmpRuntime: string;
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    prevXdg = process.env.XDG_RUNTIME_DIR;
+    tmpRuntime = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-sup-'));
+    process.env.XDG_RUNTIME_DIR = tmpRuntime;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (prevXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = prevXdg;
+    fs.rmSync(tmpRuntime, { recursive: true, force: true });
+  });
 
-  it('start() resolves with a free port and attached=false when health passes', async () => {
+  it('start() spawns (attached=false) when the canonical port is free', async () => {
     const spawnImpl = vi.fn(() => fakeChild());
-    const sup = new ServerSupervisor({ ...baseOpts, spawnImpl, fetchImpl: okFetch });
+    const sup = new ServerSupervisor({ ...baseOpts, port: 9999, spawnImpl, fetchImpl: okFetch });
     const { port, attached } = await sup.start();
-    expect(port).toBeGreaterThan(0);
+    expect(port).toBe(9999);
     expect(attached).toBe(false);
     expect(spawnImpl).toHaveBeenCalledOnce();
     const [cmd, args] = spawnImpl.mock.calls[0];
@@ -89,46 +123,43 @@ describe('ServerSupervisor', () => {
     expect(await sup.isHealthy()).toBe(false);
   });
 
-  it('start() attaches to a healthy existing instance instead of spawning', async () => {
+  it('start() attaches (no spawn) when a rightful same-version owner already holds the port', async () => {
+    // Port busy + a health identity matching our version (empty self exePath in
+    // dev → version match) → the handshake DEFERS and we attach.
     const spawnImpl = vi.fn(() => fakeChild());
-    const discoveryImpl = vi.fn(async () => [{ project: '/repo', session: 's', port: 5555 }]);
-    const sup = new ServerSupervisor({ ...baseOpts, spawnImpl, fetchImpl: okFetch, discoveryImpl });
+    const sup = new ServerSupervisor({
+      ...baseOpts, port: 9999, spawnImpl,
+      portInUseImpl: portBusy,
+      fetchImpl: identityFetch({ version: '5.90.1', pid: 42 }),
+      version: '5.90.1',
+    });
     const { port, attached } = await sup.start();
-    expect(port).toBe(5555);
+    expect(port).toBe(9999);
     expect(attached).toBe(true);
     expect(spawnImpl).not.toHaveBeenCalled();
   });
 
-  it('start() spawns when the discovered instance is for a different session', async () => {
+  it('start() refuses when an unidentified process holds the port (no identity, not our lock)', async () => {
+    // Port busy but /api/health gives no identity → held-by-unknown-process →
+    // refuse rather than blindly killing an unknown process.
     const spawnImpl = vi.fn(() => fakeChild());
-    const discoveryImpl = vi.fn(async () => [{ project: '/repo', session: 'other', port: 5555 }]);
-    const sup = new ServerSupervisor({ ...baseOpts, port: 9999, spawnImpl, fetchImpl: okFetch, discoveryImpl });
-    const { port, attached } = await sup.start();
-    expect(port).toBe(9999);
-    expect(attached).toBe(false);
-    expect(spawnImpl).toHaveBeenCalledOnce();
-  });
-
-  it('start() spawns when the discovered instance fails its health check', async () => {
-    const spawnImpl = vi.fn(() => fakeChild());
-    const discoveryImpl = vi.fn(async () => [{ project: '/repo', session: 's', port: 5555 }]);
-    // first fetch (dedup health) fails, subsequent (spawn health) ok
-    let n = 0;
-    const fetchImpl = (async () => {
-      n += 1;
-      if (n === 1) throw new Error('dead');
-      return { ok: true };
-    }) as unknown as typeof fetch;
-    const sup = new ServerSupervisor({ ...baseOpts, port: 9999, spawnImpl, fetchImpl, discoveryImpl });
-    const { attached } = await sup.start();
-    expect(attached).toBe(false);
-    expect(spawnImpl).toHaveBeenCalledOnce();
+    const sup = new ServerSupervisor({
+      ...baseOpts, port: 9999, spawnImpl,
+      portInUseImpl: portBusy,
+      fetchImpl: failFetch,
+    });
+    await expect(sup.start()).rejects.toThrow('Refusing to start');
+    expect(spawnImpl).not.toHaveBeenCalled();
   });
 
   it('stop() is a no-op when attached to an existing instance', async () => {
     const spawnImpl = vi.fn(() => fakeChild());
-    const discoveryImpl = vi.fn(async () => [{ project: '/repo', session: 's', port: 5555 }]);
-    const sup = new ServerSupervisor({ ...baseOpts, spawnImpl, fetchImpl: okFetch, discoveryImpl });
+    const sup = new ServerSupervisor({
+      ...baseOpts, port: 9999, spawnImpl,
+      portInUseImpl: portBusy,
+      fetchImpl: identityFetch({ version: '5.90.1', pid: 42 }),
+      version: '5.90.1',
+    });
     await sup.start();
     await sup.stop(); // should not throw and nothing to kill
     expect(spawnImpl).not.toHaveBeenCalled();

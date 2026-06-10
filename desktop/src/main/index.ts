@@ -495,6 +495,9 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
     controlToken,
     serverBinaryPath: prodBinary,
     resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+    // App version == bundled server SERVER_VERSION (kept in lockstep by version:sync),
+    // so the port-ownership handshake can tell a current owner from a stale shadow.
+    version: app.getVersion(),
     // Tee sidecar stdout/stderr here so a failed Windows/packaged startup is
     // diagnosable; the path is also shown on the error screen.
     logFilePath: join(app.getPath('logs'), 'sidecar.log'),

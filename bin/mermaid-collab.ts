@@ -14,6 +14,13 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { whereami } from './whereami';
+import {
+  performHandshake,
+  currentExePath,
+  serverOwner,
+  type HandshakeResult,
+} from '../src/services/port-ownership';
+import { SERVER_VERSION } from '../src/mcp/server';
 
 const DATA_DIR = join(homedir(), '.mermaid-collab');
 const PID_FILE = join(DATA_DIR, 'server.pid');
@@ -138,6 +145,31 @@ async function cleanStaleVscodeServer(): Promise<void> {
   }
 }
 
+/**
+ * Run the canonical :9002 take-over-or-refuse handshake (design-ubuntu-native §4).
+ * Returns the handshake result; the caller decides whether to bind/spawn.
+ */
+async function runHandshake(): Promise<HandshakeResult> {
+  return performHandshake({
+    self: { exePath: currentExePath(), version: SERVER_VERSION, owner: serverOwner() },
+    port: Number(PORT),
+    env: { ...process.env, PORT: String(PORT) },
+  });
+}
+
+async function preflight(): Promise<void> {
+  // systemd ExecStartPre / generic guard: ensure THIS host may own :9002 before
+  // ExecStart binds. 'proceed' (port claimed / stale holder evicted) and 'defer'
+  // (a rightful owner already holds it — idempotent no-op) both exit 0; 'refuse'
+  // exits non-zero so the launcher surfaces the conflict instead of double-binding.
+  const result = await runHandshake();
+  console.log(`preflight: ${result.action} (${result.reason})`);
+  if (result.action === 'refuse') {
+    console.error(`Refusing to take over :${PORT} — ${result.reason}.`);
+    process.exit(1);
+  }
+}
+
 async function start(): Promise<void> {
   await ensureDataDir();
   await cleanStaleVscodeServer();
@@ -148,6 +180,18 @@ async function start(): Promise<void> {
     console.log(`Server already running (PID: ${existingPid}) on http://localhost:${PORT}`);
     return;
   }
+
+  // Canonical port-ownership handshake: never silently shadow another server.
+  const handshake = await runHandshake();
+  if (handshake.action === 'defer') {
+    console.log(`A rightful server already owns :${PORT} (${handshake.reason}); deferring.`);
+    return;
+  }
+  if (handshake.action === 'refuse') {
+    console.error(`Refusing to start on :${PORT} — ${handshake.reason}. Set MERMAID_GUARD_MODE=takeover to evict, or resolve the conflict.`);
+    process.exit(1);
+  }
+  // action === 'proceed' → the port is ours (was free, or a stale holder was evicted).
 
   // Check if server script exists
   if (!existsSync(SERVER_SCRIPT)) {
@@ -256,6 +300,9 @@ switch (command) {
   case 'start':
     await start();
     break;
+  case 'preflight':
+    await preflight();
+    break;
   case 'stop':
     await stop();
     break;
@@ -270,6 +317,7 @@ switch (command) {
     console.log('');
     console.log('Usage:');
     console.log('  mermaid-collab start   Start the server in background');
+    console.log('  mermaid-collab preflight  Run the :9002 ownership handshake (systemd ExecStartPre); take over a stale holder or refuse');
     console.log('  mermaid-collab stop    Stop the server');
     console.log('  mermaid-collab status  Check if server is running');
     console.log('  mermaid-collab whereami [--all] [--project <path>] [--session <name>]  List live server instances as JSON');

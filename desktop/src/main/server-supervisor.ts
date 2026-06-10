@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { performHandshake, serverOwner } from '../../../src/services/port-ownership';
 
 export interface SupervisorOpts {
   repoRoot: string;
@@ -16,6 +17,8 @@ export interface SupervisorOpts {
   spawnImpl?: (cmd: string, args: string[], opts: SpawnOptions) => ChildProcess;
   /** Injectable for tests. Defaults to global fetch. */
   fetchImpl?: typeof fetch;
+  /** Injectable for tests: probe whether the canonical port is already in use. Defaults to a real socket check. */
+  portInUseImpl?: (port: number, host: string) => Promise<boolean>;
   /** Health-poll overrides (mainly for tests). */
   healthTimeoutMs?: number;
   healthPollMs?: number;
@@ -29,6 +32,8 @@ export interface SupervisorOpts {
   controlToken?: string;
   /** Prod: file to append sidecar stdout/stderr to, so startup failures are diagnosable. */
   logFilePath?: string;
+  /** App/server version, used by the port-ownership handshake to tell a current owner from a stale shadow. */
+  version?: string;
 }
 
 // Give the sidecar a generous startup window before surfacing the health-timeout
@@ -37,12 +42,19 @@ export interface SupervisorOpts {
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_POLL_MS = 300;
 
-/** Common user bin dirs that a GUI-launched PATH typically omits. */
+/**
+ * Common user bin dirs that a GUI-launched PATH typically omits. Spans macOS
+ * (Homebrew) and Linux (`/usr/bin`, `/snap/bin`) — dirs absent on a given
+ * platform are harmless: prependDirs only adds them, and a non-existent PATH
+ * entry is simply skipped by the OS during lookup.
+ */
 function commonBinDirs(homeDir: string): string[] {
   return [
     '/opt/homebrew/bin',
     '/opt/homebrew/sbin',
     '/usr/local/bin',
+    '/usr/bin',
+    '/snap/bin',
     path.join(homeDir, '.bun', 'bin'),
     path.join(homeDir, '.local', 'bin'),
   ];
@@ -81,7 +93,10 @@ export function resolveLoginPath(opts?: {
   if (platform === 'win32') return currentPath;
 
   const dirs = commonBinDirs(homeDir);
-  const shell = opts?.shell ?? process.env.SHELL ?? '/bin/zsh';
+  // Default login shell: macOS ships zsh, most Linux distros ship bash. $SHELL
+  // still wins when set; this only picks the fallback when it isn't.
+  const defaultShell = platform === 'linux' ? '/bin/bash' : '/bin/zsh';
+  const shell = opts?.shell ?? process.env.SHELL ?? defaultShell;
   const exec =
     opts?.execImpl ??
     ((cmd, args, options) =>
@@ -245,12 +260,39 @@ export class ServerSupervisor {
   async start(): Promise<{ port: number; attached: boolean }> {
     const port = this.opts.port ?? Number(process.env.MERMAID_PORT ?? 9002);
 
-    // Attach to an already-running server on the canonical port (e.g. started by
-    // Claude's SessionStart hook or the CLI) rather than double-binding.
-    try {
-      const r = await this.fetchImpl(`http://${this.opts.host}:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
-      if (r.ok) { this.port = port; this.attached = true; return { port, attached: true }; }
-    } catch { /* not up — fall through to spawn */ }
+    // Canonical :9002 take-over-or-refuse handshake (design-ubuntu-native §4),
+    // replacing the old attach-blind hole that would happily attach to ANY server
+    // on the port — including a stale plugin-cache `bun run src/server.ts` shadow
+    // that made every deploy cosmetic. The handshake distinguishes a rightful
+    // owner (attach, don't double-bind) from a stale/foreign shadow (evict it,
+    // then spawn our own).
+    // The self-identity here describes the SIDECAR this supervisor manages — the
+    // compiled mc-server binary (prod) at serverBinaryPath, or no fixed path in
+    // dev (`bun run src/server.ts`) — NOT the Electron process. In dev the empty
+    // exePath makes the handshake fall back to a version match, so a healthy
+    // same-version server attaches; a stale shadow (different binary / older
+    // version) is evicted.
+    const handshake = await performHandshake({
+      host: this.opts.host,
+      port,
+      env: { ...process.env, PORT: String(port) },
+      self: { exePath: this.opts.serverBinaryPath ?? '', version: this.opts.version ?? '', owner: serverOwner() },
+      fetchImpl: this.fetchImpl,
+      portInUseImpl: this.opts.portInUseImpl,
+    });
+    if (handshake.action === 'defer') {
+      // A rightful owner already holds the port — attach to it rather than spawn.
+      this.port = port;
+      this.attached = true;
+      return { port, attached: true };
+    }
+    if (handshake.action === 'refuse') {
+      throw new Error(
+        `Refusing to start the collaboration server on :${port} — ${handshake.reason}. ` +
+          `Another process owns the port and the guard is in refuse mode.`,
+      );
+    }
+    // action === 'proceed' → the port is ours (was free, or a stale holder was evicted); spawn.
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,

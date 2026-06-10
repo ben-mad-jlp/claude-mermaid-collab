@@ -12,9 +12,21 @@ const repoRoot = join(here, '..', '..');
 const outName = process.platform === 'win32' ? 'mc-server.exe' : 'mc-server';
 const outFile = join(here, '..', 'resources', outName);
 
-console.log(`[build-sidecar] compiling src/server.ts → ${outFile}`);
+// Map the host platform to Bun's --compile target triple so the sidecar is built
+// for the right OS/arch. MC_SIDECAR_TARGET overrides for cross-compilation (e.g.
+// building the bun-linux-x64 sidecar from a macOS CI host). Per-OS CI remains the
+// robust path; this gives a deterministic default + an explicit cross-build knob.
+function hostTarget(): string {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  if (process.platform === 'win32') return `bun-windows-${arch}`;
+  if (process.platform === 'linux') return `bun-linux-${arch}`;
+  return `bun-darwin-${arch}`;
+}
+const target = process.env.MC_SIDECAR_TARGET ?? hostTarget();
+
+console.log(`[build-sidecar] compiling src/server.ts → ${outFile} (target ${target})`);
 const proc = Bun.spawnSync(
-  ['bun', 'build', '--compile', join(repoRoot, 'src', 'server.ts'), '--outfile', outFile],
+  ['bun', 'build', '--compile', `--target=${target}`, join(repoRoot, 'src', 'server.ts'), '--outfile', outFile],
   { cwd: repoRoot, stdout: 'inherit', stderr: 'inherit' }
 );
 if (proc.exitCode !== 0) {
