@@ -1,7 +1,8 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim } from './todo-store';
-import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS } from './coordinator-core';
+import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
+import { getStatus } from './session-status-store';
 import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
@@ -210,12 +211,6 @@ function isActivelyWorking(pane: string): boolean {
   return /\(\d+(?:m\s*\d+)?s\s*·/.test(pane) || /esc to interrupt/i.test(pane);
 }
 
-/** Stable signature of the bottom of the pane (last non-empty lines). Identical
- *  signatures on two reads spanning the stall window = no progress. */
-function paneSignature(pane: string): string {
-  return pane.split('\n').map((l) => l.trimEnd()).filter((l) => l.length > 0).slice(-12).join('\n');
-}
-
 /** Best-effort: pull the worker's pending question/options out of the pane so the
  *  escalation card carries context (fix-3) rather than a bare "stalled". */
 function extractStallContext(pane: string): string {
@@ -265,9 +260,40 @@ export function extractRequestedTool(pane: string): string | null {
   return null;
 }
 
-/** In-memory idle tracker: tmux → { sig, since, escalated }. The coordinator is a
- *  singleton daemon, so per-process module state is fine. */
-const idleTracker = new Map<string, { sig: string; since: number; escalated: boolean }>();
+// --- Phase 1 (decision 9cd01858): durable per-lane staleness ---------------------
+// The orphan/stall paths derive staleness from the DURABLE session_status pulse
+// (session-status-store.updatedAt — a restart-safe SQLite clock) instead of an
+// in-memory timer that a daemon restart wipes. This replaces the old in-memory
+// `idleTracker` Map entirely: nothing to warm up on restart, and the orphan reaper
+// collapses from a 15-min/​~9h grace to seconds via the two-fact rule (shouldPulseReap).
+
+/** How long since a lane last pulsed before its session_status counts as stale for
+ *  the two-fact reclaim. Override with MERMAID_PULSE_STALE_MS. */
+const PULSE_STALE_MS = DEFAULT_PULSE_STALE_MS;
+
+/** The lane's last DURABLE pulse (session_status.updatedAt, ms epoch), or null when
+ *  none was ever recorded — the signal that the additive fast path must fall back to
+ *  today's grace for this lane. Best-effort: any read error → null (→ fall back). */
+function lanePulseAt(project: string, session: string | null): number | null {
+  if (!session) return null;
+  try { return getStatus(project, session)?.updatedAt ?? null; }
+  catch { return null; }
+}
+
+/** Two-fact "not-alive" confirmation shared by the orphan reaper and the pool-slot
+ *  reaper (point 3/5): a lane is confirmed dead when its tmux is gone, OR its tmux
+ *  is alive but no `claude` process remains in its pane subtree (a bare dead shell).
+ *  An UNKNOWN liveness (no ps snapshot / no pane pid) is treated as ALIVE — never
+ *  reclaim on uncertainty. */
+async function laneConfirmedDead(
+  tmux: string,
+  snap: Map<number, { children: number[]; comm: string }> | null,
+): Promise<boolean> {
+  if (!(await isTmuxAlive(tmux))) return true;            // tmux gone → dead
+  const present = await claudeProcessPresent(tmux, snap); // ps-BFS over the pane subtree
+  return present === false;                                // dead shell; null/true → alive
+}
+
 /** How long a worker must sit idle-at-prompt (unchanged pane) before it's a stall.
  *  Long enough not to false-trip on normal between-turn idle. Override with
  *  MERMAID_STALL_MIN. */
@@ -935,12 +961,47 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const reclaimed: string[] = [];
       const exhausted: string[] = [];
       const now = new Date().toISOString();
-      const candidates = planOrphanReap(
-        listTodos(project, { status: 'in_progress' }),
-        now,
-        DEFAULT_ORPHAN_GRACE_MS,
-      );
+      const nowMs = Date.parse(now);
+      const inProgress = listTodos(project, { status: 'in_progress' });
+
+      // FAST PATH (Phase 1, decision 9cd01858): derive staleness from the DURABLE
+      // session_status pulse instead of the 15-min/​~9h todo-updatedAt grace. A leaf
+      // whose lane last pulsed > PULSE_STALE_MS ago AND whose worker is CONFIRMED
+      // not-alive (two-fact rule) is reclaimed in SECONDS. One ps snapshot for the
+      // whole pass keeps the subtree liveness walk to a single `ps`. Strictly
+      // additive: a lane with NO durable pulse is skipped here (shouldPulseReap →
+      // false) and falls through to the grace sweep below, so it can NEVER be worse
+      // than today.
+      const snap = await procSnapshot();
+      const fastReaped = new Set<string>();
+      for (const t of inProgress) {
+        if (t.parentId == null) continue; // epics are containers — never reaped
+        const session = t.sessionName;
+        if (!session) continue;           // never-spawned leaf → grace sweep handles it
+        const pulseAt = lanePulseAt(project, session);
+        if (pulseAt == null || nowMs - pulseAt <= PULSE_STALE_MS) continue; // fresh/absent → fall back
+        const tmux = tmuxBaseName(project, session);
+        const dead = await laneConfirmedDead(tmux, snap);
+        if (!shouldPulseReap(pulseAt, nowMs, PULSE_STALE_MS, dead)) continue;
+        const next = await reclaimOrphan(project, t.id);
+        if (next == null) continue; // raced to a terminal state
+        markIdle(session);          // free any pool slot it held
+        fastReaped.add(t.id);
+        if (next === 'ready') reclaimed.push(t.id);
+        else exhausted.push(t.id);
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session,
+          detail: JSON.stringify({ source: 'pulse-reap', todoId: t.id, outcome: next, stalePulseMs: nowMs - pulseAt }),
+        });
+      }
+
+      // FALLBACK (never-worse): the existing claim+age grace sweep for every leaf
+      // the fast path did not already reap (incl. all NULL-pulse / fresh-pulse lanes).
+      const candidates = planOrphanReap(inProgress, now, DEFAULT_ORPHAN_GRACE_MS);
       for (const c of candidates) {
+        if (fastReaped.has(c.id)) continue; // already reclaimed via the durable pulse
         // Case B (claim past lease): only reap once the worker's tmux is confirmed
         // gone — a still-live worker on an over-long task must not be yanked. Case A
         // (claimedBy NULL → needsTmuxProbe false) has no live claim by definition.
@@ -967,7 +1028,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // free it on its worker's death regardless of the todo's status (dropped,
       // completed out-of-band, or an operator-killed lane). Project-agnostic — it
       // keys off each slot's own recorded tmux, not the in_progress todo list.
-      return await reapDeadSlots((tmux) => isTmuxAlive(tmux));
+      //
+      // Phase 1 (point 5): pooled-slot liveness reads the SAME two-fact not-alive
+      // path as the orphan reaper (no separate code path) — a slot is freed when its
+      // tmux is gone OR its tmux is a bare shell with no `claude` in its subtree.
+      // One ps snapshot for the pass; an UNKNOWN liveness stays alive (kept busy).
+      const snap = await procSnapshot();
+      return await reapDeadSlots(async (tmux) => !(await laneConfirmedDead(tmux, snap)));
     },
     detectStalls: async (project: string): Promise<string[]> => {
       // DOGFOOD #6: surface ALIVE-but-idle (stalled) workers. Signal: the pane is
@@ -1041,15 +1108,19 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // Claude is present (or liveness unknown) → clear any dead-tracking for it.
         deadTracker.delete(tmux);
 
-        if (!pane || isActivelyWorking(pane)) { idleTracker.delete(tmux); continue; }
-        const sig = paneSignature(pane);
+        if (!pane || isActivelyWorking(pane)) continue;
+        // DURABLE staleness (Phase 1, decision 9cd01858): the idle clock is the
+        // restart-safe session_status pulse (updatedAt = the lane's last status
+        // report), not an in-memory pane-signature timer. A worker idle at its
+        // prompt stopped pulsing when it went quiet, so `now - pulseAt` is its true
+        // idle age and survives a daemon restart. A lane with NO durable pulse yet
+        // has no staleness signal here → skip (the orphan reaper + dead-shell
+        // detection backstop it). Re-escalation is debounced by the recovery below
+        // parking the todo `blocked` (it leaves the in_progress set next tick).
         const now = Date.now();
-        const prev = idleTracker.get(tmux);
-        if (!prev || prev.sig !== sig) {
-          idleTracker.set(tmux, { sig, since: now, escalated: false });
-          continue;
-        }
-        if (prev.escalated || now - prev.since < STALL_MS) continue;
+        const pulseAt = lanePulseAt(project, session);
+        if (pulseAt == null || now - pulseAt < STALL_MS) continue;
+        const prevSince = pulseAt;
         try {
           // DOGFOOD #6 follow-up: classify the idle-at-prompt. A permission
           // prompt is NOT a decision the human can answer in the inbox — it's a
@@ -1058,7 +1129,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // escalation naming the tool, so it reads as "allowlist this tool",
           // not a generic stalled-decision card.
           const perm = detectPermissionPrompt(pane);
-          const idleMin = Math.round((now - prev.since) / 60000);
+          const idleMin = Math.round((now - prevSince) / 60000);
           if (perm.isPermission) {
             const toolLabel = perm.tool ?? 'an unknown tool';
             createEscalation({
@@ -1072,7 +1143,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
                 `Root fix: add ${toolLabel} to the worker profile allowlist so it never prompts ` +
                 `(see P3 cad-profile). This is a permission stall, not a decision (DOGFOOD #6 follow-up).`,
             });
-            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'permission-prompt', tool: perm.tool, idleMs: now - prev.since }) });
+            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'permission-prompt', tool: perm.tool, idleMs: now - prevSince }) });
           } else {
             createEscalation({
               project,
@@ -1084,9 +1155,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
                 `${idleMin}+ min, awaiting input but no escalation was filed ` +
                 `(DOGFOOD #6 auto-detected). Pending context:\n\n${extractStallContext(pane)}`,
             });
-            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prev.since }) });
+            recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prevSince }) });
           }
-          prev.escalated = true;
           stalled.push(t.id);
           // RECOVERY (41d24bee): a stalled worker would otherwise hold its claim
           // (until the 40-min lease) AND its pool slot, wedging the whole lane —
@@ -1102,8 +1172,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           } catch { /* recovery best-effort; never abort the tick */ }
         } catch { /* escalation best-effort; never abort the tick */ }
       }
-      // GC trackers for tmux sessions no longer in_progress.
-      for (const k of idleTracker.keys()) if (!seen.has(k)) idleTracker.delete(k);
+      // GC the dead-shell tracker for tmux sessions no longer in_progress. (The old
+      // in-memory idleTracker is gone — durable session_status replaces it.)
       for (const k of deadTracker.keys()) if (!seen.has(k)) deadTracker.delete(k);
       return stalled;
     },

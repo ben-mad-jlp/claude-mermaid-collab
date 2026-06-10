@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { planCoordinatorTick, planOrphanReap } from '../coordinator-core';
+import { planCoordinatorTick, planOrphanReap, shouldPulseReap } from '../coordinator-core';
 import type { Todo } from '../todo-store';
 
 function makeTodo(overrides: Partial<Todo> & { id: string; status: Todo['status'] }): Todo {
@@ -149,5 +149,36 @@ describe('planOrphanReap', () => {
     const t = leaf({ id: 'a', updatedAt: '2024-06-01T11:50:00.000Z' }); // claimed 10 min before NOW
     expect(planOrphanReap([t], '2024-06-01T12:00:00.000Z', GRACE)).toHaveLength(0); // 10 min < 15
     expect(planOrphanReap([t], '2024-06-01T12:10:00.000Z', GRACE)).toHaveLength(1); // 20 min > 15
+  });
+});
+
+describe('shouldPulseReap (Phase 1 two-fact reclaim, decision 9cd01858)', () => {
+  const NOW = 1_000_000;
+  const STALE = 8_000; // 8s staleness window
+
+  test('two-fact: stale durable pulse AND confirmed-dead → reclaim (seconds, not ~9h)', () => {
+    // A hard-killed / orphaned worker: last pulse 30s ago AND its process is gone.
+    expect(shouldPulseReap(NOW - 30_000, NOW, STALE, true)).toBe(true);
+  });
+
+  test('stale pulse but worker still ALIVE → never reclaim (no false-reap on a live process)', () => {
+    // The pulse gap is real, but the two-fact rule blocks reaping a live worker.
+    expect(shouldPulseReap(NOW - 30_000, NOW, STALE, false)).toBe(false);
+  });
+
+  test('fresh pulse (within window) + dead → no reclaim yet (within the staleness window)', () => {
+    expect(shouldPulseReap(NOW - 2_000, NOW, STALE, true)).toBe(false);
+  });
+
+  test('boundary: pulse exactly at the staleness window is NOT yet stale', () => {
+    expect(shouldPulseReap(NOW - STALE, NOW, STALE, true)).toBe(false);
+    expect(shouldPulseReap(NOW - STALE - 1, NOW, STALE, true)).toBe(true);
+  });
+
+  test('NULL durable pulse → false regardless of liveness (falls back to grace; never-worse)', () => {
+    // No session_status row for the lane: the fast path declines so the existing
+    // planOrphanReap age/lease grace governs it — strictly additive.
+    expect(shouldPulseReap(null, NOW, STALE, true)).toBe(false);
+    expect(shouldPulseReap(null, NOW, STALE, false)).toBe(false);
   });
 });

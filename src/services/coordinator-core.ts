@@ -63,6 +63,36 @@ export function planOrphanReap(todos: Todo[], now: string, graceMs: number): Orp
   return out;
 }
 
+/** How long since a lane's last DURABLE session_status pulse (updatedAt) before
+ *  that pulse counts as stale. Paired with a not-alive confirmation for the
+ *  two-fact reclaim below; ~8s collapses the orphan-detection latency from the
+ *  15-min/​~9h grace to seconds. Override with MERMAID_PULSE_STALE_MS. */
+export const DEFAULT_PULSE_STALE_MS = Number(process.env.MERMAID_PULSE_STALE_MS) || 8_000;
+
+/**
+ * Pure two-fact pulse-staleness reclaim (Phase 1 of design-session-daemon-comms,
+ * decision 9cd01858). A lane is reclaimable in SECONDS only when BOTH facts agree:
+ * its durable session_status pulse is STALE (older than staleMs) AND its worker is
+ * CONFIRMED not-alive (tmux gone, or an alive tmux whose pane subtree has no
+ * `claude` process). Requiring both prevents a false-reap on a momentary pulse gap
+ * while a live process is mid-task.
+ *
+ * STRICTLY ADDITIVE: a lane with NO durable pulse yet (pulseAt null) returns false
+ * here, so it falls through to the existing planOrphanReap age/lease grace — this
+ * fast path can only reclaim a dead lane SOONER, never reclaim a lane the old path
+ * would have left alone, and never make a NULL-pulse lane worse than today.
+ */
+export function shouldPulseReap(
+  pulseAt: number | null,
+  nowMs: number,
+  staleMs: number,
+  confirmedDead: boolean,
+): boolean {
+  if (pulseAt == null) return false;            // no durable signal → fall back to grace
+  if (nowMs - pulseAt <= staleMs) return false; // pulse fresh → worker alive, keep
+  return confirmedDead;                          // staleness AND not-alive → reclaim
+}
+
 export function planCoordinatorTick(todos: Todo[], now: string): CoordinatorTickPlan {
   const statusById = new Map(todos.map((t) => [t.id, t.status]));
   const acceptById = new Map(todos.map((t) => [t.id, t.acceptanceStatus]));
