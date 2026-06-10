@@ -36,7 +36,15 @@ if [ -z "$PROJECT" ] || [ -z "$SESSION" ]; then
   exit 0
 fi
 
-NOTIFY_STATUS="waiting"
+# Claude Code's Notification event fires both for a PERMISSION request and for an
+# idle prompt. Branch on the message so the watching card shows the right state — a
+# permission prompt must read as 'permission' (needs-you), not the generic 'waiting'.
+# (Fixes: a permission prompt left the watching card green/active.)
+MESSAGE=$(printf '%s' "$INPUT" | jq -r '.message // empty' 2>/dev/null)
+case "$MESSAGE" in
+  *[Pp]ermission*|*approve*|*[Aa]llow*) NOTIFY_STATUS="permission" ;;
+  *) NOTIFY_STATUS="waiting" ;;
+esac
 STATUS_FILE="/tmp/.mermaid-collab-notify-${SESSION_ID}.status"
 LOCK_FILE="/tmp/.mermaid-collab-notify-${SESSION_ID}.lock"
 

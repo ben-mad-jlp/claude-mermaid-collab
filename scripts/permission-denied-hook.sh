@@ -4,9 +4,14 @@
 # Does not set retry — denial passes through; Claude can ask again on its own.
 
 INPUT=$(cat)
-SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
+# Capture the raw payload unconditionally (PermissionDenied, like PermissionRequest,
+# may omit session_id — see permission-hook.sh).
+printf '%s' "$INPUT" > "/tmp/.claude-permission-denied-hook-debug-last" 2>/dev/null
 
-# Validate session id format (UUID-ish) before using as filename component.
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+
+# Resolve binding by session_id, else by project==cwd (PermissionDenied lacks session_id).
 sid_valid=0
 case "$SESSION_ID" in
   ''|*[!0-9a-fA-F-]*) sid_valid=0 ;;
@@ -14,27 +19,30 @@ case "$SESSION_ID" in
      if [ "$sid_len" -ge 8 ] && [ "$sid_len" -le 64 ]; then sid_valid=1; fi ;;
 esac
 
-if [ "$sid_valid" != "1" ]; then
-  echo '{"continue": true}'
-  exit 0
+BINDING_FILE=""
+if [ "$sid_valid" = "1" ] && [ -f "/tmp/.mermaid-collab-binding-${SESSION_ID}.json" ]; then
+  BINDING_FILE="/tmp/.mermaid-collab-binding-${SESSION_ID}.json"
+elif [ -n "$CWD" ]; then
+  for b in /tmp/.mermaid-collab-binding-*.json; do
+    [ -f "$b" ] || continue
+    if [ "$(jq -r '.project // empty' "$b" 2>/dev/null)" = "$CWD" ]; then BINDING_FILE="$b"; break; fi
+  done
 fi
 
-# Per-session debug file so concurrent Claude instances don't clobber each other.
-printf '%s' "$INPUT" > "/tmp/.claude-permission-denied-hook-debug-${SESSION_ID}"
-
-BINDING_FILE="/tmp/.mermaid-collab-binding-${SESSION_ID}.json"
-if [ ! -f "$BINDING_FILE" ]; then
+if [ -z "$BINDING_FILE" ] || [ ! -f "$BINDING_FILE" ]; then
   echo '{"continue": true}'
   exit 0
 fi
 
 PROJECT=$(jq -r '.project // empty' "$BINDING_FILE")
 SESSION=$(jq -r '.session // empty' "$BINDING_FILE")
+CLAUDE_SESSION_ID=$(jq -r '.claudeSessionId // empty' "$BINDING_FILE")
 
-if [ -z "$PROJECT" ] || [ -z "$SESSION" ]; then
+if [ -z "$PROJECT" ] || [ -z "$SESSION" ] || [ -z "$CLAUDE_SESSION_ID" ]; then
   echo '{"continue": true}'
   exit 0
 fi
+SESSION_ID="$CLAUDE_SESSION_ID"
 
 NOTIFY_STATUS="permission"
 STATUS_FILE="/tmp/.mermaid-collab-notify-${SESSION_ID}.status"
