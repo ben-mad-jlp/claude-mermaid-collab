@@ -92,6 +92,27 @@ function registerIpc(): void {
     invokeOnServer(serverId, opts)
   );
   ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
+  ipcMain.handle('mc:openExternalTerminal', async (_e, tmuxName: string) => {
+    // Sanitize: tmux session names here are mc-* alnum+dash; reject anything else to avoid shell injection.
+    if (typeof tmuxName !== 'string' || !/^[A-Za-z0-9_-]+$/.test(tmuxName)) {
+      return { ok: false, error: 'invalid tmux session name' };
+    }
+    const { spawn } = await import('node:child_process');
+    try {
+      if (process.platform === 'darwin') {
+        const script = `tell application "Terminal"\nactivate\ndo script "tmux attach -t ${tmuxName} || tmux attach -t ${tmuxName}"\nend tell`;
+        spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' }).unref();
+      } else if (process.platform === 'linux') {
+        // Best-effort: the freedesktop default terminal wrapper.
+        spawn('x-terminal-emulator', ['-e', `tmux attach -t ${tmuxName}`], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        return { ok: false, error: `unsupported platform ${process.platform}` };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
   // The loading screen calls this when the user clicks Retry after a failed
   // sidecar startup. Re-runs the bring-up using the opts captured in bootstrap.
   ipcMain.handle('mc:retry-bootstrap', () => { void startServicesGuarded(); });

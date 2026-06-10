@@ -1,17 +1,18 @@
 import { useMemo } from 'react';
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { groupByAssignee, statusCounts } from '@/lib/todoGrouping';
+import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
 
-const STATUS_DOT: Record<TodoStatus, string> = {
-  backlog: 'bg-gray-400',
-  planned: 'bg-gray-300',
-  todo: 'bg-info-400',
-  ready: 'bg-indigo-400',
-  in_progress: 'bg-yellow-400',
-  blocked: 'bg-danger-400',
-  done: 'bg-success-400',
-  dropped: 'bg-gray-300',
-};
+/**
+ * Status dot color sourced from the canonical funnel palette: bucket the raw
+ * status (via a minimal synthetic todo) and read STATUS_STYLE[bucket].dot, so
+ * these dots never drift from the FleetGraph / Plan colors. `dropped` has no
+ * funnel bucket → neutral gray.
+ */
+function statusDot(status: TodoStatus): string {
+  const key = bucketTodo({ status } as SessionTodo);
+  return key ? STATUS_STYLE[key].dot : 'bg-gray-300';
+}
 
 /**
  * Manager view (Phase 1, modest): the current session's OWNED todos grouped by
@@ -38,7 +39,7 @@ export function ManagerDashboard({ todos, me }: { todos: SessionTodo[]; me: stri
               <span className="flex items-center gap-1">
                 {(Object.entries(counts) as [TodoStatus, number][]).map(([s, n]) => (
                   <span key={s} title={`${s}: ${n}`} className="inline-flex items-center gap-0.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[s]}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${statusDot(s)}`} />
                     {n}
                   </span>
                 ))}
@@ -47,7 +48,7 @@ export function ManagerDashboard({ todos, me }: { todos: SessionTodo[]; me: stri
             <ul className="pl-3">
               {group.todos.map((t) => (
                 <li key={t.id} className={`truncate py-0.5 ${t.status === 'done' || t.completed ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'}`}>
-                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${STATUS_DOT[t.status ?? (t.completed ? 'done' : 'todo')]}`} />
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${statusDot(t.status ?? (t.completed ? 'done' : 'todo'))}`} />
                   {t.title ?? t.text ?? ''}
                 </li>
               ))}

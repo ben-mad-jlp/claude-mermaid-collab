@@ -19,7 +19,7 @@ import React, { useMemo, useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
-import { bucketTodo, funnelCounts, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
+import { bucketTodo, funnelCounts, FUNNEL_SEGMENTS, STATUS_STYLE, type FunnelKey } from './bridge/funnel';
 
 export interface PlanKanbanProps {
   todos: SessionTodo[];
@@ -28,22 +28,18 @@ export interface PlanKanbanProps {
   showCompleted: boolean;
 }
 
-/** Card fill/border/text per funnel bucket — one palette with the FleetGraph. */
+/**
+ * Card fill/border/text per funnel bucket — HUES sourced from the canonical
+ * funnel.ts palette (ready=violet, inflight=info, blocked=warning(amber, NOT
+ * red — one-red), done=success, backlog=gray). The card keeps its own
+ * border + faint `-50` fill SHAPE; only the hues are unified.
+ */
 const BUCKET_CARD: Record<FunnelKey, string> = {
   backlog: 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50',
-  ready: 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20',
+  ready: 'border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-900/20',
   inflight: 'border-info-300 dark:border-info-700 bg-info-50 dark:bg-info-900/20',
-  blocked: 'border-danger-300 dark:border-danger-700 bg-danger-50 dark:bg-danger-900/20',
+  blocked: 'border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20',
   done: 'border-success-300 dark:border-success-700 bg-success-50 dark:bg-success-900/20',
-};
-
-/** Segment fill for the progress bar (bg) per bucket. */
-const BUCKET_BAR: Record<FunnelKey, string> = {
-  backlog: 'bg-gray-300 dark:bg-gray-600',
-  ready: 'bg-indigo-400 dark:bg-indigo-500',
-  inflight: 'bg-info-500',
-  blocked: 'bg-danger-500',
-  done: 'bg-success-500',
 };
 
 const TERMINAL = new Set(['done', 'dropped']);
@@ -238,7 +234,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                 <div
                   key={seg.key}
                   data-testid={`progress-seg-${seg.key}`}
-                  className={BUCKET_BAR[seg.key]}
+                  className={STATUS_STYLE[seg.key].dot}
                   style={{ width: `${(counts[seg.key] / total) * 100}%` }}
                   title={`${seg.label}: ${counts[seg.key]}`}
                 />

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('mc', {
   getServerCapabilities: (serverId: string) => ipcRenderer.invoke('mc:getServerCapabilities', serverId),
   invokeOnServer: (serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
     ipcRenderer.invoke('mc:invokeOnServer', serverId, opts),
+  openExternalTerminal: (tmuxName: string) => ipcRenderer.invoke('mc:openExternalTerminal', tmuxName),
   onWatchEvent: (cb: (e: any) => void) => {
     const h = (_e: any, evt: any) => cb(evt);
     ipcRenderer.on('mc:watch-event', h);

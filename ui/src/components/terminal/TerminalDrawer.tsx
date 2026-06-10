@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
+import { useNotificationStore } from '@/stores/notificationStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalPane } from './TerminalPane';
 import { ServerIcon } from '@/components/ServerIcon';
@@ -89,6 +90,51 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   // the watched-row open and steal focus by creating a tab on the active
   // server immediately after the user opened one on a different server.
 
+  const resetActiveTerminal = () => {
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab) return;
+    const reqPath = `/api/terminal/sessions/${encodeURIComponent(tab.id)}/reset?project=${encodeURIComponent(tab.project)}&session=${encodeURIComponent(tab.session)}`;
+    const onOk = () => {
+      useNotificationStore.getState().addToast({
+        type: 'success', title: 'Terminal reset',
+        message: 'Re-asserted mouse/scroll modes.', duration: 3000,
+      });
+    };
+    const mc = (window as any).mc;
+    if (mc?.invokeOnServer) {
+      void mc.invokeOnServer(tab.serverId, { path: reqPath, method: 'POST' })
+        .then((res: { ok: boolean }) => { if (res?.ok) onOk(); })
+        .catch(() => { /* ignore */ });
+    } else if (typeof fetch !== 'undefined') {
+      void fetch(reqPath, { method: 'POST' })
+        .then((res) => { if (res.ok) onOk(); })
+        .catch(() => { /* ignore */ });
+    }
+  };
+
+  const openExternalTerminal = async () => {
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab) return;
+    const mc = (window as any).mc;
+    if (!mc?.openExternalTerminal) {
+      useNotificationStore.getState().addToast({
+        type: 'info', title: 'External terminal unavailable',
+        message: 'Only available in the desktop app.', duration: 3000,
+      });
+      return;
+    }
+    const result = await mc.openExternalTerminal(tab.tmuxName);
+    if (result?.ok === false) {
+      useNotificationStore.getState().addToast({
+        type: 'error', title: 'Failed to open external terminal',
+        message: result.error ?? 'Unknown error', duration: 4000,
+      });
+    }
+  };
+
+  const externalTerminalAvailable =
+    typeof window !== 'undefined' && Boolean((window as any).mc?.openExternalTerminal);
+
   if (!open) return null;
 
   const inner = (
@@ -122,6 +168,8 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTabId !== tab.id) setDragOverTabId(tab.id); }}
             onDrop={(e) => { e.preventDefault(); if (dragTabId) moveTab(dragTabId, tab.id); setDragTabId(null); setDragOverTabId(null); }}
             onDragEnd={() => { setDragTabId(null); setDragOverTabId(null); }}
+            onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
+            onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTab(tab.id); } }}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
               padding: '4px 8px', cursor: 'pointer', fontSize: 12,
@@ -208,6 +256,34 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
+
+        {/* Reset terminal */}
+        <button
+          type="button"
+          onClick={resetActiveTerminal}
+          title="Reset terminal (unstick mouse/scroll)"
+          style={{
+            cursor: 'pointer', color: '#6e7681', background: 'none',
+            border: 'none', padding: '4px 8px', fontSize: 12,
+          }}
+        >
+          ↺
+        </button>
+
+        {/* Open in external terminal (desktop only) */}
+        {externalTerminalAvailable && (
+          <button
+            type="button"
+            onClick={() => void openExternalTerminal()}
+            title="Open in external terminal"
+            style={{
+              cursor: 'pointer', color: '#6e7681', background: 'none',
+              border: 'none', padding: '4px 8px', fontSize: 12,
+            }}
+          >
+            ⧉
+          </button>
+        )}
 
         {/* Close drawer */}
         <button

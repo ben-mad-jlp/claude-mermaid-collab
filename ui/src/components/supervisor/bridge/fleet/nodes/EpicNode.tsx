@@ -7,18 +7,9 @@
 
 import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { FunnelKey } from '../../funnel';
+import { STATUS_STYLE, type FunnelKey } from '../../funnel';
 import type { EpicNodeData } from '../types';
 import { useDeckStore } from '@/stores/deckStore';
-
-const ROLLUP_COLOR: Record<FunnelKey, string> = {
-  backlog: 'bg-gray-400',
-  ready: 'bg-gray-500',
-  inflight: 'bg-info-500',
-  // One-red: blocked is amber (warning), not red.
-  blocked: 'bg-warning-500',
-  done: 'bg-success-500',
-};
 
 const ORDER: FunnelKey[] = ['backlog', 'ready', 'inflight', 'blocked', 'done'];
 
@@ -28,7 +19,7 @@ const StatusBar: React.FC<{ counts: EpicNodeData['counts'] }> = ({ counts }) => 
       counts[k] > 0 ? (
         <span
           key={k}
-          className={ROLLUP_COLOR[k]}
+          className={STATUS_STYLE[k].dot}
           style={{ flexGrow: counts[k], flexBasis: 0 }}
           title={`${k}: ${counts[k]}`}
         />

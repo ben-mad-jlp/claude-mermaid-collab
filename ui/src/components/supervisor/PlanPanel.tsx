@@ -5,6 +5,7 @@ import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
 import { PlanKanban } from './PlanKanban';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
+import { bucketTodo, STATUS_STYLE } from './bridge/funnel';
 
 /**
  * PCS Phase 5 / Bridge P6 — the project Plan, backed by the UNIFIED work-graph
@@ -32,13 +33,11 @@ const STATUS_GLYPH: Record<string, string> = {
   backlog: '◌',
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  done: 'text-success-600 dark:text-success-400',
-  in_progress: 'text-info-600 dark:text-info-400',
-  blocked: 'text-warning-600 dark:text-warning-400',
-  todo: 'text-gray-500 dark:text-gray-400',
-  backlog: 'text-gray-400 dark:text-gray-500',
-};
+/** Glyph tint sourced from the canonical funnel palette (bucket → tint). */
+function statusTint(todo: SessionTodo): string {
+  const key = bucketTodo(todo);
+  return key ? STATUS_STYLE[key].tint : 'text-gray-500 dark:text-gray-400';
+}
 
 function projectBasename(project: string): string {
   return project.split('/').filter(Boolean).pop() ?? project;
@@ -76,7 +75,7 @@ function PlanRow({
   onSelect?: (todo: SessionTodo) => void;
 }) {
   const glyph = STATUS_GLYPH[todo.status] ?? '○';
-  const colorCls = STATUS_COLOR[todo.status] ?? 'text-gray-500';
+  const colorCls = statusTint(todo);
   const depCount = todo.dependsOn?.length ?? 0;
   const isInProgress = todo.status === 'in_progress';
   return (

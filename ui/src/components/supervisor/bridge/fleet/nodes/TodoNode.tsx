@@ -8,20 +8,10 @@
 
 import React from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { FUNNEL_LABELS, type FunnelKey } from '../../funnel';
+import { FUNNEL_LABELS, STATUS_STYLE } from '../../funnel';
 import type { TodoNodeData } from '../types';
 import { useLod } from '../useLod';
 import { useDeckStore } from '@/stores/deckStore';
-
-const BUCKET_STYLE: Record<FunnelKey, { dot: string; pill: string }> = {
-  backlog: { dot: 'bg-gray-400', pill: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
-  ready: { dot: 'bg-gray-500', pill: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200' },
-  inflight: { dot: 'bg-info-500', pill: 'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300' },
-  // One-red: blocked is amber (warning), not red — danger is reserved for the
-  // open-escalation ring only.
-  blocked: { dot: 'bg-warning-500', pill: 'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300' },
-  done: { dot: 'bg-success-500', pill: 'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300' },
-};
 
 const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
   const d = data as TodoNodeData;
@@ -30,7 +20,7 @@ const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
   const focusNodeId = useDeckStore((s) => s.focusNodeId);
   const selected = selectedNodeId === id;
   const focused = focusNodeId === id;
-  const style = BUCKET_STYLE[d.bucket];
+  const style = STATUS_STYLE[d.bucket];
 
   const ring = d.danger
     ? `ring-2 ring-danger-500${focused ? ' animate-pulse' : ''}`

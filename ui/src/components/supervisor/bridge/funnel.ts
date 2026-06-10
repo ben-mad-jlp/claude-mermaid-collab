@@ -45,8 +45,9 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
   {
     key: 'ready',
     label: 'Ready',
-    tint: 'text-gray-600 dark:text-gray-300',
-    bg: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200',
+    // Ready=violet (claimable/queued) so it reads distinctly from backlog gray.
+    tint: 'text-violet-600 dark:text-violet-400',
+    bg: 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300',
     match: (t) => t.status === 'ready' && !t.claimedBy,
   },
   {
@@ -116,12 +117,34 @@ export function withRecentDoneOnly(
   });
 }
 
+/**
+ * Canonical per-bucket color styles — the SINGLE source every status-color
+ * surface reads from. `dot` (status dots), `pill` (chips/badges), `tint` (text),
+ * `bg` (fills). One distinct hue per status: backlog=gray, ready=violet,
+ * inflight=info(blue), blocked=warning(amber, NEVER red), done=success(green).
+ * danger/red is reserved EXCLUSIVELY for open escalations.
+ */
+export interface StatusStyle { dot: string; pill: string; tint: string; bg: string; }
+export const STATUS_STYLE: Record<FunnelKey, StatusStyle> = {
+  backlog:  { dot: 'bg-gray-400',    pill: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',       tint: 'text-gray-500 dark:text-gray-400',       bg: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300' },
+  ready:    { dot: 'bg-violet-500',  pill: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300', tint: 'text-violet-600 dark:text-violet-400', bg: 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300' },
+  inflight: { dot: 'bg-info-500',    pill: 'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',    tint: 'text-info-600 dark:text-info-400',       bg: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300' },
+  blocked:  { dot: 'bg-warning-500', pill: 'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300', tint: 'text-warning-600 dark:text-warning-400', bg: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300' },
+  done:     { dot: 'bg-success-500', pill: 'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300', tint: 'text-success-600 dark:text-success-400', bg: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' },
+};
+
 /** First matching segment wins, so each todo lands in exactly one bucket. */
 export function bucketTodo(t: SessionTodo): FunnelKey | null {
   for (const seg of FUNNEL_SEGMENTS) {
     if (seg.match(t)) return seg.key;
   }
   return null;
+}
+
+/** Resolve a todo straight to its canonical status style (null if unbucketed). */
+export function statusStyle(t: SessionTodo): StatusStyle | null {
+  const k = bucketTodo(t);
+  return k ? STATUS_STYLE[k] : null;
 }
 
 export function funnelCounts(todos: SessionTodo[]): Record<FunnelKey, number> {

@@ -47,6 +47,7 @@ interface McBridge {
     serverId: string,
     opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }
   ) => Promise<{ ok: boolean; status: number; body: unknown }>;
+  openExternalTerminal?: (tmuxName: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 function getMc(): McBridge | null {

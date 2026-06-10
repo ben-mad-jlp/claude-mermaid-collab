@@ -48,6 +48,7 @@ import {
   handleTerminalError,
 } from './routes/websocket';
 import { BindingSweeper } from './services/binding-sweeper.ts';
+import { BindingReconciler } from './services/binding-reconciler.ts';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -173,6 +174,14 @@ const wsHandler = new WebSocketHandler();
 initializeWebSocketHandler(wsHandler);
 const sweeper = new BindingSweeper();
 sweeper.start();
+
+// Continuously DERIVE session bindings from durable facts (binding files +
+// supervised registry ∩ live tmux) on boot + every ~20s, so a session (human or
+// worker) relights with no manual /collab after a deploy wipes the in-memory
+// pid→session map. Purely additive + idempotent; runs alongside the existing
+// register paths. See design-session-binding (sibling of decision 9cd01858).
+const bindingReconciler = new BindingReconciler();
+bindingReconciler.start();
 
 // Periodically clean stale VS Code Server pid files so SSH reconnects don't hang.
 // VS Code leaves a stale pid.txt when the server process dies ungracefully.

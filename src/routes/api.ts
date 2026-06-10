@@ -3411,6 +3411,24 @@ export async function handleAPI(
     }
   }
 
+  // POST /api/terminal/sessions/:id/reset?project=...&session=... - Re-assert tmux mouse modes (unstick a wedged terminal)
+  if (path.match(/^\/api\/terminal\/sessions\/[^/]+\/reset$/) && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const sessionId = path.split('/')[4];
+      if (!sessionId) return Response.json({ error: 'Session ID required' }, { status: 400 });
+      const { terminalManager } = await import('../services/terminal-manager.js');
+      const state = await terminalManager.readSessions(params.project, params.session);
+      const target = state.sessions.find(s => s.id === sessionId);
+      if (!target) return Response.json({ error: 'Session not found' }, { status: 404 });
+      await terminalManager.resetTmuxModes(target.tmuxSession);
+      return Response.json({ success: true }, { status: 200 });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // PUT /api/terminal/sessions/reorder?project=...&session=... - Reorder terminal sessions
   if (path === '/api/terminal/sessions/reorder' && req.method === 'PUT') {
     const params = getSessionParams(url);

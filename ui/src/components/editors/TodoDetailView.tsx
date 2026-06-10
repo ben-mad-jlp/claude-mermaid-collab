@@ -13,6 +13,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
 import { MarkdownPreview } from './MarkdownPreview';
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
+import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
 
 function shortSlug(blueprintId: string): string {
   const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
@@ -30,18 +31,13 @@ const STATUS_LABEL: Record<TodoStatus, string> = {
   dropped: 'Dropped',
 };
 
-// Subtle dot color per status — gives the header a professional status cue
-// without turning the pane into a chromatic Jira card.
-const STATUS_DOT: Record<TodoStatus, string> = {
-  backlog: 'bg-gray-400',
-  planned: 'bg-gray-300',
-  todo: 'bg-info-500',
-  ready: 'bg-indigo-500',
-  in_progress: 'bg-warning-500',
-  blocked: 'bg-danger-500',
-  done: 'bg-emerald-500',
-  dropped: 'bg-gray-300',
-};
+// Subtle dot color per status — sourced from the canonical funnel palette
+// (bucket the raw status, read STATUS_STYLE[bucket].dot) so the header cue never
+// drifts from the FleetGraph / Plan colors. `dropped` has no bucket → gray.
+function statusDot(status: TodoStatus): string {
+  const key = bucketTodo({ status } as SessionTodo);
+  return key ? STATUS_STYLE[key].dot : 'bg-gray-300';
+}
 
 const PRIORITY_LABEL: Record<number, string> = { 0: 'P0', 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4' };
 const PRIORITY_COLORS: Record<number, string> = {
@@ -214,7 +210,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
           #{String(todo.id).slice(-4)}
         </span>
         <span
-          className={`shrink-0 w-2 h-2 rounded-full ${STATUS_DOT[status]}`}
+          className={`shrink-0 w-2 h-2 rounded-full ${statusDot(status)}`}
           aria-hidden="true"
         />
         <select
@@ -329,7 +325,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
             {/* Metadata bar — status, priority, due, assignee at a glance */}
             <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-500 dark:text-gray-400">
               <span className="inline-flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${STATUS_DOT[status]}`} aria-hidden="true" />
+                <span className={`w-2 h-2 rounded-full ${statusDot(status)}`} aria-hidden="true" />
                 <span className="font-medium text-gray-700 dark:text-gray-300">{STATUS_LABEL[status]}</span>
               </span>
               {todo.priority !== null && todo.priority !== undefined && (

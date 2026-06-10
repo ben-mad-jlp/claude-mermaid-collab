@@ -119,6 +119,12 @@ export class TerminalManager {
 
       // Enable mouse scrolling for the session
       await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`);
+      // Stop the wheel masquerading as arrow keys: with `mouse on` and an
+      // alternate-screen app that isn't grabbing the mouse, tmux's default
+      // `alternate-scroll on` translates wheel up/down into ↑/↓ arrow keys.
+      // Turning it off only affects that window (apps that grab the mouse are
+      // untouched; the bare shell still gets copy-mode scrollback).
+      await execAsync(`tmux set-option -t ${tmuxSessionName} alternate-scroll off`);
 
       // Disable terminal splitting by unbinding split keys
       // Unbind horizontal split (Ctrl+B %)
@@ -142,6 +148,7 @@ export class TerminalManager {
       if (errorMsg.includes('duplicate session') || errorMsg.includes('already exists')) {
         // If duplicate: That's OK, session exists - still enable mouse mode and attempt unbind keys
         await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`);
+        await execAsync(`tmux set-option -t ${tmuxSessionName} alternate-scroll off`);
         try {
           await execAsync(`tmux unbind-key -t ${tmuxSessionName} %`);
         } catch {
@@ -158,6 +165,13 @@ export class TerminalManager {
       // Otherwise: Throw error
       throw new Error(`Failed to create tmux session ${tmuxSessionName}: ${errorMsg}`);
     }
+  }
+
+  /** Re-assert mouse modes on a live tmux session (unstick a wedged terminal:
+   *  e.g. wheel masquerading as arrow keys). Best-effort; never throws. */
+  async resetTmuxModes(tmuxSessionName: string): Promise<void> {
+    try { await execAsync(`tmux set-option -t ${tmuxSessionName} mouse on`); } catch { /* best-effort */ }
+    try { await execAsync(`tmux set-option -t ${tmuxSessionName} alternate-scroll off`); } catch { /* best-effort */ }
   }
 
   /**
