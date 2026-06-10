@@ -31,6 +31,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
 }) => {
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
+  const landEpic = useSupervisorStore((s) => s.landEpic);
   const confirmSuggestion = useSupervisorStore((s) => s.confirmSuggestion);
   const dismissSuggestion = useSupervisorStore((s) => s.dismissSuggestion);
 
@@ -236,6 +237,28 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                         </button>
                       );
                     })}
+                  </div>
+                ) : e.kind === 'epic-ready-to-land' ? (
+                  // LAND card (epic-landing P3): primary action is LAND (merge to
+                  // master via the server proof gate), NOT the destructive Resolve —
+                  // resolving would dismiss the card and strand the work off-master.
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => void landEpic(serverScope, e.project, e.id)}
+                      className="px-2 py-1 text-2xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                      title="Re-derive land-readiness server-side, then merge this epic onto master"
+                    >
+                      🚀 Land
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void resolveEscalation(serverScope, e.id, 'resolved')}
+                      className="px-2 py-1 text-2xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                      title="Dismiss without landing (the work stays on its epic branch)"
+                    >
+                      Dismiss
+                    </button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5 pt-1">

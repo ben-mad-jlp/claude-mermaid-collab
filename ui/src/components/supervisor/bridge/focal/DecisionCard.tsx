@@ -34,8 +34,10 @@ interface Answerable {
 export const DecisionCard: React.FC<DecisionCardProps> = ({ escalation, serverScope, onClose, onJump }) => {
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
+  const landEpic = useSupervisorStore((s) => s.landEpic);
 
   const spec = useMemo(() => parseUiSpec(escalation.ui), [escalation.ui]);
+  const isLand = escalation.kind === 'epic-ready-to-land';
 
   const decide = (optionId: string) => {
     void decideEscalation(serverScope, escalation.id, optionId);
@@ -43,6 +45,13 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ escalation, serverSc
   };
   const submit = () => {
     void resolveEscalation(serverScope, escalation.id, 'resolved');
+    onClose();
+  };
+  // LAND (epic-landing P3): re-derive readiness server-side then merge the epic onto
+  // master. Distinct from Resolve, which would only DISMISS the card and silently
+  // strand the work off-master (the destructive default we're replacing).
+  const land = () => {
+    void landEpic(serverScope, escalation.project, escalation.id);
     onClose();
   };
 
@@ -160,13 +169,36 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ escalation, serverSc
                   Jump (J)
                 </button>
               )}
-              <button
-                type="button"
-                onClick={submit}
-                className="px-3 py-1.5 text-sm rounded bg-accent-600 text-white hover:bg-accent-700"
-              >
-                Resolve
-              </button>
+              {isLand ? (
+                <>
+                  {/* Primary action for a land card is LAND (merge to master), not the
+                      destructive Resolve. Resolve is demoted to a secondary Dismiss. */}
+                  <button
+                    type="button"
+                    onClick={land}
+                    title="Re-derive land-readiness server-side, then merge this epic onto master"
+                    className="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                  >
+                    🚀 Land
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submit}
+                    title="Dismiss this card without landing (the work stays on its epic branch)"
+                    className="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    Dismiss
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={submit}
+                  className="px-3 py-1.5 text-sm rounded bg-accent-600 text-white hover:bg-accent-700"
+                >
+                  Resolve
+                </button>
+              )}
             </div>
           </>
         )}

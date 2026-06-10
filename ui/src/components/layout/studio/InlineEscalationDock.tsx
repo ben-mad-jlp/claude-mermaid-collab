@@ -19,6 +19,7 @@ export const InlineEscalationDock: React.FC = () => {
   const escalations = useSupervisorStore((s) => s.escalations);
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
+  const landEpic = useSupervisorStore((s) => s.landEpic);
 
   if (!currentSession) return null;
 
@@ -82,6 +83,27 @@ export const InlineEscalationDock: React.FC = () => {
                     </button>
                   );
                 })}
+              </div>
+            ) : e.kind === 'epic-ready-to-land' ? (
+              // LAND card (epic-landing P3): LAND merges to master (server proof
+              // gate); Resolve here would only dismiss + strand the work off-master.
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => void landEpic(serverScope, e.project, e.id)}
+                  className="px-1.5 py-0.5 text-3xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                  title="Re-derive land-readiness server-side, then merge this epic onto master"
+                >
+                  🚀 Land
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void resolveEscalation(serverScope, e.id, 'resolved')}
+                  className="px-1.5 py-0.5 text-3xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  title="Dismiss without landing (the work stays on its epic branch)"
+                >
+                  Dismiss
+                </button>
               </div>
             ) : (
               <div className="flex items-center gap-1.5 pt-0.5">
