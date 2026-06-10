@@ -34,6 +34,18 @@ Before writing code, do a **cheap self-assessment** of the leaf (a few Read/Grep
 
 The bet: you just read the leaf + surrounding code, so you're the cheapest correct judge of "is this one coherent change or several." When in doubt, **DO IT** linearly — only split when the parallelism is real (≥4 independent tasks) or the leaf is cross-type/too-wide. You DECIDE the split; the **planner PROMOTES** it (you never mint `ready` todos yourself).
 
+## Step 1.6 — Review leaf? (type: reviewer) — short-circuit
+
+If the claimed todo's **`type` is `reviewer`** (a planner-emitted review leaf from a split — see planner Step 6), you do NOT implement anything. You are the completeness/bug gate for the sibling impl leaves this leaf `dependsOn`. You have **read-only** tools (Read/Grep/Glob + MCP — no Edit/Write/Bash by design); do the review and report, then STOP:
+
+1. **Gather the scope.** For each id in this todo's `dependsOn`, `get_todo` it and collect the union of their declared `files` + read its title/description (the sub-task spec). Read the parent epic's spec too (the `parentId` todo) for the overall intent.
+2. **Review** those files (Read/Grep) against the union spec — judge completeness + correctness: missing cases, spec drift, a sub-task that stopped early, integration gaps between siblings (the thing per-leaf gates can't see). For a **CAD** review leaf, run the `cad-fitness-review` pattern instead (judge the rendered artifact against the fitness rubric).
+3. **Verdict:**
+   - **Clean** → `complete_todo` (acceptance `accepted`). The split is fully done.
+   - **Gaps found** → `escalation_create` (`kind: "decision"`, `options[]` proposing the fix — e.g. a follow-up sub-task, or re-open a sibling) + `await_human_decision`. Do NOT silently accept over a real gap, and do NOT park.
+
+A review leaf never edits code, never runs the mechanical gate (it gates OTHERS' code), and skips Steps 2–3.5. Then STOP.
+
 ## Step 2 — Do the work
 
 Implement exactly what the todo's spec asks — no more. Follow the repo's conventions (read neighbouring files first). Prefer the native Read/Edit/Write tools over shell `cat`/`sed`. Keep the change scoped to this one todo; if you discover the spec is materially wrong or blocked by something outside this todo, jump to Step 4 (escalate) instead of guessing.
