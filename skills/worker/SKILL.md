@@ -20,6 +20,20 @@ Args: { "project": "<pwd>", "todoId": "<ARGUMENTS>" }
 
 The returned todo's `title` + `description` is your spec. If `description` is empty, treat `title` as the spec. If the todo is already `done`, STOP — nothing to do.
 
+## Step 1.5 — Size gate (decide: do it, or propose a split)
+
+Before writing code, do a **cheap self-assessment** of the leaf (a few Read/Grep — no full implementation): roughly how many files will change (`nFiles`), how many independent sub-tasks (`nTasks`), are those edits **independent** (different files, no shared sequencing), and is it a **single** agent-profile type (all backend, or all ui — not a mix)? Then route:
+
+| Condition | Route |
+|---|---|
+| `nFiles ≤ 1`, or tightly coupled single concern, or `type: cad` | **DO IT** → Step 2 (linear), no overhead |
+| Behavioral but in-context-doable (`< ~4 tasks` / `< ~3 independent files`) | **DO IT** → Step 2, then the Step 3.5 review |
+| `nTasks ≥ 4` AND `≥ 3 edit-independent files` AND a **single** profile-type | **PROPOSE A SPLIT** → Step 4d (don't grind) |
+| Fan-out would span **profile TYPES** (backend + ui, code + cad) | **PROPOSE A SPLIT** → Step 4d (mis-sized at plan time) |
+| Wide/homogeneous migration (many near-identical sites) | **PROPOSE A SPLIT** → Step 4d, batched **5–15 sites per sub-task** (never one-per-site) |
+
+The bet: you just read the leaf + surrounding code, so you're the cheapest correct judge of "is this one coherent change or several." When in doubt, **DO IT** linearly — only split when the parallelism is real (≥4 independent tasks) or the leaf is cross-type/too-wide. You DECIDE the split; the **planner PROMOTES** it (you never mint `ready` todos yourself).
+
 ## Step 2 — Do the work
 
 Implement exactly what the todo's spec asks — no more. Follow the repo's conventions (read neighbouring files first). Prefer the native Read/Edit/Write tools over shell `cat`/`sed`. Keep the change scoped to this one todo; if you discover the spec is materially wrong or blocked by something outside this todo, jump to Step 4 (escalate) instead of guessing.
@@ -142,7 +156,7 @@ Args: { "project": "<pwd>", "todoId": "<ARGUMENTS>", "acceptance": "rejected" }
 
 **Stopping is NOT escalating.** If you cannot complete this todo, your turn does not end until you have called `escalation_create` (below). Printing your reasoning/options to the chat and then stopping is a **NO-OP**: the Orchestrator daemon cannot see it, the todo strands `in_progress` until lease-expiry, and the daemon will auto-flag you as a silent stall (DOGFOOD #6) — the structured `escalation_create` call is the ONLY thing that surfaces a blocker. Do NOT complete; raise the escalation so the human/planner can re-validate:
 
-> **"This todo is too big / needs to be split" is ALSO a blocker — escalate it, never park it.** If you judge the todo should be decomposed into sub-todos before it can be done, that is a *planning decision for the human/planner*, not something you do silently. File an `escalation_create` (`kind: "decision"`, with `options[]` proposing the split) and `await_human_decision` — do NOT end your turn with "a human/planner decides how to slice it" printed to the chat. That exact phrasing stranded a todo `in_progress` and wedged its whole lane (the parked-worker failure, 41d24bee). Escalating frees the lane; parking blocks it.
+> **"This todo is too big / needs to be split" → use the Step 4d SPLIT PROPOSAL, never park it.** If the leaf should be decomposed, draft the graph and file the blueprint-backed split proposal (Step 4d: `kind: "decision"` + `options[]` + `await_human_decision`) — the planner promotes it into sibling leaves. Do NOT end your turn with "a human/planner decides how to slice it" printed to the chat: that exact phrasing stranded a todo `in_progress` and wedged its whole lane (the parked-worker failure, 41d24bee). Proposing (with the await) frees the lane; parking blocks it.
 
 Your session name is `worker-<first 8 chars of the todo id>`.
 
@@ -185,6 +199,29 @@ Args: { "escalationId": "<id-from-escalation_create>" }
 > **Common mistake (do NOT do this):** emitting `options[]` and then writing a "stopping — a human will decide, a worker can resume once answered" summary and ending the turn. That path is ONLY for plain blockers with no options. If you passed `options[]`, you MUST call `await_human_decision` in the same turn — never end the turn on a "human will decide" note.
 
 If you filed a plain blocker (no options), skip the await and STOP — a human or the planner decides next.
+
+### 4d. Split proposal (the Step 1.5 size gate routed you here)
+
+When the size gate judged the leaf **oversized / cross-type / too-wide**, do NOT grind it linearly and do NOT file a bare "this is too big" shrug. Instead **draft the decomposition** and hand it to the planner as a structured proposal — the planner promotes it into sibling leaves the wave engine runs in parallel.
+
+1. **Draft the task graph** (don't implement). Sketch 3–8 sub-tasks, each: a one-line title, the **files** it touches (keep sibling sub-tasks **file-disjoint** so they parallelize without contaminating the shared tree; chain same-file tasks with a dependency), and its profile **type**. For a wide migration, batch **5–15 sites per sub-task**, never one-per-site. (This is the vibe-blueprint shape — you're producing the graph, not minting todos.)
+2. **File it as a decision escalation** the planner answers:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__escalation_create
+Args: {
+  "project": "<pwd>", "session": "worker-<first8(ARGUMENTS)>", "todoId": "<ARGUMENTS>",
+  "kind": "decision",
+  "questionText": "This leaf is <oversized | cross-type | too-wide> — proposing a split into N sibling leaves (drafted graph below). Promote the split, or have me do it linearly?\n\n<the drafted task graph: each sub-task's title · files · type · depends-on>",
+  "options": [
+    { "id": "split", "label": "Promote the split", "detail": "Planner creates the N drafted children (parentId=this leaf's epic, dependsOn, files, type) + one type:review child, promotes them ready." },
+    { "id": "linear", "label": "Do it linearly anyway", "detail": "Skip the split; I implement the whole leaf in one pass." }
+  ],
+  "recommended": "split"
+}
+```
+3. Then **immediately `await_human_decision(escalationId)`** in the same turn (the MANDATORY rule above applies — a split proposal carries `options[]`). On `split` → STOP (the planner takes over; your leaf becomes the container). On `linear` → go back to Step 2 and implement.
+
+This upgrades the old bare "too big → escalate" into an actionable, pre-drafted plan, and keeps the **planner-promotes-ready** invariant intact (you propose; the planner promotes). NEVER fan out sub-WRITERS yourself — the pool shares one git tree; write-parallelism comes only from planner-promoted sibling leaves.
 
 ## Rules
 

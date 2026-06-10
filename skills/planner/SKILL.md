@@ -54,12 +54,24 @@ Present the proposed plan to the human: the epics/tasks, their deps, and any pro
 
 ## Step 5 — Hand off to the Orchestrator daemon
 
-Once todos are `ready`, the always-on **Orchestrator daemon** claims and spawns workers for them automatically — provided the project's level is **`build` or higher** (set by the human on the Bridge ladder; the daemon is always running, so there is nothing to start). Then your job for this pass is done — the daemon's Build pass + workers execute; workers run their inner loop (vibe-blueprint(auto) → vibe-go → vibe-review) and report via `complete_todo`.
+Once todos are `ready`, the always-on **Orchestrator daemon** claims and spawns workers for them automatically — provided the project's level is **`build` or higher** (set by the human on the Bridge ladder; the daemon is always running, so there is nothing to start). Then your job for this pass is done — the daemon's Build pass + workers execute and report via `complete_todo`.
+
+A worker does NOT run a vibe-blueprint/vibe-go/vibe-review inner loop (that loop was never wired and is retired — decision 6d58eea9). Instead each worker: implements its leaf linearly, runs the mechanical gate, and on a non-trivial behavioral leaf runs ONE read-only completeness review (Step 3.5). If a worker's **size gate** (Step 1.5) judges its leaf oversized / cross-type / too-wide, it files a **SPLIT PROPOSAL** (Step 4d) back to you instead of grinding — see below.
+
+## Step 6 — Handle a worker SPLIT PROPOSAL (the worker decides, you promote)
+
+A worker that hit an oversized leaf files a `kind: "decision"` escalation whose `questionText` carries a **drafted task graph** (sub-task titles · files · type · depends-on) with options `split` / `linear`. When you see one:
+
+1. Review the drafted graph against the active constraints (does it over-decompose into atoms? are the sibling sub-tasks genuinely file-disjoint so they parallelize on the shared tree?).
+2. To **promote the split**: `add_session_todo` one child per sub-task with `parentId` = the original leaf's epic, the drafted `dependsOn` / `files` / `type`, plus **one `type: review` child** that `dependsOn` the impl children (the union-change-set completeness leaf). Then promote the children `planned → ready` (or `blocked` if deps pending). The original leaf becomes a container (it auto-completes when its children settle). Answer the escalation with `split`.
+3. To **decline** (the leaf is fine linear): answer `linear` — the worker resumes and implements it in one pass.
+
+**You are the ONLY role that promotes a split's children to `ready`** — the worker only proposes. This keeps the planner-promotes-ready invariant intact while letting the actor that read the code (the worker) spot the parallelism.
 
 ## Rules of thumb
 
 - Right-size todos — UPPER bound: a single todo that would blow ~80% context is too big — split it (the context-watchdog treats a single-todo overflow as a split signal).
-- Right-size todos — LOWER bound: don't over-decompose into atoms. Each leaf is handed to a worker that re-decomposes it (vibe-blueprint(auto) → vibe-go → vibe-review), so a leaf must sit at an altitude where that second split has real work to do. Split at the Planner level only when sub-parts have (a) different agent-profile TYPES (backend vs ui — they route to different pool sessions), (b) hard DEPENDENCIES / sequencing, or (c) an embedded DECISION a human should make up front. Stop there and hand the worker a coherent leaf.
+- Right-size todos — LOWER bound: don't over-decompose into atoms. A leaf is handed to a worker that implements it linearly; if the worker's size gate (Step 1.5) finds real intra-leaf parallelism (≥4 edit-independent tasks) or a cross-type/too-wide leaf, it files a SPLIT PROPOSAL back to you (Step 6). So you don't need to pre-split everything — leave a coherent leaf and let the worker surface a split when the parallelism is real. Split at the Planner level up front only when sub-parts have (a) different agent-profile TYPES (backend vs ui — they route to different pool sessions), (b) hard DEPENDENCIES / sequencing, or (c) an embedded DECISION a human should make up front.
 - A leaf should be "deliverable-sized": roughly blueprintable into ~3–8 implementation tasks. A genuine one-file/one-function change does NOT need its own epic-style decomposition — leave it a single leaf.
 - Anti-pattern: splitting into atoms with no decisions/deps between them — that just relocates the worker's job up to the Planner and clutters the work-graph. Example: "escalation-decision UI" was correctly split into ED1–ED4 (different types + deps + a mechanism decision surfaced at plan time); "migrate 534 color sites" was correctly left as ONE leaf for the worker to blueprint into per-area waves.
 - Prefer explicit `dependsOn` over implicit ordering — the Build pass parallelizes anything not blocked.
