@@ -14,23 +14,39 @@
  * ones, which keep a live `claude` process. Reuses the coordinator's liveness
  * helpers so the "alive" test is identical.
  */
-import { procSnapshot, tmuxPanePid, claudeAliveInSubtree, isClaudeTuiPresent } from './coordinator-live.ts';
+import { procSnapshot, tmuxPanePid, claudeAliveInSubtree, isClaudeTuiPresent, isActivelyWorking } from './coordinator-live.ts';
 
 /** Only collab-owned sessions (tmuxBaseName prefixes every name with `mc-`). */
 const MC_PREFIX = 'mc-';
 
-/** Default idle age before an orphaned session is eligible for reaping (1 week).
- *  Old tmux sessions are cheap (a detached shell) — this is hygiene, not safety —
- *  so the threshold is deliberately conservative. */
+/** The IDE-attached wrapper for a base `mc-<X>` session is a GROUPED tmux session
+ *  `vscode-collab-mc-<X>` (PTYManager) that SHARES the base's windows/panes. The live
+ *  Claude is therefore held by the GROUP, not by either name alone — killing only the
+ *  base leaves the wrapper alive holding the Claude, freeing zero real procs. Every
+ *  reap must target BOTH names (verified 2026-06-10 during manual cleanup). */
+function pairedWrapperName(base: string): string {
+  return `vscode-collab-${base}`;
+}
+
+/** Default idle age before an orphaned (dead-shell) session is eligible for reaping
+ *  (1 week). Old dead tmux sessions are cheap (a detached shell) — this is hygiene,
+ *  not safety — so the threshold is deliberately conservative. */
 const MAX_IDLE_MS = (Number(process.env.MERMAID_TMUX_MAX_IDLE_H) || 24 * 7) * 60 * 60 * 1000;
+/** Idle-at-prompt reap age (distinct from the dead-path threshold). An idle-but-ALIVE
+ *  worker lane (live Claude sitting at the prompt, not working) older than this is
+ *  reaped to bound per-uid process accumulation — the wedge the dead-only path missed
+ *  entirely (idle lanes keep a live Claude, so the liveness gate kept every one). Much
+ *  shorter than MAX_IDLE_MS because an idle lane costs ~27 live procs, not a bare shell.
+ *  Override with MERMAID_TMUX_IDLE_REAP_H (default 8h). */
+const IDLE_REAP_MS = (Number(process.env.MERMAID_TMUX_IDLE_REAP_H) || 8) * 60 * 60 * 1000;
 /** Sweep cadence. */
 const SWEEP_INTERVAL_MS = (Number(process.env.MERMAID_TMUX_REAP_INTERVAL_MIN) || 30) * 60 * 1000;
 
 /** Role/planning sessions that are NEVER reaped, regardless of age or liveness —
- *  a planner mid-design or the steward/supervisor must never be killed by hygiene.
- *  tmuxBaseName is `mc-{projectSlug}-{sessionSlug}` (no hyphens inside a slug), so
- *  the last '-' segment is the session slug. */
-const PROTECTED_SESSION_SLUGS = new Set(['planner', 'steward', 'supervisor']);
+ *  a planner/designer mid-flight or the steward/supervisor must never be killed by
+ *  hygiene. tmuxBaseName slugs strip non-alphanumerics, so the session slug is the
+ *  last '-' segment of `mc-{projectSlug}-{sessionSlug}`. */
+const PROTECTED_SESSION_SLUGS = new Set(['planner', 'design', 'steward', 'supervisor']);
 
 /** True if a tmux session name belongs to a protected role/planning session. */
 export function isProtectedSession(tmuxName: string): boolean {
@@ -38,9 +54,25 @@ export function isProtectedSession(tmuxName: string): boolean {
   return PROTECTED_SESSION_SLUGS.has(slug);
 }
 
+/** Worker POOL-lane slugs eligible for idle-at-prompt reaping. tmuxBaseName strips
+ *  the hyphen out of a `<type>-<slot>` lane name, so the slug is `<type><slot>` (e.g.
+ *  `backend1`, `ui2`, `general1`); domain lanes (`cad`, `gazebo`) may carry no slot.
+ *  The idle path uses a POSITIVE ALLOWLIST (not just the protected denylist): only a
+ *  recognized worker lane is ever reaped while alive, so an interactive console or any
+ *  unrecognized session the human may be mid-use on is left untouched (age alone is
+ *  insufficient — verified 2026-06-10, the age-only filter wrongly killed in-use
+ *  planner/design sessions). */
+const WORKER_LANE_RE = /^(frontend|backend|api|ui|library|general|cad|gazebo)\d*$/;
+
+/** True if a tmux session name is a reapable worker pool lane (by slug). */
+export function isWorkerLaneSession(tmuxName: string): boolean {
+  const slug = tmuxName.split('-').pop() ?? '';
+  return WORKER_LANE_RE.test(slug);
+}
+
 /**
- * Pure reap decision — unit-testable without tmux/ps. Reap iff the session is NOT
- * protected AND old AND has no live claude process AND no TUI chrome.
+ * Pure DEAD-path reap decision — unit-testable without tmux/ps. Reap iff the session
+ * is NOT protected AND old AND has no live claude process AND no TUI chrome.
  * `hasLiveClaude===null` (snapshot unavailable) is treated as ALIVE (fail-safe:
  * never reap on unknown).
  */
@@ -52,6 +84,27 @@ export function shouldReapTmux(
   if (s.ageMs < maxIdleMs) return false;
   if (s.hasLiveClaude !== false) return false; // alive or unknown → keep
   if (s.hasTui) return false;
+  return true;
+}
+
+/**
+ * Pure IDLE-AT-PROMPT reap decision — distinct from the dead path above. Reap iff the
+ * session is a worker lane, NOT protected, old past the idle threshold, has a LIVE
+ * claude (so it's genuinely idle-at-prompt, not a dead shell — that's the dead path),
+ * and is NOT actively working. `hasLiveClaude!==true` (dead or unknown) → keep here;
+ * a dead lane is handled by shouldReapTmux, and unknown is never reaped. The positive
+ * `isWorker` allowlist is what keeps this from ever touching planner/design/interactive
+ * sessions even if they slip the protected denylist.
+ */
+export function shouldReapIdleTmux(
+  s: { ageMs: number; hasLiveClaude: boolean | null; isWorking: boolean; isWorker: boolean; protected?: boolean },
+  idleReapMs: number = IDLE_REAP_MS,
+): boolean {
+  if (s.protected) return false;          // never reap a protected role
+  if (!s.isWorker) return false;          // allowlist: only worker pool lanes
+  if (s.ageMs < idleReapMs) return false; // younger than the idle threshold → keep
+  if (s.hasLiveClaude !== true) return false; // dead/unknown → not this path
+  if (s.isWorking) return false;          // actively working → keep
   return true;
 }
 
@@ -91,7 +144,7 @@ function capturePane(tmux: string): string {
   }
 }
 
-async function killSession(tmux: string): Promise<void> {
+async function killOne(tmux: string): Promise<void> {
   try {
     const p = Bun.spawn(['tmux', 'kill-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
     await p.exited;
@@ -100,23 +153,49 @@ async function killSession(tmux: string): Promise<void> {
   }
 }
 
+/** Reap a session AND its paired `vscode-collab-mc-<X>` wrapper together. Killing
+ *  only the base leaves the grouped wrapper alive holding the shared pane's live
+ *  Claude → zero real procs freed (PAIRED-SESSION GOTCHA). Best-effort on both. */
+async function killSession(tmux: string): Promise<void> {
+  await Promise.all([killOne(tmux), killOne(pairedWrapperName(tmux))]);
+}
+
 /**
  * Run one sweep. Returns the names of sessions reaped. One ps snapshot for the
  * whole pass (cheap); per-session pane-pid + pane-capture for the liveness test.
  */
-export async function reapStaleTmux(maxIdleMs: number = MAX_IDLE_MS, now: number = Date.now()): Promise<string[]> {
+export async function reapStaleTmux(
+  maxIdleMs: number = MAX_IDLE_MS,
+  now: number = Date.now(),
+  idleReapMs: number = IDLE_REAP_MS,
+): Promise<string[]> {
   const sessions = await listMcSessions();
   if (sessions.length === 0) return [];
   const snap = await procSnapshot();
   const reaped: string[] = [];
   for (const s of sessions) {
-    if (isProtectedSession(s.name)) continue; // never reap planner/steward/supervisor
+    if (isProtectedSession(s.name)) continue; // never reap planner/design/steward/supervisor
     const ageMs = now - s.createdMs;
-    if (ageMs < maxIdleMs) continue; // cheap age gate before any ps/tmux work
+    const isWorker = isWorkerLaneSession(s.name);
+    // Cheap age gate before any ps/tmux work. A worker lane can qualify for the
+    // SHORTER idle-reap threshold, so gate on the minimum of the two thresholds it
+    // could match; a non-worker lane only has the dead-path (long) threshold.
+    const minThreshold = isWorker ? Math.min(maxIdleMs, idleReapMs) : maxIdleMs;
+    if (ageMs < minThreshold) continue;
     const panePid = await tmuxPanePid(s.name);
     const hasLiveClaude = snap && panePid != null ? claudeAliveInSubtree(panePid, snap) : null;
-    const hasTui = isClaudeTuiPresent(capturePane(s.name));
-    if (shouldReapTmux({ ageMs, hasLiveClaude, hasTui }, maxIdleMs)) {
+    const pane = capturePane(s.name);
+    const hasTui = isClaudeTuiPresent(pane);
+    // DEAD path (dead shell, very old) OR IDLE-AT-PROMPT path (alive worker lane,
+    // idle, past the shorter idle threshold). Both reap the base + its paired wrapper.
+    const reapDead = shouldReapTmux({ ageMs, hasLiveClaude, hasTui }, maxIdleMs);
+    const reapIdle =
+      !reapDead &&
+      shouldReapIdleTmux(
+        { ageMs, hasLiveClaude, isWorking: isActivelyWorking(pane), isWorker },
+        idleReapMs,
+      );
+    if (reapDead || reapIdle) {
       await killSession(s.name);
       reaped.push(s.name);
     }
@@ -138,7 +217,9 @@ export function startTmuxReaper(): void {
   timer = setInterval(() => void reapStaleTmux().catch(() => {}), SWEEP_INTERVAL_MS);
   console.log(
     `[tmux-reaper] started — sweep every ${Math.round(SWEEP_INTERVAL_MS / 60000)}m, ` +
-      `reap non-planning mc-* sessions idle > ${(MAX_IDLE_MS / 86400000).toFixed(1)}d with no live claude`,
+      `reap non-planning mc-* sessions idle > ${(MAX_IDLE_MS / 86400000).toFixed(1)}d with no live claude, ` +
+      `+ idle-at-prompt worker lanes (live but not working) older than ${(IDLE_REAP_MS / 3600000).toFixed(0)}h ` +
+      `(base + paired vscode-collab wrapper)`,
   );
 }
 
