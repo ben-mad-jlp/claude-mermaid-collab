@@ -599,6 +599,55 @@ export class WorktreeManager {
     return parseInt(res.stdout.trim() || '0', 10) || 0;
   }
 
+  // ---------------------------------------------------------------------------
+  // epicAheadOfMaster — the UNLANDED-WORK count: how many commits the epic's
+  // accumulation branch carries that `baseRef` (master) does NOT, i.e. accepted,
+  // gate-green work that has not yet been landed onto master:
+  // `git rev-list --count <baseRef>..<epicBranch>`. The inverse of epicBehindBase.
+  // Returns 0 when the branch is missing or fully landed. This is the durable
+  // truth-vs-reported drift signal (design-epic-landing P1) — derived from git,
+  // NOT from land-card existence, so an ORPHANED epic (commits ahead, no card)
+  // still surfaces. Never throws.
+  // ---------------------------------------------------------------------------
+  async epicAheadOfMaster(epicId: string, baseRef: string = 'master'): Promise<number> {
+    if (!(await this.isGitRepo())) return 0;
+    const epicBranch = this.epicBranchName(epicId);
+    const res = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-list', '--count', `${baseRef}..${epicBranch}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0) return 0;
+    return parseInt(res.stdout.trim() || '0', 10) || 0;
+  }
+
+  /** Enumerate every `collab/epic/*` accumulation branch that is AHEAD of master
+   *  (carries unlanded commits), with its commit count. Pure git read (no merge,
+   *  no land) — the deterministic detector behind the Bridge's unlanded-epic
+   *  readout (design-epic-landing P1). Returns [] off a non-git repo or on error. */
+  async listUnlandedEpics(baseRef: string = 'master'): Promise<Array<{ branch: string; epicId8: string; ahead: number }>> {
+    if (!(await this.isGitRepo())) return [];
+    const list = await this.runGit(
+      this.opts.projectRoot,
+      ['branch', '--list', 'collab/epic/*', '--format=%(refname:short)'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (list.code !== 0) return [];
+    const branches = list.stdout.split('\n').map((b) => b.trim()).filter(Boolean);
+    const out: Array<{ branch: string; epicId8: string; ahead: number }> = [];
+    for (const branch of branches) {
+      const res = await this.runGit(
+        this.opts.projectRoot,
+        ['rev-list', '--count', `${baseRef}..${branch}`],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      if (res.code !== 0) continue;
+      const ahead = parseInt(res.stdout.trim() || '0', 10) || 0;
+      if (ahead > 0) out.push({ branch, epicId8: branch.replace(/^collab\/epic\//, ''), ahead });
+    }
+    return out;
+  }
+
   /** Resolve a base ref to branch a NEW epic off: the requested ref when it
    *  exists, else the detected base branch. Lets a caller request a specific base
    *  (e.g. master) yet fall back to the detected default branch on a fresh repo. */

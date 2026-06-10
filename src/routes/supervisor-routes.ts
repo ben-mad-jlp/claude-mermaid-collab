@@ -26,7 +26,7 @@ import { listObjects, listTypes } from '../services/system-object-store.ts';
 import { bom } from '../services/system-object-bom.ts';
 import { satisfy } from '../services/system-object-edges.ts';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
-import { landEpic } from '../services/coordinator-live.ts';
+import { landEpic, getWorktreeManager } from '../services/coordinator-live.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
@@ -39,6 +39,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // PROJECTS
   if (url.pathname === '/api/supervisor/projects' && req.method === 'GET') {
     return Response.json({ projects: listWatchedProjects() });
+  }
+
+  // UNLANDED EPICS — deterministic git-tree drift readout (design-epic-landing P1):
+  // collab/epic/* branches with commits NOT on master = accepted work stranded
+  // off-master. Derived purely from `git rev-list master..<branch>` (not from land
+  // cards), so an orphaned epic with no card still surfaces. Read-only; never lands.
+  if (url.pathname === '/api/supervisor/unlanded-epics' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project query param is required', 400);
+    try {
+      const unlandedEpics = await getWorktreeManager(project).listUnlandedEpics();
+      return Response.json({ unlandedEpics });
+    } catch (err) {
+      // Non-git / transient project → empty, never error the Bridge.
+      return Response.json({ unlandedEpics: [] });
+    }
   }
 
   if (url.pathname === '/api/supervisor/projects' && req.method === 'POST') {

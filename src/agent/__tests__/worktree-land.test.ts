@@ -162,4 +162,31 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
   it('epicBehindBase returns 0 for a missing epic branch', async () => {
     expect(await mgr.epicBehindBase('epic-nonexistent')).toBe(0);
   });
+
+  it('epicAheadOfMaster counts UNLANDED commits and drops to 0 after landing', async () => {
+    await epicWith('feature.txt', 'epic-output\n');
+    // One accepted commit on the epic branch, not yet on master.
+    expect(await mgr.epicAheadOfMaster(EPIC)).toBe(1);
+
+    await mgr.landEpicToMaster(EPIC);
+    // After landing, master contains the epic → nothing ahead.
+    expect(await mgr.epicAheadOfMaster(EPIC)).toBe(0);
+  });
+
+  it('epicAheadOfMaster returns 0 for a missing epic branch', async () => {
+    expect(await mgr.epicAheadOfMaster('epic-nonexistent')).toBe(0);
+  });
+
+  it('listUnlandedEpics surfaces epics ahead of master, excludes landed ones', async () => {
+    await epicWith('feature.txt', 'epic-output\n');
+    const before = await mgr.listUnlandedEpics();
+    expect(before.length).toBe(1);
+    expect(before[0].branch).toBe('collab/epic/epic-aaa');
+    expect(before[0].ahead).toBe(1);
+
+    await mgr.landEpicToMaster(EPIC);
+    // Branch still exists until removeEpic, but it's no longer ahead → excluded.
+    const after = await mgr.listUnlandedEpics();
+    expect(after.find((e) => e.branch === 'collab/epic/epic-aaa')).toBeUndefined();
+  });
 });

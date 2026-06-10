@@ -66,6 +66,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
   const loadProjects = useSupervisorStore((s) => s.loadProjects);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
+  const unlandedEpicsByProject = useSupervisorStore((s) => s.unlandedEpicsByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
@@ -340,6 +341,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             <FleetVitals
               todos={todos}
               coverage={coverageByProject[project]}
+              unlandedEpics={unlandedEpicsByProject[project]}
             />
             {/* The confirm-loop heartbeat — full width above the columns, self-hides
                 when there's no requirement to sign off. */}

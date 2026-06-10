@@ -27,6 +27,14 @@ export interface WatchedProject {
   addedAt: number;
 }
 
+/** A collab/epic/* branch carrying commits not yet landed on master (accepted
+ *  work stranded off-master). From GET /api/supervisor/unlanded-epics. */
+export interface UnlandedEpic {
+  branch: string;
+  epicId8: string;
+  ahead: number;
+}
+
 export interface RoadmapItem {
   id: string;
   project: string;
@@ -266,6 +274,10 @@ interface SupervisorState {
   watchedProjects: WatchedProject[];
   roadmapByProject: Record<string, RoadmapItem[]>;
   todosByProject: Record<string, SessionTodo[]>;
+  /** Per-project unlanded-epic readout (design-epic-landing P1): collab/epic/*
+   *  branches with commits not on master = accepted work stranded off-master.
+   *  Refreshed alongside todos on the existing per-project load (no new poll). */
+  unlandedEpicsByProject: Record<string, UnlandedEpic[]>;
   escalations: Escalation[];
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
@@ -352,6 +364,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
+  unlandedEpicsByProject: {},
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
@@ -505,6 +518,14 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       localStorage.setItem(TODOS_KEY, JSON.stringify(todosByProject));
       return { todosByProject };
     });
+    // Fold the unlanded-epic readout into the same per-project refresh (no new
+    // poll) — surfaces accepted work stranded off-master (design-epic-landing P1).
+    const ue = await invoke(serverId, `/api/supervisor/unlanded-epics?project=${encodeURIComponent(project)}`, 'GET');
+    if (ue?.ok) {
+      set((state) => ({
+        unlandedEpicsByProject: { ...state.unlandedEpicsByProject, [project]: ue.body?.unlandedEpics ?? [] },
+      }));
+    }
   },
 
   promoteTodo: async (serverId, project, id, status) => {
