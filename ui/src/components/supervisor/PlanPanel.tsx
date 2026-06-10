@@ -228,6 +228,19 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            data-testid="plan-refresh"
+            title="Refresh plan"
+            aria-label="Refresh plan"
+            onClick={() => { if (serverId && project) void loadProjectTodos(serverId, project); }}
+            className="p-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+          </button>
           <label
             className="flex items-center gap-1 text-3xs text-gray-500 dark:text-gray-400 cursor-pointer select-none"
             title="Show completed todos and fully-completed epics (Kanban, List, and Graph)"
