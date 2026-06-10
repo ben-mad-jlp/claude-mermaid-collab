@@ -925,7 +925,12 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
 
       let closedThisPass = 0;
       for (const epic of all) {
-        if (epic.status !== 'in_progress') continue;
+        // Container auto-complete cascade (worker-decomposition P3): roll up any
+        // NON-TERMINAL container whose children all settled — not just in_progress
+        // ones. A 'planned'/'ready'/'blocked' epic whose children all completed
+        // (e.g. children worked before the epic was activated) would otherwise
+        // linger forever. Terminal epics (done/dropped) are left alone.
+        if (epic.status === 'done' || epic.status === 'dropped') continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) continue; // not an epic / no live children
         if (!children.every((c) => c.status === 'done')) continue; // a child still open

@@ -52,6 +52,29 @@ describe('planCoordinatorTick', () => {
     expect(plan.toClaim).toContain('a');
   });
 
+  test('container guard: a ready PARENT with a non-terminal child is NOT claimed', () => {
+    const epic = makeTodo({ id: 'epic', status: 'ready', dependsOn: [] });
+    const child = makeTodo({ id: 'c1', status: 'in_progress', parentId: 'epic' });
+    const plan = planCoordinatorTick([epic, child], NOW);
+    expect(plan.toClaim).not.toContain('epic'); // container, never claimed
+    expect(plan.toClaim).not.toContain('c1');    // child is in_progress, not ready
+  });
+
+  test('container guard: a ready parent whose children are ALL terminal IS claimable', () => {
+    // (All children done/dropped → not a container this tick; the cascade would
+    // normally have closed it, but until then it must not be wrongly blocked.)
+    const epic = makeTodo({ id: 'epic', status: 'ready', dependsOn: [] });
+    const child = makeTodo({ id: 'c1', status: 'done', parentId: 'epic' });
+    const plan = planCoordinatorTick([epic, child], NOW);
+    expect(plan.toClaim).toContain('epic');
+  });
+
+  test('container guard: a normal leaf (no children) is still claimed', () => {
+    const leaf = makeTodo({ id: 'leaf', status: 'ready', dependsOn: [] });
+    const plan = planCoordinatorTick([leaf], NOW);
+    expect(plan.toClaim).toContain('leaf');
+  });
+
   test('ready todo with a pending (non-done) dep → NOT in toClaim', () => {
     const dep = makeTodo({ id: 'dep1', status: 'in_progress' });
     const todo = makeTodo({ id: 'a', status: 'ready', dependsOn: ['dep1'] });

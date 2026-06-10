@@ -403,7 +403,7 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
 });
 
 describe('runReconcilePass — epic-rollup sweep wiring', () => {
-  it('rolls up a settled epic and records a reconcile audit (no land card raised)', async () => {
+  it('rolls up a settled epic, records a reconcile audit, and surfaces the land card (self-healing — epic-landing P2)', async () => {
     const project = freshProject();
     const { epicId } = await makeEpicWithChildren(project, [
       { status: 'done', acceptance: 'accepted' },
@@ -415,8 +415,12 @@ describe('runReconcilePass — epic-rollup sweep wiring', () => {
     expect(getTodo(project, epicId)?.status).toBe('done');
     const audits = listSupervisorAudit({ project, kind: 'reconcile' });
     expect(audits.some((a) => (a.detail ?? '').includes('epic-children-all-done-accepted') && (a.detail ?? '').includes(epicId))).toBe(true);
-    // The sweep raises NO escalations (land cards stay on the event path only).
-    expect(listOpenEscalations().filter((e) => e.project === project)).toHaveLength(0);
+    // epic-landing P2 LIFTED the old mute: the sweep now calls surfaceEpicLand for a
+    // rolled-up epic so the land surface self-heals (catches out-of-band rollups the
+    // event path missed). Whatever escalations the sweep raises for THIS project are
+    // land cards only — never a spurious other kind, and never the old silent mute.
+    const open = listOpenEscalations().filter((e) => e.project === project);
+    expect(open.every((e) => e.kind === 'epic-ready-to-land')).toBe(true);
   });
 
   it('records an all-done-but-unaccepted flag audit and leaves the epic in_progress', async () => {

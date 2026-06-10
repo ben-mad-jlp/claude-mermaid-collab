@@ -99,8 +99,17 @@ export function planCoordinatorTick(todos: Todo[], now: string): CoordinatorTick
   const nowMs = new Date(now).getTime();
   const toClaim: string[] = [];
   const toRelease: string[] = [];
+  // Container claim-guard (worker-decomposition P3): a todo that is the PARENT of a
+  // not-yet-terminal child is a CONTAINER (epic / split parent), NOT claimable work —
+  // claiming it would spawn a worker on an epic. It completes via the auto-complete
+  // cascade (sweepEpicRollups) when its last child settles, never via a worker.
+  const openChildParents = new Set<string>();
+  for (const t of todos) {
+    if (t.parentId && t.status !== 'done' && t.status !== 'dropped') openChildParents.add(t.parentId);
+  }
   for (const t of todos) {
     if (t.status === 'ready') {
+      if (openChildParents.has(t.id)) continue; // container — never claim
       // Mirror todo-store.depSatisfied: a dep satisfies only when 'done' AND not
       // rejected. A rejected dep (SI-3) never silently satisfies its dependents.
       // An unknown dep id is external → treated as satisfied.
