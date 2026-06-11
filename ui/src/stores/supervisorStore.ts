@@ -70,6 +70,10 @@ export interface Escalation {
   id: string;
   project: string;
   session: string;
+  /** The server this escalation lives on. Server-stamped so the scope selectors
+   *  (design-ui-status-coherence §1) can filter the aggregated-watched union by
+   *  server. Optional: payloads written before the field existed lack it. */
+  serverId?: string;
   kind: string;
   questionText: string;
   status: string;
@@ -188,6 +192,7 @@ const PROJECTS_KEY = 'supervisor-projects';
 const ROADMAP_KEY = 'supervisor-roadmap';
 const TODOS_KEY = 'supervisor-todos-by-project';
 const ESCALATIONS_KEY = 'supervisor-escalations';
+const RESOLVED_ESCALATIONS_KEY = 'supervisor-escalations-resolved';
 const SUPERVISED_KEY = 'supervisor-supervised';
 const SUPERVISOR_CONFIG_KEY = 'supervisor-config';
 const REQUIREMENTS_KEY = 'supervisor-requirements-by-project';
@@ -270,6 +275,51 @@ function hydrate<T>(key: string, fallback: T): T {
   }
 }
 
+/** An escalation is "open" (belongs in the open slice) only while its status is
+ *  literally 'open' — a 'resolved'/'decided' item belongs in the resolved slice. */
+const isOpen = (e: Escalation) => e.status === 'open';
+
+/** Persist + return the state partial for an open-set write. Mirrors the canonical
+ *  `openEscalations` into the deprecated `escalations` alias (same array ref) so
+ *  existing `s.escalations` consumers keep reading the open set until L5. */
+function writeOpen(open: Escalation[]): Pick<SupervisorState, 'openEscalations' | 'escalations'> {
+  localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(open));
+  return { openEscalations: open, escalations: open };
+}
+
+/** Persist + return the state partial for a resolved-set write. */
+function writeResolved(resolved: Escalation[]): Pick<SupervisorState, 'resolvedEscalations'> {
+  localStorage.setItem(RESOLVED_ESCALATIONS_KEY, JSON.stringify(resolved));
+  return { resolvedEscalations: resolved };
+}
+
+/** Authoritatively move an escalation out of the open slice and into resolved
+ *  (applying `patch`, e.g. the new status + resolvedAt). This is the local source
+ *  of truth for a user resolve/decide/land: a subsequent L3 hydrate merge must not
+ *  resurrect the id into open. No-op move when the id isn't currently open. */
+function moveOpenToResolved(
+  state: SupervisorState,
+  id: string,
+  patch: Partial<Escalation>,
+): Partial<SupervisorState> {
+  const item = state.openEscalations.find((e) => e.id === id);
+  const open = state.openEscalations.filter((e) => e.id !== id);
+  const resolved = item
+    ? [{ ...item, ...patch }, ...state.resolvedEscalations.filter((e) => e.id !== id)]
+    : state.resolvedEscalations;
+  return { ...writeOpen(open), ...writeResolved(resolved), hydrateEpoch: state.hydrateEpoch + 1 };
+}
+
+/** Patch an escalation in place within the open slice (it stays open). */
+function updateOpenItem(
+  state: SupervisorState,
+  id: string,
+  patch: Partial<Escalation>,
+): Partial<SupervisorState> {
+  const open = state.openEscalations.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
+}
+
 interface SupervisorState {
   watchedProjects: WatchedProject[];
   roadmapByProject: Record<string, RoadmapItem[]>;
@@ -278,7 +328,29 @@ interface SupervisorState {
    *  branches with commits not on master = accepted work stranded off-master.
    *  Refreshed alongside todos on the existing per-project load (no new poll). */
   unlandedEpicsByProject: Record<string, UnlandedEpic[]>;
+  /** The live "needs you" set (status==='open'), each item server-stamped. THE
+   *  single open-escalation source every surface selects over (design-ui-status-
+   *  coherence §0/§4). Loaded/ingested independently of `resolvedEscalations` so a
+   *  resolved-tab fetch can never zero the open counts (the D2 fix). */
+  openEscalations: Escalation[];
+  /** Resolved/decided escalations — populated ONLY by the resolved-tab load. Kept
+   *  in its own slice so viewing resolved never overwrites the open set. */
+  resolvedEscalations: Escalation[];
+  /** @deprecated Backward-compat alias for `openEscalations`, kept in lockstep on
+   *  every open-set mutation so existing `s.escalations` consumers keep compiling
+   *  and reading the open set until L5 migrates them to `selectOpenEscalations`. */
   escalations: Escalation[];
+  /** Monotonic generation counter bumped on every WS ingest / open-set mutation.
+   *  L3's reconnect hydrate snapshots it before its REST call and discards a stale
+   *  in-flight result if it advanced meanwhile (the hydrate-vs-ingest race guard,
+   *  design §2.1). */
+  hydrateEpoch: number;
+  /** Advance `hydrateEpoch` (called by every open-set mutation + WS ingest). */
+  bumpEpoch: () => void;
+  /** Fold an `escalation_created` WS event into `openEscalations` (upsert by id,
+   *  server-stamped) and bump the epoch — the incremental refresh path (design §2),
+   *  replacing App.tsx's blanket `loadEscalations` reload. */
+  ingestEscalationCreated: (e: Escalation) => void;
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
   liveness: SupervisorLiveness | null;
@@ -365,7 +437,21 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
   unlandedEpicsByProject: {},
+  openEscalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
+  resolvedEscalations: hydrate<Escalation[]>(RESOLVED_ESCALATIONS_KEY, []),
+  // Deprecated alias — seeded from the same cache as openEscalations (§4).
   escalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
+  hydrateEpoch: 0,
+  bumpEpoch: () => set((state) => ({ hydrateEpoch: state.hydrateEpoch + 1 })),
+  ingestEscalationCreated: (e) =>
+    set((state) => {
+      // Upsert by id (server-stamped), newest first; replace an existing card in
+      // place so a re-broadcast doesn't duplicate it. Resolved items never enter
+      // the open slice.
+      if (!isOpen(e)) return { hydrateEpoch: state.hydrateEpoch + 1 };
+      const open = [e, ...state.openEscalations.filter((x) => x.id !== e.id)];
+      return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
+    }),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
   liveness: null,
@@ -567,15 +653,24 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }
   },
 
+  // Route the fetch into the matching slice. status==='resolved' writes ONLY the
+  // resolved slice (never touches openEscalations — the D2 fix); any other call
+  // (no status, or 'open') refreshes the open slice, filtered to status==='open'
+  // so an all-statuses response can't smuggle resolved items into the open set.
+  // Each open mutation bumps the epoch for L3's hydrate-vs-ingest race guard.
   loadEscalations: async (serverId, status?) => {
     const path = status
       ? `/api/supervisor/escalations?status=${encodeURIComponent(status)}`
       : '/api/supervisor/escalations';
     const res = await invoke(serverId, path, 'GET');
     if (!res?.ok) return; // keep prior (cached) state on failure
-    const escalations: Escalation[] = res.body?.escalations ?? [];
-    localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
-    set({ escalations });
+    const fetched: Escalation[] = res.body?.escalations ?? [];
+    if (status === 'resolved') {
+      set(writeResolved(fetched));
+      return;
+    }
+    const open = fetched.filter(isOpen);
+    set((state) => ({ ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 }));
   },
 
   nudge: async (serverId, project, session, text) => {
@@ -607,13 +702,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   resolveEscalation: async (serverId, id, status) => {
     const res = await invoke(serverId, '/api/supervisor/escalations/resolve', 'POST', { id, status });
     if (!res?.ok) return; // leave state unchanged on failure
-    set((state) => {
-      const escalations = state.escalations.map((e) =>
-        e.id === id ? { ...e, status, resolvedAt: Date.now() } : e,
-      );
-      localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
-      return { escalations };
-    });
+    set((state) => moveOpenToResolved(state, id, { status, resolvedAt: Date.now() }));
   },
 
   landEpic: async (serverId, project, id) => {
@@ -624,13 +713,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     // locally so the card leaves the open inbox immediately. A conflict/rejection
     // leaves the card open (and may add a re-land escalation on the next poll).
     if (landed) {
-      set((state) => {
-        const escalations = state.escalations.map((e) =>
-          e.id === id ? { ...e, status: 'resolved', resolvedAt: Date.now() } : e,
-        );
-        localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
-        return { escalations };
-      });
+      set((state) => moveOpenToResolved(state, id, { status: 'resolved', resolvedAt: Date.now() }));
     }
     return {
       ok: !!result.ok,
@@ -646,26 +729,18 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const ok = !!result.ok;
     // On a successful apply the escalation is resolved server-side; either way the
     // suggestion is cleared. Optimistically reflect that locally.
-    set((state) => {
-      const escalations = state.escalations.map((e) =>
-        e.id === id ? { ...e, suggestedAction: null, ...(ok ? { status: 'resolved', resolvedAt: Date.now() } : { routedTo: 'human' }) } : e,
-      );
-      localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
-      return { escalations };
-    });
+    set((state) =>
+      ok
+        ? moveOpenToResolved(state, id, { suggestedAction: null, status: 'resolved', resolvedAt: Date.now() })
+        : updateOpenItem(state, id, { suggestedAction: null, routedTo: 'human' }),
+    );
     return { ok, reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed') };
   },
 
   dismissSuggestion: async (serverId, project, id) => {
     const res = await invoke(serverId, `/api/orchestrator/escalation/${encodeURIComponent(id)}/dismiss-suggestion`, 'POST', { project });
     if (!res?.ok) return;
-    set((state) => {
-      const escalations = state.escalations.map((e) =>
-        e.id === id ? { ...e, suggestedAction: null } : e,
-      );
-      localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
-      return { escalations };
-    });
+    set((state) => updateOpenItem(state, id, { suggestedAction: null }));
   },
 
   // ── SPEC API surface (design-system-object-ui §8) ─────────────────────────
@@ -744,13 +819,9 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   decideEscalation: async (serverId, id, optionId) => {
     const res = await invoke(serverId, `/api/supervisor/escalation/${encodeURIComponent(id)}/decide`, 'POST', { optionId });
     if (!res?.ok) return false; // leave state unchanged on failure
-    set((state) => {
-      const escalations = state.escalations.map((e) =>
-        e.id === id ? { ...e, status: 'decided', resolvedAt: Date.now() } : e,
-      );
-      localStorage.setItem(ESCALATIONS_KEY, JSON.stringify(escalations));
-      return { escalations };
-    });
+    // 'decided' leaves the open slice → resolved slice (the card drops out of the
+    // open inbox; a later hydrate merge must not resurrect it).
+    set((state) => moveOpenToResolved(state, id, { status: 'decided', resolvedAt: Date.now() }));
     return true;
   },
 }));
