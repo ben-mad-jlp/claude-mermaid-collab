@@ -2,6 +2,13 @@ import type { ServerWebSocket, Subprocess, Terminal } from 'bun';
 import { RingBuffer } from './RingBuffer';
 import { existsSync } from 'fs';
 
+/** A tmux session a persistent PTY can be (re-)pointed at. `base` is the real
+ *  session name; `grouped` is an optional shared/grouped view onto it. */
+export interface TmuxTarget {
+  base: string;
+  grouped?: string;
+}
+
 export interface PTYSession {
   id: string;
   process: Subprocess<'ignore', 'ignore', 'ignore'>;
@@ -19,6 +26,13 @@ export interface PTYSession {
    *  session (and its scrollback) intact — so it is safe to reap on last client
    *  disconnect. A bare shell IS the session, so it must persist across reconnects. */
   isTmux: boolean;
+  /** True for THE single persistent, re-pointable PTY (per server). Its process
+   *  is a bare host shell that `switchTarget` drives between tmux sessions; it is
+   *  never reaped on last detach (the connection outlives any one tmux target). */
+  persistent: boolean;
+  /** The tmux target currently attached inside this PTY, or null when the host
+   *  shell is at its prompt (no target attached yet). Updated by `switchTarget`. */
+  currentTmuxTarget: TmuxTarget | null;
 }
 
 export interface PTYSessionInfo {
@@ -28,6 +42,8 @@ export interface PTYSessionInfo {
   createdAt: Date;
   lastActivity: Date;
   connectedClients: number;
+  persistent: boolean;
+  currentTmuxTarget: TmuxTarget | null;
 }
 
 export interface CreateOptions {
@@ -36,6 +52,11 @@ export interface CreateOptions {
   cols?: number;       // Default: 80
   rows?: number;       // Default: 24
   tmux?: { base: string; grouped?: string };
+  /** Create THE persistent, re-pointable PTY: a bare host shell (no tmux attach
+   *  at spawn) that `switchTarget` later points at tmux sessions. Mutually
+   *  exclusive with an initial `tmux` attach — when set, `tmux` is ignored and
+   *  the target is selected later via `switchTarget`. */
+  persistent?: boolean;
 }
 
 /**
@@ -92,6 +113,14 @@ export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: str
     `|| { tmux kill-session -t '${grouped}' 2>/dev/null ; tmux new-session -d -s '${grouped}' -t '${base}' ; })`;
   return `${ensureBase} ; ${ensureGrouped} ; ${styleStatus(grouped)} ; tmux attach-session -d -t '${grouped}'`;
 }
+
+/** Detach sequence written to the persistent host shell before re-attaching to
+ *  a new tmux target: tmux's default prefix (C-b, 0x02) then `d`. This detaches
+ *  the live `tmux attach` foreground process, returning control to the host
+ *  shell so the next `tmux attach-session` can run in the SAME PTY — the fd, the
+ *  process, and every attached WebSocket survive the switch. (The session style
+ *  applied on attach never remaps the prefix, so C-b is safe.) */
+export const TMUX_DETACH_SEQUENCE = '\x02d';
 
 export interface AttachOptions {
   cols?: number;
@@ -154,6 +183,11 @@ export class PTYManager {
     const cols = options?.cols || 80;
     const rows = options?.rows || 24;
 
+    // A persistent PTY is a bare host shell — it ignores any initial `tmux`
+    // attach so `switchTarget` is the single path that points it at a target.
+    const persistent = !!options?.persistent;
+    const attachTmuxAtSpawn = !!options?.tmux && !persistent;
+
     // Create session object first so callbacks can reference it
     const session: PTYSession = {
       id: sessionId,
@@ -167,15 +201,19 @@ export class PTYManager {
       lastActivity: new Date(),
       hasReceivedResize: false,
       deferReplay: false,
-      isTmux: !!options?.tmux,
+      isTmux: attachTmuxAtSpawn,
+      persistent,
+      currentTmuxTarget: attachTmuxAtSpawn
+        ? { base: options!.tmux!.base, grouped: options!.tmux!.grouped }
+        : null,
     };
 
     try {
       let proc: ReturnType<typeof Bun.spawn>;
 
-      if (options?.tmux) {
+      if (attachTmuxAtSpawn) {
         // Spawn via tmux grouping
-        const { base, grouped } = options.tmux;
+        const { base, grouped } = options!.tmux!;
         const tmuxCmd = buildTmuxAttachCommand(base, grouped, cwd);
         session.shell = '/bin/sh';
         proc = Bun.spawn(['/bin/sh', '-c', tmuxCmd], {
@@ -286,6 +324,11 @@ export class PTYManager {
     // Store session
     this.sessions.set(sessionId, session);
 
+    return this.toInfo(session);
+  }
+
+  /** Project a PTYSession into its public info shape. */
+  private toInfo(session: PTYSession): PTYSessionInfo {
     return {
       id: session.id,
       shell: session.shell,
@@ -293,6 +336,8 @@ export class PTYManager {
       createdAt: session.createdAt,
       lastActivity: session.lastActivity,
       connectedClients: session.websockets.size,
+      persistent: session.persistent,
+      currentTmuxTarget: session.currentTmuxTarget,
     };
   }
 
@@ -344,6 +389,54 @@ export class PTYManager {
   }
 
   /**
+   * Re-point a persistent PTY at a new tmux target WITHOUT tearing down the
+   * connection. This is the foundation the per-server console builds on: the
+   * PTY id (and therefore every attached WebSocket, the process, and the fd)
+   * is stable; only the tmux session running inside it changes.
+   *
+   * Mechanics: if a target is already attached, send the tmux detach sequence
+   * to drop the live attach back to the host shell prompt, then write a fresh
+   * `tmux attach-session` for the new target into that same shell. Finally,
+   * broadcast a `switched` ack so each client can react (e.g. clear its local
+   * view — the clean-redraw refinement lands in a later leaf).
+   *
+   * @throws if the session does not exist.
+   */
+  switchTarget(sessionId: string, tmux: { base: string; grouped?: string; cwd?: string }): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const { base, grouped, cwd } = tmux;
+    const attachCmd = buildTmuxAttachCommand(base, grouped, cwd ?? session.cwd);
+
+    try {
+      // Detach the current attach first (if any) so the attach command isn't
+      // swallowed by the tmux client that currently owns the shell's stdin.
+      if (session.currentTmuxTarget) {
+        session.terminal.write(TMUX_DETACH_SEQUENCE);
+      }
+      session.terminal.write(`${attachCmd}\n`);
+    } catch (error) {
+      console.warn(`Failed to switch target for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    session.currentTmuxTarget = { base, grouped };
+    session.lastActivity = new Date();
+
+    // Ack the switch to every attached client.
+    const ack = JSON.stringify({ type: 'switched', target: { base, grouped } });
+    for (const ws of session.websockets) {
+      try {
+        ws.send(ack);
+      } catch (error) {
+        // WebSocket may have been closed, ignore
+      }
+    }
+  }
+
+  /**
    * Attach a WebSocket to receive output and replay buffer.
    * Auto-creates session if it doesn't exist.
    * @param sessionId - Terminal session ID
@@ -371,6 +464,8 @@ export class PTYManager {
         hasReceivedResize: false,
         deferReplay: false,
         isTmux: false,
+        persistent: false,
+        currentTmuxTarget: null,
       };
 
       try {
@@ -493,8 +588,10 @@ export class PTYManager {
     // no matching closes). Killing the attach detaches from, but does NOT kill,
     // the underlying tmux session, so its scrollback survives for the next
     // attach. Bare (non-tmux) shells ARE the session and must persist across
-    // reconnects, so they are never reaped here.
-    if (session.isTmux && session.websockets.size === 0) {
+    // reconnects, so they are never reaped here. A persistent re-pointable PTY
+    // also survives last-detach — its host shell outlives any one tmux target,
+    // so a reconnect can re-point it rather than re-spawn.
+    if (session.isTmux && !session.persistent && session.websockets.size === 0) {
       this.kill(sessionId);
     }
   }
@@ -550,14 +647,7 @@ export class PTYManager {
   list(): PTYSessionInfo[] {
     const result: PTYSessionInfo[] = [];
     for (const session of this.sessions.values()) {
-      result.push({
-        id: session.id,
-        shell: session.shell,
-        cwd: session.cwd,
-        createdAt: session.createdAt,
-        lastActivity: session.lastActivity,
-        connectedClients: session.websockets.size,
-      });
+      result.push(this.toInfo(session));
     }
     return result;
   }
@@ -578,14 +668,7 @@ export class PTYManager {
       return undefined;
     }
 
-    return {
-      id: session.id,
-      shell: session.shell,
-      cwd: session.cwd,
-      createdAt: session.createdAt,
-      lastActivity: session.lastActivity,
-      connectedClients: session.websockets.size,
-    };
+    return this.toInfo(session);
   }
 
   /**

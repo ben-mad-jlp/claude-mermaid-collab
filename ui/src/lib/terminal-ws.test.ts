@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { getTerminalWebSocketURL } from './terminal-ws';
+import { getTerminalWebSocketURL, makeSwitchMessage } from './terminal-ws';
 import { useTerminalStore } from '@/stores/terminalStore';
 
 describe('getTerminalWebSocketURL', () => {
@@ -10,6 +10,16 @@ describe('getTerminalWebSocketURL', () => {
 
   it('encodes the server id and session id', () => {
     expect(getTerminalWebSocketURL('a/b', 'c d')).toContain('/_per-server/a%2Fb/terminal/c%20d');
+  });
+});
+
+describe('makeSwitchMessage', () => {
+  it('builds a switch message carrying the (serverId, sessionId) target', () => {
+    expect(makeSwitchMessage('srv-2', 'mc-repo-lane')).toEqual({
+      type: 'switch',
+      serverId: 'srv-2',
+      sessionId: 'mc-repo-lane',
+    });
   });
 });
 
