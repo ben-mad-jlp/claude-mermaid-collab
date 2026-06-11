@@ -734,6 +734,25 @@ describe('PTYManager', () => {
       }).toThrow('Session not found');
     });
 
+    it('auto-creates the console PTY with a QUIET control shell, not the interactive $SHELL (v5.92.23 regression)', () => {
+      // REGRESSION GUARD: the re-pointable console PTY is where switchTarget
+      // *writes* `tmux attach-session …` commands — it must run a quiet POSIX
+      // shell so the command executes verbatim. An interactive zsh ($SHELL with
+      // p10k/ZLE/bracketed-paste) mangled the burst-written command and zsh died
+      // with `parse error near ')'`, leaving the literal command echoed in the
+      // terminal. The control shell must be /bin/sh, never $SHELL.
+      const sessionId = 'console-control-shell';
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      manager.attach(sessionId, ws);
+
+      const info = manager.get(sessionId)!;
+      expect(info.shell).toBe('/bin/sh');
+      // And explicitly NOT the user's interactive shell when that differs.
+      if (process.env.SHELL && process.env.SHELL !== '/bin/sh') {
+        expect(info.shell).not.toBe(process.env.SHELL);
+      }
+    });
+
     it('should NOT reap a persistent PTY on last detach', async () => {
       const sessionId = 'persist-no-reap';
       await manager.create(sessionId, { persistent: true });

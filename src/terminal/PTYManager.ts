@@ -167,6 +167,31 @@ export class PTYManager {
   }
 
   /**
+   * Determine the CONTROL shell for the persistent re-pointable console PTY.
+   *
+   * This PTY is never a place the user types directly — `switchTarget` writes
+   * `tmux attach-session …` commands into its stdin and tmux owns the screen from
+   * there. It MUST be a quiet POSIX shell (`/bin/sh`), NOT the user's interactive
+   * `$SHELL`: an interactive zsh (p10k / ZLE / bracketed-paste / autosuggest)
+   * mangles a multi-line command written as a burst into its line editor, which
+   * is exactly the v5.92.23 regression — the attach command echoed back as
+   * literal text and zsh died with `parse error near ')'`. `/bin/sh` runs the
+   * written command verbatim. The interactive `$SHELL` still runs *inside* every
+   * tmux pane via tmux's own default-command — the user never loses their shell.
+   */
+  private getControlShell(): string {
+    const candidates = ['/bin/sh', '/bin/bash', '/bin/zsh'];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    // Last resort: whatever getShell resolves (keeps the old behaviour rather
+    // than throwing if a host somehow lacks /bin/sh).
+    return this.getShell();
+  }
+
+  /**
    * Create a new PTY session with the given ID.
    */
   async create(sessionId: string, options?: CreateOptions): Promise<PTYSessionInfo> {
@@ -467,7 +492,11 @@ export class PTYManager {
 
     // Auto-create session if it doesn't exist
     if (!session) {
-      const shell = this.getShell();
+      // The auto-created session IS the persistent re-pointable console: tmux
+      // attach commands are written into its stdin by switchTarget, never typed
+      // by a human. Use a quiet control shell (/bin/sh), NOT the user's
+      // interactive $SHELL — see getControlShell() for why (v5.92.23 regression).
+      const shell = this.getControlShell();
       const cwd = process.cwd();
 
       session = {
