@@ -471,6 +471,63 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
         <span>Edit</span>
       </button>}
 
+      {/* Zoom controls — visible buttons for zoom out / level / zoom in / fit.
+          Wired to the same handlers as Ctrl+scroll, so internal or externally
+          controlled zoom both work. Hidden while loading/error/empty. */}
+      {!state.isLoading && !state.error && content?.trim() && (
+        <div
+          data-testid="mermaid-zoom-controls"
+          className="absolute bottom-2 right-2 z-10 flex items-center gap-0.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white/85 dark:bg-gray-800/85 px-0.5 py-0.5 shadow-sm backdrop-blur-sm"
+        >
+          <button
+            type="button"
+            data-testid="mermaid-zoom-out"
+            onClick={effectiveOnZoomOut}
+            aria-label="Zoom out"
+            title="Zoom out"
+            className="flex h-6 w-6 items-center justify-center rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M4 10a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1z" clipRule="evenodd" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            data-testid="mermaid-zoom-reset"
+            onClick={() => effectiveOnSetZoom(100)}
+            aria-label="Reset zoom to 100%"
+            title="Reset zoom to 100%"
+            className="min-w-[3rem] rounded px-1 py-0.5 text-center text-xs font-medium tabular-nums text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {Math.round(effectiveZoom)}%
+          </button>
+          <button
+            type="button"
+            data-testid="mermaid-zoom-in"
+            onClick={effectiveOnZoomIn}
+            aria-label="Zoom in"
+            title="Zoom in"
+            className="flex h-6 w-6 items-center justify-center rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M10 4a1 1 0 011 1v4h4a1 1 0 110 2h-4v4a1 1 0 11-2 0v-4H5a1 1 0 110-2h4V5a1 1 0 011-1z" clipRule="evenodd" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            data-testid="mermaid-zoom-fit"
+            onClick={fitToView}
+            aria-label="Fit diagram to view"
+            title="Fit to view"
+            className="flex h-6 w-6 items-center justify-center rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M4 4h4V2H2v6h2V4zm8-2v2h4v4h2V2h-6zM4 12H2v6h6v-2H4v-4zm12 4h-4v2h6v-6h-2v4z" />
+            </svg>
+          </button>
+        </div>
+      )}
+
       {/* Loading indicator */}
       {state.isLoading && (
         <div
