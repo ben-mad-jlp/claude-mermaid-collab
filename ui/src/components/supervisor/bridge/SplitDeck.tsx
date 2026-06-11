@@ -28,7 +28,7 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({ commandBar, left, right })
 
   const leftPane = (
     <div data-testid="split-left" className="h-full min-h-0 overflow-y-auto w-full">
-      <div className="flex flex-col gap-3 p-3 w-full">{left}</div>
+      <div className="flex flex-col gap-3 p-3 w-full min-h-full">{left}</div>
     </div>
   );
   const rightPane = (
