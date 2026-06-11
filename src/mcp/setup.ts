@@ -2164,6 +2164,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'orchestrator_status', description: 'Live orchestrator daemon runtime snapshot: { running, tickMs, lastTickAt, projects:[{project,level}], pool:[{session,type,slot,status,todoId,tmux}], coldStartsInFlight, recentSpawns }. Read-only. Returns running:false cleanly when the daemon is stopped. Thin wrapper over the worker pool + the orchestrator level/health.', inputSchema: { type: 'object', properties: {} } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
+      { name: 'context_usage', description: "Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose sessions to report.' }, thresholdPercent: { type: 'number', description: 'Override the checkpoint threshold % (default: per-project config → 80).' } }, required: ['project'] } },
       // Spreadsheet tools
       {
         name: 'list_spreadsheets',
@@ -4968,6 +4969,37 @@ IMPORTANT - Common pitfalls to avoid:
               getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session: supervisorStore.STEWARD_FAILOPEN_SESSION, kind: 'operator-gated', id: stewardFailOpen.escalationId, routedTo: 'human' });
             }
             return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold, stewardFailOpen }, null, 2);
+          }
+          case 'context_usage': {
+            // Read-only per-session context-window report. Built from the SAME
+            // watchdog selector that supervisor_watchdog_scan uses, so the
+            // nearThreshold flag + watchdogAction match the watchdog's view of
+            // who is near a checkpoint/clear boundary.
+            const { project, thresholdPercent } = args as { project: string; thresholdPercent?: number };
+            if (!project) throw new Error('Missing required: project');
+            // Precedence: explicit arg → per-project config → built-in default.
+            const effectiveThreshold = thresholdPercent ?? supervisorStore.getWatchdogThreshold(project) ?? DEFAULT_WATCHDOG_CONFIG.thresholdPercent;
+            const cfg = { ...DEFAULT_WATCHDOG_CONFIG, thresholdPercent: effectiveThreshold };
+            const now = Date.now();
+            const runtimes = listSessionRuntimes(project, now);
+            // The watchdog's authoritative per-session verdict for this tick.
+            const actionBySession = new Map(
+              selectWatchdogActions(runtimes, now, cfg).map((a) => [a.session, a] as const),
+            );
+            const sessions = runtimes.map((r) => {
+              const action = actionBySession.get(r.session) ?? null;
+              return {
+                session: r.session,
+                status: r.status,
+                contextPercent: r.contextPercent,
+                contextAgeMs: r.contextUpdatedAt != null ? now - r.contextUpdatedAt : null,
+                checkpointReadyAt: r.checkpointReadyAt,
+                nearThreshold: action != null,
+                watchdogAction: action?.action ?? null,
+                reason: action?.reason ?? null,
+              };
+            });
+            return JSON.stringify({ project, thresholdPercent: effectiveThreshold, sessions }, null, 2);
           }
 
           default:
