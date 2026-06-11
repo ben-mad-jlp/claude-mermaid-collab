@@ -104,7 +104,7 @@ export async function confirmSuggestion(project: string, escalationId: string): 
     await overrideAcceptTodo(project, esc.todoId, 'orchestrator');
   }
 
-  resolveEscalation(escalationId, 'resolved');
+  resolveEscalation(escalationId, 'resolved', 'ai'); // steward auto-resolve (fd934fb7)
   setEscalationSuggestion(escalationId, null);
   recordSupervisorAudit({
     kind: verb === 'reset_todo' ? 'reconcile' : 'override',

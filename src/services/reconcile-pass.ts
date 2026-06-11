@@ -141,7 +141,7 @@ export async function runReconcilePass(project: string): Promise<void> {
       const age = now - esc.createdAt;
       if (age < SUPERVISOR_STALE_AFTER_MS) continue;
 
-      resolveEscalation(esc.id, 'stale');
+      resolveEscalation(esc.id, 'stale', 'ai');
 
       recordSupervisorAudit({
         kind: 'reconcile',
@@ -278,7 +278,7 @@ export async function runReconcilePass(project: string): Promise<void> {
       const dropped = todo.status === 'dropped';
       if (!verifiedDone && !dropped) continue;
 
-      resolveEscalation(esc.id, 'resolved');
+      resolveEscalation(esc.id, 'resolved', 'ai');
 
       recordSupervisorAudit({
         kind: 'reconcile',

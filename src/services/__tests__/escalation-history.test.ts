@@ -34,6 +34,8 @@ function esc(p: Partial<Escalation> & { questionText?: string }): Escalation {
     proof: null,
     stewardAttempts: p.stewardAttempts ?? 0,
     suggestedAction: p.suggestedAction ?? null,
+    triageInFlight: p.triageInFlight ?? false,
+    resolvedBy: p.resolvedBy ?? null,
   };
 }
 

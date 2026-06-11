@@ -770,7 +770,7 @@ export async function landEpic(project: string, escalationId: string): Promise<L
 
       // Landed — remove the epic branch + worktree (gated on land success), resolve the card.
       await wm.removeEpic(epicId, targetProject).catch(() => {});
-      resolveEscalation(escalationId, 'resolved');
+      resolveEscalation(escalationId, 'resolved', 'ai');
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha }) });
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha };
     } catch (e) {

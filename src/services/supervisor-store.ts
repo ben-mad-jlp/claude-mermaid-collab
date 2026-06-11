@@ -121,6 +121,15 @@ export interface Escalation {
   /** Orch P2: a Grok-suggested inline action (level `propose`), or null. Lives and
    *  dies with the escalation; the human confirms/dismisses it on the card. */
   suggestedAction: SuggestedAction | null;
+  /** Triage lifecycle (fd934fb7): true WHILE a Grok triage consult is in flight for
+   *  this escalation, so the card can show "Grok is triaging…". Flipped on before
+   *  the classify await and off after; the flip is broadcast via escalation_created
+   *  (an upsert by id — reuses the existing event, no new WS event per b2fe36b1). */
+  triageInFlight: boolean;
+  /** Who resolved this escalation when it is no longer open: 'ai' (the steward's
+   *  drive auto-resolve) or 'human'. Null while open or on older rows. Lets the UI
+   *  show an AI-resolved outcome briefly instead of letting it silently vanish. */
+  resolvedBy: string | null;
 }
 
 export const ESCALATION_KINDS = [
@@ -282,6 +291,11 @@ function openDb(): Database {
   // Orch P2: inline Grok-suggested action (level `propose`). Additive, DEFAULT null
   // so existing open escalations carry no suggestion (no behavioural change).
   addColumnIfMissing(db, 'escalation', 'suggestedActionJson', 'suggestedActionJson TEXT');
+  // Triage lifecycle (fd934fb7): in-flight flag while a Grok consult runs + who
+  // resolved it (ai|human). Additive, DEFAULTed so older rows read not-in-flight /
+  // unknown-resolver (no behavioural change).
+  addColumnIfMissing(db, 'escalation', 'triageInFlight', 'triageInFlight INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'escalation', 'resolvedBy', 'resolvedBy TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
   // Steward role model (design §2): relax the supervisor_identity singleton
   // (id=1 CHECK) to PRIMARY KEY(role). Additive rebuild that backfills the
@@ -472,13 +486,16 @@ function parseSuggestedAction(json: string | null): SuggestedAction | null {
 
 /** Map a raw DB row to the public Escalation shape (optionsJson → options[]). */
 function mapEscalationRow(row: EscalationRow): Escalation {
-  const { optionsJson, uiJson, suggestedActionJson, ...rest } = row;
+  const { optionsJson, uiJson, suggestedActionJson, triageInFlight, ...rest } = row;
   return {
     ...rest,
     options: parseOptions(optionsJson),
     recommended: row.recommended ?? null,
     ui: parseUi(uiJson),
     suggestedAction: parseSuggestedAction(suggestedActionJson),
+    // Stored 0/1; surface as a boolean. Coerce defensively (older rows / null).
+    triageInFlight: !!triageInFlight,
+    resolvedBy: row.resolvedBy ?? null,
   };
 }
 
@@ -741,6 +758,8 @@ export function createEscalation(input: {
       proof: null,
       stewardAttempts: 0,
       suggestedAction: null,
+      triageInFlight: false,
+      resolvedBy: null,
     },
     isNew: true,
   };
@@ -757,6 +776,14 @@ export function setEscalationSuggestion(id: string, suggestion: SuggestedAction 
     suggestion ? JSON.stringify(suggestion) : null,
     id,
   );
+}
+
+/** Triage lifecycle (fd934fb7): flip the in-flight flag while a Grok triage consult
+ *  runs for this escalation. The caller broadcasts the updated escalation so the
+ *  card shows / clears the "Grok is triaging…" spinner live. */
+export function setEscalationTriageInFlight(id: string, inFlight: boolean): void {
+  const d = openDb();
+  d.prepare('UPDATE escalation SET triageInFlight = ? WHERE id = ?').run(inFlight ? 1 : 0, id);
 }
 
 export function listEscalations(status?: string): Escalation[] {
@@ -780,11 +807,14 @@ export function getEscalation(id: string): Escalation | null {
   return row ? mapEscalationRow(row) : null;
 }
 
-export function resolveEscalation(id: string, status: string): void {
+export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' | 'human'): void {
   const d = openDb();
-  d.prepare('UPDATE escalation SET status = ?, resolvedAt = ? WHERE id = ?').run(
+  // Stamp who resolved it (fd934fb7) so the UI can show an AI-resolved outcome
+  // briefly instead of letting it silently vanish. Also clear any in-flight flag.
+  d.prepare('UPDATE escalation SET status = ?, resolvedAt = ?, resolvedBy = COALESCE(?, resolvedBy), triageInFlight = 0 WHERE id = ?').run(
     status,
     Date.now(),
+    resolvedBy ?? null,
     id
   );
 }

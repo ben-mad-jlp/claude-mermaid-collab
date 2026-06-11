@@ -235,7 +235,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     try {
       const { id, status } = (await req.json()) as { id?: string; status?: string };
       if (!id || !status) return jsonError('id and status are required', 400);
-      resolveEscalation(id, status);
+      resolveEscalation(id, status, 'human'); // user clicked Resolve (fd934fb7)
       return Response.json({ ok: true });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
@@ -286,7 +286,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
           }
         }
         const decision = recordEscalationDecision({ escalationId: id, optionId: optionId ?? null, note: note ?? null, decidedBy: 'human' });
-        resolveEscalation(id, 'decided');
+        resolveEscalation(id, 'decided', 'human');
         getWebSocketHandler()?.broadcast({ type: 'escalation_decided', project: esc.project, session: esc.session, id, optionId: decision.optionId });
         return Response.json({ ok: true, decision });
       } catch (err) {

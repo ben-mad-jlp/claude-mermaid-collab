@@ -36,6 +36,8 @@ function esc(overrides: Partial<Escalation> = {}): Escalation {
     proof: null,
     stewardAttempts: 0,
     suggestedAction: null,
+    triageInFlight: false,
+    resolvedBy: null,
     ...overrides,
   };
 }

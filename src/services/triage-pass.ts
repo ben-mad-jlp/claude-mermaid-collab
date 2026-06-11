@@ -22,6 +22,8 @@
 import {
   listOpenEscalations,
   setEscalationSuggestion,
+  setEscalationTriageInFlight,
+  getEscalation,
   recordSupervisorAudit,
   type Escalation,
 } from './supervisor-store.ts';
@@ -192,7 +194,32 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
   const confirm = deps.confirm ?? confirmSuggestion;
   let autoResolved = 0; // per-tick auto-resolution budget (AUTO_RESOLVE_CAP)
 
+  // Broadcast an escalation's current state as an upsert (fd934fb7). Reuses the
+  // existing escalation_created event — the UI folds it into openEscalations by id
+  // (ingestEscalationCreated) — so no NEW WS event is introduced (constraint
+  // b2fe36b1). Best-effort: a missing handler or a since-deleted escalation no-ops.
+  const broadcastEsc = (id: string, session: string, kind: string) => {
+    try {
+      const full = getEscalation(id);
+      if (!full) return;
+      getWebSocketHandler()?.broadcast({
+        type: 'escalation_created',
+        project,
+        session,
+        kind,
+        id,
+        routedTo: full.routedTo,
+        escalation: full,
+      });
+    } catch { /* best-effort live refresh; never abort the pass */ }
+  };
+
   for (const esc of batch) {
+    // Lifecycle: show "Grok is triaging…" for the duration of the consult. Flip the
+    // in-flight flag ON + broadcast before the await, and guarantee it clears in a
+    // finally so a classify throw can't strand a spinner.
+    setEscalationTriageInFlight(esc.id, true);
+    broadcastEsc(esc.id, esc.session, esc.kind);
     try {
       const suggestion = await classifyEscalation(project, esc, deps);
       if (!suggestion) continue; // fail-open: no suggestion, human sees plain escalation
@@ -243,6 +270,13 @@ export async function runTriagePass(project: string, deps: TriagePassDeps = {}):
         `[triage-pass] classify failed for ${esc.id}:`,
         err instanceof Error ? err.message : err,
       );
+    } finally {
+      // Consult done (resolved, suggested, or failed) — clear the spinner and
+      // broadcast the escalation's post-triage state (suggestion attached, or
+      // resolved/closed). An auto-resolved escalation is no longer open, so the
+      // broadcast carries its terminal state for the lingering AI-resolved card.
+      setEscalationTriageInFlight(esc.id, false);
+      broadcastEsc(esc.id, esc.session, esc.kind);
     }
   }
 }
