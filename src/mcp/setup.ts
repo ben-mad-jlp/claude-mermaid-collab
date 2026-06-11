@@ -3848,7 +3848,7 @@ IMPORTANT - Common pitfalls to avoid:
             // closed catalog; an invalid spec is dropped, never throws.
             const { escalation: esc, isNew } = supervisorStore.createEscalation({ project, session, kind, questionText, todoId, options, recommended, ui, operatorGated });
             if (isNew) {
-              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, routedTo: esc.routedTo });
+              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session, kind, id: esc.id, routedTo: esc.routedTo, escalation: esc });
               recordSupervisorDecision('escalate', project, session, JSON.stringify({ kind, escalationId: esc.id }));
               // P3 (readiness ergonomics): a needs-design / operator-gated escalation
               // linked to a work-todo gets a durable, self-clearing human [GATE] (P1
@@ -4949,7 +4949,7 @@ IMPORTANT - Common pitfalls to avoid:
             // the steward session is also checkpoint/clear-managed by the scan above).
             const stewardFailOpen = supervisorStore.stewardFailOpenScan(now);
             if (stewardFailOpen.stale && stewardFailOpen.escalationId) {
-              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session: supervisorStore.STEWARD_FAILOPEN_SESSION, kind: 'operator-gated', id: stewardFailOpen.escalationId, routedTo: 'human' });
+              getWebSocketHandler()?.broadcast({ type: 'escalation_created', project, session: supervisorStore.STEWARD_FAILOPEN_SESSION, kind: 'operator-gated', id: stewardFailOpen.escalationId, routedTo: 'human', escalation: supervisorStore.listOpenEscalations().find((e) => e.id === stewardFailOpen.escalationId) });
             }
             return JSON.stringify({ actions, suppressed: all.length - actions.length, thresholdPercent: effectiveThreshold, stewardFailOpen }, null, 2);
           }

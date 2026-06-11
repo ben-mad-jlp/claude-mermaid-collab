@@ -5,7 +5,7 @@
  * store immediately (so the card moves between the Watching and Supervisor
  * groups without waiting for a poll/reload), and un-supervising removes it.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useSupervisorStore, type SupervisedSession, type Escalation } from './supervisorStore';
 
 const sess = (session: string, extra?: Partial<SupervisedSession>): SupervisedSession => ({
@@ -118,5 +118,79 @@ describe('supervisorStore escalation slices (L1)', () => {
     // the alias tracked the move
     expect(s.escalations.map((e) => e.id)).toEqual(['e2']);
     vi.unstubAllGlobals();
+  });
+});
+
+/**
+ * L3 (useStatusSync) — the bootstrap/reconnect hydrate + its race guard (design
+ * §2.1). hydrateOpenEscalations fetches the open set over the watched servers and
+ * merges it under an epoch guard, so a slow reconnect snapshot can never clobber a
+ * newer WS upsert, and a locally-resolved id is never resurrected.
+ */
+describe('supervisorStore.hydrateOpenEscalations (L3)', () => {
+  beforeEach(() => {
+    useSupervisorStore.setState({
+      openEscalations: [],
+      resolvedEscalations: [],
+      escalations: [],
+      hydrateEpoch: 0,
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const okJson = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+
+  it('merges the fetched open set and bumps the epoch (happy path)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson({ escalations: [esc('e1'), esc('e2')] })));
+    await useSupervisorStore.getState().hydrateOpenEscalations(['srv1']);
+    const st = useSupervisorStore.getState();
+    expect(st.openEscalations.map((e) => e.id).sort()).toEqual(['e1', 'e2']);
+    expect(st.hydrateEpoch).toBe(1);
+    // the deprecated alias tracks the open slice
+    expect(st.escalations.map((e) => e.id).sort()).toEqual(['e1', 'e2']);
+  });
+
+  it('keeps prior state if ANY watched server fails (no partial clobber)', async () => {
+    useSupervisorStore.setState({ openEscalations: [esc('keep')], escalations: [esc('keep')], hydrateEpoch: 0 });
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(okJson({ escalations: [esc('a')] }))
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) }));
+    await useSupervisorStore.getState().hydrateOpenEscalations(['srvA', 'srvB']);
+    expect(useSupervisorStore.getState().openEscalations.map((e) => e.id)).toEqual(['keep']);
+  });
+
+  it('reconnect hydrate cannot clobber a mid-flight WS upsert (the race)', async () => {
+    // The reconnect REST snapshot is older (no 'e2'); an ingest delivers 'e2'
+    // while the fetch is in flight. The epoch guard must discard the stale result.
+    let release!: (v: unknown) => void;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      await gate; // hold the in-flight REST read open
+      return okJson({ escalations: [] }); // stale snapshot, server didn't have e2 yet
+    }));
+
+    const pending = useSupervisorStore.getState().hydrateOpenEscalations(['srv1']); // snapshots epoch 0
+    // A newer WS upsert arrives mid-flight and bumps the epoch.
+    useSupervisorStore.getState().ingestEscalationCreated(esc('e2'));
+    expect(useSupervisorStore.getState().openEscalations.map((e) => e.id)).toEqual(['e2']);
+
+    release(null);
+    await pending;
+    // The stale empty snapshot was discarded — the WS upsert survives.
+    expect(useSupervisorStore.getState().openEscalations.map((e) => e.id)).toEqual(['e2']);
+  });
+
+  it('never resurrects a locally-resolved id', async () => {
+    // The user already moved 'e1' to resolved; a stale server snapshot still lists
+    // it open. The merge must NOT bring it back into the open slice.
+    useSupervisorStore.setState({
+      openEscalations: [],
+      resolvedEscalations: [esc('e1', { status: 'resolved' })],
+      escalations: [],
+      hydrateEpoch: 0,
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson({ escalations: [esc('e1'), esc('e2')] })));
+    await useSupervisorStore.getState().hydrateOpenEscalations(['srv1']);
+    expect(useSupervisorStore.getState().openEscalations.map((e) => e.id)).toEqual(['e2']);
   });
 });
