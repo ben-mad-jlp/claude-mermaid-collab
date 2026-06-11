@@ -403,7 +403,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
               {/* Column 1 — tabbed instrument panel. */}
               <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[18rem] max-h-[28rem] min-w-0">
-                <div className="shrink-0 flex items-stretch border-b border-gray-200 dark:border-gray-700">
+                <div className="shrink-0 flex items-stretch border-b border-gray-200 dark:border-gray-700 overflow-x-auto min-w-0">
                   {([
                     { key: 'escalations', label: 'Escalations', count: openEscalationCount, loud: true },
                     { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
@@ -416,7 +416,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                       data-testid={`bridge-tab-${t.key}`}
                       data-active={bridgeTab === t.key}
                       onClick={() => setBridgeTab(t.key)}
-                      className={`flex items-center gap-1 px-3 py-2 text-2xs font-semibold uppercase tracking-wide border-b-2 -mb-px transition-colors ${
+                      className={`flex shrink-0 whitespace-nowrap items-center gap-1 px-3 py-2 text-2xs font-semibold uppercase tracking-wide border-b-2 -mb-px transition-colors ${
                         bridgeTab === t.key
                           ? 'border-accent-500 text-accent-700 dark:text-accent-300'
                           : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
