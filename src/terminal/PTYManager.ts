@@ -33,6 +33,18 @@ export interface PTYSession {
   /** The tmux target currently attached inside this PTY, or null when the host
    *  shell is at its prompt (no target attached yet). Updated by `switchTarget`. */
   currentTmuxTarget: TmuxTarget | null;
+  /** False until the shell has emitted its first output (its prompt). A freshly
+   *  spawned interactive shell flushes its tty input on startup (tcflush), so a
+   *  `tmux attach …` command written into stdin BEFORE that flush loses its
+   *  leading bytes — the v5.92.23/24 regression (command arrived truncated to
+   *  `|| tmux new-session …` → `syntax error near unexpected token 'tmux'`).
+   *  switchTarget queues into `pendingWrite` while not ready; the first-data
+   *  handler flushes it once the prompt proves the shell is reading. Sessions
+   *  created via `create()` are treated as ready (their write path is covered by
+   *  unit tests that expect a synchronous write). */
+  ready: boolean;
+  /** A switchTarget payload deferred until the shell is `ready` (see above). */
+  pendingWrite: string | null;
 }
 
 export interface PTYSessionInfo {
@@ -231,6 +243,9 @@ export class PTYManager {
       currentTmuxTarget: attachTmuxAtSpawn
         ? { base: options!.tmux!.base, grouped: options!.tmux!.grouped }
         : null,
+      // create()-made sessions write synchronously (covered by unit tests).
+      ready: true,
+      pendingWrite: null,
     };
 
     try {
@@ -444,19 +459,28 @@ export class PTYManager {
 
     const { base, grouped, cwd } = tmux;
     const attachCmd = buildTmuxAttachCommand(base, grouped, cwd ?? session.cwd);
+    // Chain a forced full redraw onto the attach. `tmux attach-session ... \;
+    // refresh-client -S` runs both as one tmux client invocation: the attach
+    // establishes the client (which natively redraws), then refresh-client -S
+    // re-syncs its size and forces the pane to repaint cleanly. This replaces
+    // the server-side RingBuffer replay that desynced the TUI.
+    const attachPayload = `${attachCmd} \\; refresh-client -S\n`;
 
     try {
-      // Detach the current attach first (if any) so the attach command isn't
-      // swallowed by the tmux client that currently owns the shell's stdin.
-      if (session.currentTmuxTarget) {
-        session.terminal.write(TMUX_DETACH_SEQUENCE);
+      if (!session.ready) {
+        // Shell still initializing — DON'T write yet, or its startup input-flush
+        // eats the command's leading bytes (truncation → `syntax error near
+        // 'tmux'`). Queue it; the first-data handler flushes once the prompt
+        // proves the shell is reading. No detach needed: nothing is attached yet.
+        session.pendingWrite = attachPayload;
+      } else {
+        // Detach the current attach first (if any) so the attach command isn't
+        // swallowed by the tmux client that currently owns the shell's stdin.
+        if (session.currentTmuxTarget) {
+          session.terminal.write(TMUX_DETACH_SEQUENCE);
+        }
+        session.terminal.write(attachPayload);
       }
-      // Chain a forced full redraw onto the attach. `tmux attach-session ... \;
-      // refresh-client -S` runs both as one tmux client invocation: the attach
-      // establishes the client (which natively redraws), then refresh-client -S
-      // re-syncs its size and forces the pane to repaint cleanly. This replaces
-      // the server-side RingBuffer replay that desynced the TUI.
-      session.terminal.write(`${attachCmd} \\; refresh-client -S\n`);
     } catch (error) {
       console.warn(`Failed to switch target for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -514,6 +538,11 @@ export class PTYManager {
         isTmux: false,
         persistent: false,
         currentTmuxTarget: null,
+        // The console shell starts NOT ready: switchTarget's attach command must
+        // wait for the first prompt or the shell's startup tcflush eats its
+        // leading bytes (the truncation regression). Flipped on first data below.
+        ready: false,
+        pendingWrite: null,
       };
 
       try {
@@ -528,6 +557,21 @@ export class PTYManager {
             rows: 24,
             data: (terminal, data) => {
               const text = new TextDecoder().decode(data);
+              // First output = the shell printed its prompt and is now reading
+              // stdin. Safe to flush a switchTarget command queued before the
+              // shell finished initializing (past its startup input-flush).
+              if (!session!.ready) {
+                session!.ready = true;
+                if (session!.pendingWrite) {
+                  const queued = session!.pendingWrite;
+                  session!.pendingWrite = null;
+                  try {
+                    session!.terminal.write(queued);
+                  } catch (error) {
+                    console.warn(`Failed to flush queued switch for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+                  }
+                }
+              }
               session!.buffer.write(text);
               session!.lastActivity = new Date();
 
