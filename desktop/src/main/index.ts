@@ -48,6 +48,8 @@ function registerIpc(): void {
   ipcMain.handle('mc:browser:reload', (_e, id: string) => { paneManager?.reload(id); });
   ipcMain.handle('mc:browser:devtools', (_e, id: string) => { paneManager?.toggleDevTools(id); });
   ipcMain.handle('mc:browser:setBounds', (_e, rect) => { paneManager?.setBounds(rect); });
+  ipcMain.handle('mc:browser:setZoom', (_e, id: string, factor: number) => paneManager?.setZoom(id, factor) ?? 1);
+  ipcMain.handle('mc:browser:getZoom', (_e, id: string) => paneManager?.getZoom(id) ?? 1);
   ipcMain.handle('mc:setZoomFactor', (_e, factor: number) => { mainWindow?.webContents.setZoomFactor(factor); });
   // Probe a server's reachability from the main process (the renderer can't
   // cross-origin fetch other servers). Returns true iff /api/health responds OK.

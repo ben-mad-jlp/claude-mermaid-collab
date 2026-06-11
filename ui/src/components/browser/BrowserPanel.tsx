@@ -24,6 +24,10 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}) 
   const goForward = useBrowserStore((s) => s.goForward);
   const reload = useBrowserStore((s) => s.reload);
   const toggleDevTools = useBrowserStore((s) => s.toggleDevTools);
+  const zoomIn = useBrowserStore((s) => s.zoomIn);
+  const zoomOut = useBrowserStore((s) => s.zoomOut);
+  const resetZoom = useBrowserStore((s) => s.resetZoom);
+  const zoomByTab = useBrowserStore((s) => s.zoomByTab);
   const hide = useBrowserStore((s) => s.hide);
   const refresh = useBrowserStore((s) => s.refresh);
   // When the artifact viewer is hidden, the browser fills the freed space
@@ -204,6 +208,40 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}) 
             placeholder="Enter URL or search…"
             className="flex-1 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 text-xs outline-none"
           />
+          {/* Per-page zoom — independent of the app/renderer zoom (which would
+              shrink the whole UI). Scales only this browser tab's WebContentsView. */}
+          <div className="flex-shrink-0 flex items-center gap-0.5 mx-0.5">
+            <button
+              type="button"
+              onClick={() => activeId && zoomOut(activeId)}
+              disabled={!activeId}
+              title="Zoom out"
+              aria-label="Zoom out"
+              className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 px-1 leading-none text-sm"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              onClick={() => activeId && resetZoom(activeId)}
+              disabled={!activeId}
+              title="Reset zoom to 100%"
+              aria-label="Reset browser zoom"
+              className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 px-0.5 leading-none text-2xs tabular-nums min-w-[2.5rem] text-center"
+            >
+              {Math.round((activeId ? zoomByTab[activeId] ?? 1 : 1) * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => activeId && zoomIn(activeId)}
+              disabled={!activeId}
+              title="Zoom in"
+              aria-label="Zoom in"
+              className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 px-1 leading-none text-sm"
+            >
+              +
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => activeId && toggleDevTools(activeId)}

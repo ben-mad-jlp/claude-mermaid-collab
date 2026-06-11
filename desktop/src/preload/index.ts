@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('mc', {
     goForward: (id: string) => ipcRenderer.invoke('mc:browser:goForward', id),
     reload: (id: string) => ipcRenderer.invoke('mc:browser:reload', id),
     devtools: (id: string) => ipcRenderer.invoke('mc:browser:devtools', id),
+    setZoom: (id: string, factor: number): Promise<number> => ipcRenderer.invoke('mc:browser:setZoom', id, factor),
+    getZoom: (id: string): Promise<number> => ipcRenderer.invoke('mc:browser:getZoom', id),
     setBounds: (rect: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke('mc:browser:setBounds', rect),
     // Main fires this when the browser_* tools ensure a session pane — the

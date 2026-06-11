@@ -149,6 +149,24 @@ export class BrowserPaneManager {
     this.tabs.get(id)?.view.webContents.reload();
   }
 
+  /** Per-pane page zoom — INDEPENDENT of the app/renderer zoom (which scales the
+   *  whole React chrome). Sets the WebContentsView's own zoom factor so the user
+   *  can size the embedded page without shrinking the rest of the app. Clamped to
+   *  a sane range; returns the applied factor so the renderer reflects the truth. */
+  setZoom(id: string, factor: number): number {
+    const wc = this.tabs.get(id)?.view.webContents;
+    if (!wc) return 1;
+    const clamped = Math.max(0.25, Math.min(5, factor));
+    wc.setZoomFactor(clamped);
+    return clamped;
+  }
+
+  /** The pane's current zoom factor (1 when the tab is gone). */
+  getZoom(id: string): number {
+    const wc = this.tabs.get(id)?.view.webContents;
+    return wc ? wc.getZoomFactor() : 1;
+  }
+
   // Open/close Chrome DevTools for a tab's web contents. A WebContentsView can't
   // dock DevTools inside the app window, so this opens the standard detached
   // DevTools window for the page the user is inspecting.

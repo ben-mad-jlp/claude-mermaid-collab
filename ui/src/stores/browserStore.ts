@@ -14,6 +14,8 @@ interface BrowserState {
   tabs: BrowserTab[];
   activeId: string | null;
   width: number;
+  /** Per-tab page zoom factor (1 = 100%), independent of the app/renderer zoom. */
+  zoomByTab: Record<string, number>;
   toggle: () => void;
   show: () => void;
   hide: () => void;
@@ -27,8 +29,19 @@ interface BrowserState {
   goForward: (id: string) => Promise<void>;
   reload: (id: string) => Promise<void>;
   toggleDevTools: (id: string) => void;
+  /** Set the active tab's page zoom (independent of app zoom). Clamped in main. */
+  setZoom: (id: string, factor: number) => Promise<void>;
+  zoomIn: (id: string) => Promise<void>;
+  zoomOut: (id: string) => Promise<void>;
+  resetZoom: (id: string) => Promise<void>;
   activateSession: (session: string) => Promise<void>;
 }
+
+/** Page-zoom step + bounds for the embedded browser (mirrors the main-process clamp). */
+const ZOOM_STEP = 0.1;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 5;
+const clampZoom = (z: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(z * 100) / 100));
 
 const bridge = () => (window as any).mc?.browser;
 
@@ -47,6 +60,7 @@ export const useBrowserStore = create<BrowserState>()(persist((set, get) => ({
   tabs: [],
   activeId: null,
   width: 480,
+  zoomByTab: {},
 
   toggle: () => set((s) => ({ visible: !s.visible })),
   show: () => set({ visible: true }),
@@ -88,6 +102,18 @@ export const useBrowserStore = create<BrowserState>()(persist((set, get) => ({
   goForward: async (id) => { if (!bridge()) return; await bridge()?.goForward?.(id); await get().refresh(); },
   reload: async (id) => { if (!bridge()) return; await bridge()?.reload?.(id); },
   toggleDevTools: (id) => { bridge()?.devtools?.(id); },
+
+  setZoom: async (id, factor) => {
+    const next = clampZoom(factor);
+    // Optimistic local update so the % reflects immediately; main re-clamps and
+    // returns the truth, which we then store.
+    set((s) => ({ zoomByTab: { ...s.zoomByTab, [id]: next } }));
+    const applied = (await bridge()?.setZoom?.(id, next)) as number | undefined;
+    if (typeof applied === 'number') set((s) => ({ zoomByTab: { ...s.zoomByTab, [id]: applied } }));
+  },
+  zoomIn: async (id) => { await get().setZoom(id, (get().zoomByTab[id] ?? 1) + ZOOM_STEP); },
+  zoomOut: async (id) => { await get().setZoom(id, (get().zoomByTab[id] ?? 1) - ZOOM_STEP); },
+  resetZoom: async (id) => { await get().setZoom(id, 1); },
 
   activateSession: async (session) => {
     if (!bridge()) return;
