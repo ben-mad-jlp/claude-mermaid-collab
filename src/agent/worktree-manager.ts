@@ -59,6 +59,15 @@ export interface MergeBackResult {
   workerBranch?: string;
   /** The --no-ff merge commit sha created on the epic branch (merged === true). */
   mergeSha?: string;
+  /** BP0 INVARIANT: the todo's work is VERIFIABLY present on the epic branch after
+   *  this call — i.e. a commit carrying its `Collab-Todo: <id>` trailer is reachable
+   *  from collab/epic/<id8>. FALSE on the two stranding modes the acceptance gate
+   *  must reject: (a) PHANTOM — a clean worktree with no commit anywhere (the merge
+   *  was a no-op "Already up to date"), and (b) a lane whose commits never reached
+   *  the epic branch. Only meaningful when `opts.todoId` was supplied (else true on a
+   *  clean merge, preserving legacy callers). Gating acceptance on this is what
+   *  guarantees `accepted` ⇒ work-on-epic-branch. */
+  integrated: boolean;
 }
 
 export interface CommitMergeOpts {
@@ -754,9 +763,19 @@ export class WorktreeManager {
     if (dirty.code === 0 && dirty.stdout.trim().length > 0) {
       const addRes = await this.runGit(rec.path, ['add', '-A'], timeoutMs, onProgress);
       if (addRes.code !== 0) throw new Error(`git add failed: ${addRes.stderr.trim()}`);
+      // Stamp the WORKER commit itself with a `Collab-Todo: <id>` trailer (not just
+      // the epic merge commit). This is what makes per-todo integration verifiable
+      // even when a single keep-warm lane carried several todos' commits: an earlier
+      // todo's merge may have already pulled a later todo's worker commit onto the
+      // epic branch ("Already up to date" on the later merge), so a HEAD-advance
+      // check would FALSE-strand it. A reachable trailer on the todo's own commit
+      // does not. (BP0 stranding fix.)
+      const commitMessage = opts.todoId
+        ? `${opts.message}\n\nCollab-Todo: ${opts.todoId}`
+        : opts.message;
       const commitRes = await this.runGit(
         rec.path,
-        ['commit', '-m', opts.message],
+        ['commit', '-m', commitMessage],
         timeoutMs,
         onProgress,
       );
@@ -796,12 +815,23 @@ export class WorktreeManager {
         commitSha,
         epicBranch: epic.branch,
         workerBranch: rec.branch,
+        integrated: false,
       };
     }
 
     let mergeSha: string | undefined;
     const mergeShaRes = await this.runGit(epic.path, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
     if (mergeShaRes.code === 0) mergeSha = mergeShaRes.stdout.trim() || undefined;
+
+    // BP0 verification: confirm the todo's work actually reached the epic branch.
+    // A merge that succeeds with code 0 can still integrate NOTHING (a clean
+    // worktree + a branch with no commits ahead → "Already up to date", no merge
+    // commit, no work) — the phantom-accept mode. When a todoId is supplied we
+    // require its `Collab-Todo` trailer to be reachable from the epic branch; with
+    // no todoId we keep the legacy contract (a clean merge counts as integrated).
+    const integrated = opts.todoId
+      ? await this.todoOnEpicBranch(epicId, opts.todoId)
+      : true;
 
     return {
       committed,
@@ -811,7 +841,27 @@ export class WorktreeManager {
       epicBranch: epic.branch,
       workerBranch: rec.branch,
       mergeSha,
+      integrated,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // todoOnEpicBranch — BP0 integration probe. Is a commit carrying the
+  // `Collab-Todo: <todoId>` trailer reachable from the epic's accumulation branch?
+  // True ⇒ the todo's work landed on collab/epic/<id8> (its own worker commit
+  // and/or its --no-ff merge commit both carry the trailer). False ⇒ the work is
+  // STRANDED (never merged) or PHANTOM (no commit was ever made). Read-only; runs
+  // in the shared project repo where every branch ref lives. Non-git → false.
+  // ---------------------------------------------------------------------------
+  async todoOnEpicBranch(epicId: string, todoId: string): Promise<boolean> {
+    if (!(await this.isGitRepo())) return false;
+    const epicBranch = this.epicBranchName(epicId);
+    const res = await this.runGit(
+      this.opts.projectRoot,
+      ['log', '--format=%H', '-1', `--grep=Collab-Todo: ${todoId}`, `refs/heads/${epicBranch}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    return res.code === 0 && res.stdout.trim().length > 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -992,6 +1042,13 @@ export class WorktreeManager {
         // ignore — record is gone either way
       }
     }
+  }
+
+  /** Public is-this-a-git-repo probe — callers (e.g. the BP0 stranded-accept
+   *  sweep) must skip non-git projects rather than mistake "no branch" for
+   *  "stranded work". */
+  async isGitRepoPublic(): Promise<boolean> {
+    return this.isGitRepo();
   }
 
   private async isGitRepo(): Promise<boolean> {

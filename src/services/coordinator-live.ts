@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
-import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim } from './todo-store';
+import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, levelRank } from './orchestrator-config';
 import { getStatus } from './session-status-store';
@@ -423,6 +423,85 @@ export function resolveEpicId(todo: Todo, project: string): string {
   return INBOX_EPIC_ID;
 }
 
+// --- BP0: reverse a phantom/stranded acceptance ---------------------------------
+// The store marks a todo accepted BEFORE the lane→epic-branch merge runs, so a
+// merge that integrates nothing (a clean worktree with no commit, or a lane whose
+// commit never reached collab/epic/<id8>) leaves an `accepted` todo whose work is
+// NOT on the branch — the exact stranding this bug is about. This undoes that:
+//   1. the child todo → reset to 'ready' (acceptance + completion stamps cleared),
+//      so it re-surfaces and a worker re-does/re-integrates it;
+//   2. any epic the store rolled up off the back of THIS child → reset to
+//      'in_progress' (an epic can't be done if a child just un-accepted); and
+//   3. an escalation so a human sees the stranded acceptance was reversed.
+// Best-effort and idempotent (resetTodo on an already-ready todo is a no-op-ish
+// re-stamp); never throws back into the complete callback.
+async function reopenStrandedAccept(
+  project: string,
+  todoId: string,
+  epicId: string,
+  rolledUp: string[],
+  title: string,
+  epicBranch: string,
+  session: string,
+): Promise<void> {
+  try {
+    await resetTodo(project, todoId, 'ready');
+    for (const ep of rolledUp) {
+      // Re-open epics the store closed assuming this child landed. 'in_progress'
+      // keeps them out of the claimable pool (workers never claim epics) while
+      // marking them not-done; they roll up again once the child truly integrates.
+      await resetTodo(project, ep, 'in_progress').catch(() => {});
+    }
+    createEscalation({
+      project,
+      session,
+      todoId,
+      kind: 'assumption-invalidated',
+      questionText: `Stranded acceptance reversed: todo "${title}" was marked done+accepted but its work never reached the epic branch ${epicBranch} (no commit, or a lane that never merged). It has been re-surfaced (status=ready) for re-integration${rolledUp.length ? `; ${rolledUp.length} prematurely-rolled-up epic(s) were re-opened` : ''}.`,
+    });
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, bp0: 'stranded-accept-reversed', reopenedEpics: rolledUp }) });
+  } catch (e) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, bp0: 'stranded-accept-reverse-failed', reason: e instanceof Error ? e.message : String(e) }) });
+  }
+}
+
+// --- BP0: sweep already-stranded accepted todos ---------------------------------
+// A repair pass (Part 3 of the fix): scan the work-graph for leaf todos that are
+// done+accepted but whose work is NOT reachable from their epic branch (the
+// pre-fix damage — already-accepted todos whose commits stranded on lane branches,
+// or that were accepted with no commit at all). For each, raise ONE escalation so
+// a human can re-integrate or re-open it. Read-only w.r.t. the work-graph (it
+// FLAGS, it does not silently re-open — the acceptance was a human-visible event,
+// so its reversal should be too). Returns the flagged todo ids.
+export async function sweepStrandedAccepted(project: string): Promise<string[]> {
+  const flagged: string[] = [];
+  const all = listTodos(project, { includeCompleted: true });
+  const isEpic = (t: Todo) => all.some((c) => c.parentId === t.id);
+  for (const t of all) {
+    // Only leaf work todos that claim to be accepted+done can be stranded.
+    if (t.status !== 'done' || t.acceptanceStatus !== 'accepted') continue;
+    if (isEpic(t)) continue; // epics carry no commit of their own
+    try {
+      const wm = getWorktreeManager(t.targetProject ?? project);
+      if (!(await wm.isGitRepoPublic())) continue;
+      const epicId = resolveEpicId(t, project);
+      if (await wm.todoOnEpicBranch(epicId, t.id)) continue; // work is on the branch — fine
+      flagged.push(t.id);
+      createEscalation({
+        project,
+        session: t.sessionName ?? `worker-${t.id.slice(0, 8)}`,
+        todoId: t.id,
+        kind: 'assumption-invalidated',
+        questionText: `Stranded acceptance detected: todo "${t.title}" is done+accepted but its work is NOT on epic branch ${wm.epicBranchName(epicId)} (commit stranded on a lane branch, or accepted with no commit). Re-integrate the lane branch onto the epic branch, or re-open the todo.`,
+      });
+    } catch { /* a single bad todo never aborts the sweep */ }
+  }
+  if (flagged.length > 0) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ bp0: 'stranded-accept-sweep', flagged }) });
+  }
+  return flagged;
+}
+
 // --- FBPE P5: cross-repo epics --------------------------------------------------
 // An epic whose children span repos gets ONE accumulation branch PER target repo
 // (git can't merge across repos), so the land surface raises one card per repo and
@@ -741,6 +820,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               kind: 'assumption-invalidated',
               questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${r.completed.title}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
             });
+          } else if (!merge.integrated) {
+            // BP0 INVARIANT: the merge reported success but the todo's work is NOT
+            // on the epic branch (PHANTOM: a clean worktree with no commit; or a
+            // lane whose commit never reached collab/epic/<id8>). `accepted` must
+            // NOT survive that — the upstream guarantee is accepted ⇒ work-on-branch.
+            // Reverse the premature acceptance: re-surface this todo (and any epic
+            // the store just rolled up off the back of this child) and escalate.
+            await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, merge.epicBranch, session);
           } else {
             // Merge succeeded — the worktree branch is now in integration. Remove
             // the worktree so the next todo for this pool lane gets a fresh one
@@ -755,6 +842,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           }
         } catch (e) {
           recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason: e instanceof Error ? e.message : String(e) }) });
+          // BP0: the merge-back THREW, so the work almost certainly never reached
+          // the epic branch — yet the store already marked the todo accepted. Verify
+          // and, if it's genuinely stranded, reverse the acceptance instead of
+          // leaving a phantom-accepted todo (the silent failure this bug is about).
+          try {
+            const wm = getWorktreeManager(r.completed.targetProject ?? project);
+            const epicId = resolveEpicId(r.completed, project);
+            if (!(await wm.todoOnEpicBranch(epicId, id))) {
+              await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, wm.epicBranchName(epicId), session);
+            }
+          } catch { /* best-effort BP0 re-surface; never throw from the complete callback */ }
         }
       }
       if (accepted) {

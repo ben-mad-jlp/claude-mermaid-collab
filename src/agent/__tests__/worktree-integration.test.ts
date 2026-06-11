@@ -200,5 +200,62 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     // And the integration worktree is not left mid-merge.
     const status = await runGit(integ!.path, ['status', '--porcelain']);
     expect(status.stdout.trim()).toBe('');
+    // BP0: a conflict integrated nothing for this lane.
+    expect(res.integrated).toBe(false);
+  });
+
+  // --- BP0 stranding invariant: integrated reflects work-actually-on-epic-branch ---
+
+  it('reports integrated=true and stamps the Collab-Todo trailer when work lands', async () => {
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
+    const wt = await mgr.ensure('bp0-ok', { baseBranch: integ!.branch });
+    await fs.writeFile(path.join(wt.path, 'work.txt'), 'real\n');
+    const res = await mgr.commitAndMergeToEpic('bp0-ok', INBOX_EPIC_ID, {
+      message: 'real work',
+      todoId: 'todo-aaaa-1111',
+    });
+    expect(res.committed).toBe(true);
+    expect(res.merged).toBe(true);
+    expect(res.integrated).toBe(true);
+    // The probe agrees the todo is on the epic branch.
+    expect(await mgr.todoOnEpicBranch(INBOX_EPIC_ID, 'todo-aaaa-1111')).toBe(true);
+    // The worker commit (not just the merge) carries the trailer, so it stays
+    // verifiable even after a sibling's later merge.
+    const log = await runGit(repo, ['log', EPIC_BRANCH, '--format=%B']);
+    expect(log.stdout).toContain('Collab-Todo: todo-aaaa-1111');
+  });
+
+  it('PHANTOM: a clean worktree with no commit reports integrated=false (no work reached the branch)', async () => {
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
+    await mgr.ensure('bp0-phantom', { baseBranch: integ!.branch });
+    // No file written → nothing to commit → the merge is a no-op "Already up to date".
+    const res = await mgr.commitAndMergeToEpic('bp0-phantom', INBOX_EPIC_ID, {
+      message: 'phantom',
+      todoId: 'todo-bbbb-2222',
+    });
+    expect(res.committed).toBe(false);
+    expect(res.merged).toBe(true); // git exits 0...
+    expect(res.integrated).toBe(false); // ...but NOTHING was integrated — the phantom-accept the gate must reject.
+    expect(await mgr.todoOnEpicBranch(INBOX_EPIC_ID, 'todo-bbbb-2222')).toBe(false);
+  });
+
+  it('multi-todo lane: each todo verifies integrated even when one merge is "already up to date"', async () => {
+    // A single keep-warm lane accumulates TWO todos' commits, then merges. The
+    // first merge pulls BOTH commits onto the epic branch; the second todo's merge
+    // is "already up to date" — a HEAD-advance check would FALSE-strand it, but the
+    // per-commit Collab-Todo trailer makes it verifiable.
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
+    const wt = await mgr.ensure('bp0-multi', { baseBranch: integ!.branch });
+
+    await fs.writeFile(path.join(wt.path, 'one.txt'), '1\n');
+    const r1 = await mgr.commitAndMergeToEpic('bp0-multi', INBOX_EPIC_ID, { message: 'first', todoId: 'todo-cccc-3333' });
+    expect(r1.integrated).toBe(true);
+
+    // Same lane, second todo — its worker commit carries its own trailer.
+    await fs.writeFile(path.join(wt.path, 'two.txt'), '2\n');
+    const r2 = await mgr.commitAndMergeToEpic('bp0-multi', INBOX_EPIC_ID, { message: 'second', todoId: 'todo-dddd-4444' });
+    expect(r2.integrated).toBe(true);
+    expect(await mgr.todoOnEpicBranch(INBOX_EPIC_ID, 'todo-cccc-3333')).toBe(true);
+    expect(await mgr.todoOnEpicBranch(INBOX_EPIC_ID, 'todo-dddd-4444')).toBe(true);
   });
 });

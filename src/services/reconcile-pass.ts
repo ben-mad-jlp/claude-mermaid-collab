@@ -30,7 +30,7 @@ import {
   getSupervisedLaunchProject,
 } from './supervisor-store.ts';
 import { listTodos, getTodo, sweepEpicRollups } from './todo-store.ts';
-import { surfaceEpicLand } from './coordinator-live.ts';
+import { surfaceEpicLand, sweepStrandedAccepted } from './coordinator-live.ts';
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
 import { deriveLiveness } from './session-runtime.ts';
@@ -201,6 +201,35 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] epic-rollup sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3b. BP0 STRANDED-ACCEPT REPAIR: detect todos that are done+accepted but whose
+  // work never reached their epic branch (commit stranded on a lane branch, or
+  // accepted with NO commit at all — the phantom-done incident). The acceptance
+  // gate now blocks this going forward, but pre-existing damage (and any lane
+  // whose merge-back silently no-op'd) lingers invisibly: acceptanceStatus says
+  // "landed" while the epic branch is missing the work, so land_epic would
+  // (correctly) refuse to land it. This periodic sweep is the catch-up — it raises
+  // one escalation per stranded accepted todo so a human re-integrates or re-opens
+  // it. Read-only w.r.t. the work-graph (it flags; it does not silently re-open a
+  // human-visible acceptance). Best-effort; never aborts the pass.
+  // -------------------------------------------------------------------------
+  try {
+    const flagged = await sweepStrandedAccepted(project);
+    if (flagged.length > 0) {
+      recordSupervisorAudit({
+        kind: 'reconcile',
+        project,
+        session: 'coordinator',
+        detail: JSON.stringify({ source: 'reconcile-pass', bp0: 'stranded-accept-sweep', flagged }),
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] stranded-accept sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
