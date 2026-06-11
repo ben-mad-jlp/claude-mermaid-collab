@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { existsSync, unlinkSync } from 'fs';
 import { mkdir, writeFile, rename, unlink, readdir, readFile, open } from 'fs/promises';
+import { Socket } from 'net';
 import { homedir } from 'os';
 import { join } from 'path';
 import { lock } from 'proper-lockfile';
@@ -41,6 +42,47 @@ export function getDiscoveryPaths(home: string = homedir()): DiscoveryPaths {
     instanceFile: (id: string) => join(instancesDir, `${id}.json`),
     lockFile: (id: string) => join(instancesDir, `${id}.lock`),
   };
+}
+
+/**
+ * Liveness probe: is `pid` a running process? `process.kill(pid, 0)` throws
+ * ESRCH when the process is gone (a SIGKILL'd server) and EPERM when it exists
+ * but is owned by another user — EPERM still means alive.
+ */
+export function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    return (err as { code?: string })?.code === 'EPERM';
+  }
+}
+
+/**
+ * Liveness probe: is something accepting TCP connections on host:port? Used to
+ * distinguish a genuinely-live server from a stale instance file whose pid was
+ * recycled by an unrelated process (pid-alive but nothing listening → dead).
+ */
+export function isPortListening(port: number, host = '127.0.0.1', timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new Socket();
+    let settled = false;
+    const finish = (alive: boolean) => {
+      if (settled) return;
+      settled = true;
+      try { socket.destroy(); } catch { /* best-effort */ }
+      resolve(alive);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    try {
+      socket.connect(port, host);
+    } catch {
+      finish(false);
+    }
+  });
 }
 
 /** Derive a stable 12-char sessionId from (project, session) via sha1. */
@@ -130,9 +172,7 @@ export async function readInstances(paths: DiscoveryPaths = getDiscoveryPaths())
       // Lock held — but the owner may have been SIGKILL'd, leaving an
       // orphan lock that proper-lockfile won't release until its staleness
       // window elapses. Probe the pid directly.
-      let pidAlive = false;
-      try { process.kill(original.pid, 0); pidAlive = true; } catch { /* dead */ }
-      if (pidAlive) {
+      if (isPidAlive(original.pid)) {
         out.push(original);
         continue;
       }
@@ -161,10 +201,13 @@ export async function readInstances(paths: DiscoveryPaths = getDiscoveryPaths())
         // Another process took over between our read and our lock; leave it alone.
         continue;
       }
-      let pidAlive = false;
-      try { process.kill(original.pid, 0); pidAlive = true; } catch { /* dead */ }
-      if (pidAlive) {
-        // Defensive: shouldn't happen if owner released the lock, but skip.
+      // Lock was free, so no live owner holds it. Treat the record as live
+      // ONLY if its pid is still running AND something is listening on the
+      // recorded port — this reaps both SIGKILL'd servers (pid gone) and the
+      // subtler case where the pid was recycled by an unrelated process
+      // (pid-alive but the port is dead). Either way the record is stale.
+      if (isPidAlive(original.pid) && (await isPortListening(original.port))) {
+        // Defensive: a genuinely-live server that released its lock — leave it.
         continue;
       }
       await unlink(instPath).catch(() => {});

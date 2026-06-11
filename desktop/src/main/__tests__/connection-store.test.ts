@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { ConnectionStore } from '../connection-store';
+import { ConnectionStore, type InstanceLiveness } from '../connection-store';
 
 // Deterministic round-trip without Electron's native keyring.
 const fakeSafeStorage = {
@@ -14,8 +14,13 @@ const fakeSafeStorage = {
 let userDataDir: string;
 let instancesDir: string;
 
-async function makeStore(): Promise<ConnectionStore> {
-  const store = new ConnectionStore({ userDataDir, instancesDir, safeStorage: fakeSafeStorage });
+// Default: treat every discovered instance as live (the real probe does a TCP
+// connect, which these fixture ports don't answer). Individual tests override
+// to exercise the phantom-reaping path.
+async function makeStore(
+  isInstanceLive: (inst: InstanceLiveness) => boolean | Promise<boolean> = () => true,
+): Promise<ConnectionStore> {
+  const store = new ConnectionStore({ userDataDir, instancesDir, safeStorage: fakeSafeStorage, isInstanceLive });
   await store.init();
   return store;
 }
@@ -62,19 +67,6 @@ describe('ConnectionStore', () => {
     expect(store.get(id)).toBeNull();
   });
 
-  it('setActive/getActive round-trip and throws on unknown id', async () => {
-    const store = await makeStore();
-    const id = store.add({ label: 'T', host: '127.0.0.1', port: 3000 });
-    store.setActive(id);
-    expect(store.getActive()?.id).toBe(id);
-    expect(() => store.setActive('nope')).toThrow();
-  });
-
-  it('getActive() returns null before any setActive', async () => {
-    const store = await makeStore();
-    expect(store.getActive()).toBeNull();
-  });
-
   it('persists encrypted token and decrypts it on reload', async () => {
     const s1 = await makeStore();
     const id = s1.add({ label: 'T', host: '127.0.0.1', port: 3000, token: 'secret' });
@@ -110,7 +102,8 @@ describe('ConnectionStore', () => {
     const locals = store.list().filter((e) => e.source === 'local');
     expect(locals).toHaveLength(2);
     expect(locals.map((e) => e.port).sort()).toEqual([4001, 4002]);
-    expect(locals.find((e) => e.port === 4001)?.label).toBe('/repo/a');
+    // Local servers are labeled by hostname (host:port disambiguates them).
+    expect(locals.find((e) => e.port === 4001)?.label).toBe(hostname());
   });
 
   it('refreshLocal() dedupes against a manual entry on the same host:port', async () => {
@@ -134,5 +127,53 @@ describe('ConnectionStore', () => {
   it('refreshLocal() tolerates a missing instances dir', async () => {
     const store = await makeStore(); // instancesDir not created
     await expect(store.refreshLocal()).resolves.toBeUndefined();
+  });
+
+  it('refreshLocal() does NOT list a non-live instance file (phantom dead-port)', async () => {
+    // A SIGKILL'd server leaves its instance file behind; liveness says dead.
+    await writeInstance(9011);
+    const store = await makeStore(() => false);
+    await store.refreshLocal();
+    expect(store.list().filter((e) => e.source === 'local')).toHaveLength(0);
+  });
+
+  it('refreshLocal() reaps an existing local entry once its instance goes non-live', async () => {
+    // First pass: the server is live → an entry is created and marked online.
+    await writeInstance(9012);
+    let live = true;
+    const store = await makeStore(() => live);
+    await store.refreshLocal();
+    const before = store.list().filter((e) => e.source === 'local');
+    expect(before).toHaveLength(1);
+    expect(before[0].status).toBe('online');
+    // The server is SIGKILL'd but its instance file lingers; next refresh must
+    // drop the phantom rather than keep re-registering it forever.
+    live = false;
+    await store.refreshLocal();
+    expect(store.list().filter((e) => e.source === 'local')).toHaveLength(0);
+  });
+
+  it('refreshLocal() only probes liveness with the record pid + port', async () => {
+    await writeInstance(4007, '/repo', 's');
+    const seen: InstanceLiveness[] = [];
+    const store = await makeStore((inst) => { seen.push(inst); return true; });
+    await store.refreshLocal();
+    expect(seen).toContainEqual({ pid: 1, port: 4007, host: '127.0.0.1' });
+  });
+
+  it('setStatusByHostPort() updates a matching entry and is durable', async () => {
+    const s1 = await makeStore();
+    const id = s1.add({ label: 'T', host: '127.0.0.1', port: 3000 });
+    expect(s1.get(id)?.status).toBe('offline');
+    s1.setStatusByHostPort('127.0.0.1', 3000, 'online');
+    expect(s1.get(id)?.status).toBe('online');
+    await s1.flush();
+    const s2 = await makeStore();
+    expect(s2.get(id)?.status).toBe('online');
+  });
+
+  it('setStatusByHostPort() no-ops when no entry matches', async () => {
+    const store = await makeStore();
+    expect(() => store.setStatusByHostPort('127.0.0.1', 9999, 'online')).not.toThrow();
   });
 });

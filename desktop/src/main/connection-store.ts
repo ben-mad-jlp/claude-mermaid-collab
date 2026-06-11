@@ -2,6 +2,7 @@ import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir, hostname } from 'node:os';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { Socket } from 'node:net';
 
 /** Mirrors src/services/instance-discovery.ts Instance (replicated, not imported — separate package). */
 interface Instance {
@@ -60,10 +61,67 @@ export interface SafeStorageLike {
   decryptString(b: Buffer): string;
 }
 
+/** Liveness shape passed to the instance-liveness probe. */
+export interface InstanceLiveness {
+  pid: number;
+  port: number;
+  host?: string;
+}
+
 export interface ConnectionStoreOpts {
   userDataDir?: string;
   instancesDir?: string;
   safeStorage?: SafeStorageLike;
+  /**
+   * Liveness probe for a discovered instance record. Defaults to a real
+   * pid + TCP-port check; tests inject a deterministic stub. A record that
+   * fails this is treated as a stale/phantom registration and excluded from
+   * the local server list (so pruneLocalNotIn drops any existing entry).
+   */
+  isInstanceLive?: (inst: InstanceLiveness) => boolean | Promise<boolean>;
+}
+
+/** True iff `pid` is a running process (EPERM = exists but not ours = alive). */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    return (err as { code?: string })?.code === 'EPERM';
+  }
+}
+
+/** True iff something is accepting TCP connections on host:port. */
+function isPortListening(host: string, port: number, timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new Socket();
+    let settled = false;
+    const finish = (alive: boolean) => {
+      if (settled) return;
+      settled = true;
+      try { socket.destroy(); } catch { /* best-effort */ }
+      resolve(alive);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    try {
+      socket.connect(port, host);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+/**
+ * Default instance-liveness: the record's pid must still be running AND
+ * something must be listening on its port. The port check is what distinguishes
+ * a live server from a stale file whose pid was recycled (pid-alive, port-dead).
+ */
+async function defaultInstanceLive(inst: InstanceLiveness): Promise<boolean> {
+  if (typeof inst.pid === 'number' && !isPidAlive(inst.pid)) return false;
+  return isPortListening(inst.host ?? '127.0.0.1', inst.port);
 }
 
 interface PersistedEntry extends Omit<ServerEntry, 'token'> {
@@ -88,6 +146,7 @@ export class ConnectionStore {
   private readonly instancesDir: string;
   private readonly safeStorage: SafeStorageLike;
   private readonly serversFile: string;
+  private readonly isInstanceLive: (inst: InstanceLiveness) => boolean | Promise<boolean>;
   // Tail of the serialized persist chain. add()/remove() schedule a write
   // fire-and-forget for UI responsiveness, but every scheduled write is linked
   // here so a caller (e.g. before-quit) can `await flush()` for the final state
@@ -100,6 +159,7 @@ export class ConnectionStore {
     this.instancesDir = opts.instancesDir ?? join(homedir(), '.mermaid-collab', 'instances');
     this.safeStorage = opts.safeStorage ?? requireElectron().safeStorage;
     this.serversFile = join(this.userDataDir, 'servers.json');
+    this.isInstanceLive = opts.isInstanceLive ?? defaultInstanceLive;
   }
 
   async init(): Promise<void> {
@@ -198,6 +258,24 @@ export class ConnectionStore {
     return this.capabilities.get(id) ?? { tmux: true };
   }
 
+  /**
+   * Persist a probe/liveness result onto the matching entry's status. The
+   * mc:probeServer IPC reports reachability by host:port (the renderer can't
+   * cross-origin fetch other servers) but never wrote it back, so even the live
+   * local server read "offline". No-ops when the status is unchanged.
+   */
+  setStatusByHostPort(host: string, port: number, status: ServerEntry['status']): void {
+    for (const e of this.entries.values()) {
+      if (e.host === host && e.port === port) {
+        if (e.status !== status) {
+          e.status = status;
+          void this.persist().catch(() => {});
+        }
+        return;
+      }
+    }
+  }
+
   setServerCapabilities(id: string, caps: Partial<ServerCapabilities>): void {
     if (!this.entries.has(id)) return;
     const current = this.capabilities.get(id) ?? { tmux: false };
@@ -231,6 +309,13 @@ export class ConnectionStore {
         continue; // skip corrupt records
       }
       if (typeof inst.port !== 'number') continue;
+      // Trust liveness, not file existence: a SIGKILL'd server leaves its
+      // instance file behind (only graceful exit deletes it), which otherwise
+      // mints a phantom "offline" local entry on a dead port forever. Skipping
+      // a non-live record keeps it out of liveKeys so pruneLocalNotIn drops any
+      // existing entry for it.
+      if (!(await this.isInstanceLive({ pid: inst.pid, port: inst.port, host: '127.0.0.1' }))) continue;
+
       const key = `127.0.0.1:${inst.port}`;
       liveKeys.add(key);
       if (manualKeys.has(key)) continue; // a manual entry already covers this host:port
@@ -246,6 +331,10 @@ export class ConnectionStore {
         existing.label = localLabel;
         existing.lastProject = inst.project;
         existing.lastSession = inst.session;
+        // We just confirmed it's listening — reflect that so the live local
+        // server doesn't read "offline" (it was initialized offline and the
+        // probe result was never written back).
+        existing.status = 'online';
       } else {
         const id = randomUUID();
         this.entries.set(id, {
@@ -253,7 +342,7 @@ export class ConnectionStore {
           label: localLabel,
           host: '127.0.0.1',
           port: inst.port,
-          status: 'offline',
+          status: 'online',
           source: 'local',
           lastProject: inst.project,
           lastSession: inst.session,

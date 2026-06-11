@@ -52,12 +52,18 @@ function registerIpc(): void {
   // Probe a server's reachability from the main process (the renderer can't
   // cross-origin fetch other servers). Returns true iff /api/health responds OK.
   ipcMain.handle('mc:probeServer', async (_e, opts: { host: string; port: number }) => {
+    let ok = false;
     try {
       const r = await fetch(`http://${opts.host}:${opts.port}/api/health`, { signal: AbortSignal.timeout(1500) });
-      return r.ok;
+      ok = r.ok;
     } catch {
-      return false;
+      ok = false;
     }
+    // Persist the probe result so the entry's status reflects reachability —
+    // it was initialized 'offline' and never updated, so the live local server
+    // read offline forever.
+    store?.setStatusByHostPort(opts.host, opts.port, ok ? 'online' : 'offline');
+    return ok;
   });
   ipcMain.handle('mc:setWatchedServers', (_e, ids: string[]) => {
     if (!store || !aggregator) return;
