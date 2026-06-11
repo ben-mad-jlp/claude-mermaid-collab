@@ -79,3 +79,30 @@ describe('getFleetStatus lastActivity', () => {
     expect(poll2.entries[0].lastActivity).toBe(CLAIMED_AT_MS); // stable across polls
   });
 });
+
+describe('getFleetStatus headroom (fork-EAGAIN early warning)', () => {
+  const isNumOrNull = (v: unknown) => v === null || typeof v === 'number';
+
+  it('returns a process-headroom block with the cap-vs-liveProcs fields', () => {
+    heartbeat = HEARTBEAT;
+    const status = getFleetStatus('/repo');
+
+    // The block exists and carries the four documented fields…
+    expect(status.headroom).toBeDefined();
+    expect(isNumOrNull(status.headroom.liveProcs)).toBe(true);
+    expect(isNumOrNull(status.headroom.perUidCap)).toBe(true);
+    expect(isNumOrNull(status.headroom.tmuxSessions)).toBe(true);
+    expect(typeof status.headroom.idleSessions).toBe('number');
+
+    // …and idleSessions mirrors the rollup's idle-at-prompt count (same source).
+    expect(status.headroom.idleSessions).toBe(status.summary.idle);
+
+    // When the probes succeed they must be sane (cap is the per-uid ceiling, so
+    // it dominates the lane's own process count) — only assert when non-null so
+    // the test stays hermetic on hosts without sysctl/ps.
+    if (status.headroom.liveProcs != null && status.headroom.perUidCap != null) {
+      expect(status.headroom.perUidCap).toBeGreaterThan(0);
+      expect(status.headroom.liveProcs).toBeGreaterThan(0);
+    }
+  });
+});

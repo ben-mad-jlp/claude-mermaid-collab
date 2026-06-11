@@ -55,6 +55,7 @@ import { launchAndBind } from '../services/claude-launch.js';
 import { recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { listSessionRuntimes } from '../services/session-runtime.js';
+import { getFleetStatus } from '../services/fleet-status.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
 import { SERVER_VERSION } from './server.js';
 import { createDecisionRecord, listDecisionRecords, approveDecisionRecord, supersedeDecisionRecord, getActiveConstraints, getActiveRequirements, type DecisionKind, type RequirementSpec } from '../services/decision-record-store.js';
@@ -1846,6 +1847,17 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
+        name: 'fleet_status',
+        description: 'Live fleet read-model for a project: per in-progress lane its worker, derived liveness state (working/idle/permission/dead_shell/no_tmux), elapsed time and lease headroom — PLUS a process-headroom block {liveProcs, perUidCap, tmuxSessions, idleSessions} that surfaces the fork-EAGAIN wedge before it hits (uid live procs vs the kern.maxprocperuid cap). Read-only; one ps snapshot per call.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to the project root whose fleet to report' },
+          },
+          required: ['project'],
+        },
+      },
+      {
         name: 'get_install_path',
         description: 'Get the installation path of the mermaid-collab plugin. Use this to run CLI commands like server start/stop.',
         inputSchema: {
@@ -2145,6 +2157,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'steward_set_enabled', description: "Runtime ON/OFF for the steward — the live human off-switch (distinct from the MERMAID_STEWARD_AUTO env arm and the transient steward_pause). PERSISTENT. While OFF the router sends every escalation to the human and the running steward skill idles. The skill checks this each loop.", inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' } }, required: ['enabled'] } },
       { name: 'check_graph_drift', description: 'Graph↔code drift check: scans the session\'s blueprint task files and flags MISSING dependencies — where one task\'s code imports another task\'s files but the plan graph has no dependsOn. Deterministic (import-edge analysis, no LLM). The supervisor can run this periodically.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
+      { name: 'orchestrator_status', description: 'Live orchestrator daemon runtime snapshot: { running, tickMs, lastTickAt, projects:[{project,level}], pool:[{session,type,slot,status,todoId,tmux}], coldStartsInFlight, recentSpawns }. Read-only. Returns running:false cleanly when the daemon is stopped. Thin wrapper over the worker pool + the orchestrator level/health.', inputSchema: { type: 'object', properties: {} } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
       // Spreadsheet tools
@@ -3330,6 +3343,12 @@ IMPORTANT - Common pitfalls to avoid:
                 error: error instanceof Error ? error.message : 'Server not responding',
               }, null, 2);
             }
+          }
+
+          case 'fleet_status': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify(getFleetStatus(project), null, 2);
           }
 
           case 'get_install_path': {
@@ -4842,6 +4861,56 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, kind, limit } = args as { project?: string; kind?: string; limit?: number };
             const entries = supervisorStore.listSupervisorAudit({ project, kind, limit });
             return JSON.stringify({ entries }, null, 2);
+          }
+          case 'orchestrator_status': {
+            // Live daemon runtime snapshot. Thin wrapper over the worker pool +
+            // the orchestrator level/health. Read-only; returns running:false
+            // cleanly when the daemon is stopped.
+            const { listPool } = await import('../services/worker-pool.js');
+            const { getColdStartsInFlight } = await import('../services/coordinator-live.js');
+
+            // Health: prefer orchestrator-live; fall back to coordinator-live
+            // while the orchestrator/coordinator rename is in flight.
+            let health: { running: boolean; tickMs?: number; lastTickAt?: number | null; projects?: Array<{ project: string; level: string }> } = { running: false };
+            for (const modPath of ['../services/orchestrator-live.js', '../services/coordinator-live.js']) {
+              try {
+                const mod: any = await import(modPath as string);
+                if (typeof mod.getOrchestratorHealth === 'function') {
+                  health = mod.getOrchestratorHealth();
+                  break;
+                }
+              } catch {
+                // try the next module
+              }
+            }
+
+            // One slot row per OCCUPIED lane (a registered slot is an occupied lane).
+            const pool = Object.entries(listPool()).map(([session, s]) => ({
+              session,
+              type: s.type,
+              slot: s.slot,
+              status: s.status,
+              todoId: s.currentTodoId ?? null,
+              tmux: s.tmux ?? null,
+            }));
+
+            // recentSpawns: the durable spawn audit trail, most-recent-first.
+            let recentSpawns: unknown[] = [];
+            try {
+              recentSpawns = supervisorStore.listSupervisorAudit({ kind: 'spawn', limit: 10 });
+            } catch {
+              // best-effort
+            }
+
+            return JSON.stringify({
+              running: health.running,
+              tickMs: health.tickMs ?? null,
+              lastTickAt: health.lastTickAt ?? null,
+              projects: health.projects ?? [],
+              pool,
+              coldStartsInFlight: getColdStartsInFlight(),
+              recentSpawns,
+            }, null, 2);
           }
           case 'set_watchdog_threshold': {
             const { project, thresholdPercent } = args as { project: string; thresholdPercent: number | null };
