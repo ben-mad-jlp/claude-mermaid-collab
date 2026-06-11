@@ -40,6 +40,12 @@ import { useDeckStore } from '@/stores/deckStore';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
 
+// Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
+// Escalations inbox and the worker roster refresh on the SAME clock — a
+// cross-instance escalation that misses the per-process broadcast still surfaces
+// within the same window the worker card turns red.
+const ESCALATION_POLL_MS = 10_000;
+
 export interface BridgeDashboardProps {
   /**
    * P5: the artifact viewer/editor node (App's renderMainContent output) when
@@ -144,9 +150,31 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
       if (msg?.type === 'session_todos_updated' && typeof msg.project === 'string' && msg.project) {
         void loadProjectTodos(serverScope, msg.project);
       }
+      // Live-update the Escalations inbox on the escalation_created broadcast —
+      // the SAME on-demand re-poll d1367b0 gave the todo/worker cards. This is the
+      // fast same-instance path: a worker on THIS server raises an escalation and
+      // the inbox refreshes immediately, matching the red worker card. (App.tsx
+      // also re-polls globally for the toast, but the Bridge subscribing on its own
+      // serverScope is the d1367b0-shaped fix and avoids relying on the App root.)
+      if (msg?.type === 'escalation_created') {
+        void loadEscalations(serverScope, 'open');
+      }
     });
     return () => { sub.unsubscribe(); msgSub.unsubscribe(); };
-  }, [resyncBridge, serverScope, loadProjectTodos]);
+  }, [resyncBridge, serverScope, loadProjectTodos, loadEscalations]);
+
+  // The broadcast above only reaches clients on the SAME server process that
+  // handled escalation_create. A CROSS-PROJECT worker can be served by a different
+  // instance (which writes the shared supervisor store but broadcasts only to its
+  // own WS clients), so the Bridge would miss the event and the inbox stayed empty
+  // behind a red worker card until the next reconnect/manual-↺. Worker cards never
+  // showed this lag because useSessionStatuses polls every 10s. Give the Escalations
+  // inbox the SAME periodic re-poll so both surfaces share one clock: a cross-instance
+  // escalation now surfaces within the same ~10s window the worker card turns red.
+  useEffect(() => {
+    const id = setInterval(() => { void loadEscalations(serverScope, 'open'); }, ESCALATION_POLL_MS);
+    return () => clearInterval(id);
+  }, [serverScope, loadEscalations]);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {

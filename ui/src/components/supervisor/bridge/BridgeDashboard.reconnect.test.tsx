@@ -16,10 +16,17 @@ import { render } from '@testing-library/react';
 
 // --- Fake WS client: capture the onConnect handler so the test can fire it. ---
 const connectHandlers = new Set<() => void>();
+const messageHandlers = new Set<(msg: any) => void>();
 const fakeClient = {
   onConnect: (h: () => void) => {
     connectHandlers.add(h);
     return { unsubscribe: () => connectHandlers.delete(h) };
+  },
+  // Live-refresh subscription (d1367b0: session_todos_updated; + escalation_created).
+  // Captured so the test can simulate broadcasts and so mounting doesn't throw.
+  onMessage: (h: (msg: any) => void) => {
+    messageHandlers.add(h);
+    return { unsubscribe: () => messageHandlers.delete(h) };
   },
 };
 vi.mock('@/lib/websocket', () => ({
@@ -56,6 +63,7 @@ const loadAudit = vi.fn(async () => {});
 
 beforeEach(() => {
   connectHandlers.clear();
+  messageHandlers.clear();
   loadEscalations.mockClear();
   loadProjectTodos.mockClear();
   loadAudit.mockClear();
