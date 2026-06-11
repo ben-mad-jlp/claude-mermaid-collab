@@ -5,7 +5,6 @@ import { useServers } from '@/contexts/ServerContext';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalConsole } from './TerminalPane';
-import { SessionSwitcher } from './SessionSwitcher';
 import { InputRail } from './InputRail';
 import { ServerIcon } from '@/components/ServerIcon';
 
@@ -23,7 +22,6 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   const width = useTerminalStore((s) => s.width);
   const setWidth = useTerminalStore((s) => s.setWidth);
   const openFor = useTerminalStore((s) => s.openFor);
-  const setActive = useTerminalStore((s) => s.setActive);
   const close = useTerminalStore((s) => s.close);
   const currentSession = useSessionStore((s) => s.currentSession);
   const { servers } = useServers();
@@ -282,15 +280,12 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         </button>
       </div>
 
-      {/* Body — left session switcher rail + the single persistent console.
-          The switcher lists every open session (across servers) with a liveness
-          dot; selecting one re-points the console (no per-session xterm/WS
-          teardown). One WS per server; changing servers reconnects through that
-          server's per-server proxy. */}
+      {/* Body — the single persistent console (no left switcher rail, per user).
+          Sessions are selected from the watched rows / + button, which call
+          openFor and set the active tab; the console re-points to that target
+          (no per-session xterm/WS teardown). One WS per server; changing servers
+          reconnects through that server's per-server proxy. */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        {tabs.length > 0 && (
-          <SessionSwitcher tabs={tabs} activeTabId={activeTabId} onSelect={setActive} />
-        )}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
           {!activeTab ? (
             <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
