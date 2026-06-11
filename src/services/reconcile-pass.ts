@@ -217,21 +217,32 @@ export async function runReconcilePass(project: string): Promise<void> {
   // it. Read-only w.r.t. the work-graph (it flags; it does not silently re-open a
   // human-visible acceptance). Best-effort; never aborts the pass.
   // -------------------------------------------------------------------------
-  try {
-    const flagged = await sweepStrandedAccepted(project);
-    if (flagged.length > 0) {
-      recordSupervisorAudit({
-        kind: 'reconcile',
-        project,
-        session: 'coordinator',
-        detail: JSON.stringify({ source: 'reconcile-pass', bp0: 'stranded-accept-sweep', flagged }),
-      });
+  // GATED OFF BY DEFAULT (MERMAID_BP0_SWEEP=1 to enable). This per-tick sweep
+  // FLOODS: it flags every already-accepted todo whose work isn't on the epic
+  // branch, but step 4 below auto-closes that escalation the same/next tick
+  // (the linked todo IS done+accepted → "settled"), so it re-fires every 30s —
+  // 2000+ escalations across projects in minutes. The forward-prevention (the
+  // acceptance gate verifying the commit reached the branch) does the real work;
+  // this BACKLOG repair must be a throttled one-shot with a SUMMARY escalation +
+  // exclusion from the step-4 auto-close, not a per-tick generator. Until that
+  // redesign lands it stays opt-in so it can never flood the inbox.
+  if (process.env.MERMAID_BP0_SWEEP === '1') {
+    try {
+      const flagged = await sweepStrandedAccepted(project);
+      if (flagged.length > 0) {
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: 'coordinator',
+          detail: JSON.stringify({ source: 'reconcile-pass', bp0: 'stranded-accept-sweep', flagged }),
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[reconcile-pass] stranded-accept sweep failed for ${project}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
-  } catch (err) {
-    console.warn(
-      `[reconcile-pass] stranded-accept sweep failed for ${project}:`,
-      err instanceof Error ? err.message : err,
-    );
   }
 
   // -------------------------------------------------------------------------
