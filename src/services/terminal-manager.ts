@@ -3,8 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { TerminalSession, TerminalSessionsState } from '../types/terminal.js';
+import { sendTmuxKeysRaw } from './tmux-send.js';
 
 const execAsync = promisify(exec);
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export class TerminalManager {
   /**
@@ -184,6 +187,28 @@ export class TerminalManager {
   async resetTmuxModes(tmuxSessionName: string): Promise<void> {
     try { await execAsync(`tmux set-option -t ${tmuxSessionName} mouse off`); } catch { /* best-effort */ }
     try { await execAsync(`tmux set-option -wt ${tmuxSessionName} alternate-scroll off`); } catch { /* best-effort */ }
+  }
+
+  /**
+   * Re-sync Claude Code's TUI mode by toggling it fullscreen → default. This is
+   * the real cure for the "wedged terminal" symptom: Claude's TUI can get into a
+   * confused state where it believes it's in default mode while its actual
+   * alt-screen / mouse-reporting DECSET state is out of sync — chat history is
+   * missing from the scrollback and the wheel sends arrow keys instead of
+   * scrolling. Explicitly entering fullscreen and switching back forces Claude to
+   * re-emit the correct mode sequences, restoring history + scroll. (The user's
+   * verified `/tui fullscreen` → `/tui default` workaround, automated.)
+   *
+   * Best-effort and ordering-sensitive: the two slash-commands go in sequence
+   * with a beat between them so the mode switch settles before the second lands.
+   * On a non-Claude pane these are harmless (a "command not found" at the shell).
+   */
+  async resyncClaudeTui(tmuxSessionName: string): Promise<void> {
+    try {
+      await sendTmuxKeysRaw(tmuxSessionName, '/tui fullscreen');
+      await sleep(500); // let the mode switch render before flipping back
+      await sendTmuxKeysRaw(tmuxSessionName, '/tui default');
+    } catch { /* best-effort — never throw from the reset path */ }
   }
 
   /**

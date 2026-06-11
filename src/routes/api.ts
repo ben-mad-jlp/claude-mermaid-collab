@@ -3421,7 +3421,9 @@ export async function handleAPI(
     }
   }
 
-  // POST /api/terminal/sessions/:id/reset?project=...&session=... - Re-assert tmux mouse modes (unstick a wedged terminal)
+  // POST /api/terminal/sessions/:id/reset?project=...&session=... - Unstick a wedged
+  // terminal: re-sync Claude's TUI (/tui fullscreen → default, the real cure for
+  // missing history + wheel-sends-arrows) and re-assert tmux mouse-off modes.
   if (path.match(/^\/api\/terminal\/sessions\/[^/]+\/reset$/) && req.method === 'POST') {
     const params = getSessionParams(url);
     if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
@@ -3433,6 +3435,7 @@ export async function handleAPI(
       const target = state.sessions.find(s => s.id === sessionId);
       if (!target) return Response.json({ error: 'Session not found' }, { status: 404 });
       await terminalManager.resetTmuxModes(target.tmuxSession);
+      await terminalManager.resyncClaudeTui(target.tmuxSession);
       return Response.json({ success: true }, { status: 200 });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
