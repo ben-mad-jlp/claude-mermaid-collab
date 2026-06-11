@@ -382,6 +382,15 @@ interface SupervisorState {
   /** Stop a global LLM role: kill its tmux + clear identity (Bridge switch OFF). */
   stopRole: (serverId: string, role: 'steward' | 'supervisor') => Promise<void>;
   loadEscalations: (serverId: string, status?: string) => Promise<void>;
+  /** L3 bootstrap/reconnect hydrate (design-ui-status-coherence §2 + §2.1).
+   *  Fetch the open escalations across the watched `serverIds` and merge them
+   *  into `openEscalations`, server-stamped. Epoch-guarded: snapshots
+   *  `hydrateEpoch` before the REST read and DISCARDS its result if a newer WS
+   *  ingest / mutation / hydrate bumped the epoch meanwhile — so a slow reconnect
+   *  snapshot can never clobber a newer WS upsert. Never resurrects a
+   *  locally-resolved id. The single full REST read (replaces every
+   *  per-component interval/useEffect). */
+  hydrateOpenEscalations: (serverIds: string[]) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
   /** FBPE P4: the land click — land a green 'epic-ready-to-land' escalation onto
@@ -671,6 +680,43 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }
     const open = fetched.filter(isOpen);
     set((state) => ({ ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 }));
+  },
+
+  // L3 bootstrap/reconnect hydrate (design §2 + §2.1). Snapshot the epoch,
+  // fetch each watched server's OPEN escalations, then merge under the race
+  // guard. If any watched server fails to respond we keep prior state (matching
+  // the store's keep-prior-on-failure convention) rather than risk dropping that
+  // server's open items from the merged set.
+  hydrateOpenEscalations: async (serverIds) => {
+    const ids = serverIds.length ? serverIds : ['local'];
+    const sinceEpoch = get().hydrateEpoch;
+    const results = await Promise.all(
+      ids.map((id) => invoke(id, '/api/supervisor/escalations?status=open', 'GET')),
+    );
+    if (results.some((r) => !r?.ok)) return; // keep prior on any transient failure
+    const fetched: Escalation[] = [];
+    results.forEach((res, i) => {
+      for (const e of (res!.body?.escalations ?? []) as Escalation[]) {
+        // Server-stamp each item so the union across servers is addressable.
+        fetched.push({ ...e, serverId: (e as Escalation & { serverId?: string }).serverId || ids[i] });
+      }
+    });
+    set((state) => {
+      // Race guard (§2.1): a newer ingest / mutation / hydrate bumped the epoch
+      // while our REST read was in flight → our snapshot is stale; discard it so
+      // we never clobber a newer WS upsert.
+      if (state.hydrateEpoch !== sinceEpoch) return {};
+      // Local resolves stay authoritative — never resurrect an id the user just
+      // moved into the resolved slice (§2.1.3).
+      const resolvedIds = new Set(state.resolvedEscalations.map((e) => e.id));
+      // Merge by id (dedupe across servers); the fresh open snapshot is the set.
+      const byId = new Map<string, Escalation>();
+      for (const e of fetched) {
+        if (isOpen(e) && !resolvedIds.has(e.id)) byId.set(e.id, e);
+      }
+      const open = [...byId.values()];
+      return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
+    });
   },
 
   nudge: async (serverId, project, session, text) => {
