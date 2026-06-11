@@ -9,6 +9,7 @@ import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
+import { sendTmuxKeysRaw } from './tmux-send';
 import { ensureSession, runTodoInSession } from './claude-launch';
 import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
@@ -171,6 +172,18 @@ const deadTracker = new Map<string, { since: number; escalated: boolean }>();
  *  declare it dead. Long enough to clear cold-start; override MERMAID_DEAD_GRACE. */
 const DEAD_GRACE_MS = (Number(process.env.MERMAID_DEAD_GRACE) || 45) * 1000;
 
+/** Rate-limit tracker (tmux → first-seen + last-nudge + attempt count). A worker
+ *  whose Claude hit a TRANSIENT server-side rate limit and stopped is recovered by
+ *  nudging it to retry — distinct from a stall (it's not stuck on a decision) and
+ *  from the user's usage cap (which is human-gated). Cleared once the pane clears. */
+const rateLimitTracker = new Map<string, { firstSeen: number; lastNudge: number; attempts: number }>();
+/** Wait this long after first seeing (or last nudging) a rate-limited worker before
+ *  nudging it to retry — give Claude Code's own backoff a chance first. */
+const RATE_LIMIT_NUDGE_MS = (Number(process.env.MERMAID_RATE_LIMIT_NUDGE_SEC) || 60) * 1000;
+/** After this many nudges with the rate limit still showing, escalate (persistently
+ *  throttled — a human may want to pause the fleet). */
+const RATE_LIMIT_MAX_NUDGES = Number(process.env.MERMAID_RATE_LIMIT_MAX_NUDGES) || 5;
+
 // --- 944408c2 safety valve: respawn backoff + cold-start concurrency cap --------
 // A crash-looping worker (dies → reclaim → respawn → dies) plus a thundering herd
 // of simultaneous cold-starts together starved the sidecar — the storm behind the
@@ -217,6 +230,22 @@ async function capturePane(tmux: string): Promise<string> {
  *  is present. */
 function isActivelyWorking(pane: string): boolean {
   return /\(\d+(?:m\s*\d+)?s\s*·/.test(pane) || /esc to interrupt/i.test(pane);
+}
+
+/** Detect a TRANSIENT Anthropic server-side rate limit in a worker's pane — the
+ *  throttle Claude Code surfaces as e.g.:
+ *    "API Error: Server is temporarily limiting requests (not your usage limit) · Rate limited"
+ *  This is recoverable: the coordinator waits a backoff then nudges the worker to
+ *  retry (the worker doesn't realize it stopped, so the whole lane stalls).
+ *
+ *  Deliberately distinct from the user's USAGE CAP ("usage limit reached … resets
+ *  at …"), which is genuinely human-gated and must NEVER be auto-nudged — note the
+ *  transient message contains the phrase "not your usage limit", so we exclude only
+ *  the cap-REACHED wording, not every mention of "usage limit". */
+export function detectRateLimit(pane: string): boolean {
+  // The human-gated usage cap — never auto-retry this.
+  if (/usage limit reached|limit will reset|reached your (?:usage )?limit/i.test(pane)) return false;
+  return /temporarily limiting requests/i.test(pane) || /\bRate limited\b/i.test(pane);
 }
 
 /** Best-effort: pull the worker's pending question/options out of the pane so the
@@ -1286,6 +1315,55 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         deadTracker.delete(tmux);
 
         if (!pane || isActivelyWorking(pane)) continue;
+
+        // TRANSIENT RATE-LIMIT RECOVERY: a worker whose Claude hit Anthropic's
+        // server-side throttle ("temporarily limiting requests · Rate limited")
+        // stops mid-turn but doesn't realize it — the lane silently stalls (the
+        // user's report: "the coordinator doesn't realize it, so it just stops
+        // everything"). This is NOT a stall (no decision pending) and NOT the
+        // user's usage cap (human-gated). After a backoff (RATE_LIMIT_NUDGE_MS),
+        // NUDGE the worker to retry; only escalate if it stays throttled past
+        // RATE_LIMIT_MAX_NUDGES. Handled BEFORE the stall path so a throttled
+        // worker is never parked 'blocked'.
+        if (detectRateLimit(pane)) {
+          const nowRL = Date.now();
+          const rl = rateLimitTracker.get(tmux) ?? { firstSeen: nowRL, lastNudge: 0, attempts: 0 };
+          if (!rateLimitTracker.has(tmux)) rateLimitTracker.set(tmux, rl);
+          // Wait out the backoff (since the last nudge, or since first seen) so
+          // Claude Code's own retry gets first crack before we intervene.
+          if (nowRL - (rl.lastNudge || rl.firstSeen) < RATE_LIMIT_NUDGE_MS) continue;
+          if (rl.attempts >= RATE_LIMIT_MAX_NUDGES) {
+            // Persistently throttled — surface it once so a human can pause the
+            // fleet (level→off) until it clears; then re-arm if it recurs.
+            try {
+              createEscalation({
+                project,
+                session,
+                kind: 'blocker',
+                todoId: t.id,
+                questionText:
+                  `Worker for "${t.title ?? t.id}" has been API rate-limited for a while ` +
+                  `(${rl.attempts} retry nudges over ~${Math.max(1, Math.round((nowRL - rl.firstSeen) / 60000))} min) ` +
+                  `and isn't recovering. This is a TRANSIENT server throttle (not your usage cap) — ` +
+                  `consider pausing the fleet (level → off) until it clears, then resume.`,
+              });
+              recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'rate-limit-persistent', attempts: rl.attempts }) });
+            } catch { /* best-effort */ }
+            rateLimitTracker.delete(tmux);
+            continue;
+          }
+          // Nudge the worker to retry the throttled request.
+          try {
+            await sendTmuxKeysRaw(tmux, 'Please retry the request that was rate-limited and continue.');
+            rl.attempts += 1;
+            rl.lastNudge = nowRL;
+            recordSupervisorAudit({ kind: 'nudge', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'rate-limit', attempt: rl.attempts }) });
+          } catch { /* best-effort; retry next tick */ }
+          continue; // handled — do NOT fall through to the stall/park-blocked path
+        }
+        // Not rate-limited → clear any stale rate-limit tracking for this lane.
+        rateLimitTracker.delete(tmux);
+
         // DURABLE staleness (Phase 1, decision 9cd01858): the idle clock is the
         // restart-safe session_status pulse (updatedAt = the lane's last status
         // report), not an in-memory pane-signature timer. A worker idle at its
