@@ -5,6 +5,7 @@ import { useServers } from '@/contexts/ServerContext';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalConsole } from './TerminalPane';
+import { SessionSwitcher } from './SessionSwitcher';
 import { ServerIcon } from '@/components/ServerIcon';
 
 /**
@@ -21,6 +22,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   const width = useTerminalStore((s) => s.width);
   const setWidth = useTerminalStore((s) => s.setWidth);
   const openFor = useTerminalStore((s) => s.openFor);
+  const setActive = useTerminalStore((s) => s.setActive);
   const close = useTerminalStore((s) => s.close);
   const currentSession = useSessionStore((s) => s.currentSession);
   const { servers } = useServers();
@@ -279,22 +281,29 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         </button>
       </div>
 
-      {/* Single persistent console — re-pointed to the active session's tmux
-          target on switch (no per-session xterm/WS teardown). One WS per server;
-          changing servers reconnects through that server's per-server proxy. */}
-      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {!activeTab ? (
-          <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
-            No terminal open — click + to start one
-          </div>
-        ) : (
-          <div style={{ position: 'absolute', inset: 0, padding: 6 }}>
-            <TerminalConsole
-              serverId={activeTab.serverId}
-              tmuxBase={activeTab.tmuxName}
-            />
-          </div>
+      {/* Body — left session switcher rail + the single persistent console.
+          The switcher lists every open session (across servers) with a liveness
+          dot; selecting one re-points the console (no per-session xterm/WS
+          teardown). One WS per server; changing servers reconnects through that
+          server's per-server proxy. */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        {tabs.length > 0 && (
+          <SessionSwitcher tabs={tabs} activeTabId={activeTabId} onSelect={setActive} />
         )}
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
+          {!activeTab ? (
+            <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
+              No terminal open — click + to start one
+            </div>
+          ) : (
+            <div style={{ position: 'absolute', inset: 0, padding: 6 }}>
+              <TerminalConsole
+                serverId={activeTab.serverId}
+                tmuxBase={activeTab.tmuxName}
+              />
+            </div>
+          )}
+        </div>
       </div>
       </div>
   );
