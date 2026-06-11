@@ -2,42 +2,67 @@ import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { getTerminalWebSocketURL } from '@/lib/terminal-ws';
+import {
+  getTerminalWebSocketURL,
+  makeSwitchMessage,
+  PERSISTENT_CONSOLE_PTY_ID,
+  TERMINAL_MODE_RESET,
+} from '@/lib/terminal-ws';
 
 type ConnState = 'connecting' | 'connected' | 'disconnected';
 
 /**
- * xterm.js terminal bound to a server-side Bun PTY over /terminal/:sessionId.
+ * THE single persistent xterm console (replaces the old per-tab pane model).
  *
- * The WS protocol is a JSON envelope ({type:'input'|'resize'} ↔
- * {type:'output'|'exit'|'error'}), so we wire messages manually rather than
- * using addon-attach (which pipes raw bytes). The server defers its buffer
- * replay until the first resize, so we send an initial resize on open.
+ * Instead of one xterm + WebSocket + PTY per opened session, the console keeps
+ * ONE WebSocket per server — to the stable PERSISTENT_CONSOLE_PTY_ID — and
+ * re-points it between tmux targets with `switch` messages. Selecting a
+ * different session re-points the SAME connection (no teardown); selecting a
+ * session on a different server reconnects the WebSocket through that server's
+ * per-server proxy (the WS URL is namespaced by serverId).
  *
- * Robustness: a terminal whose WS fails before it establishes (no tmux to
- * attach to, orphaned pane after a server restart, transient 1006 close) must
- * NOT crash the pane. We (a) defer xterm open()/fit() until the container is
- * actually mounted and sized so the renderer/viewport never runs
- * syncScrollArea against undefined dimensions, (b) flip to a 'disconnected'
- * state and stop driving xterm on WS error/close, and (c) wrap the whole pane
- * in an error boundary so any residual xterm throw degrades gracefully.
+ * Two axes of change:
+ *   - `serverId` change  → tear down + reopen the WebSocket (effect re-runs).
+ *   - `tmuxBase`  change → re-point the live connection with a `switch` message.
+ *
+ * Clean re-point: before feeding the new session's stream we `term.reset()` and
+ * write TERMINAL_MODE_RESET so the prior session's alt-screen / mouse-tracking
+ * state can't bleed in; the server's switchTarget then does a tmux attach-redraw
+ * (refresh-client -S) so the new pane repaints cleanly. (See the server
+ * attach-redraw leaf — we deliberately lean on tmux's redraw, not a byte-replay.)
+ *
+ * Robustness (preserved from the prior pane): defer xterm open()/fit() until the
+ * container is mounted and sized, flip to 'disconnected' on WS error/close
+ * instead of throwing, and wrap in an error boundary so a residual xterm throw
+ * degrades gracefully.
  */
-function TerminalPaneInner({
-  sessionId,
+function TerminalConsoleInner({
   serverId,
+  tmuxBase,
   onConnChange,
 }: {
-  sessionId: string;
   serverId: string;
+  tmuxBase: string | null;
   onConnChange?: (state: ConnState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [conn, setConn] = useState<ConnState>('connecting');
 
+  // Latest requested target, readable from the WS onopen callback (which fires
+  // asynchronously after the tmuxBase prop may have advanced).
+  const tmuxBaseRef = useRef<string | null>(tmuxBase);
+  tmuxBaseRef.current = tmuxBase;
+
+  // Re-point hook published by the active connection effect; the tmuxBase effect
+  // calls it to switch targets on the live WS without tearing it down.
+  const repointRef = useRef<((target: string | null) => void) | null>(null);
+
   useEffect(() => {
     onConnChange?.(conn);
   }, [conn, onConnChange]);
 
+  // Per-server connection lifecycle: one xterm + one WebSocket to the persistent
+  // PTY. Re-runs (full teardown) only when the server changes.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -46,10 +71,6 @@ function TerminalPaneInner({
 
     const term = new Terminal({
       // NB: do NOT set convertEol — the PTY/tmux already emits explicit \r\n.
-      // convertEol rewrites bare \n into \r\n, which forces the cursor to
-      // column 0 when a full-screen TUI (Claude Code's input box) only meant
-      // to move down a row, smearing the box's left border (`│ `) into the
-      // indent of each new line.
       fontSize: 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
       theme: { background: '#0d1117', foreground: '#c9d1d9' },
@@ -58,22 +79,21 @@ function TerminalPaneInner({
     const fit = new FitAddon();
     term.loadAddon(fit);
 
-    // Lifecycle guards. `disposed` blocks every xterm op after teardown (the
-    // ResizeObserver/WS callbacks can fire on a torn-down term). `opened`
-    // gates fit()/write() until term.open() has actually attached xterm to a
-    // sized element — fitting/writing before that is what drives
-    // Viewport.syncScrollArea into reading undefined renderer dimensions.
+    // Lifecycle guards. `disposed` blocks every xterm op after teardown.
+    // `opened` gates fit()/write() until term.open() has attached xterm to a
+    // sized element (fitting/writing before that drives syncScrollArea into
+    // reading undefined renderer dimensions).
     let disposed = false;
     let opened = false;
+    // The tmux target currently shown by THIS connection — dedups redundant
+    // switches and is reset implicitly each time the effect re-runs per server.
+    let currentTarget: string | null = null;
 
     const hasSize = () => {
       const el = containerRef.current;
       return !!el && el.clientWidth > 0 && el.clientHeight > 0;
     };
 
-    // Only open once the container is mounted AND sized. xterm initializes its
-    // renderer/viewport at open() time; doing so against a 0x0 element leaves
-    // dimensions undefined and the first fit/scroll throws.
     const tryOpen = () => {
       if (disposed || opened || !hasSize()) return;
       const el = containerRef.current;
@@ -82,33 +102,45 @@ function TerminalPaneInner({
         term.open(el);
         opened = true;
       } catch (err) {
-        console.error('[TerminalPane] xterm open failed', sessionId, err);
+        console.error('[TerminalConsole] xterm open failed', serverId, err);
       }
     };
 
-    // Fit is safe only when attached (opened + term.element present) and sized.
     const safeFit = (): boolean => {
       if (disposed || !opened || !hasSize() || !term.element) return false;
       try {
         fit.fit();
         return true;
       } catch {
-        // Renderer not ready yet (dimensions undefined) — skip rather than throw.
         return false;
       }
     };
 
-    const ws = new WebSocket(getTerminalWebSocketURL(serverId, sessionId));
+    const ws = new WebSocket(getTerminalWebSocketURL(serverId, PERSISTENT_CONSOLE_PTY_ID));
     const send = (msg: unknown) => {
       if (!disposed && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
 
-    // The server defers its buffer replay until the FIRST resize, so that first
-    // resize must carry the real container-fitted size — not xterm's 80x24
-    // default. On (re)mount (e.g. switching terminal tabs) the container is
-    // often 0x0 for a frame; sending 80x24 then makes Claude Code's full-screen
-    // TUI replay at the wrong width and render jumbled. So we hold the initial
-    // resize until the container has been measured at a non-zero size.
+    // Re-point the live connection at a tmux target. Reset xterm cleanly BEFORE
+    // sending the switch so prior-session state doesn't bleed; the server's
+    // attach-redraw repaints the new target.
+    const repoint = (target: string | null) => {
+      if (disposed || !target || !wsOpen || target === currentTarget) return;
+      // Ensure xterm is attached so the reset/redraw lands somewhere.
+      if (!opened) tryOpen();
+      try {
+        term.reset();
+        term.write(TERMINAL_MODE_RESET);
+      } catch { /* reset is best-effort */ }
+      send(makeSwitchMessage(serverId, target));
+      currentTarget = target;
+    };
+    repointRef.current = repoint;
+
+    // The server defers buffer replay until the FIRST resize, so that first
+    // resize must carry the real container-fitted size (not xterm's 80x24
+    // default), else a full-screen TUI replays at the wrong width and renders
+    // jumbled. Hold the initial resize until the container has a non-zero size.
     let wsOpen = false;
     let sentInitial = false;
     const trySendInitial = () => {
@@ -126,20 +158,19 @@ function TerminalPaneInner({
       wsOpen = true;
       setConn('connected');
       trySendInitial();
+      // Point the freshly-opened connection at the currently-selected session.
+      repoint(tmuxBaseRef.current);
     };
     ws.onerror = (e) => {
       if (disposed) return;
-      console.error('[TerminalPane] WS error', sessionId, e);
-      // A failed connection should degrade, not throw: stop driving xterm and
-      // surface a disconnected state the user can retry from.
+      console.error('[TerminalConsole] WS error', serverId, e);
       wsOpen = false;
       setConn('disconnected');
     };
     ws.onclose = (e) => {
       if (disposed) return;
-      // Keep only the close-with-error log; clean close is too noisy.
       if (!e.wasClean) {
-        console.warn('[TerminalPane] WS unclean close', sessionId, { code: e.code, reason: e.reason });
+        console.warn('[TerminalConsole] WS unclean close', serverId, { code: e.code, reason: e.reason });
         wsOpen = false;
         setConn('disconnected');
       }
@@ -148,13 +179,12 @@ function TerminalPaneInner({
       if (disposed) return;
       try {
         const msg = JSON.parse(typeof e.data === 'string' ? e.data : '');
-        // Ensure xterm is attached before writing; writing into an unopened
-        // terminal can leave the viewport in the undefined-dimensions state.
         if (!opened) tryOpen();
         if (!opened) return;
         if (msg.type === 'output') term.write(msg.data);
         else if (msg.type === 'exit') term.write(`\r\n\x1b[90m[process exited: ${msg.code}]\x1b[0m\r\n`);
         else if (msg.type === 'error') term.write(`\r\n\x1b[31m[error: ${msg.message}]\x1b[0m\r\n`);
+        // 'switched' acks need no client action — tmux's attach-redraw paints it.
       } catch { /* ignore non-JSON frames */ }
     };
 
@@ -162,9 +192,6 @@ function TerminalPaneInner({
 
     const doFit = () => {
       if (disposed) return;
-      // Skip while hidden/zero-sized (e.g. a tab being torn down) — fitting at
-      // 0x0 clamps the terminal to a tiny size and would resize the backing
-      // tmux pane, corrupting the TUI.
       if (!hasSize()) return;
       tryOpen();
       if (!sentInitial) { trySendInitial(); return; }
@@ -178,22 +205,30 @@ function TerminalPaneInner({
 
     return () => {
       disposed = true;
+      repointRef.current = null;
       observer.disconnect();
       onData.dispose();
       try { ws.close(); } catch { /* ignore */ }
       try { term.dispose(); } catch { /* guard double/partial dispose */ }
     };
-  }, [sessionId, serverId]);
+  }, [serverId]);
+
+  // Re-point the live connection when the selected session changes (same server).
+  // On a server change the connection effect above re-runs and repoints in its
+  // onopen, so this is the same-server fast path.
+  useEffect(() => {
+    repointRef.current?.(tmuxBase);
+  }, [tmuxBase]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      {conn === 'disconnected' && <DisconnectedOverlay sessionId={sessionId} />}
+      {conn === 'disconnected' && <DisconnectedOverlay />}
     </div>
   );
 }
 
-function DisconnectedOverlay({ sessionId }: { sessionId: string }) {
+function DisconnectedOverlay() {
   return (
     <div
       data-testid="terminal-disconnected"
@@ -218,10 +253,10 @@ function DisconnectedOverlay({ sessionId }: { sessionId: string }) {
 }
 
 /**
- * Error boundary local to a single terminal pane. If xterm throws despite the
- * guards above (renderer edge cases on teardown), it degrades to a failed
- * state instead of crashing the surrounding UI. The user can retry, which
- * remounts the inner pane with a fresh xterm/WS via the changed key.
+ * Error boundary local to the console. If xterm throws despite the guards
+ * (renderer edge cases on teardown), degrade to a failed state instead of
+ * crashing the surrounding UI. Retry bumps the key to remount with a fresh
+ * xterm/WS.
  */
 class TerminalErrorBoundary extends Component<
   { children: ReactNode; onRetry: () => void },
@@ -237,7 +272,7 @@ class TerminalErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error) {
-    console.error('[TerminalPane] render error', error);
+    console.error('[TerminalConsole] render error', error);
   }
 
   render() {
@@ -284,12 +319,17 @@ class TerminalErrorBoundary extends Component<
   }
 }
 
-export function TerminalPane({ sessionId, serverId }: { sessionId: string; serverId: string }) {
-  // Bumping the key remounts the inner pane (fresh xterm + WS) on retry.
+/**
+ * The single persistent console. `serverId` selects which server's PTY the WS
+ * connects to; `tmuxBase` is the tmux session name of the currently-selected
+ * collab session (null when nothing is selected yet).
+ */
+export function TerminalConsole({ serverId, tmuxBase }: { serverId: string; tmuxBase: string | null }) {
+  // Bumping the key remounts the inner console (fresh xterm + WS) on retry.
   const [attempt, setAttempt] = useState(0);
   return (
     <TerminalErrorBoundary key={attempt} onRetry={() => setAttempt((n) => n + 1)}>
-      <TerminalPaneInner key={attempt} sessionId={sessionId} serverId={serverId} />
+      <TerminalConsoleInner key={attempt} serverId={serverId} tmuxBase={tmuxBase} />
     </TerminalErrorBoundary>
   );
 }

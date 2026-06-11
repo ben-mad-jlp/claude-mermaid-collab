@@ -4,12 +4,15 @@ import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
-import { TerminalPane } from './TerminalPane';
+import { TerminalConsole } from './TerminalPane';
 import { ServerIcon } from '@/components/ServerIcon';
 
 /**
- * Right-side resizable column hosting tabbed in-app terminals. Each tab connects
- * to a distinct PTY session (UUID). The tab strip sits above the active pane.
+ * Right-side resizable column hosting the in-app terminal. A SINGLE persistent
+ * console (one WS per server) is re-pointed to the active (serverId, session)
+ * tmux target on switch — replacing the old tab strip that mounted one xterm +
+ * PTY per opened session. The session switcher that drives which target is shown
+ * lands in a later leaf; this drawer keeps the server picker + controls.
  */
 export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}) {
   const open = useTerminalStore((s) => s.open);
@@ -17,15 +20,17 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   const activeTabId = useTerminalStore((s) => s.activeTabId);
   const width = useTerminalStore((s) => s.width);
   const setWidth = useTerminalStore((s) => s.setWidth);
-  const setActive = useTerminalStore((s) => s.setActive);
-  const closeTab = useTerminalStore((s) => s.closeTab);
-  const moveTab = useTerminalStore((s) => s.moveTab);
-  const [dragTabId, setDragTabId] = useState<string | null>(null);
-  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const openFor = useTerminalStore((s) => s.openFor);
   const close = useTerminalStore((s) => s.close);
   const currentSession = useSessionStore((s) => s.currentSession);
   const { servers } = useServers();
+
+  // The single console's target: the active registered session (its tmux base +
+  // server). The console re-points to this; selecting another session updates it.
+  const activeTab = useMemo(
+    () => tabs.find((t) => t.id === activeTabId) ?? null,
+    [tabs, activeTabId],
+  );
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [focusedIdx, setFocusedIdx] = useState(0);
@@ -91,7 +96,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   // server immediately after the user opened one on a different server.
 
   const resetActiveTerminal = () => {
-    const tab = tabs.find((t) => t.id === activeTabId);
+    const tab = activeTab;
     if (!tab) return;
     const reqPath = `/api/terminal/sessions/${encodeURIComponent(tab.id)}/reset?project=${encodeURIComponent(tab.project)}&session=${encodeURIComponent(tab.session)}`;
     const onOk = () => {
@@ -113,7 +118,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   };
 
   const openExternalTerminal = async () => {
-    const tab = tabs.find((t) => t.id === activeTabId);
+    const tab = activeTab;
     if (!tab) return;
     const mc = (window as any).mc;
     if (!mc?.openExternalTerminal) {
@@ -147,58 +152,33 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
           background: '#161b22', minHeight: 32, overflowX: 'auto',
         }}
       >
-        {tabs.map((tab) => {
-          // Resolve the 'local' SENTINEL to the real local server, same as the
-          // supervised cards (c880934). Worker tabs carry serverId='local', which
-          // never matches the real-UUID-keyed servers list → srv was undefined →
-          // generic/alien icon. localServerOf aliases it to the actual local server.
-          const srv =
-            servers.find((s) => s.id === tab.serverId) ??
-            ((!tab.serverId || tab.serverId === 'local')
-              ? (servers.find((s) => s.source === 'local') ??
-                 servers.find((s) => s.host === '127.0.0.1' || s.host === 'localhost'))
-              : undefined);
-          const label = tab.serverLabel || srv?.label || '(unknown)';
-          const icon = srv?.icon;
-          return (
+        {/* Active session label — the single console shows one target at a time.
+            The session switcher that re-points it lands in a later leaf. */}
+        {activeTab && (
           <div
-            key={tab.id}
-            draggable
-            onDragStart={(e) => { setDragTabId(tab.id); e.dataTransfer.effectAllowed = 'move'; }}
-            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTabId !== tab.id) setDragOverTabId(tab.id); }}
-            onDrop={(e) => { e.preventDefault(); if (dragTabId) moveTab(dragTabId, tab.id); setDragTabId(null); setDragOverTabId(null); }}
-            onDragEnd={() => { setDragTabId(null); setDragOverTabId(null); }}
-            onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
-            onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTab(tab.id); } }}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
-              padding: '4px 8px', cursor: 'pointer', fontSize: 12,
-              borderBottom: tab.id === activeTabId ? '2px solid #58a6ff' : '2px solid transparent',
-              borderLeft: dragOverTabId === tab.id && dragTabId !== tab.id ? '2px solid #58a6ff' : '2px solid transparent',
-              opacity: dragTabId === tab.id ? 0.5 : 1,
-              color: tab.id === activeTabId ? '#c9d1d9' : '#6e7681',
-              whiteSpace: 'nowrap',
+              padding: '4px 8px', fontSize: 12, color: '#c9d1d9', whiteSpace: 'nowrap',
             }}
-            onClick={() => setActive(tab.id)}
           >
-            <span>{tab.title}</span>
-            {!tab.hideServerIcon && <ServerIcon name={icon} size={14} title={`server: ${label}`} />}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-              title="Close tab"
-              style={{
-                cursor: 'pointer', color: '#6e7681', background: 'none',
-                border: 'none', padding: '0 2px', fontSize: 11, lineHeight: 1,
-              }}
-            >
-              ×
-            </button>
+            <span>{activeTab.title}</span>
+            {!activeTab.hideServerIcon && (() => {
+              // Resolve the 'local' SENTINEL to the real local server, same as the
+              // supervised cards (c880934): worker tabs carry serverId='local',
+              // which never matches the real-UUID-keyed servers list.
+              const srv =
+                servers.find((s) => s.id === activeTab.serverId) ??
+                ((!activeTab.serverId || activeTab.serverId === 'local')
+                  ? (servers.find((s) => s.source === 'local') ??
+                     servers.find((s) => s.host === '127.0.0.1' || s.host === 'localhost'))
+                  : undefined);
+              const label = activeTab.serverLabel || srv?.label || '(unknown)';
+              return <ServerIcon name={srv?.icon} size={14} title={`server: ${label}`} />;
+            })()}
           </div>
-          );
-        })}
+        )}
 
-        {/* New tab dropdown */}
+        {/* Server picker — re-points the console's connection to another server */}
         <div style={{ position: 'relative' }}>
           <button
             ref={triggerRef}
@@ -299,33 +279,22 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         </button>
       </div>
 
-      {/* Panes — keep ALL tabs mounted and stacked; only toggle visibility.
-          Unmounting on tab switch tore down the xterm + WebSocket and forced the
-          server to replay a full-screen TUI's raw buffer at the wrong size
-          (jumbled / stale dimensions). With keep-alive, switching is instant,
-          the terminal keeps its rendered screen, and inactive panes retain their
-          layout size (visibility:hidden ≠ display:none) so they stay correctly
-          sized and resize in sync with the pane. */}
+      {/* Single persistent console — re-pointed to the active session's tmux
+          target on switch (no per-session xterm/WS teardown). One WS per server;
+          changing servers reconnects through that server's per-server proxy. */}
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {tabs.length === 0 && (
+        {!activeTab ? (
           <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
             No terminal open — click + to start one
           </div>
-        )}
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              padding: 6,
-              visibility: tab.id === activeTabId ? 'visible' : 'hidden',
-              zIndex: tab.id === activeTabId ? 1 : 0,
-            }}
-          >
-            <TerminalPane sessionId={tab.id} serverId={tab.serverId} />
+        ) : (
+          <div style={{ position: 'absolute', inset: 0, padding: 6 }}>
+            <TerminalConsole
+              serverId={activeTab.serverId}
+              tmuxBase={activeTab.tmuxName}
+            />
           </div>
-        ))}
+        )}
       </div>
       </div>
   );
