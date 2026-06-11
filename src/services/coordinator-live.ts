@@ -184,6 +184,12 @@ const RATE_LIMIT_NUDGE_MS = (Number(process.env.MERMAID_RATE_LIMIT_NUDGE_SEC) ||
  *  throttled — a human may want to pause the fleet). */
 const RATE_LIMIT_MAX_NUDGES = Number(process.env.MERMAID_RATE_LIMIT_MAX_NUDGES) || 5;
 
+/** Resolved dead-worker grace (ms) the daemon actually uses. Read-only snapshot
+ *  for observability (e.g. the runtime_config MCP tool). */
+export function getDeadGraceMs(): number {
+  return DEAD_GRACE_MS;
+}
+
 // --- 944408c2 safety valve: respawn backoff + cold-start concurrency cap --------
 // A crash-looping worker (dies → reclaim → respawn → dies) plus a thundering herd
 // of simultaneous cold-starts together starved the sidecar — the storm behind the
@@ -206,6 +212,12 @@ let coldStartsInFlight = 0;
  *  Read-only snapshot for observability (e.g. the orchestrator_status MCP tool). */
 export function getColdStartsInFlight(): number {
   return coldStartsInFlight;
+}
+
+/** Resolved cold-start concurrency cap the daemon actually uses. Read-only
+ *  snapshot for observability (e.g. the runtime_config MCP tool). */
+export function getMaxColdStarts(): number {
+  return MAX_COLD_STARTS;
 }
 
 // --- DOGFOOD #6: idle-at-prompt stall detection ---------------------------------
