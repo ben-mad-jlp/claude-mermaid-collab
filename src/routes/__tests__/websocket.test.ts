@@ -19,6 +19,7 @@ vi.mock('../../terminal/index', () => ({
     write: vi.fn(),
     resize: vi.fn(),
     detach: vi.fn(),
+    switchTarget: vi.fn(),
   },
 }));
 
@@ -147,6 +148,47 @@ describe('Terminal WebSocket Handler', () => {
       handleTerminalMessage(mockWs, message);
 
       expect(ptyManager.write).toHaveBeenCalledWith('test-session', 'echo test');
+    });
+
+    it('should handle switch message by re-pointing the persistent PTY', () => {
+      const message = JSON.stringify({ type: 'switch', serverId: 'srv-2', sessionId: 'mc-repo-lane' });
+
+      handleTerminalMessage(mockWs, message);
+
+      // PTY id (ws.data.sessionId) is stable; the requested sessionId is the
+      // tmux base the PTY is re-pointed at.
+      expect(ptyManager.switchTarget).toHaveBeenCalledWith('test-session', { base: 'mc-repo-lane' });
+    });
+
+    it('should validate switch message has string serverId and sessionId', () => {
+      const message = JSON.stringify({ type: 'switch', serverId: 5, sessionId: 'x' });
+
+      handleTerminalMessage(mockWs, message);
+
+      expect(mockWs.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'error',
+          message: 'Invalid switch message: serverId and sessionId must be strings',
+        })
+      );
+      expect(ptyManager.switchTarget).not.toHaveBeenCalled();
+    });
+
+    it('should surface switchTarget() errors to the client', () => {
+      (ptyManager.switchTarget as any).mockImplementation(() => {
+        throw new Error('Session not found: test-session');
+      });
+
+      const message = JSON.stringify({ type: 'switch', serverId: 'srv-1', sessionId: 'target' });
+
+      handleTerminalMessage(mockWs, message);
+
+      expect(mockWs.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'error',
+          message: 'Session not found: test-session',
+        })
+      );
     });
 
     it('should reject invalid JSON', () => {
