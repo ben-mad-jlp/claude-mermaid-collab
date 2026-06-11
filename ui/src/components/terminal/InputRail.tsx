@@ -339,10 +339,12 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
       style={{
         display: 'flex', alignItems: 'center', gap: 4,
         flex: '0 0 auto', minHeight: 26,
-        padding: '0 6px',
+        padding: '3px 6px',
         borderTop: '1px solid #30363d',
         background: '#161b22',
-        overflowX: 'auto', flexWrap: 'nowrap',
+        // Wrap chips onto additional rows when the rail is too narrow to fit them
+        // on one line (the rail grows taller instead of scrolling sideways).
+        flexWrap: 'wrap',
         opacity: disabled ? 0.5 : 1,
         pointerEvents: disabled ? 'none' : 'auto',
       }}
@@ -353,9 +355,9 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
       {visibleDefaults.map((chip, i) => renderChip(chip, true, i))}
       {custom.map((chip, i) => renderChip(chip, false, visibleDefaults.length + i))}
 
-      {/* Trailing +/editor — grows in place into an inline input. Sticky-right so
-          it never scrolls out of reach as chips multiply. */}
-      <div style={{ position: 'sticky', right: 0, flex: '0 0 auto', marginLeft: 'auto', background: '#161b22' }}>
+      {/* Trailing +/editor — grows in place into an inline input. marginLeft:auto
+          keeps it at the right end of the last row as chips wrap. */}
+      <div style={{ flex: '0 0 auto', marginLeft: 'auto', background: '#161b22' }}>
         {editing && editing.id === null ? (
           renderEditor('add-editor', null)
         ) : (
