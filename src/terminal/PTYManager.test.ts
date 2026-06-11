@@ -624,6 +624,132 @@ describe('PTYManager', () => {
     });
   });
 
+  describe('persistent re-pointable PTY + switchTarget', () => {
+    it('should create a persistent PTY with no tmux target attached', async () => {
+      const sessionId = 'persist-create';
+      const info = await manager.create(sessionId, { persistent: true });
+
+      expect(info.persistent).toBe(true);
+      expect(info.currentTmuxTarget).toBeNull();
+    });
+
+    it('should default to non-persistent with null target for a plain session', async () => {
+      const sessionId = 'persist-default';
+      const info = await manager.create(sessionId);
+
+      expect(info.persistent).toBe(false);
+      expect(info.currentTmuxTarget).toBeNull();
+    });
+
+    it('should re-point the PTY to a tmux target without tearing down the connection', async () => {
+      const sessionId = 'persist-switch';
+      await manager.create(sessionId, { persistent: true });
+
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      manager.attach(sessionId, ws);
+      expect(manager.get(sessionId)!.connectedClients).toBe(1);
+
+      manager.switchTarget(sessionId, { base: 'mc-repo-lane' });
+
+      // Connection survives the switch — same session, same client.
+      expect(manager.has(sessionId)).toBe(true);
+      expect(manager.get(sessionId)!.connectedClients).toBe(1);
+      // Target is now recorded.
+      expect(manager.get(sessionId)!.currentTmuxTarget).toEqual({ base: 'mc-repo-lane', grouped: undefined });
+      // Client received a 'switched' ack.
+      const ack = ws.messages.map(m => JSON.parse(m)).find(m => m.type === 'switched');
+      expect(ack).toEqual({ type: 'switched', target: { base: 'mc-repo-lane', grouped: undefined } });
+    });
+
+    it('should re-point again from one target to another (the switch path)', async () => {
+      const sessionId = 'persist-reswitch';
+      await manager.create(sessionId, { persistent: true });
+
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      manager.attach(sessionId, ws);
+
+      manager.switchTarget(sessionId, { base: 'target-a' });
+      expect(manager.get(sessionId)!.currentTmuxTarget).toEqual({ base: 'target-a', grouped: undefined });
+
+      manager.switchTarget(sessionId, { base: 'target-b', grouped: 'grouped-b' });
+      expect(manager.get(sessionId)!.currentTmuxTarget).toEqual({ base: 'target-b', grouped: 'grouped-b' });
+
+      // Two switches → two acks, last one for target-b.
+      const acks = ws.messages.map(m => JSON.parse(m)).filter(m => m.type === 'switched');
+      expect(acks).toHaveLength(2);
+      expect(acks[1].target).toEqual({ base: 'target-b', grouped: 'grouped-b' });
+    });
+
+    it('switch path forces a tmux redraw and SKIPS RingBuffer replay (clean attach-redraw, no desync)', async () => {
+      // Capture what gets written to the PTY so we can assert the forced redraw.
+      const writes: string[] = [];
+      vi.stubGlobal('Bun', {
+        spawn: vi.fn(() => ({
+          stdout: (async function* () { await new Promise(() => {}); })(),
+          stderr: (async function* () {})(),
+          stdin: { write: vi.fn(), end: vi.fn() },
+          kill: vi.fn(),
+          terminal: {
+            write: (d: string) => { writes.push(d); },
+            resize: vi.fn(),
+            close: vi.fn(),
+          },
+          exited: new Promise(() => {}),
+        })),
+      });
+
+      const m = new PTYManager();
+      const sessionId = 'persist-clean-redraw';
+      await m.create(sessionId, { persistent: true });
+
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      m.attach(sessionId, ws);
+
+      // Seed the replay buffer with stale bytes captured under a PRIOR target.
+      (m as any).sessions.get(sessionId).buffer.write('STALE-FROM-OLD-TARGET\n');
+
+      m.switchTarget(sessionId, { base: 'mc-repo-lane' });
+
+      // Forced full redraw: the attach written to the PTY chains tmux refresh-client.
+      const attachWrite = writes.find(w => w.includes('attach-session'));
+      expect(attachWrite).toBeDefined();
+      expect(attachWrite).toContain('\\; refresh-client -S');
+
+      // Stale replay buffer is cleared — a later reconnect can't replay
+      // cross-target bytes over the freshly tmux-redrawn screen.
+      expect((m as any).sessions.get(sessionId).buffer.getContents()).toBe('');
+
+      // The client was NOT sent a server-side buffer replay on the switch —
+      // only the 'switched' ack. tmux owns the repaint.
+      const parsed = ws.messages.map(s => JSON.parse(s));
+      expect(parsed.filter(p => p.type === 'output')).toHaveLength(0);
+      expect(parsed.find(p => p.type === 'switched')).toBeDefined();
+
+      m.killAll();
+    });
+
+    it('should throw when switching a non-existent session', () => {
+      expect(() => {
+        manager.switchTarget('nonexistent', { base: 'whatever' });
+      }).toThrow('Session not found');
+    });
+
+    it('should NOT reap a persistent PTY on last detach', async () => {
+      const sessionId = 'persist-no-reap';
+      await manager.create(sessionId, { persistent: true });
+
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      manager.attach(sessionId, ws);
+      manager.switchTarget(sessionId, { base: 'some-target' });
+
+      manager.detach(sessionId, ws);
+
+      // Host shell outlives the last client — the PTY survives for a re-point.
+      expect(manager.has(sessionId)).toBe(true);
+      expect(manager.get(sessionId)!.connectedClients).toBe(0);
+    });
+  });
+
   describe('singleton instance', () => {
     it('should export a singleton ptyManager instance', () => {
       expect(ptyManager).toBeInstanceOf(PTYManager);

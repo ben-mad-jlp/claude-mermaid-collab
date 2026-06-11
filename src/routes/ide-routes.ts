@@ -114,7 +114,7 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
 
   if (url.pathname === '/api/ide/tmux-send-keys' && req.method === 'POST') {
     try {
-      const { project, session, text } = await req.json() as { project?: string; session?: string; text?: string };
+      const { project, session, text, submit } = await req.json() as { project?: string; session?: string; text?: string; submit?: boolean };
       if (!project || typeof project !== 'string') {
         return jsonError('project is required', 400);
       }
@@ -124,13 +124,19 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       if (!text || typeof text !== 'string') {
         return jsonError('text is required', 400);
       }
-      const result = await sendTmuxKeys(project, session, text);
+      // Default true → existing callers (supervisor nudge) byte-identical; a
+      // compose-stage quick-reply chip passes submit:false to type without Enter.
+      const doSubmit = submit !== false;
+      const result = await sendTmuxKeys(project, session, text, { submit: doSubmit });
       if (result.reason === 'no-session') return jsonError('tmux session not found', 404);
       // This route is the nudge-delivery endpoint (the supervisor's remote
       // nudge peerFetches it). Broadcast so a user watching THIS server sees a
       // toast for nudges that land here, mirroring the local-nudge broadcast in
-      // the supervisor_nudge MCP handler.
-      wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text, sent: result.sent });
+      // the supervisor_nudge MCP handler. A compose-stage (submit:false) is not
+      // a nudge — it stages text for the user to edit — so don't broadcast it.
+      if (doSubmit) {
+        wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text, sent: result.sent });
+      }
       return Response.json({ success: true, tmux: result.sent });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);

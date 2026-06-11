@@ -5,25 +5,33 @@
  * Client → Server:
  *   { type: "input", data: string }      // Keyboard input
  *   { type: "resize", cols: number, rows: number }
+ *   { type: "switch", serverId: string, sessionId: string }
+ *                                        // Re-point the persistent PTY at a new
+ *                                        // (serverId, sessionId) tmux target —
+ *                                        // the connection is NOT torn down.
  *
  * Server → Client:
  *   { type: "output", data: string }     // Terminal output
  *   { type: "exit", code: number }       // PTY process exited
+ *   { type: "switched", target: {...} }  // Ack: PTY re-pointed to target
  *   { type: "error", message: string }   // Error message
  */
 
 import type { ServerWebSocket } from 'bun';
 import { ptyManager } from '../terminal/index';
+import type { TmuxTarget } from '../terminal/index';
 
 /** Client to Server messages */
 type ClientMessage =
   | { type: 'input'; data: string }
-  | { type: 'resize'; cols: number; rows: number; isInitial?: boolean };
+  | { type: 'resize'; cols: number; rows: number; isInitial?: boolean }
+  | { type: 'switch'; serverId: string; sessionId: string };
 
 /** Server to Client messages */
 type ServerMessage =
   | { type: 'output'; data: string }
   | { type: 'exit'; code: number }
+  | { type: 'switched'; target: TmuxTarget }
   | { type: 'error'; message: string };
 
 /**
@@ -116,6 +124,18 @@ export function handleTerminalMessage(ws: ServerWebSocket<TerminalWebSocketData>
         return;
       }
       ptyManager.resize(sessionId, parsed.cols, parsed.rows);
+    } else if (parsed.type === 'switch') {
+      if (typeof parsed.serverId !== 'string' || typeof parsed.sessionId !== 'string') {
+        sendError(ws, 'Invalid switch message: serverId and sessionId must be strings');
+        return;
+      }
+      // Re-point THIS connection's persistent PTY to the requested tmux target.
+      // The PTY id (ws.data.sessionId) is stable — only the attached tmux target
+      // changes, so the WebSocket is never torn down. serverId selects the
+      // upstream server at the proxy layer (validated by the spike); on this
+      // backend the switch re-points the local PTY to tmux base = the requested
+      // sessionId.
+      ptyManager.switchTarget(sessionId, { base: parsed.sessionId });
     } else {
       console.warn(`Unknown message type: ${(parsed as any).type}`);
       sendError(ws, `Unknown message type: ${(parsed as any).type}`);
