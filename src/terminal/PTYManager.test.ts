@@ -680,6 +680,54 @@ describe('PTYManager', () => {
       expect(acks[1].target).toEqual({ base: 'target-b', grouped: 'grouped-b' });
     });
 
+    it('switch path forces a tmux redraw and SKIPS RingBuffer replay (clean attach-redraw, no desync)', async () => {
+      // Capture what gets written to the PTY so we can assert the forced redraw.
+      const writes: string[] = [];
+      vi.stubGlobal('Bun', {
+        spawn: vi.fn(() => ({
+          stdout: (async function* () { await new Promise(() => {}); })(),
+          stderr: (async function* () {})(),
+          stdin: { write: vi.fn(), end: vi.fn() },
+          kill: vi.fn(),
+          terminal: {
+            write: (d: string) => { writes.push(d); },
+            resize: vi.fn(),
+            close: vi.fn(),
+          },
+          exited: new Promise(() => {}),
+        })),
+      });
+
+      const m = new PTYManager();
+      const sessionId = 'persist-clean-redraw';
+      await m.create(sessionId, { persistent: true });
+
+      const ws = new MockWebSocket() as unknown as (ServerWebSocket<any> & { messages: string[]; closed: boolean });
+      m.attach(sessionId, ws);
+
+      // Seed the replay buffer with stale bytes captured under a PRIOR target.
+      (m as any).sessions.get(sessionId).buffer.write('STALE-FROM-OLD-TARGET\n');
+
+      m.switchTarget(sessionId, { base: 'mc-repo-lane' });
+
+      // Forced full redraw: the attach written to the PTY chains tmux refresh-client.
+      const attachWrite = writes.find(w => w.includes('attach-session'));
+      expect(attachWrite).toBeDefined();
+      expect(attachWrite).toContain('\\; refresh-client -S');
+
+      // Stale replay buffer is cleared — a later reconnect can't replay
+      // cross-target bytes over the freshly tmux-redrawn screen.
+      expect((m as any).sessions.get(sessionId).buffer.getContents()).toBe('');
+
+      // The client was NOT sent a server-side buffer replay on the switch —
+      // only the 'switched' ack. tmux owns the repaint.
+      const parsed = ws.messages.map(s => JSON.parse(s));
+      expect(parsed.filter(p => p.type === 'output')).toHaveLength(0);
+      expect(parsed.find(p => p.type === 'switched')).toBeDefined();
+
+      m.killAll();
+    });
+
     it('should throw when switching a non-existent session', () => {
       expect(() => {
         manager.switchTarget('nonexistent', { base: 'whatever' });

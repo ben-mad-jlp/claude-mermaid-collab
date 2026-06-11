@@ -396,9 +396,18 @@ export class PTYManager {
    *
    * Mechanics: if a target is already attached, send the tmux detach sequence
    * to drop the live attach back to the host shell prompt, then write a fresh
-   * `tmux attach-session` for the new target into that same shell. Finally,
-   * broadcast a `switched` ack so each client can react (e.g. clear its local
-   * view — the clean-redraw refinement lands in a later leaf).
+   * `tmux attach-session` for the new target into that same shell.
+   *
+   * Clean redraw (the correctness-critical piece this leaf adds): the attach is
+   * chained with `tmux refresh-client -S` so tmux's NATIVE client-attach redraw
+   * repaints the pane's true alt-screen / mouse / scroll state, and the
+   * server-side RingBuffer is CLEARED — we deliberately SKIP the byte-replay that
+   * desynced a running TUI (the /tui wedge): replaying captured raw bytes (stale
+   * alt-screen enter/exit, cursor moves from the prior target) painted on top of
+   * tmux's redraw and corrupted the screen (arrow-key/desync). tmux owns the
+   * repaint now; the buffer only serves a future bare-shell reconnect.
+   *
+   * Finally, broadcast a `switched` ack so each client can react.
    *
    * @throws if the session does not exist.
    */
@@ -417,10 +426,20 @@ export class PTYManager {
       if (session.currentTmuxTarget) {
         session.terminal.write(TMUX_DETACH_SEQUENCE);
       }
-      session.terminal.write(`${attachCmd}\n`);
+      // Chain a forced full redraw onto the attach. `tmux attach-session ... \;
+      // refresh-client -S` runs both as one tmux client invocation: the attach
+      // establishes the client (which natively redraws), then refresh-client -S
+      // re-syncs its size and forces the pane to repaint cleanly. This replaces
+      // the server-side RingBuffer replay that desynced the TUI.
+      session.terminal.write(`${attachCmd} \\; refresh-client -S\n`);
     } catch (error) {
       console.warn(`Failed to switch target for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
+
+    // Drop output captured under the PREVIOUS target so a later reconnect's
+    // attach() replay can't paint stale cross-target bytes over the freshly
+    // tmux-redrawn screen. We rely on tmux's attach redraw, not byte-replay.
+    session.buffer.clear();
 
     session.currentTmuxTarget = { base, grouped };
     session.lastActivity = new Date();
