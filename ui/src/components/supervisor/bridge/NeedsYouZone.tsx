@@ -18,7 +18,7 @@
 
 import React from 'react';
 import type { Escalation } from '@/stores/supervisorStore';
-import { selectOpenEscalations } from './escalationSelectors';
+import { selectOpenEscalations } from '@/lib/statusSelectors';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 
 export interface NeedsYouZoneProps {
@@ -38,7 +38,7 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
   onJump,
   embedded,
 }) => {
-  const open = selectOpenEscalations(escalations, project);
+  const open = selectOpenEscalations(escalations, { kind: 'project', project });
 
   const body =
     open.length === 0 ? (

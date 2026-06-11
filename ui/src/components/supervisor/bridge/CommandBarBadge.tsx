@@ -4,10 +4,10 @@
  * A single pill welded into the top mode chrome, visible in ALL modes
  * (studio/bridge/plan): a red `! N need you` with the FLEET-WIDE open-escalation
  * total, a calm green tick when the whole fleet is clear. It counts via the ONE
- * roll-up path (`selectFleetOpenCount` ≡ `sum(selectOpenEscalationsByProject)`),
- * the same path that feeds the Project Rail badges — so the badge can never
- * disagree with the rail, and each project's count (`selectOpenEscalations`) is
- * equal to its rail badge by construction (FleetGraph danger-ring parity holds).
+ * shared selector (`selectOpenEscalationCount(open, {fleet})` from statusSelectors),
+ * the same selector the Project Rail badges/zones use at a narrower scope — so the
+ * badge can never disagree with the rail; a fleet badge differs from a project
+ * badge only by its explicit scope, never by an accidental drift.
  *
  * Click → focus the fleet's highest-priority open escalation: switch to its
  * project + the Bridge, open its focal card and frame its graph node.
@@ -17,20 +17,23 @@ import React from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useDeckStore } from '@/stores/deckStore';
-import { selectFleetOpenCount, highestPriorityEscalation, nodeIdForEscalation } from './escalationSelectors';
+import { highestPriorityEscalation, nodeIdForEscalation } from './escalationSelectors';
+import { selectOpenEscalations, selectOpenEscalationCount } from '@/lib/statusSelectors';
 
 export const CommandBarBadge: React.FC = () => {
-  const escalations = useSupervisorStore((s) => s.escalations);
+  // Coherence: read the open slice through the shared scoped selector (fleet),
+  // the SAME selector the Project Rail/zones use — so the badge can never drift.
+  const openEscalations = useSupervisorStore((s) => s.openEscalations);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const setActiveProject = useUIStore((s) => s.setActiveProject);
   const setMode = useUIStore((s) => s.setMode);
   const setFocalEscalationId = useDeckStore((s) => s.setFocalEscalationId);
   const setFocusNodeId = useDeckStore((s) => s.setFocusNodeId);
 
-  const count = selectFleetOpenCount(escalations);
+  const count = selectOpenEscalationCount(openEscalations, { kind: 'fleet' });
 
   const onClick = () => {
-    const allOpen = escalations.filter((e) => e.status === 'open');
+    const allOpen = selectOpenEscalations(openEscalations, { kind: 'fleet' });
     const esc = highestPriorityEscalation(allOpen);
     if (!esc) return;
     const nodeId = nodeIdForEscalation(esc, todosByProject[esc.project] ?? []);
