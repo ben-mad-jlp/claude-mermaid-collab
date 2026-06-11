@@ -4,19 +4,6 @@
       "type": "http",
       "url": "http://localhost:9002/mcp",
       "instructions": "Use these tools for collaborative design workflows: creating and managing Mermaid diagrams, wireframes, markdown documents, and UI rendering. All diagram/document operations require project path and session name parameters."
-    },
-    "bsync-desktop": {
-      "type": "stdio",
-      "command": "node",
-      "args": [
-        "/Users/benmaderazo/Code/build123d-ocp-mcp/bsync-viewer/desktop/mcp-server.js"
-      ],
-      "instructions": "Control + screenshot the bsync-viewer Electron app (build123d CAD viewer). Tools: desktop_screenshot (capture the renderer), desktop_click, desktop_eval, desktop_list_targets. Connects to the live app via ~/.bsync-desktop/electron-cdp.json."
-    },
-    "build123d-ocp-mcp": {
-      "type": "http",
-      "url": "http://127.0.0.1:8123/mcp/",
-      "instructions": "build123d / OpenCascade CAD verbs (run_script, create_primitive, extrude/cut/hole, add_part_step, add_connection/accept/bake, add_motor/sweep_motor/add_transmission, analyze_dof, check_clearance, validate_geometry, mass_properties, export STEP, etc.). Used to author + assemble CAD geometry and to run the CAD-arm de-risk spikes."
     }
   }
 }
