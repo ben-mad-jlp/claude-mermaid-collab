@@ -53,6 +53,7 @@ import { mergeSettings, readSettings, writeSettings, patchSettings } from '../ag
 import { tmuxBaseName } from '../services/tmux-naming.js';
 import { SERVER_VERSION } from '../mcp/server';
 import { currentExePath, serverOwner } from '../services/port-ownership';
+import { config } from '../config';
 
 /**
  * Expand ~ to home directory in paths
@@ -128,18 +129,31 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
   const apiRunning = true;
   const port = parseInt(process.env.PORT || '9002', 10);
 
-  // Probe the Vite dev server on its fixed port. Short timeout so health
-  // stays fast even when the UI is down.
+  // The UI is "available" if EITHER the Vite dev server is up (dev mode) OR this
+  // API server is itself serving the built UI from ui/dist (desktop/production).
+  // Historically we only probed the dev server on 9102, which is dev-only — so a
+  // desktop deploy (UI served from this server on 9002) always reported the UI
+  // down and triggered a false "collab UI is not active" warning.
   const UI_PORT = 9102;
-  let uiRunning = false;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 500);
-    const res = await fetch(`http://localhost:${UI_PORT}/`, { signal: controller.signal });
-    clearTimeout(timer);
-    uiRunning = res.ok;
-  } catch {
-    uiRunning = false;
+  // Served-from-dist case: index.html present under UI_DIST_DIR.
+  const builtUiServed = existsSync(join(config.UI_DIST_DIR, 'index.html'));
+  let uiPort = UI_PORT;
+  let uiRunning = builtUiServed;
+  if (builtUiServed) {
+    // UI is served by this API server; report its port.
+    uiPort = port;
+  } else {
+    // Probe the Vite dev server on its fixed port. Short timeout so health
+    // stays fast even when the UI is down.
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 500);
+      const res = await fetch(`http://localhost:${UI_PORT}/`, { signal: controller.signal });
+      clearTimeout(timer);
+      uiRunning = res.ok;
+    } catch {
+      uiRunning = false;
+    }
   }
 
   // Get WebSocket connection count
@@ -160,7 +174,7 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
     owner: serverOwner(),
     services: {
       api: { running: apiRunning, port },
-      ui: { running: uiRunning, port: UI_PORT },
+      ui: { running: uiRunning, port: uiPort },
       websocket: { connections },
     },
     pid: process.pid,

@@ -89,7 +89,7 @@ export function useDataLoader(): UseDataLoaderReturn {
    */
   const loadCollabState = useCallback(
     async (serverId: string, project: string, session: string): Promise<import('@/types').CollabState | null> => {
-      if (!serverId || !session) return null;
+      if (!session) return null;
       try {
         const state = await api.getSessionState(serverId, project, session);
         setCollabState(state);
@@ -108,7 +108,13 @@ export function useDataLoader(): UseDataLoaderReturn {
    */
   const loadSessionItems = useCallback(
     async (serverId: string, project: string, session: string) => {
-      if (!serverId || !session) return;
+      // Only `session` is required. A falsy serverId is valid — it means "no
+      // specific server", and apiFetch already routes that to a direct
+      // local-origin fetch. Requiring serverId here silently stranded
+      // cross-project sessions discovered without a server binding (e.g.
+      // stud_feeder/cad): the guard returned early, the store stayed empty,
+      // and Refresh (which calls this) became a no-op. (artifact-staleness bug)
+      if (!session) return;
       setError(null);
       let showedSpinner = false;
 
@@ -178,7 +184,7 @@ export function useDataLoader(): UseDataLoaderReturn {
    */
   const refreshSessionItems = useCallback(
     async (serverId: string, project: string, session: string) => {
-      if (!serverId || !session) return;
+      if (!session) return;
       // Capture current selection
       const { selectedDiagramId, selectedDocumentId, selectedDesignId, selectedSpreadsheetId } = useSessionStore.getState();
 

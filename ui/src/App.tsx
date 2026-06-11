@@ -42,7 +42,7 @@ import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
-import { patchSessionItemsCache, getSessionItemsCache, isCacheStale } from '@/lib/sessionItemsCache';
+import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useDesignEditorStore } from '@/stores/designEditorStore';
@@ -614,15 +614,10 @@ const App: React.FC = () => {
               lastModified: lastModified || Date.now(),
             } as any);
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                diagrams: [..._existing.diagrams.filter((x: any) => x.id !== id), { id, name, content: '', lastModified: lastModified || Date.now() }],
-              });
-            }
-          }
+          // Cross-session self-heal: evict that session's cache so the next open
+          // refetches fresh. A conditional patch silently dropped creates when the
+          // cache was absent or stale (>TTL) — the artifact-staleness bug.
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -640,15 +635,7 @@ const App: React.FC = () => {
               lastModified: lastModified || Date.now(),
             } as any);
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                documents: [..._existing.documents.filter((x: any) => x.id !== id), { id, name, content: '', lastModified: lastModified || Date.now() }],
-              });
-            }
-          }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -661,15 +648,7 @@ const App: React.FC = () => {
               session === currentSession.name) {
             removeDiagram(id);
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                diagrams: _existing.diagrams.filter((x: any) => x.id !== id),
-              });
-            }
-          }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -682,15 +661,7 @@ const App: React.FC = () => {
               session === currentSession.name) {
             removeDocument(id);
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                documents: _existing.documents.filter((x: any) => x.id !== id),
-              });
-            }
-          }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -708,15 +679,7 @@ const App: React.FC = () => {
               lastModified: lastModified || Date.now(),
             });
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                designs: [..._existing.designs.filter((x: any) => x.id !== id), { id, name, lastModified: lastModified || Date.now() }],
-              });
-            }
-          }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -743,15 +706,7 @@ const App: React.FC = () => {
               session === currentSession.name) {
             removeDesign(id);
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                designs: _existing.designs.filter((x: any) => x.id !== id),
-              });
-            }
-          }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -768,6 +723,7 @@ const App: React.FC = () => {
               lastModified: lastModified || Date.now(),
             });
           }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -790,6 +746,7 @@ const App: React.FC = () => {
               session === currentSession.name) {
             removeSpreadsheet(id);
           }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -801,15 +758,7 @@ const App: React.FC = () => {
               session === currentSession.name) {
             addSnippet({ id, name, content: content ?? '', lastModified: lastModified || Date.now() });
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                snippets: [..._existing.snippets.filter((x: any) => x.id !== id), { id, name, content: '', lastModified: lastModified || Date.now() }],
-              });
-            }
-          }
+          evictSessionItemsCache(project, session);
           break;
         }
 
@@ -832,44 +781,42 @@ const App: React.FC = () => {
               session === currentSession.name) {
             removeSnippet(id);
           }
-          // patch cache for non-active sessions
-          {
-            const _existing = getSessionItemsCache(project, session);
-            if (_existing && !isCacheStale(_existing)) {
-              patchSessionItemsCache(project, session, {
-                snippets: _existing.snippets.filter((x: any) => x.id !== id),
-              });
-            }
-          }
+          evictSessionItemsCache(project, session);
           break;
         }
 
         case 'embed_created': {
           const { id, name, url, subtype, width, height, createdAt, storybook, project, session } = message as any;
-          if (project === currentSession.project && session === currentSession.name) {
+          if (currentSession && project === currentSession.project && session === currentSession.name) {
             addEmbed({ id, name, url, subtype, width, height, createdAt: createdAt || new Date().toISOString(), storybook });
           }
+          evictSessionItemsCache(project, session);
           break;
         }
         case 'embed_deleted': {
           const { id, project, session } = message as any;
-          if (project === currentSession.project && session === currentSession.name) {
+          if (currentSession && project === currentSession.project && session === currentSession.name) {
             removeEmbed(id);
           }
+          evictSessionItemsCache(project, session);
           break;
         }
         case 'image_created': {
           const { id, name, mimeType, size, uploadedAt, project, session } = message as any;
-          if (project === currentSession.project && session === currentSession.name) {
+          if (currentSession && project === currentSession.project && session === currentSession.name) {
             addImage({ id, name, mimeType, size, uploadedAt });
           }
+          // Images had NO cache branch at all — the worst cross-session case.
+          // Evict so the next open of that session refetches and shows the image.
+          evictSessionItemsCache(project, session);
           break;
         }
         case 'image_deleted': {
           const { id, project, session } = message as any;
-          if (project === currentSession.project && session === currentSession.name) {
+          if (currentSession && project === currentSession.project && session === currentSession.name) {
             removeImage(id);
           }
+          evictSessionItemsCache(project, session);
           break;
         }
 

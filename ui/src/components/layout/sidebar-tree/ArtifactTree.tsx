@@ -43,6 +43,7 @@ import { emailArtifact } from '../../../lib/emailArtifact';
 import { api } from '../../../lib/api';
 import { useTabsStore, useSessionTabs } from '../../../stores/tabsStore';
 import { useDataLoader } from '../../../hooks/useDataLoader';
+import { evictSessionItemsCache } from '../../../lib/sessionItemsCache';
 import { ConfirmDialog } from '../../dialogs/ConfirmDialog';
 import type { Item, ItemType } from '../../../types/item';
 
@@ -183,6 +184,9 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     if (!currentSession || refreshing) return;
     setRefreshing(true);
     try {
+      // Cache-bust: evict before loading so Refresh always forces a true server
+      // fetch instead of short-circuiting to a warm-but-stale cache snapshot.
+      evictSessionItemsCache(currentSession.project, currentSession.name);
       await loadSessionItems(currentSession.serverId, currentSession.project, currentSession.name);
     } finally {
       setRefreshing(false);
