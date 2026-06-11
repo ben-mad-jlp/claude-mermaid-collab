@@ -3422,8 +3422,8 @@ export async function handleAPI(
   }
 
   // POST /api/terminal/sessions/:id/reset?project=...&session=... - Unstick a wedged
-  // terminal: re-sync Claude's TUI (/tui fullscreen → default, the real cure for
-  // missing history + wheel-sends-arrows) and re-assert tmux mouse-off modes.
+  // terminal: re-sync Claude's TUI (/tui fullscreen, the real cure for missing
+  // history + wheel-sends-arrows) and re-assert tmux mouse-off modes.
   if (path.match(/^\/api\/terminal\/sessions\/[^/]+\/reset$/) && req.method === 'POST') {
     const params = getSessionParams(url);
     if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });

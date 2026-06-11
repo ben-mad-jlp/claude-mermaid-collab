@@ -97,7 +97,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
     const onOk = () => {
       useNotificationStore.getState().addToast({
         type: 'success', title: 'Terminal reset',
-        message: 'Re-synced Claude TUI (/tui fullscreen → default).', duration: 3000,
+        message: 'Re-synced Claude TUI (/tui fullscreen).', duration: 3000,
       });
     };
     const mc = (window as any).mc;
@@ -261,7 +261,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         <button
           type="button"
           onClick={resetActiveTerminal}
-          title="Reset terminal (re-sync Claude TUI: restore history + scroll)"
+          title="Reset terminal (re-sync Claude TUI → fullscreen: restore scroll)"
           style={{
             cursor: 'pointer', color: '#6e7681', background: 'none',
             border: 'none', padding: '4px 8px', fontSize: 12,

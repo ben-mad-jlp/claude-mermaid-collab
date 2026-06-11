@@ -7,8 +7,6 @@ import { sendTmuxKeysRaw } from './tmux-send.js';
 
 const execAsync = promisify(exec);
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
 export class TerminalManager {
   /**
    * Get storage path for terminal sessions
@@ -190,24 +188,23 @@ export class TerminalManager {
   }
 
   /**
-   * Re-sync Claude Code's TUI mode by toggling it fullscreen → default. This is
-   * the real cure for the "wedged terminal" symptom: Claude's TUI can get into a
-   * confused state where it believes it's in default mode while its actual
+   * Re-sync Claude Code's TUI mode by switching it to fullscreen. This is the
+   * real cure for the "wedged terminal" symptom: Claude's TUI can get into a
+   * confused state where it believes it's in one mode while its actual
    * alt-screen / mouse-reporting DECSET state is out of sync — chat history is
    * missing from the scrollback and the wheel sends arrow keys instead of
-   * scrolling. Explicitly entering fullscreen and switching back forces Claude to
-   * re-emit the correct mode sequences, restoring history + scroll. (The user's
-   * verified `/tui fullscreen` → `/tui default` workaround, automated.)
+   * scrolling. Explicitly entering fullscreen forces Claude to emit a clean,
+   * definitive mode transition (full enter-alt-screen + enable-mouse sequences +
+   * repaint), which overwrites the inconsistent state and re-synchronizes
+   * Claude's model with the terminal. (The user's verified `/tui fullscreen`
+   * workaround, automated; they prefer to land IN fullscreen.)
    *
-   * Best-effort and ordering-sensitive: the two slash-commands go in sequence
-   * with a beat between them so the mode switch settles before the second lands.
-   * On a non-Claude pane these are harmless (a "command not found" at the shell).
+   * Best-effort; never throws. On a non-Claude pane it's harmless (a
+   * "command not found" at the shell).
    */
   async resyncClaudeTui(tmuxSessionName: string): Promise<void> {
     try {
       await sendTmuxKeysRaw(tmuxSessionName, '/tui fullscreen');
-      await sleep(500); // let the mode switch render before flipping back
-      await sendTmuxKeysRaw(tmuxSessionName, '/tui default');
     } catch { /* best-effort — never throw from the reset path */ }
   }
 
