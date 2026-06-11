@@ -13,10 +13,11 @@
 import React from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSupervisorStore } from '@/stores/supervisorStore';
+import { selectOpenEscalations } from '@/lib/statusSelectors';
 
 export const InlineEscalationDock: React.FC = () => {
   const currentSession = useSessionStore((s) => s.currentSession);
-  const escalations = useSupervisorStore((s) => s.escalations);
+  const openEscalations = useSupervisorStore((s) => s.openEscalations);
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
@@ -24,12 +25,12 @@ export const InlineEscalationDock: React.FC = () => {
   if (!currentSession) return null;
 
   const serverScope = currentSession.serverId ?? 'local';
-  const mine = escalations.filter(
-    (e) =>
-      e.status === 'open' &&
-      e.project === currentSession.project &&
-      e.session === currentSession.name,
-  );
+  // Coherence: this session's open escalations via the shared session-scoped selector.
+  const mine = selectOpenEscalations(openEscalations, {
+    kind: 'session',
+    project: currentSession.project,
+    session: currentSession.name,
+  });
 
   if (mine.length === 0) return null;
 
