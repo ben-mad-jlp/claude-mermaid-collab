@@ -1,26 +1,27 @@
 /**
- * TerminalPane robustness tests.
+ * TerminalConsole robustness + re-point tests.
  *
- * Repro for the bug where a terminal whose WebSocket fails/closes before it
- * establishes (no tmux to attach to, orphaned pane after a server restart,
- * transient 1006 close) threw an UNCAUGHT xterm TypeError
- * ("Cannot read properties of undefined (reading 'dimensions')") that crashed
- * the pane. A failed/closed terminal must degrade to a 'disconnected' state,
- * not throw.
+ * The console keeps ONE WebSocket per server (to the persistent PTY) and
+ * re-points it between tmux targets with `switch` messages. These tests cover:
+ *   - robustness: a WS that fails/closes before it establishes must degrade to a
+ *     'disconnected' state, never throw an uncaught xterm TypeError;
+ *   - re-point: on open it switches to the selected tmux target, and a clean
+ *     reset precedes feeding the new stream.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
-import { TerminalPane } from './TerminalPane';
+import { TerminalConsole } from './TerminalPane';
 
 // xterm needs a real renderer/canvas which jsdom lacks; stub it. The stub
-// records calls so we can assert we never drive a disposed/unopened terminal.
-const xtermInstances: Array<{ disposed: boolean; opened: boolean }> = [];
+// records calls so we can assert we never drive a disposed/unopened terminal and
+// that reset() runs before a re-point.
+const xtermInstances: Array<{ disposed: boolean; opened: boolean; resets: number }> = [];
 vi.mock('@xterm/xterm', () => {
   class Terminal {
     element: HTMLElement | null = null;
     cols = 80;
     rows = 24;
-    _rec = { disposed: false, opened: false };
+    _rec = { disposed: false, opened: false, resets: 0 };
     constructor() {
       xtermInstances.push(this._rec);
     }
@@ -30,6 +31,9 @@ vi.mock('@xterm/xterm', () => {
       this._rec.opened = true;
     }
     write() {}
+    reset() {
+      this._rec.resets += 1;
+    }
     onData() {
       return { dispose() {} };
     }
@@ -52,6 +56,7 @@ class MockWebSocket {
   static OPEN = 1;
   static instances: MockWebSocket[] = [];
   readyState = 0;
+  sent: string[] = [];
   onopen: (() => void) | null = null;
   onerror: ((e: unknown) => void) | null = null;
   onclose: ((e: { wasClean: boolean; code: number; reason: string }) => void) | null = null;
@@ -59,7 +64,9 @@ class MockWebSocket {
   constructor(public url: string) {
     MockWebSocket.instances.push(this);
   }
-  send() {}
+  send(data: string) {
+    this.sent.push(data);
+  }
   close() {}
 }
 
@@ -73,31 +80,28 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('TerminalPane robustness', () => {
-  it('renders without throwing', () => {
-    const { container } = render(<TerminalPane sessionId="s1" serverId="local" />);
+describe('TerminalConsole robustness', () => {
+  it('opens exactly one WebSocket per server to the persistent PTY', () => {
+    const { container } = render(<TerminalConsole serverId="local" tmuxBase="mc-x" />);
     expect(container).toBeTruthy();
     expect(MockWebSocket.instances.length).toBe(1);
+    expect(MockWebSocket.instances[0].url).toContain('mc-persistent-console');
   });
 
   it('degrades to a disconnected state (no throw) when the WS closes uncleanly before open', () => {
-    render(<TerminalPane sessionId="s1" serverId="local" />);
+    render(<TerminalConsole serverId="local" tmuxBase="mc-x" />);
     const ws = MockWebSocket.instances[0];
 
-    // Simulate the failure-before-establish path: a 1006 unclean close with no
-    // prior open. This previously drove xterm.syncScrollArea into an uncaught
-    // TypeError.
     act(() => {
       ws.onclose?.({ wasClean: false, code: 1006, reason: '' });
     });
 
     expect(screen.getByTestId('terminal-disconnected')).toBeTruthy();
-    // The error boundary must NOT have tripped — this is a graceful degrade.
     expect(screen.queryByTestId('terminal-error')).toBeNull();
   });
 
   it('degrades to a disconnected state on WS error', () => {
-    render(<TerminalPane sessionId="s1" serverId="local" />);
+    render(<TerminalConsole serverId="local" tmuxBase="mc-x" />);
     const ws = MockWebSocket.instances[0];
 
     act(() => {
@@ -108,7 +112,7 @@ describe('TerminalPane robustness', () => {
   });
 
   it('does not show the disconnected overlay on a clean close', () => {
-    render(<TerminalPane sessionId="s1" serverId="local" />);
+    render(<TerminalConsole serverId="local" tmuxBase="mc-x" />);
     const ws = MockWebSocket.instances[0];
 
     act(() => {
@@ -119,9 +123,26 @@ describe('TerminalPane robustness', () => {
   });
 
   it('disposes xterm on unmount', () => {
-    const { unmount } = render(<TerminalPane sessionId="s1" serverId="local" />);
+    const { unmount } = render(<TerminalConsole serverId="local" tmuxBase="mc-x" />);
     expect(xtermInstances.length).toBe(1);
     unmount();
     expect(xtermInstances[0].disposed).toBe(true);
+  });
+});
+
+describe('TerminalConsole re-point', () => {
+  it('switches to the selected tmux target on open, after a clean reset', () => {
+    render(<TerminalConsole serverId="srv-2" tmuxBase="mc-repo-lane" />);
+    const ws = MockWebSocket.instances[0];
+    ws.readyState = MockWebSocket.OPEN;
+
+    act(() => {
+      ws.onopen?.();
+    });
+
+    // A clean reset must have run, and a switch carrying the tmux base sent.
+    expect(xtermInstances[0].resets).toBeGreaterThanOrEqual(1);
+    const switchMsg = ws.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'switch');
+    expect(switchMsg).toEqual({ type: 'switch', serverId: 'srv-2', sessionId: 'mc-repo-lane' });
   });
 });
