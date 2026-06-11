@@ -105,3 +105,11 @@ export function setOrchestratorLevel(project: string, level: OrchestratorLevel):
      ON CONFLICT(project) DO UPDATE SET level = excluded.level, updatedAt = excluded.updatedAt`,
   ).run(project, safe, Date.now());
 }
+
+/** Steward kill-switch (one-way): force a project's level to 'off' and return the
+ *  resulting level. Brake-only — there is deliberately no raise-level counterpart
+ *  for the steward (decision 3bf1292b). */
+export function orchestratorOff(project: string): OrchestratorLevel {
+  setOrchestratorLevel(project, 'off');
+  return getOrchestratorLevel(project);
+}
