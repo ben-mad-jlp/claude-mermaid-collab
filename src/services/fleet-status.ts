@@ -56,6 +56,26 @@ export interface FleetEntry {
   blockedOnTool?: string | null;
 }
 
+/**
+ * Process-headroom summary — the highest-signal early warning for the
+ * fork-EAGAIN wedge: once the uid's live process count approaches
+ * `kern.maxprocperuid` (the 6000 cap), new `tmux`/`claude` spawns start failing
+ * with EAGAIN and the fleet silently stalls. Surfacing `liveProcs` vs
+ * `perUidCap` BEFORE it hits lets a human (or a daemon) back off. All fields are
+ * null when their probe couldn't run (no ps / no sysctl / no tmux), never a
+ * fabricated value.
+ */
+export interface HeadroomInfo {
+  /** Live processes owned by the current uid (from the same ps snapshot). */
+  liveProcs: number | null;
+  /** kern.maxprocperuid — the per-uid hard process cap (~6000 on macOS). */
+  perUidCap: number | null;
+  /** Live `mc-*` tmux sessions (the fleet's worker panes). */
+  tmuxSessions: number | null;
+  /** Workers alive at their prompt but not visibly working (idle-at-prompt). */
+  idleSessions: number;
+}
+
 export interface FleetStatus {
   project: string;
   now: number;
@@ -70,31 +90,72 @@ export interface FleetStatus {
     deadOrGone: number; // dead_shell + no_tmux
     overLease: number;
   };
+  /** Process-headroom vs the per-uid cap — surfaces the fork-EAGAIN wedge early. */
+  headroom: HeadroomInfo;
 }
 
-/** Build a pid → {children, comm} snapshot in one `ps` call (cheap, one spawn). */
-function procSnapshot(): Map<number, { children: number[]; comm: string }> | null {
+type ProcSnapshot = {
+  /** pid → {children, comm} parent/child index (used for Claude liveness walks). */
+  byPid: Map<number, { children: number[]; comm: string }>;
+  /** Live process count owned by the current uid (for headroom vs the per-uid cap). */
+  liveProcsForUid: number | null;
+};
+
+/** Build a pid → {children, comm} snapshot in one `ps` call (cheap, one spawn).
+ *  The same snapshot also yields the current uid's live-process count, so the
+ *  headroom read costs no extra spawn (uid column added to the one ps call). */
+function procSnapshot(): ProcSnapshot | null {
   try {
-    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,comm='], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
+    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,uid=,comm='], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
     if (!out.trim()) return null;
+    const myUid = typeof process.getuid === 'function' ? process.getuid() : null;
+    let liveProcsForUid = myUid != null ? 0 : null;
     const byPid = new Map<number, { children: number[]; comm: string }>();
     const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
     for (const line of out.split('\n')) {
-      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+      const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/);
       if (!m) continue;
       const pid = Number(m[1]);
       const ppid = Number(m[2]);
-      rows.push({ pid, ppid, comm: m[3] });
+      const uid = Number(m[3]);
+      const comm = m[4];
+      rows.push({ pid, ppid, comm });
+      if (myUid != null && uid === myUid) liveProcsForUid = (liveProcsForUid ?? 0) + 1;
       const ex = byPid.get(pid);
-      if (ex) ex.comm = m[3];
-      else byPid.set(pid, { children: [], comm: m[3] });
+      if (ex) ex.comm = comm;
+      else byPid.set(pid, { children: [], comm });
     }
     for (const r of rows) {
       let parent = byPid.get(r.ppid);
       if (!parent) { parent = { children: [], comm: '' }; byPid.set(r.ppid, parent); }
       parent.children.push(r.pid);
     }
-    return byPid;
+    return { byPid, liveProcsForUid };
+  } catch {
+    return null;
+  }
+}
+
+/** Per-uid hard process cap (`kern.maxprocperuid`, ~6000 on macOS). null if unreadable. */
+function perUidProcCap(): number | null {
+  try {
+    const out = Bun.spawnSync(['sysctl', '-n', 'kern.maxprocperuid'], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString().trim() ?? '';
+    const n = Number(out);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Count live `mc-*` tmux sessions (the fleet's worker panes). null if tmux can't be queried. */
+function mcTmuxSessionCount(): number | null {
+  try {
+    const p = Bun.spawnSync(['tmux', 'ls', '-F', '#{session_name}'], { stdout: 'pipe', stderr: 'ignore' });
+    // No tmux server running ⇒ no sessions. tmux exits non-zero with "no server"
+    // on stderr; treat a clean "nothing" as zero, an actual spawn failure as null.
+    if (p.exitCode !== 0) return 0;
+    const names = (p.stdout?.toString() ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    return names.filter((n) => n.startsWith('mc-')).length;
   } catch {
     return null;
   }
@@ -168,7 +229,7 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
       state = 'no_tmux';
     } else {
       const panePid = tmuxPanePid(tmux);
-      const claudeAlive = snap && panePid != null ? claudeAliveInSubtree(panePid, snap) : null;
+      const claudeAlive = snap && panePid != null ? claudeAliveInSubtree(panePid, snap.byPid) : null;
       const pane = capturePane(tmux);
       if (claudeAlive === false && !isClaudeTuiPresent(pane)) {
         state = 'dead_shell';
@@ -211,5 +272,12 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
     overLease: entries.filter((e) => e.overLease).length,
   };
 
-  return { project, now, entries, summary };
+  const headroom: HeadroomInfo = {
+    liveProcs: snap?.liveProcsForUid ?? null,
+    perUidCap: perUidProcCap(),
+    tmuxSessions: mcTmuxSessionCount(),
+    idleSessions: summary.idle,
+  };
+
+  return { project, now, entries, summary, headroom };
 }

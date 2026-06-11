@@ -55,6 +55,7 @@ import { launchAndBind } from '../services/claude-launch.js';
 import { recordCheckpointReady, clearCheckpointReady, isCheckpointReady, tryEmitWatchdogAction, resetWatchdogDebounce } from '../services/session-status-store.js';
 import { selectWatchdogActions, DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.js';
 import { listSessionRuntimes } from '../services/session-runtime.js';
+import { getFleetStatus } from '../services/fleet-status.js';
 import { resolveReconcile } from '../services/planner-reconcile-live.js';
 import { SERVER_VERSION } from './server.js';
 import { createDecisionRecord, listDecisionRecords, approveDecisionRecord, supersedeDecisionRecord, getActiveConstraints, getActiveRequirements, type DecisionKind, type RequirementSpec } from '../services/decision-record-store.js';
@@ -1846,6 +1847,17 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       {
+        name: 'fleet_status',
+        description: 'Live fleet read-model for a project: per in-progress lane its worker, derived liveness state (working/idle/permission/dead_shell/no_tmux), elapsed time and lease headroom — PLUS a process-headroom block {liveProcs, perUidCap, tmuxSessions, idleSessions} that surfaces the fork-EAGAIN wedge before it hits (uid live procs vs the kern.maxprocperuid cap). Read-only; one ps snapshot per call.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Absolute path to the project root whose fleet to report' },
+          },
+          required: ['project'],
+        },
+      },
+      {
         name: 'get_install_path',
         description: 'Get the installation path of the mermaid-collab plugin. Use this to run CLI commands like server start/stop.',
         inputSchema: {
@@ -3330,6 +3342,12 @@ IMPORTANT - Common pitfalls to avoid:
                 error: error instanceof Error ? error.message : 'Server not responding',
               }, null, 2);
             }
+          }
+
+          case 'fleet_status': {
+            const { project } = args as { project: string };
+            if (!project) throw new Error('Missing required: project');
+            return JSON.stringify(getFleetStatus(project), null, 2);
           }
 
           case 'get_install_path': {
