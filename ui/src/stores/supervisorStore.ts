@@ -466,9 +466,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   ingestEscalationCreated: (e) =>
     set((state) => {
       // Upsert by id (server-stamped), newest first; replace an existing card in
-      // place so a re-broadcast doesn't duplicate it. Resolved items never enter
-      // the open slice.
-      if (!isOpen(e)) return { hydrateEpoch: state.hydrateEpoch + 1 };
+      // place so a re-broadcast doesn't duplicate it.
+      if (!isOpen(e)) {
+        // A now-resolved/decided broadcast (e.g. the steward auto-resolved it):
+        // drop it from open and fold it into resolved so the AI-resolved lingering
+        // card (fd934fb7) can show its outcome instead of the card just vanishing.
+        const open = state.openEscalations.filter((x) => x.id !== e.id);
+        const resolved = [e, ...state.resolvedEscalations.filter((x) => x.id !== e.id)];
+        return { ...writeOpen(open), ...writeResolved(resolved), hydrateEpoch: state.hydrateEpoch + 1 };
+      }
       const open = [e, ...state.openEscalations.filter((x) => x.id !== e.id)];
       return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
     }),

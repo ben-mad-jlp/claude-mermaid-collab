@@ -88,6 +88,26 @@ export function isAiResolved(e: Escalation): boolean {
   return classifyEscalationLifecycle(e) === 'ai-resolved';
 }
 
+/** Default window for which an AI-resolved escalation lingers (shows its outcome)
+ *  before it ages out of the inbox. */
+export const AI_RESOLVED_LINGER_MS = 90_000;
+
+/**
+ * From the resolved slice, the AI-resolved escalations whose resolution is recent
+ * enough to still show in the inbox (so an auto-resolved escalation displays its
+ * outcome + rationale briefly instead of silently vanishing — fd934fb7). Pure: the
+ * caller passes `now` and the optional window. Scoped/sorted newest-first.
+ */
+export function selectRecentlyAiResolved(
+  resolved: Escalation[],
+  now: number,
+  windowMs: number = AI_RESOLVED_LINGER_MS,
+): Escalation[] {
+  return resolved
+    .filter((e) => isAiResolved(e) && typeof e.resolvedAt === 'number' && now - (e.resolvedAt as number) <= windowMs)
+    .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0));
+}
+
 /** Human-facing label + a stable token for styling/testids, per lifecycle state. */
 export interface LifecyclePresentation {
   /** Stable token for data-testid / class selection. */

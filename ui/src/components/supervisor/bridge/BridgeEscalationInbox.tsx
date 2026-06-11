@@ -9,7 +9,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
-import { classifyEscalationLifecycle } from '@/lib/escalationLifecycle';
+import { classifyEscalationLifecycle, selectRecentlyAiResolved } from '@/lib/escalationLifecycle';
 
 /**
  * Lifecycle badge for an OPEN escalation (todo fd934fb7): makes the triage state
@@ -59,20 +59,42 @@ export interface BridgeEscalationInboxProps {
   escalations: Escalation[];
   serverScope: string;
   onJump?: (project: string, session: string) => void;
+  /** When set, recently AI-resolved escalations for this project linger briefly
+   *  with their outcome (fd934fb7) instead of silently vanishing. Omit to hide the
+   *  lingering section (callers that can't scope it). */
+  project?: string;
 }
 
 export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   escalations,
   serverScope,
   onJump,
+  project,
 }) => {
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
   const confirmSuggestion = useSupervisorStore((s) => s.confirmSuggestion);
   const dismissSuggestion = useSupervisorStore((s) => s.dismissSuggestion);
+  const resolvedEscalations = useSupervisorStore((s) => s.resolvedEscalations);
 
   const open = escalations.filter((e) => e.status === 'open');
+
+  // Lingering AI-resolved cards (fd934fb7): a steward auto-resolve should show its
+  // outcome for a short window, not vanish. A coarse clock tick ages them out
+  // (a UI fade timer, NOT data polling — the data already arrived via WS).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const recentlyAiResolved = project
+    ? selectRecentlyAiResolved(
+        resolvedEscalations.filter((e) => e.project === project),
+        nowTick,
+      )
+    : [];
+  useEffect(() => {
+    if (recentlyAiResolved.length === 0) return;
+    const t = setInterval(() => setNowTick(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, [recentlyAiResolved.length]);
 
   // Answer-and-advance: keyboard drives the FIRST open card. Digits pick an
   // option, ↵ takes the ★recommended (or the only option), J jumps to the
@@ -309,6 +331,37 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
           <p className="text-3xs text-gray-400 dark:text-gray-500 px-0.5 pt-1">
             <kbd className="font-mono">1–9</kbd> answer · <kbd className="font-mono">↵</kbd> ★recommended · <kbd className="font-mono">J</kbd> jump
           </p>
+        </div>
+      )}
+
+      {/* Lingering AI-resolved cards (fd934fb7): a steward auto-resolve shows its
+          outcome + rationale here for a short window so it doesn't silently vanish.
+          Muted (one-red discipline — these are done, not actionable). */}
+      {recentlyAiResolved.length > 0 && (
+        <div data-testid="ai-resolved-recent" className="space-y-1.5 pt-1 border-t border-gray-200 dark:border-gray-700">
+          <span className="text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            Recently resolved by AI
+          </span>
+          {recentlyAiResolved.map((e) => (
+            <div
+              key={e.id}
+              data-testid="ai-resolved-card"
+              className="px-2.5 py-1.5 rounded border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-900/15 opacity-80"
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="text-2xs">✓</span>
+                <span className="text-3xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                  AI resolved
+                </span>
+                <span className="text-3xs text-gray-400 dark:text-gray-500 truncate" title={`${e.project} / ${e.session}`}>
+                  {e.session}
+                </span>
+              </div>
+              <div className="text-3xs leading-snug text-gray-600 dark:text-gray-400 mt-0.5 line-clamp-2 break-words">
+                {e.suggestedAction?.rationale ?? e.questionText}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

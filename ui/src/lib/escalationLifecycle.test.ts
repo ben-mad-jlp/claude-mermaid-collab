@@ -6,6 +6,7 @@ import {
   isTriaging,
   isEscalatedToHuman,
   isAiResolved,
+  selectRecentlyAiResolved,
 } from './escalationLifecycle';
 
 const suggestion: SuggestedAction = {
@@ -96,5 +97,22 @@ describe('lifecycle predicates + presentation', () => {
   it('presentation: labels carry the right token', () => {
     expect(lifecyclePresentation(esc({ routedTo: 'steward' })).token).toBe('escalated-to-human');
     expect(lifecyclePresentation(esc({ status: 'resolved', resolvedBy: 'ai' })).label).toBe('AI resolved');
+  });
+});
+
+describe('selectRecentlyAiResolved', () => {
+  const now = 1_000_000;
+  it('returns AI-resolved items resolved within the window, newest first', () => {
+    const resolved = [
+      esc({ id: 'old', status: 'resolved', resolvedBy: 'ai', resolvedAt: now - 200_000 }), // too old
+      esc({ id: 'fresh1', status: 'resolved', resolvedBy: 'ai', resolvedAt: now - 10_000 }),
+      esc({ id: 'fresh2', status: 'resolved', resolvedBy: 'ai', resolvedAt: now - 1_000 }),
+      esc({ id: 'human', status: 'resolved', resolvedBy: 'human', resolvedAt: now - 1_000 }), // not AI
+    ];
+    expect(selectRecentlyAiResolved(resolved, now, 90_000).map((e) => e.id)).toEqual(['fresh2', 'fresh1']);
+  });
+
+  it('excludes items with no resolvedAt', () => {
+    expect(selectRecentlyAiResolved([esc({ status: 'resolved', resolvedBy: 'ai' })], now)).toEqual([]);
   });
 });

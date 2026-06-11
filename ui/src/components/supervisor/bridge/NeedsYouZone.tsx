@@ -17,8 +17,9 @@
  */
 
 import React from 'react';
-import type { Escalation } from '@/stores/supervisorStore';
+import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
 import { selectOpenEscalations } from '@/lib/statusSelectors';
+import { selectRecentlyAiResolved } from '@/lib/escalationLifecycle';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 
 export interface NeedsYouZoneProps {
@@ -40,14 +41,25 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
 }) => {
   const open = selectOpenEscalations(escalations, { kind: 'project', project });
 
+  // Keep the zone mounted while a recently AI-resolved escalation is still
+  // lingering for this project (fd934fb7) — otherwise the "All clear" branch would
+  // unmount the inbox and the AI-resolved outcome would vanish, the very thing the
+  // lingering card exists to prevent.
+  const resolvedEscalations = useSupervisorStore((s) => s.resolvedEscalations);
+  const hasLingeringAiResolved =
+    selectRecentlyAiResolved(
+      resolvedEscalations.filter((e) => e.project === project),
+      Date.now(),
+    ).length > 0;
+
   const body =
-    open.length === 0 ? (
+    open.length === 0 && !hasLingeringAiResolved ? (
       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
         <span className="text-success-500" aria-hidden="true">✓</span>
         <span>All clear — nothing needs you</span>
       </div>
     ) : (
-      <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} />
+      <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} project={project} />
     );
 
   if (embedded) return <div data-testid="needs-you-zone" data-needs-you={open.length}>{body}</div>;
