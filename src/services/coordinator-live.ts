@@ -653,35 +653,92 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
 // A repair pass (Part 3 of the fix): scan the work-graph for leaf todos that are
 // done+accepted but whose work is NOT reachable from their epic branch (the
 // pre-fix damage — already-accepted todos whose commits stranded on lane branches,
-// or that were accepted with no commit at all). For each, raise ONE escalation so
-// a human can re-integrate or re-open it. Read-only w.r.t. the work-graph (it
-// FLAGS, it does not silently re-open — the acceptance was a human-visible event,
-// so its reversal should be too). Returns the flagged todo ids.
-export async function sweepStrandedAccepted(project: string): Promise<string[]> {
+// or that were accepted with no commit at all). Raise ONE summary escalation per
+// project so a human can re-integrate or re-open them. Read-only w.r.t. the
+// work-graph (it FLAGS, it does not silently re-open — the acceptance was a
+// human-visible event, so its reversal should be too). Returns the flagged ids.
+//
+// REDESIGN (post-flood, 2026-06-11): the original raised ONE escalation PER stranded
+// todo on EVERY 30s reconcile tick. Combined with step-4 of the reconcile pass
+// (which auto-closes escalations whose linked todo terminally settled — and a
+// stranded todo IS done+accepted), this formed an unbounded generator: 3b creates,
+// 4 closes, 3b re-creates next tick → 2200+ escalations in minutes. The redesign:
+//   1. THROTTLE to once per project per BP0_SWEEP_INTERVAL_MS (≈once/hour; also a
+//      one-shot on process start since the map starts empty), NOT every tick.
+//   2. ONE SUMMARY escalation per project (not one-per-todo), ids in the detail.
+//   3. The summary carries NO todoId and a dedicated kind → step-4 settled-todo
+//      auto-close never touches it (it requires a todoId AND now explicitly excludes
+//      this kind), so it is not resolved-then-recreated.
+//   4. Stable questionText + sentinel session → createEscalation's
+//      (project,session,questionText) dedup keeps it to ONE open card per project.
+//   5. Git reachability work is bounded per pass (BP0_MAX_GIT_CHECKS).
+
+/** Throttle window: a project's stranded sweep runs at most once per this interval. */
+export const BP0_SWEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+/** Max git reachability checks per pass — bounds the per-tick git cost (was 2000+). */
+export const BP0_MAX_GIT_CHECKS = 200;
+/** Dedicated kind marking the per-project stranded-accept SUMMARY escalation. The
+ *  reconcile step-4 settled-todo auto-close explicitly excludes this kind so the
+ *  summary is never resolved-then-recreated. */
+export const BP0_STRANDED_SUMMARY_KIND = 'bp0-stranded-summary';
+/** Sentinel session owning the single per-project summary escalation (keeps the
+ *  createEscalation (project,session,questionText) dedup stable across ticks). */
+export const BP0_SUMMARY_SESSION = 'bp0-stranded';
+
+/** module-level last-sweep-time per project (key = tracking project root). */
+const lastBp0SweepAt = new Map<string, number>();
+
+/** Exported for tests: reset the throttle so the next sweep runs immediately. */
+export function _resetBp0SweepState(): void {
+  lastBp0SweepAt.clear();
+}
+
+export async function sweepStrandedAccepted(
+  project: string,
+  opts?: { force?: boolean; now?: number },
+): Promise<string[]> {
+  const now = opts?.now ?? Date.now();
+  // THROTTLE: skip if this project was swept within the interval (one-shot on a
+  // cold map). `force` is for tests / explicit one-off invocations.
+  const last = lastBp0SweepAt.get(project) ?? 0;
+  if (!opts?.force && now - last < BP0_SWEEP_INTERVAL_MS) return [];
+  lastBp0SweepAt.set(project, now);
+
   const flagged: string[] = [];
   const all = listTodos(project, { includeCompleted: true });
   const isEpic = (t: Todo) => all.some((c) => c.parentId === t.id);
+  let gitChecks = 0;
+  let truncated = false;
   for (const t of all) {
     // Only leaf work todos that claim to be accepted+done can be stranded.
     if (t.status !== 'done' || t.acceptanceStatus !== 'accepted') continue;
     if (isEpic(t)) continue; // epics carry no commit of their own
+    // BOUND the git work: stop checking once we hit the per-pass cap. Remaining
+    // stranded todos (if any) are surfaced next pass; the summary notes truncation.
+    if (gitChecks >= BP0_MAX_GIT_CHECKS) { truncated = true; break; }
     try {
       const wm = getWorktreeManager(t.targetProject ?? project);
       if (!(await wm.isGitRepoPublic())) continue;
       const epicId = resolveEpicId(t, project);
+      gitChecks++;
       if (await wm.todoOnEpicBranch(epicId, t.id)) continue; // work is on the branch — fine
       flagged.push(t.id);
-      createEscalation({
-        project,
-        session: t.sessionName ?? `worker-${t.id.slice(0, 8)}`,
-        todoId: t.id,
-        kind: 'assumption-invalidated',
-        questionText: `Stranded acceptance detected: todo "${t.title}" is done+accepted but its work is NOT on epic branch ${wm.epicBranchName(epicId)} (commit stranded on a lane branch, or accepted with no commit). Re-integrate the lane branch onto the epic branch, or re-open the todo.`,
-      });
     } catch { /* a single bad todo never aborts the sweep */ }
   }
   if (flagged.length > 0) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ bp0: 'stranded-accept-sweep', flagged }) });
+    const detail = `${flagged.length} stranded acceptance(s)${truncated ? ` (truncated at ${BP0_MAX_GIT_CHECKS} git checks this pass — more may remain, re-run next pass)` : ''}. Flagged todo ids: ${flagged.join(', ')}.`;
+    // ONE summary escalation per project. NO todoId (so the step-4 settled-todo
+    // auto-close — which keys on todoId — never resolves it) and a stable
+    // questionText (NO count) so the open-card dedup holds it to one per project.
+    createEscalation({
+      project,
+      session: BP0_SUMMARY_SESSION,
+      kind: BP0_STRANDED_SUMMARY_KIND,
+      questionText:
+        'Stranded acceptances detected in this project: one or more todos are marked done+accepted but their work is NOT on the epic branch (commit stranded on a lane branch, or accepted with no commit). Re-integrate the lane branches onto their epic branch, or re-open the todos. Current flagged ids are in this card and in the supervisor audit (bp0: stranded-accept-sweep).',
+      options: [{ id: 'review', label: 'Review flagged todos', detail }],
+    });
+    recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ bp0: 'stranded-accept-sweep', flagged, truncated }) });
   }
   return flagged;
 }

@@ -30,7 +30,7 @@ import {
   getSupervisedLaunchProject,
 } from './supervisor-store.ts';
 import { listTodos, getTodo, sweepEpicRollups } from './todo-store.ts';
-import { surfaceEpicLand, sweepStrandedAccepted } from './coordinator-live.ts';
+import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND } from './coordinator-live.ts';
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
 import { deriveLiveness } from './session-runtime.ts';
@@ -138,6 +138,13 @@ export async function runReconcilePass(project: string): Promise<void> {
 
   for (const esc of openEscalations) {
     try {
+      // BP0 stranded-accept SUMMARY cards are durable + throttled (re-created at
+      // most once/hour). Aging one out after the ~60s stale window would close it
+      // seconds after creation and the throttle would block re-creation for an
+      // hour — making the human-facing card effectively invisible. It clears only
+      // when a human resolves it (or the underlying strands are re-integrated), so
+      // exempt it from the stale sweep, same as the step-4 auto-close exclusion.
+      if (esc.kind === BP0_STRANDED_SUMMARY_KIND) continue;
       const age = now - esc.createdAt;
       if (age < SUPERVISOR_STALE_AFTER_MS) continue;
 
@@ -217,15 +224,11 @@ export async function runReconcilePass(project: string): Promise<void> {
   // it. Read-only w.r.t. the work-graph (it flags; it does not silently re-open a
   // human-visible acceptance). Best-effort; never aborts the pass.
   // -------------------------------------------------------------------------
-  // GATED OFF BY DEFAULT (MERMAID_BP0_SWEEP=1 to enable). This per-tick sweep
-  // FLOODS: it flags every already-accepted todo whose work isn't on the epic
-  // branch, but step 4 below auto-closes that escalation the same/next tick
-  // (the linked todo IS done+accepted → "settled"), so it re-fires every 30s —
-  // 2000+ escalations across projects in minutes. The forward-prevention (the
-  // acceptance gate verifying the commit reached the branch) does the real work;
-  // this BACKLOG repair must be a throttled one-shot with a SUMMARY escalation +
-  // exclusion from the step-4 auto-close, not a per-tick generator. Until that
-  // redesign lands it stays opt-in so it can never flood the inbox.
+  // GATED OFF BY DEFAULT (MERMAID_BP0_SWEEP=1 to enable). The e7b3f8cb redesign
+  // (one-shot/throttled + SUMMARY escalation + step-4 exclusion) lands here, but we
+  // KEEP it opt-in: OI-1's accept-time ancestor gate already prevents NEW strands at
+  // the source, so this backlog sweep is lower-value, and the prior incident (2200+
+  // escalations from the per-tick flood) means it stays off until verified live.
   if (process.env.MERMAID_BP0_SWEEP === '1') {
     try {
       const flagged = await sweepStrandedAccepted(project);
@@ -267,6 +270,13 @@ export async function runReconcilePass(project: string): Promise<void> {
   // -------------------------------------------------------------------------
   for (const esc of openEscalations) {
     try {
+      // BP0 stranded-accept SUMMARY escalations are deliberately excluded: they
+      // describe a backlog of done+accepted-but-stranded todos, so the linked
+      // todos ARE done+accepted — the verified-done gate below would resolve them,
+      // and the next sweep would re-create them (the flood loop). They carry no
+      // todoId (so the guard below already skips them); this explicit kind check is
+      // the documented second guard.
+      if (esc.kind === BP0_STRANDED_SUMMARY_KIND) continue;
       if (!esc.todoId) continue;
       // The openEscalations snapshot predates the stale-close loop above; skip
       // any escalation it already closed so we don't clobber its 'stale' status.

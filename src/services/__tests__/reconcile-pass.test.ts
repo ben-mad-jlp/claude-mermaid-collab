@@ -62,6 +62,7 @@ import {
   _closeDb,
 } from '../supervisor-store';
 import { createTodo, updateTodo, getTodo, sweepEpicRollups } from '../todo-store';
+import { BP0_STRANDED_SUMMARY_KIND } from '../coordinator-live';
 
 // -----------------------------------------------------------------------
 // Per-project todo DB isolation: use a temp directory as the "project path"
@@ -258,6 +259,41 @@ describe('runReconcilePass — stale escalation auto-close', () => {
 
     const closed = listOpenEscalations().find((e) => e.id === escalation.id);
     expect(closed).toBeUndefined();
+  });
+});
+
+describe('runReconcilePass — BP0 summary escalation is exempt from auto-close', () => {
+  it('does NOT stale-close the BP0 stranded summary even when aged past the stale window', async () => {
+    const project = freshProject();
+
+    // A normal escalation and a BP0 summary, both created "now".
+    const { escalation: normal } = createEscalation({
+      project,
+      session: 'worker-x',
+      kind: 'blocker',
+      questionText: 'normal blocker — should be staled',
+    });
+    const { escalation: summary } = createEscalation({
+      project,
+      session: 'bp0-stranded',
+      kind: BP0_STRANDED_SUMMARY_KIND,
+      questionText: 'BP0 stranded summary — should survive',
+    });
+
+    // Advance time well past the stale window so BOTH escalations are "aged".
+    const realNow = Date.now;
+    Date.now = () => realNow() + SUPERVISOR_STALE_AFTER_MS + 60_000;
+    try {
+      await runReconcilePass(project);
+    } finally {
+      Date.now = realNow;
+    }
+
+    const open = listOpenEscalations().map((e) => e.id);
+    // The normal escalation aged out (stale-closed)…
+    expect(open).not.toContain(normal.id);
+    // …but the BP0 summary is exempt and stays open for the human.
+    expect(open).toContain(summary.id);
   });
 });
 
