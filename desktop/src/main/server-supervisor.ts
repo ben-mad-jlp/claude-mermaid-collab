@@ -510,6 +510,9 @@ export class ServerSupervisor {
       }
       this.child = null;
       this.unhealthyForMs = 0;
+      // A stop() that landed mid-respawn must win — don't spawn a child the
+      // teardown can no longer track.
+      if (this.stopped) return;
       this.spawnChild(port);
     } finally {
       this.respawning = false;
