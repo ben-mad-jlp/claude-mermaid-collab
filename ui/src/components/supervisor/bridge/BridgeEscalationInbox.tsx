@@ -9,6 +9,43 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { classifyEscalationLifecycle } from '@/lib/escalationLifecycle';
+
+/**
+ * Lifecycle badge for an OPEN escalation (todo fd934fb7): makes the triage state
+ * explicit so an escalation never looks untouched while Grok is on it, and a
+ * Grok-couldn't-resolve one is clearly flagged "needs you" rather than blending in.
+ * Pure read off the shared classifier so the left column and Bridge agree.
+ */
+const TriageLifecycleBadge: React.FC<{ escalation: Escalation }> = ({ escalation }) => {
+  const state = classifyEscalationLifecycle(escalation);
+  if (state === 'ai-handling') {
+    return (
+      <span
+        data-testid="triage-lifecycle-badge"
+        data-state="ai-handling"
+        title="A Grok triage consult is in flight for this escalation"
+        className="shrink-0 inline-flex items-center gap-1 px-1 py-0.5 rounded text-3xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300"
+      >
+        <span className="inline-block w-2 h-2 rounded-full border border-current border-t-transparent animate-spin" aria-hidden="true" />
+        Grok is triaging…
+      </span>
+    );
+  }
+  if (state === 'escalated-to-human') {
+    return (
+      <span
+        data-testid="triage-lifecycle-badge"
+        data-state="escalated-to-human"
+        title="Grok tried to triage this and could not resolve it — it needs you"
+        className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-3xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
+      >
+        🛡 needs you — AI couldn’t resolve
+      </span>
+    );
+  }
+  return null;
+};
 
 /** True when focus is in a field where the answer-and-advance keys must not fire. */
 function isTypingTarget(el: EventTarget | null): boolean {
@@ -129,18 +166,12 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                   <span className="text-3xs font-medium text-gray-500 dark:text-gray-400 truncate" title={`${e.project} / ${e.session}`}>
                     {e.session}
                   </span>
-                  {/* Steward provenance (Steward P3): the steward triaged this and
-                      routed it on to you — distinguishes triaged-and-deferred from
-                      never-seen. Derived from the server's routedTo flip. */}
-                  {e.routedTo === 'steward' && (
-                    <span
-                      data-testid="steward-provenance-tag"
-                      title="The steward triaged this and sent it to you"
-                      className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-3xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
-                    >
-                      🛡 steward sent this
-                    </span>
-                  )}
+                  {/* Triage lifecycle (fd934fb7): in-flight Grok consult, or a
+                      Grok-tried-and-deferred "needs you" flag. Supersedes the old
+                      bare steward-provenance tag — derived from the same server
+                      facts (routedTo / stewardAttempts / triageInFlight) via the
+                      shared classifier so the left column and Bridge never disagree. */}
+                  <TriageLifecycleBadge escalation={e} />
                   {onJump && (
                     <button
                       type="button"

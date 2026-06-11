@@ -97,6 +97,17 @@ export interface Escalation {
   /** Orch P2: an inline Grok-suggested action at level `propose` (or null). The
    *  human confirms/dismisses it on the card; confirm re-validates server-side. */
   suggestedAction?: SuggestedAction | null;
+  /** Triage lifecycle (epic d5b1ff4e / todo fd934fb7): true WHILE a Grok triage
+   *  consult is in flight for this escalation, so the card can show "Grok is
+   *  triaging…" instead of looking untouched. Server flips it on before the
+   *  classify await and off after (reusing escalation_updated — no new WS event).
+   *  Absent on older payloads → treated as not-in-flight. */
+  triageInFlight?: boolean;
+  /** Who resolved this escalation, when it is no longer open. 'ai' = the steward's
+   *  drive-level auto-resolve closed it (show the outcome briefly rather than let it
+   *  silently vanish); 'human' = a person decided/resolved it. Absent on older
+   *  payloads. */
+  resolvedBy?: 'ai' | 'human';
 }
 
 /** Orch P2: a Grok-suggested action attached inline to an escalation (mirrors the

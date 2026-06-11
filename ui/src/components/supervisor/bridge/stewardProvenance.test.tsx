@@ -37,14 +37,22 @@ describe('steward provenance selectors', () => {
   });
 });
 
-describe('steward provenance tag', () => {
-  it('shows the "steward sent this" tag for a steward-routed escalation', () => {
+describe('triage lifecycle badge (supersedes the bare steward-provenance tag, fd934fb7)', () => {
+  it('flags a steward-routed (Grok-deferred) escalation as "needs you — AI couldn’t resolve"', () => {
     render(<NeedsYouZone escalations={[esc({ routedTo: 'steward' })]} project="P" serverScope="local" />);
-    expect(screen.getByTestId('steward-provenance-tag')).toBeTruthy();
+    const badge = screen.getByTestId('triage-lifecycle-badge');
+    expect(badge).toBeTruthy();
+    expect(badge.getAttribute('data-state')).toBe('escalated-to-human');
   });
 
-  it('omits the tag for a human-routed escalation', () => {
+  it('omits the badge for a plain human-routed, untriaged escalation', () => {
     render(<NeedsYouZone escalations={[esc({ routedTo: 'human' })]} project="P" serverScope="local" />);
-    expect(screen.queryByTestId('steward-provenance-tag')).toBeNull();
+    expect(screen.queryByTestId('triage-lifecycle-badge')).toBeNull();
+  });
+
+  it('shows the in-flight spinner badge while a Grok consult is running', () => {
+    render(<NeedsYouZone escalations={[esc({ triageInFlight: true })]} project="P" serverScope="local" />);
+    const badge = screen.getByTestId('triage-lifecycle-badge');
+    expect(badge.getAttribute('data-state')).toBe('ai-handling');
   });
 });
