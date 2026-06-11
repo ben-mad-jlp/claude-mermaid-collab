@@ -22,6 +22,13 @@ export interface SupervisorOpts {
   /** Health-poll overrides (mainly for tests). */
   healthTimeoutMs?: number;
   healthPollMs?: number;
+  /** Health-based liveness watchdog overrides (mainly for tests). */
+  healthWatchdogPollMs?: number;
+  healthWatchdogThresholdMs?: number;
+  healthWatchdogGraceMs?: number;
+  healthWatchdogTimeoutMs?: number;
+  /** Disable the periodic watchdog interval (tests drive checkHealthOnce directly). */
+  disableHealthWatchdog?: boolean;
   /** Prod: path to the compiled sidecar binary. When set, spawn it instead of `bun run src/server.ts`. */
   serverBinaryPath?: string;
   /** Prod: bundled resources dir (ui/dist, public) passed to the sidecar as MERMAID_RESOURCES_PATH. */
@@ -41,6 +48,15 @@ export interface SupervisorOpts {
 // DB migrations) can take well past 25s on a busy machine.
 const HEALTH_TIMEOUT_MS = 60_000;
 const HEALTH_POLL_MS = 300;
+
+// Health-based liveness watchdog (drive-wedge recovery). Poll cadence, the
+// alive-but-unresponsive window that triggers a kill+respawn, the startup grace
+// that protects a legitimate slow start (registry backfill) from a false respawn,
+// and the per-probe timeout. All overridable via SupervisorOpts (mainly for tests).
+const HEALTH_WATCHDOG_POLL_MS = 15_000;
+const HEALTH_WATCHDOG_THRESHOLD_MS = 45_000;
+const HEALTH_WATCHDOG_GRACE_MS = 90_000;
+const HEALTH_WATCHDOG_TIMEOUT_MS = 5_000;
 
 /**
  * Common user bin dirs that a GUI-launched PATH typically omits. Spans macOS
@@ -250,6 +266,14 @@ export class ServerSupervisor {
   /** Ring buffer of the most recent stderr lines, surfaced in the health-timeout error. */
   private stderrTail: string[] = [];
   private logStream: fs.WriteStream | null = null;
+  /** ms-epoch the current sidecar child was spawned — the anchor the watchdog
+   *  startup grace is measured from (re-stamped on every respawn). */
+  private spawnedAt = 0;
+  private healthWatchdog: ReturnType<typeof setInterval> | null = null;
+  /** Accumulated alive-but-unresponsive time since the last healthy probe. */
+  private unhealthyForMs = 0;
+  private respawning = false;
+  private stopped = false;
 
   constructor(opts: SupervisorOpts) {
     this.opts = opts;
@@ -293,22 +317,35 @@ export class ServerSupervisor {
       );
     }
     // action === 'proceed' → the port is ours (was free, or a stale holder was evicted); spawn.
+    this.stopped = false;
+    this.spawnChild(port);
+    await this.waitForHealth(port);
 
+    this.port = port;
+    this.attached = false;
+    // Start the health-based liveness watchdog now that the sidecar is up. This is
+    // the RECOVERY half of the drive-wedge fix: ServerSupervisor otherwise respawns
+    // only on process EXIT, so a pegged-but-ALIVE hang (CPU spin, frozen HTTP/MCP)
+    // never exits and sits wedged indefinitely (the 9h23m drive wedge, 2026-06-11).
+    this.startHealthWatchdog();
+    return { port, attached: false };
+  }
+
+  /**
+   * Build the sidecar child env (secrets + durable flags + repaired PATH + the
+   * port/host/project wiring). Extracted so the initial spawn and a watchdog
+   * respawn produce an identical environment.
+   */
+  private buildChildEnv(port: number): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       // Inject GUI-held secrets (XAI_API_KEY, …) from ~/.mermaid-collab/config.json
-      // for the keys this (often Dock-/login-launched, clean-env) process lacks, so
-      // the sidecar and its children resolve them without a launchctl stopgap. The
-      // helper skips keys already in process.env, so the explicit-env override wins.
+      // for the keys this (often Dock-/login-launched, clean-env) process lacks.
       ...resolveSecretsEnv(),
       // Inject durable feature flags (MERMAID_WORKER_ISOLATION, …) from the same
-      // config file, so worker write-isolation survives an app restart without a
-      // launchctl setenv / standalone-sidecar stopgap (env still wins if set).
+      // config file, so they survive an app restart (env still wins if set).
       ...resolveFlagsEnv(),
-      // Repair the minimal PATH a GUI/login-item launch inherits, so the sidecar
-      // and its children (tmux, the PTY shells, git, claude) can find
-      // user-installed tools. Without this, tmux is missing after a restart and
-      // session terminals open dead.
+      // Repair the minimal PATH a GUI/login-item launch inherits.
       PATH: augmentedPath(),
       PORT: String(port),
       HOST: this.opts.host,
@@ -322,12 +359,21 @@ export class ServerSupervisor {
     }
     if (this.opts.controlUrl) env.MC_DESKTOP_CONTROL_URL = this.opts.controlUrl;
     if (this.opts.controlToken) env.MC_DESKTOP_CONTROL_TOKEN = this.opts.controlToken;
-    if (this.opts.token) {
-      env.MERMAID_AUTH_TOKEN = this.opts.token;
-    }
+    if (this.opts.token) env.MERMAID_AUTH_TOKEN = this.opts.token;
+    return env;
+  }
 
-    // Prod: run the compiled sidecar binary directly, with assets resolved from
-    // the bundled resources dir. Dev: `bun run src/server.ts` from the repo.
+  /**
+   * Spawn the sidecar child and wire up log teeing + the stderr tail + the
+   * exit-reason recorder. Sets this.child and stamps this.spawnedAt (the anchor the
+   * watchdog startup grace is measured from). Does NOT wait for health — the initial
+   * start() awaits waitForHealth explicitly; a watchdog respawn lets the watchdog
+   * re-verify on its next tick.
+   */
+  private spawnChild(port: number): void {
+    const env = this.buildChildEnv(port);
+    // Prod: run the compiled sidecar binary directly, with assets resolved from the
+    // bundled resources dir. Dev: `bun run src/server.ts` from the repo.
     let cmd: string;
     let args: string[];
     if (this.opts.serverBinaryPath) {
@@ -344,16 +390,17 @@ export class ServerSupervisor {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    this.spawnedAt = Date.now();
 
     // Tee sidecar output to a log file (best-effort) so a failed startup is
-    // diagnosable on machines with no console — and keep a tail of stderr to
-    // fold into the health-timeout error.
-    if (this.opts.logFilePath) {
+    // diagnosable on machines with no console — and keep a tail of stderr to fold
+    // into the health-timeout error.
+    if (this.opts.logFilePath && !this.logStream) {
       try {
         this.logStream = fs.createWriteStream(this.opts.logFilePath, { flags: 'a' });
-        this.logStream.write(`\n--- sidecar start ${new Date().toISOString()} (${cmd}) ---\n`);
       } catch { this.logStream = null; }
     }
+    this.logStream?.write(`\n--- sidecar start ${new Date().toISOString()} (${cmd}) ---\n`);
     this.child.stdout?.on('data', (d: Buffer) => { this.logStream?.write(d); });
     this.child.stderr?.on('data', (d: Buffer) => {
       this.logStream?.write(d);
@@ -368,12 +415,6 @@ export class ServerSupervisor {
       this.stderrTail.push(`[sidecar exited code=${code} signal=${signal}]`);
       if (this.stderrTail.length > 40) this.stderrTail.shift();
     });
-
-    await this.waitForHealth(port);
-
-    this.port = port;
-    this.attached = false;
-    return { port, attached: false };
   }
 
   private async waitForHealth(port: number): Promise<void> {
@@ -405,7 +446,98 @@ export class ServerSupervisor {
     throw err;
   }
 
+  // --- Health-based liveness watchdog (drive-wedge recovery) ---------------------
+  // The exit handler respawns the sidecar only when the process EXITS. A
+  // pegged-but-alive hang (one thread at 98.8% CPU, HTTP/MCP frozen) never exits, so
+  // without this it sits wedged indefinitely. This watchdog polls /api/health while
+  // the process is alive and, if it is unresponsive for the threshold window (after
+  // a startup grace covering a legitimate slow start / registry backfill), kill -9 +
+  // respawns it — turning a multi-hour outage into a ~30s blip.
+
+  /**
+   * Single watchdog evaluation. Exposed (not private) so the deterministic unit
+   * tests can drive it instead of waiting on a real interval. Returns a status
+   * describing what it did this tick.
+   */
+  async checkHealthOnce(): Promise<'idle' | 'grace' | 'healthy' | 'exited' | 'unhealthy' | 'respawned'> {
+    if (this.stopped || this.respawning) return 'idle';
+    if (this.attached || !this.child || this.port == null) return 'idle';
+    const port = this.port;
+    // Startup grace: a fresh sidecar may still be doing heavy first-start work (e.g.
+    // the per-start session-registry backfill) and not yet answering /health. Don't
+    // count those misses — only a hang AFTER the process has had time to come up is a
+    // real wedge.
+    const graceMs = this.opts.healthWatchdogGraceMs ?? HEALTH_WATCHDOG_GRACE_MS;
+    if (Date.now() - this.spawnedAt < graceMs) { this.unhealthyForMs = 0; return 'grace'; }
+
+    const timeoutMs = this.opts.healthWatchdogTimeoutMs ?? HEALTH_WATCHDOG_TIMEOUT_MS;
+    const healthy = await this.probeHealth(port, timeoutMs);
+    if (healthy) { this.unhealthyForMs = 0; return 'healthy'; }
+    // Unresponsive. If the process has already EXITED, that's the exit-respawn path's
+    // job — don't double-handle it here.
+    if (this.child.exitCode != null || this.child.signalCode != null) { this.unhealthyForMs = 0; return 'exited'; }
+
+    const pollMs = this.opts.healthWatchdogPollMs ?? HEALTH_WATCHDOG_POLL_MS;
+    this.unhealthyForMs += pollMs;
+    const thresholdMs = this.opts.healthWatchdogThresholdMs ?? HEALTH_WATCHDOG_THRESHOLD_MS;
+    if (this.unhealthyForMs >= thresholdMs) {
+      await this.respawnHung(port);
+      return 'respawned';
+    }
+    return 'unhealthy';
+  }
+
+  /** Probe /api/health with a hard timeout. true iff a 2xx came back in time. */
+  private async probeHealth(port: number, timeoutMs: number): Promise<boolean> {
+    try {
+      const r = await this.fetchImpl(`http://${this.opts.host}:${port}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Kill -9 the wedged (alive-but-unresponsive) sidecar and respawn it. The new
+   *  process re-stamps spawnedAt so its own startup grace applies; the watchdog
+   *  re-verifies health on subsequent ticks (no synchronous health wait here). */
+  private async respawnHung(port: number): Promise<void> {
+    this.respawning = true;
+    try {
+      const pid = this.child?.pid;
+      try { this.child?.kill('SIGKILL'); } catch { /* ignore */ }
+      if (process.platform === 'win32' && pid != null) {
+        try { this.spawnImpl('taskkill', ['/pid', String(pid), '/T', '/F'], {}); } catch { /* ignore */ }
+      }
+      this.child = null;
+      this.unhealthyForMs = 0;
+      this.spawnChild(port);
+    } finally {
+      this.respawning = false;
+    }
+  }
+
+  /** (Re)start the periodic watchdog interval. No-op when disabled (tests drive
+   *  checkHealthOnce directly). The interval is unref'd so it never keeps the
+   *  process alive on its own. */
+  private startHealthWatchdog(): void {
+    this.stopHealthWatchdog();
+    if (this.opts.disableHealthWatchdog) return;
+    const pollMs = this.opts.healthWatchdogPollMs ?? HEALTH_WATCHDOG_POLL_MS;
+    this.unhealthyForMs = 0;
+    this.healthWatchdog = setInterval(() => { void this.checkHealthOnce(); }, pollMs);
+    this.healthWatchdog.unref?.();
+  }
+
+  private stopHealthWatchdog(): void {
+    if (this.healthWatchdog) {
+      clearInterval(this.healthWatchdog);
+      this.healthWatchdog = null;
+    }
+  }
+
   async stop(): Promise<void> {
+    this.stopped = true;
+    this.stopHealthWatchdog();
     if (this.attached) return; // we didn't spawn it — don't kill it
     if (!this.child) return;
     const pid = this.child.pid;
@@ -437,3 +569,4 @@ export class ServerSupervisor {
     }
   }
 }
+

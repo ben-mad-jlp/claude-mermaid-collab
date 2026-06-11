@@ -164,6 +164,94 @@ describe('ServerSupervisor', () => {
     await sup.stop(); // should not throw and nothing to kill
     expect(spawnImpl).not.toHaveBeenCalled();
   });
+
+  // --- Health-based liveness watchdog (drive-wedge recovery) ---
+  // The acceptance: an alive-but-unresponsive sidecar is detected within the
+  // threshold and kill -9 + respawned; a normal slow-start within the grace does
+  // NOT trigger a false respawn. Ticks are driven deterministically via
+  // checkHealthOnce() (disableHealthWatchdog keeps the real interval off).
+
+  it('watchdog kill -9 + respawns a sidecar that is alive but unresponsive past the threshold', async () => {
+    const child1 = fakeChild(111);
+    const child2 = fakeChild(222);
+    const spawnImpl = vi.fn().mockReturnValueOnce(child1).mockReturnValueOnce(child2);
+    // Health passes for the initial start, then goes dark (the CPU peg).
+    let healthy = true;
+    const fetchImpl = (async () => {
+      if (healthy) return { ok: true };
+      throw new Error('frozen');
+    }) as unknown as typeof fetch;
+    const sup = new ServerSupervisor({
+      ...baseOpts, port: 9999, spawnImpl, fetchImpl,
+      disableHealthWatchdog: true,    // drive ticks manually
+      healthWatchdogGraceMs: 0,       // no grace for this case
+      healthWatchdogPollMs: 10,
+      healthWatchdogThresholdMs: 30,  // 3 consecutive unhealthy ticks
+      healthWatchdogTimeoutMs: 20,
+    });
+    await sup.start();
+    expect(spawnImpl).toHaveBeenCalledOnce();
+
+    healthy = false;                  // sidecar pegs — /health goes dark while alive
+    expect(await sup.checkHealthOnce()).toBe('unhealthy'); // 10ms
+    expect(await sup.checkHealthOnce()).toBe('unhealthy'); // 20ms
+    expect(await sup.checkHealthOnce()).toBe('respawned'); // 30ms → kill+respawn
+    expect(child1.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(spawnImpl).toHaveBeenCalledTimes(2);            // respawned a fresh sidecar
+  });
+
+  it('watchdog does NOT respawn during the startup grace even when /health is down (slow-start backfill)', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => child);
+    let healthy = true;
+    const fetchImpl = (async () => {
+      if (healthy) return { ok: true };
+      throw new Error('starting');
+    }) as unknown as typeof fetch;
+    const sup = new ServerSupervisor({
+      ...baseOpts, port: 9999, spawnImpl, fetchImpl,
+      disableHealthWatchdog: true,
+      healthWatchdogGraceMs: 60_000,  // long grace (registry backfill window)
+      healthWatchdogPollMs: 10,
+      healthWatchdogThresholdMs: 10,  // would trip on the first miss but for the grace
+    });
+    await sup.start();
+    healthy = false;
+    expect(await sup.checkHealthOnce()).toBe('grace');
+    expect(await sup.checkHealthOnce()).toBe('grace');
+    expect(spawnImpl).toHaveBeenCalledOnce();   // no respawn during grace
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('watchdog leaves a healthy sidecar alone', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => child);
+    const sup = new ServerSupervisor({
+      ...baseOpts, port: 9999, spawnImpl, fetchImpl: okFetch,
+      disableHealthWatchdog: true, healthWatchdogGraceMs: 0,
+      healthWatchdogPollMs: 10, healthWatchdogThresholdMs: 10,
+    });
+    await sup.start();
+    expect(await sup.checkHealthOnce()).toBe('healthy');
+    expect(await sup.checkHealthOnce()).toBe('healthy');
+    expect(spawnImpl).toHaveBeenCalledOnce();
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('stop() halts the watchdog (no respawn after stop)', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => child);
+    const sup = new ServerSupervisor({
+      ...baseOpts, port: 9999, spawnImpl, fetchImpl: okFetch,
+      disableHealthWatchdog: true, healthWatchdogGraceMs: 0,
+      healthWatchdogPollMs: 10, healthWatchdogThresholdMs: 10,
+    });
+    await sup.start();
+    await sup.stop();
+    // After stop() the watchdog is inert — a tick is a no-op even if /health is down.
+    expect(await sup.checkHealthOnce()).toBe('idle');
+    expect(spawnImpl).toHaveBeenCalledOnce();
+  });
 });
 
 describe('resolveSecretsEnv', () => {
