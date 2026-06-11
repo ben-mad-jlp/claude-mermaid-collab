@@ -189,6 +189,12 @@ function respawnBackoffMs(retryCount: number): number {
 const MAX_COLD_STARTS = Math.max(1, Number(process.env.MERMAID_MAX_COLD_STARTS) || 2);
 let coldStartsInFlight = 0;
 
+/** Live count of worker cold-starts currently in flight (capped at MAX_COLD_STARTS).
+ *  Read-only snapshot for observability (e.g. the orchestrator_status MCP tool). */
+export function getColdStartsInFlight(): number {
+  return coldStartsInFlight;
+}
+
 // --- DOGFOOD #6: idle-at-prompt stall detection ---------------------------------
 // A worker can be ALIVE (tmux up, lease unexpired) yet silently stalled: it ended
 // its turn sitting at the input prompt awaiting a human decision, without filing an
