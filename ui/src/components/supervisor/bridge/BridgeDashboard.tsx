@@ -220,6 +220,9 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           session: s.session,
           status,
           lastUpdate,
+          // Claim-based anchor for the roster's time-on-task timer (stable across
+          // daemon heartbeats). Null when the lane holds no in-progress claim.
+          taskClaimedAt: entry?.claimedAt ?? null,
           contextPercent: live?.contextPercent,
         };
       });
@@ -236,6 +239,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           session: s.session,
           status: (entry ? fleetToStatus(entry.state) : s.status) as 'active' | 'waiting' | 'permission' | 'unknown' | 'dead',
           lastUpdate: (entry ? entry.lastActivity : s.lastUpdate ?? null) as number | null,
+          taskClaimedAt: entry?.claimedAt ?? null,
           contextPercent: s.contextPercent,
         };
       });

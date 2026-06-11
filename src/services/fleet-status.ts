@@ -36,6 +36,10 @@ export interface FleetEntry {
   /** Repo the work targets (may differ from the tracking project). */
   targetProject: string | null;
   claimedBy: string | null;
+  /** When the worker claimed this todo (ms epoch), or null if unknown. STABLE
+   *  across polls and across daemon heartbeats — the anchor for a card's
+   *  "time-on-task" timer, which must NOT reset when the daemon pings every lane. */
+  claimedAt: number | null;
   /** ms the todo has been in_progress (now - claimedAt), or null if unknown. */
   elapsedMs: number | null;
   /** ms until the claim lease expires (negative ⇒ OVER lease, should be reaped). */
@@ -251,6 +255,7 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
       project,
       targetProject: (t as { targetProject?: string | null }).targetProject ?? null,
       claimedBy: t.claimedBy ?? null,
+      claimedAt: claimedAtValid,
       elapsedMs,
       leaseRemainingMs,
       overLease: leaseRemainingMs != null && leaseRemainingMs < 0,

@@ -25,14 +25,19 @@ interface SubLike {
   status: 'active' | 'waiting' | 'permission' | 'unknown';
   /** REAL last-activity (ms epoch) or null when none is known → timer shows '—'. */
   lastUpdate: number | null;
+  /** When this worker claimed its current todo (ms epoch), or null. Anchors the
+   *  TIME-ON-TASK timer, which counts up monotonically per lane and does NOT reset
+   *  when the daemon pings every lane's heartbeat in lockstep. Preferred over
+   *  lastUpdate for the displayed timer whenever the worker holds a claim. */
+  taskClaimedAt?: number | null;
   contextPercent?: number;
 }
 
-/** Compact "time since last real activity" — '—' when there is no real timestamp
+/** Compact elapsed since `anchor` (ms epoch) — '—' when there is no real timestamp
  *  (never a value derived from render time). */
-function formatLastActivity(lastUpdate: number | null, now: number): string {
-  if (lastUpdate == null || now === 0) return '—';
-  const secs = Math.max(0, Math.round((now - lastUpdate) / 1000));
+function formatSince(anchor: number | null | undefined, now: number): string {
+  if (anchor == null || now === 0) return '—';
+  const secs = Math.max(0, Math.round((now - anchor) / 1000));
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m`;
@@ -134,10 +139,13 @@ export const WorkerRoster: React.FC<WorkerRosterProps> = ({ subscriptions, todos
                 </span>
                 <span
                   data-testid={`roster-timer-${sub.session}`}
-                  title="Time since this worker's last real activity"
+                  title={sub.taskClaimedAt != null ? 'Time on current task (since claim)' : "Time since this worker's last real activity"}
                   className="shrink-0 tabular-nums text-gray-400 dark:text-gray-500"
                 >
-                  {formatLastActivity(sub.lastUpdate, now)}
+                  {/* Prefer TIME-ON-TASK (since claim) — stable + monotonic per lane,
+                      unaffected by the daemon bumping every heartbeat in lockstep.
+                      Fall back to last-activity only when the worker holds no claim. */}
+                  {formatSince(sub.taskClaimedAt ?? sub.lastUpdate, now)}
                 </span>
                 {typeof sub.contextPercent === 'number' && (
                   <span className="shrink-0 flex items-center gap-1">

@@ -29,6 +29,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
 import { AddProjectDialog } from '@/components/dialogs';
 import { OrchestratorLevelBadge } from '@/components/supervisor/bridge/OrchestratorLevelBadge';
+import { useFleetStatus } from '@/hooks/useFleetStatus';
 
 /**
  * Reduce a project's session-card statuses to ONE combined health status — the
@@ -75,6 +76,47 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
       return 'bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600';
   }
 }
+
+/**
+ * The supervised-session card list for ONE project group. Lives in its own
+ * component so it can call useFleetStatus(project) — a hook can't run per-iteration
+ * inside the parent's byProject.map — and stamp each WORKER card with its
+ * claim-based `taskClaimedAt`. That makes the card timer show TIME-ON-TASK (since
+ * claim), which is monotonic per worker and does NOT reset when the daemon pings
+ * every lane's heartbeat in lockstep (the bug this fixes). Non-worker lanes (no
+ * fleet claim) keep the generic last-activity behaviour.
+ */
+const SupervisorProjectCards: React.FC<{
+  project: string;
+  serverScope: string;
+  rows: Array<{ session: SupervisedSession; card: SessionCardData; isSelected: boolean }>;
+  serverLabelById: Map<string, string>;
+  serverIconById: Map<string, string>;
+  activeServerIcon?: string;
+  onNavigate: (sub: SessionCardData) => void;
+  onToggleSupervise: (sub: SessionCardData, next: boolean) => void;
+}> = ({ project, serverScope, rows, serverLabelById, serverIconById, activeServerIcon, onNavigate, onToggleSupervise }) => {
+  const fleet = useFleetStatus(serverScope, project || undefined);
+  return (
+    <div className="space-y-1 mt-1">
+      {rows.map(({ session, card, isSelected }) => {
+        const claimedAt = fleet[session.session]?.claimedAt ?? null;
+        return (
+          <SessionCard
+            key={session.session}
+            sub={claimedAt != null ? { ...card, taskClaimedAt: claimedAt } : card}
+            serverLabel={serverLabelById.get(card.serverId) ?? undefined}
+            serverIcon={serverIconById.get(card.serverId) ?? activeServerIcon}
+            onNavigate={onNavigate}
+            isSelected={isSelected}
+            supervised
+            onToggleSupervise={onToggleSupervise}
+          />
+        );
+      })}
+    </div>
+  );
+};
 
 export interface SupervisorPanelProps {
   currentProject?: string;
@@ -605,36 +647,33 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                   {/* Supervised sessions — same card as Watching. Hidden when the
                       project group is collapsed. */}
                   {!isProjCollapsed && visibleCount > 0 && (
-                    <div className="space-y-1 mt-1">
-                      {projSessions.map((s, idx) => {
-                        const card = cards[idx];
-                        // Declutter: hide gray (idle/stale) worker lanes — show only
-                        // colored ones (active/waiting/permission, incl. the dimmed
-                        // "recently used" within ~15min). The previous check used
-                        // isWorkerSession, which only matches `worker-*` names — NOT
-                        // the pool lanes (backend-1, general-1, …) that ARE the
-                        // workers, so it never fired. Hide any gray session EXCEPT
-                        // orchestrator/role sessions (planner/steward/supervisor),
-                        // which always show.
-                        if (!isVisibleSession(s, idx)) return null;
-                        const isSelected =
-                          !!storeCurrentSession &&
-                          storeCurrentSession.project === s.project &&
-                          storeCurrentSession.name === s.session;
-                        return (
-                          <SessionCard
-                            key={s.session}
-                            sub={card}
-                            serverLabel={serverLabelById.get(card.serverId) ?? undefined}
-                            serverIcon={serverIconById.get(card.serverId) ?? activeServerIcon}
-                            onNavigate={handleNavigate}
-                            isSelected={isSelected}
-                            supervised
-                            onToggleSupervise={handleToggleSupervise}
-                          />
-                        );
-                      })}
-                    </div>
+                    // Declutter: hide gray (idle/stale) worker lanes — show only
+                    // colored ones (active/waiting/permission, incl. the dimmed
+                    // "recently used" within ~15min). The previous check used
+                    // isWorkerSession, which only matches `worker-*` names — NOT
+                    // the pool lanes (backend-1, general-1, …) that ARE the
+                    // workers, so it never fired. Hide any gray session EXCEPT
+                    // orchestrator/role sessions (planner/steward/supervisor).
+                    <SupervisorProjectCards
+                      project={project}
+                      serverScope={serverScope}
+                      rows={projSessions
+                        .map((s, idx) => ({ s, idx }))
+                        .filter(({ s, idx }) => isVisibleSession(s, idx))
+                        .map(({ s, idx }) => ({
+                          session: s,
+                          card: cards[idx],
+                          isSelected:
+                            !!storeCurrentSession &&
+                            storeCurrentSession.project === s.project &&
+                            storeCurrentSession.name === s.session,
+                        }))}
+                      serverLabelById={serverLabelById}
+                      serverIconById={serverIconById}
+                      activeServerIcon={activeServerIcon}
+                      onNavigate={handleNavigate}
+                      onToggleSupervise={handleToggleSupervise}
+                    />
                   )}
                 </div>
               );

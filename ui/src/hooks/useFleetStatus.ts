@@ -29,6 +29,9 @@ export interface FleetEntry {
   project: string;
   targetProject: string | null;
   claimedBy: string | null;
+  /** When the worker claimed its current todo (ms epoch), or null. STABLE across
+   *  polls + daemon heartbeats — anchor for the card "time-on-task" timer. */
+  claimedAt: number | null;
   elapsedMs: number | null;
   leaseRemainingMs: number | null;
   overLease: boolean;

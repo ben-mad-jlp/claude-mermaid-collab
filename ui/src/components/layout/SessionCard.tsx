@@ -111,20 +111,30 @@ export function formatElapsed(ms: number): string {
   return '>1h';
 }
 
-export function useElapsed(lastUpdate: number, status: string): string | null {
+/**
+ * Elapsed-time label for a card.
+ *
+ * `taskClaimedAt` (when provided) is the time the worker claimed its current todo.
+ * For a WORKER lane it is the right metric — TIME-ON-TASK counts up monotonically
+ * per worker and does NOT reset when the daemon pings every lane's heartbeat in
+ * lockstep (the `lastUpdate` heartbeat does). When it is null/absent we fall back
+ * to `lastUpdate` (the generic last-activity behaviour for non-worker sessions).
+ */
+export function useElapsed(lastUpdate: number, status: string, taskClaimedAt?: number | null): string | null {
   const [now, setNow] = useState(Date.now());
+  const anchor = taskClaimedAt ?? lastUpdate;
 
   useEffect(() => {
     if (status === 'unknown') return;
-    const elapsed = Date.now() - lastUpdate;
+    const elapsed = Date.now() - anchor;
     if (elapsed >= 3_600_000) return; // already >1h, no need to keep ticking
     const interval = elapsed < 60_000 ? 1_000 : 60_000;
     const id = setInterval(() => setNow(Date.now()), interval);
     return () => clearInterval(id);
-  }, [lastUpdate, status, now]);
+  }, [anchor, status, now]);
 
   if (status === 'unknown') return null;
-  return formatElapsed(now - lastUpdate);
+  return formatElapsed(now - anchor);
 }
 
 export interface SessionCardData {
@@ -134,6 +144,11 @@ export interface SessionCardData {
   claudeSessionId?: string;
   status: 'active' | 'waiting' | 'permission' | 'unknown';
   lastUpdate: number;
+  /** For a WORKER lane: when it claimed its current todo (ms epoch). When set, the
+   *  card timer shows TIME-ON-TASK (elapsed since claim) instead of last-activity —
+   *  monotonic per worker, and does NOT reset when the daemon heartbeats every lane
+   *  in lockstep. Absent/null for non-worker sessions (generic last-activity). */
+  taskClaimedAt?: number | null;
   contextPercent?: number;
   /** True when the status is the LAST-KNOWN one but no fresh update has arrived
    *  within the staleness window (an idle session sends no heartbeat). The card
@@ -218,7 +233,7 @@ export const SessionCard: React.FC<{
   onDragEnd,
   isDragOver,
 }) => {
-  const elapsed = useElapsed(sub.lastUpdate, sub.status);
+  const elapsed = useElapsed(sub.lastUpdate, sub.status, sub.taskClaimedAt);
 
   const statusBg =
     sub.status === 'permission'
