@@ -314,6 +314,90 @@ async function fetchLaneChangeSet(ctx: GateSubject, cwd: string): Promise<string
   return read ? [...set] : null;
 }
 
+// ─── FRONTEND full-suite gate (todo abb4fd7e) ────────────────────────────────
+//
+// The generic manifestCommandGatePlugin change-set-narrows a FAILED whole-tree
+// run (scopeFailureToChangeSet) so a sibling lane's foreign error can't
+// false-reject. That same narrowing is a HOLE for FRONTEND leaves: a leaf whose
+// OWN files compile + whose OWN tests pass can still REGRESS the rest of the
+// suite (a stale assertion elsewhere, an API the shared test stub doesn't model
+// → cascading reds in untouched files). The narrowed gate attributes those reds
+// to foreign files and ACCEPTS — the observed bug (DM5 / collision CP4-REDO:
+// vitest 76 fail vs main's 3, yet accepted).
+//
+// For `type: frontend|ui` a project can declare `frontendGateCommand` (the FULL
+// suite). This plugin runs it WITHOUT change-set narrowing and judges failures
+// against the declared epic baseline (`frontendBaselineFailures`): a failure
+// matching a baseline entry is a known pre-existing red; only NET-NEW failures
+// reject. It out-resolves the generic command plugin for FE leaves by being
+// registered first (both project tier; ties break by registration order).
+
+/** Extract failing-test descriptors from a vitest-style run: file-level `FAIL
+ *  <path …>` lines and test-level `× / ✗ / ✕ <name>` lines. Deduped. Used to
+ *  diff a failed FE suite against the declared baseline. */
+export function extractFailingTests(out: string): string[] {
+  const fails: string[] = [];
+  for (const raw of out.split('\n')) {
+    const line = raw.trim();
+    const failMatch = line.match(/^FAIL\s+(.+)$/);
+    if (failMatch) { fails.push(failMatch[1].trim()); continue; }
+    const markMatch = line.match(/^[×✗✕]\s+(.+?)(?:\s+\d+\s*ms)?$/);
+    if (markMatch) { fails.push(markMatch[1].trim()); continue; }
+  }
+  return [...new Set(fails)];
+}
+
+/** Failing descriptors that match NONE of the baseline substrings — the net-new
+ *  regressions this leaf is responsible for. */
+export function netNewFailures(failing: readonly string[], baseline: readonly string[]): string[] {
+  const pats = baseline.map((b) => b.trim()).filter(Boolean);
+  return failing.filter((f) => !pats.some((p) => f.includes(p)));
+}
+
+export const frontendSuiteGatePlugin: GatePlugin = {
+  id: 'frontend-suite',
+  tier: 'project',
+  appliesTo: (obj, type) =>
+    (type === 'frontend' || type === 'ui') && Boolean(obj.manifest?.frontendGateCommand?.trim()),
+  run: async (ctx): Promise<GateVerdict | null> => {
+    const cmd = ctx.manifest?.frontendGateCommand?.trim();
+    if (!cmd) return null;
+    // Run in the lane worktree under isolation (its HEAD = this leaf's work),
+    // else the gate repo. The FULL suite runs — no narrowing.
+    const cwd = ctx.laneCwd ?? ctx.gateProject;
+    try {
+      const proc = await ctx.exec(['sh', '-c', cmd], { cwd, capture: true });
+      const out = proc.stdout + '\n' + proc.stderr;
+      const structured = parseTrailingVerdict(out);
+      if (structured) return structured;
+      if (proc.code === 0) return { passed: true, reasons: [], metrics: { feSuiteGate: true } };
+      // FAILED full suite — judge vs the declared baseline, NOT the change-set.
+      const baseline = ctx.manifest?.frontendBaselineFailures ?? [];
+      const failing = extractFailingTests(out);
+      const netNew = netNewFailures(failing, baseline);
+      // Every parsed failure is a known baseline red → this leaf regressed nothing.
+      if (failing.length > 0 && netNew.length === 0) {
+        return { passed: true, reasons: [], metrics: { feSuiteGate: true, baselineOnlyFailures: failing } };
+      }
+      // Net-new regressions (or an unattributable non-zero exit) → REJECT.
+      const detail = netNew.length > 0 ? netNew.slice(0, 20) : [lastLines(out, 20)];
+      return {
+        passed: false,
+        reasons: [
+          `frontend suite gate: ${netNew.length || 'unattributed'} net-new failure(s) vs baseline`,
+          ...detail,
+        ],
+        metrics: { feSuiteGate: true, netNewFailures: netNew, baselineFailures: failing.filter((f) => !netNew.includes(f)) },
+      };
+    } catch (e) {
+      // Fail CLOSED — an un-runnable gate blocks acceptance, never passes it.
+      return { passed: false, reasons: [`frontend suite gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };
+    }
+  },
+};
+
+registerGatePlugin(frontendSuiteGatePlugin);
+
 export const manifestCommandGatePlugin: GatePlugin = {
   id: 'manifest-command',
   tier: 'project',

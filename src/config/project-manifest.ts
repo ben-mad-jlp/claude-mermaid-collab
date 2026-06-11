@@ -76,6 +76,21 @@ export interface ProjectManifest {
    *  for a Python repo where `npx tsc` does not apply). Advisory metadata the
    *  Coordinator-side gate can consult. */
   gateCommand?: string;
+  /** Acceptance gate command for FRONTEND/UI leaves (`type: frontend|ui`). Unlike
+   *  `gateCommand` (whose whole-tree failures are change-set-narrowed, so a leaf
+   *  that regresses OTHER files can still be accepted — the "narrow gate" bug),
+   *  this command runs the FULL suite and its failures are judged against
+   *  `frontendBaselineFailures` (the epic-branch baseline) rather than narrowed to
+   *  the change-set. Net-new failures REJECT. Absent → FE leaves fall through to
+   *  the generic `gateCommand` (today's behavior — no change for projects that
+   *  don't declare it). Include `tsc --noEmit` in the command if you want it. */
+  frontendGateCommand?: string;
+  /** Known pre-existing test failures on the epic/main baseline (e.g. flaky or
+   *  long-red tests like `ws_bridge.query`). Each entry is a substring matched
+   *  against the FE suite's failing-test descriptors; a failure matching ANY entry
+   *  is treated as a pre-existing baseline red, not a regression this leaf caused.
+   *  Only failures matching NONE of these (net-new) reject the leaf. */
+  frontendBaselineFailures?: string[];
   /** Which metric-vocabulary entries (from a project's fitness/analysis tools)
    *  the gate references — documents the seam between the gate and the metrics. */
   metricRefs?: string[];

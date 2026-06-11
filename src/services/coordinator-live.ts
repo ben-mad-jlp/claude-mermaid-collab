@@ -841,16 +841,27 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             removeSlot(session);
           }
         } catch (e) {
-          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason: e instanceof Error ? e.message : String(e) }) });
-          // BP0: the merge-back THREW, so the work almost certainly never reached
-          // the epic branch — yet the store already marked the todo accepted. Verify
-          // and, if it's genuinely stranded, reverse the acceptance instead of
-          // leaving a phantom-accepted todo (the silent failure this bug is about).
+          // BP0 + abb4fd7e (unioned): the merge-back THREW, so the work almost
+          // certainly never reached the epic branch — yet the store already marked the
+          // todo accepted. Verify; if genuinely stranded, REVERSE the acceptance
+          // (reopenStrandedAccept) AND raise an escalation so a human integrates the
+          // orphaned session branch rather than discovering it via `git log --all`.
+          const reason = e instanceof Error ? e.message : String(e);
+          recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason }) });
           try {
             const wm = getWorktreeManager(r.completed.targetProject ?? project);
             const epicId = resolveEpicId(r.completed, project);
             if (!(await wm.todoOnEpicBranch(epicId, id))) {
               await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, wm.epicBranchName(epicId), session);
+              try {
+                createEscalation({
+                  project,
+                  session,
+                  todoId: id,
+                  kind: 'assumption-invalidated',
+                  questionText: `Stranded leaf: todo "${r.completed.title}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
+                });
+              } catch { /* best-effort: never let escalation failure mask the accept */ }
             }
           } catch { /* best-effort BP0 re-surface; never throw from the complete callback */ }
         }

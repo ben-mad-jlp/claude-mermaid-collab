@@ -9,6 +9,9 @@ import {
   extractDiagnosticFiles,
   isInChangeSet,
   scopeFailureToChangeSet,
+  frontendSuiteGatePlugin,
+  extractFailingTests,
+  netNewFailures,
   type GatePlugin,
   type GateSubject,
 } from '../gate-runner';
@@ -234,5 +237,81 @@ describe('lane-local change-set scoping (todo b78fd3f6)', () => {
       subject({ manifest: { gateCommand: 'npx tsc --noEmit' }, exec, laneCwd: '/wt/backend-2', integrationBase: 'collab/integration' }),
     );
     expect(verdict?.passed).toBe(false); // un-attributable → fail closed, never a false pass
+  });
+});
+
+describe('frontend full-suite gate (todo abb4fd7e)', () => {
+  it('extractFailingTests parses FAIL-file and ×/✗/✕ test lines, deduped', () => {
+    const out = [
+      ' FAIL  src/tabs.test.ts > renders tabs',
+      '   × CollisionSection > builds 12ms',
+      '   ✗ viewport_camera > pans',
+      '   ✕ ui_tools > toggles 3 ms',
+      ' FAIL  src/tabs.test.ts > renders tabs', // dup
+      '   ✓ something passes',
+    ].join('\n');
+    expect(extractFailingTests(out)).toEqual([
+      'src/tabs.test.ts > renders tabs',
+      'CollisionSection > builds',
+      'viewport_camera > pans',
+      'ui_tools > toggles',
+    ]);
+  });
+
+  it('netNewFailures excludes failures matching any baseline substring', () => {
+    const failing = ['ws_bridge.query > a', 'ws_bridge.query > b', 'CollisionSection > builds'];
+    expect(netNewFailures(failing, ['ws_bridge.query'])).toEqual(['CollisionSection > builds']);
+  });
+
+  it('applies only to frontend/ui leaves that declare frontendGateCommand', () => {
+    const manifest = { frontendGateCommand: 'npm run test:ci' };
+    expect(frontendSuiteGatePlugin.appliesTo(subject({ manifest }), 'frontend')).toBe(true);
+    expect(frontendSuiteGatePlugin.appliesTo(subject({ manifest }), 'ui')).toBe(true);
+    expect(frontendSuiteGatePlugin.appliesTo(subject({ manifest }), 'backend')).toBe(false);
+    expect(frontendSuiteGatePlugin.appliesTo(subject({ manifest: {} }), 'frontend')).toBe(false);
+  });
+
+  it('wins resolution over the generic manifest-command plugin for FE leaves', () => {
+    const obj = subject({
+      todo: { type: 'frontend' } as GateSubject['todo'],
+      manifest: { gateCommand: 'npx tsc', frontendGateCommand: 'npm run test:ci' },
+    });
+    expect(resolveGatePlugin(obj, 'frontend')?.id).toBe('frontend-suite');
+  });
+
+  it('passes a green full suite', async () => {
+    const exec: GateExec = async () => ({ code: 0, stdout: 'Test Files 10 passed', stderr: '' });
+    const v = await frontendSuiteGatePlugin.run(subject({ manifest: { frontendGateCommand: 'x' }, exec }));
+    expect(v?.passed).toBe(true);
+  });
+
+  it('REJECTS a net-new regression even when the leaf changed unrelated files (narrow-gate bug)', async () => {
+    const out = [' FAIL  src/viewport_camera.test.ts > renders', '   × ui_tools > toggles'].join('\n');
+    const exec: GateExec = async () => ({ code: 1, stdout: out, stderr: '' });
+    const v = await frontendSuiteGatePlugin.run(
+      subject({ manifest: { frontendGateCommand: 'x', frontendBaselineFailures: ['ws_bridge.query'] }, exec }),
+    );
+    expect(v?.passed).toBe(false);
+  });
+
+  it('PASSES when every failure is a known baseline red (no net-new)', async () => {
+    const out = [' FAIL  src/ws_bridge.query.test.ts > a', '   × ws_bridge.query > b'].join('\n');
+    const exec: GateExec = async () => ({ code: 1, stdout: out, stderr: '' });
+    const v = await frontendSuiteGatePlugin.run(
+      subject({ manifest: { frontendGateCommand: 'x', frontendBaselineFailures: ['ws_bridge.query'] }, exec }),
+    );
+    expect(v?.passed).toBe(true);
+  });
+
+  it('fails CLOSED on a non-zero exit with no parseable failures', async () => {
+    const exec: GateExec = async () => ({ code: 1, stdout: 'segfault, no test output', stderr: '' });
+    const v = await frontendSuiteGatePlugin.run(subject({ manifest: { frontendGateCommand: 'x' }, exec }));
+    expect(v?.passed).toBe(false);
+  });
+
+  it('honors a structured trailing verdict over exit code', async () => {
+    const exec: GateExec = async () => ({ code: 1, stdout: '{"passed":true,"reasons":[]}', stderr: '' });
+    const v = await frontendSuiteGatePlugin.run(subject({ manifest: { frontendGateCommand: 'x' }, exec }));
+    expect(v?.passed).toBe(true);
   });
 });
