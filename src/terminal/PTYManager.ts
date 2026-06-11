@@ -43,8 +43,17 @@ export interface PTYSession {
    *  created via `create()` are treated as ready (their write path is covered by
    *  unit tests that expect a synchronous write). */
   ready: boolean;
-  /** A switchTarget payload deferred until the shell is `ready` (see above). */
+  /** A switchTarget payload deferred until the shell is `ready` (first attach) or
+   *  the previous tmux client has fully detached (a re-point). See switchTarget. */
   pendingWrite: string | null;
+  /** True while a re-point is waiting for the OLD tmux client to finish detaching
+   *  before the new attach command is written. Writing the attach the instant the
+   *  detach key (C-b d) is sent loses its leading bytes: the still-attached client
+   *  reads them in raw mode and discards them, so the shell receives a truncated
+   *  `|| tmux new-session …` → broken switch (the v5.92.26 switch regression). The
+   *  data handler clears this and flushes `pendingWrite` once tmux prints its
+   *  `[detached …]` line, which only appears after the client is gone. */
+  awaitingDetach: boolean;
 }
 
 export interface PTYSessionInfo {
@@ -133,6 +142,12 @@ export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: str
  *  process, and every attached WebSocket survive the switch. (The session style
  *  applied on attach never remaps the prefix, so C-b is safe.) */
 export const TMUX_DETACH_SEQUENCE = '\x02d';
+
+/** Fallback delay before flushing a queued re-point attach if tmux's `[detached
+ *  …]` line is never observed (e.g. an unusual detach path). Long enough that the
+ *  normal detach (tens of ms) always wins via the marker; short enough to stay
+ *  responsive if the marker is missed. */
+export const DETACH_FLUSH_FALLBACK_MS = 500;
 
 export interface AttachOptions {
   cols?: number;
@@ -246,6 +261,7 @@ export class PTYManager {
       // create()-made sessions write synchronously (covered by unit tests).
       ready: true,
       pendingWrite: null,
+      awaitingDetach: false,
     };
 
     try {
@@ -451,6 +467,24 @@ export class PTYManager {
    *
    * @throws if the session does not exist.
    */
+  /** Write a session's queued switchTarget payload (if any) to its PTY and clear
+   *  the pending/awaiting state. Idempotent: a no-op once already flushed, so the
+   *  data-handler marker and the timer fallback can both call it safely. */
+  private flushPending(session: PTYSession): void {
+    if (!session.pendingWrite) {
+      session.awaitingDetach = false;
+      return;
+    }
+    const queued = session.pendingWrite;
+    session.pendingWrite = null;
+    session.awaitingDetach = false;
+    try {
+      session.terminal.write(queued);
+    } catch (error) {
+      console.warn(`Failed to flush queued switch for ${session.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   switchTarget(sessionId: string, tmux: { base: string; grouped?: string; cwd?: string }): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -473,12 +507,22 @@ export class PTYManager {
         // 'tmux'`). Queue it; the first-data handler flushes once the prompt
         // proves the shell is reading. No detach needed: nothing is attached yet.
         session.pendingWrite = attachPayload;
+        session.awaitingDetach = false;
+      } else if (session.currentTmuxTarget) {
+        // RE-POINT: a tmux client currently owns the shell's stdin. Send the
+        // detach key, but DON'T write the attach command yet — the detaching
+        // client reads ahead in raw mode and would swallow its leading bytes
+        // (the truncated `|| tmux new-session …` switch bug). Queue it; the data
+        // handler flushes once tmux prints `[detached …]` (client fully gone).
+        // A timer is the fallback in case that line never arrives.
+        session.pendingWrite = attachPayload;
+        session.awaitingDetach = true;
+        session.terminal.write(TMUX_DETACH_SEQUENCE);
+        setTimeout(() => {
+          if (this.sessions.get(sessionId) === session) this.flushPending(session);
+        }, DETACH_FLUSH_FALLBACK_MS);
       } else {
-        // Detach the current attach first (if any) so the attach command isn't
-        // swallowed by the tmux client that currently owns the shell's stdin.
-        if (session.currentTmuxTarget) {
-          session.terminal.write(TMUX_DETACH_SEQUENCE);
-        }
+        // Ready shell, no current target → safe to write immediately.
         session.terminal.write(attachPayload);
       }
     } catch (error) {
@@ -543,6 +587,7 @@ export class PTYManager {
         // leading bytes (the truncation regression). Flipped on first data below.
         ready: false,
         pendingWrite: null,
+        awaitingDetach: false,
       };
 
       try {
@@ -557,19 +602,19 @@ export class PTYManager {
             rows: 24,
             data: (terminal, data) => {
               const text = new TextDecoder().decode(data);
-              // First output = the shell printed its prompt and is now reading
-              // stdin. Safe to flush a switchTarget command queued before the
-              // shell finished initializing (past its startup input-flush).
-              if (!session!.ready) {
-                session!.ready = true;
-                if (session!.pendingWrite) {
-                  const queued = session!.pendingWrite;
-                  session!.pendingWrite = null;
-                  try {
-                    session!.terminal.write(queued);
-                  } catch (error) {
-                    console.warn(`Failed to flush queued switch for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
-                  }
+              // Flush a queued switchTarget command at the right moment:
+              //  - first attach: the shell's first output is its prompt → it has
+              //    finished initializing (past its startup input-flush) and is
+              //    reading stdin, so the command lands intact.
+              //  - re-point: wait for tmux's `[detached …]` line, which only prints
+              //    once the OLD client is fully gone — writing sooner lets the
+              //    detaching client swallow the new command's leading bytes.
+              const firstData = !session!.ready;
+              session!.ready = true;
+              if (session!.pendingWrite) {
+                const detachDone = session!.awaitingDetach && text.includes('detached');
+                if (detachDone || (firstData && !session!.awaitingDetach)) {
+                  this.flushPending(session!);
                 }
               }
               session!.buffer.write(text);

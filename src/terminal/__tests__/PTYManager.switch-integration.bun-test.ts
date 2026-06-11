@@ -80,4 +80,36 @@ describeMaybe('console switchTarget — real tmux attach (no shell mangling)', (
     expect(out).not.toContain('parse error');
     expect(out).not.toContain('command not found');
   });
+
+  it('RE-POINTS from one target to another without truncating the attach (the switch bug)', async () => {
+    const sessionId = `console-reswitch-${process.pid}`;
+    const a = `mc-reswitch-a-${process.pid}`;
+    const b = `mc-reswitch-b-${process.pid}`;
+    created.push(a, b);
+
+    const ws = new CollectingWS() as any;
+    manager.attach(sessionId, ws);
+
+    // First attach → A.
+    manager.switchTarget(sessionId, { base: a });
+    await new Promise(r => setTimeout(r, 1500));
+    expect(execFileSync('tmux', ['list-clients', '-t', a], { encoding: 'utf-8' }).trim().length)
+      .toBeGreaterThan(0);
+
+    // RE-POINT A → B. The detach-race regression dropped the attach command's
+    // leading bytes here, so B never got a client and the shell printed a
+    // truncated `|| tmux new-session …`. Gating the re-attach on tmux's
+    // `[detached …]` line fixes it.
+    manager.switchTarget(sessionId, { base: b });
+    await new Promise(r => setTimeout(r, 2000));
+
+    const clientsB = execFileSync('tmux', ['list-clients', '-t', b], { encoding: 'utf-8' });
+    expect(clientsB.trim().length).toBeGreaterThan(0);
+
+    // No truncation artifacts in the stream.
+    const out = ws.outputText().toLowerCase();
+    expect(out).not.toContain('syntax error');
+    expect(out).not.toContain('command not found');
+    expect(out).not.toContain('unexpected token');
+  });
 });
