@@ -79,10 +79,16 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
   const [locked, setLocked] = useState<Record<string, boolean>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Inline add/edit editor: null = closed, '' (with editId null) = adding, else editing.
-  const [editing, setEditing] = useState<{ id: string | null; value: string } | null>(null);
+  // Inline add/edit editor: null = closed, id null = adding, else editing. `compose`
+  // is the create-time Send⇄Compose choice (design §3c) — set on the add/edit form.
+  const [editing, setEditing] = useState<{ id: string | null; value: string; compose: boolean } | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const dragId = useRef<string | null>(null);
+
+  // Roving-focus index across the rail's chips (a11y toolbar pattern). The chip
+  // at focusedIdx is the single tab stop (tabIndex 0); arrows move between chips.
+  const [focusedIdx, setFocusedIdx] = useState(0);
+  const chipRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(
     () => () => {
@@ -104,11 +110,18 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
     return () => document.removeEventListener('mousedown', onDown);
   }, [menu]);
 
-  const sendChip = (chip: Chip) => {
+  // Send a chip. A filled (send) chip submits (Enter); an outlined (compose) chip
+  // types-only (submit:false). Alt/⌥-tap INVERTS that default on ANY chip — the
+  // universal override (design §3a, Grok §7). The backend skips the trailing
+  // Enter when submit===false (QR3 route flag).
+  const sendChip = (chip: Chip, altKey = false) => {
     if (disabled || locked[chip.id]) return;
 
+    const composeDefault = !!chip.compose;          // outlined chips stage-for-edit
+    const submit = altKey ? composeDefault : !composeDefault;
+
     const text = chip.text ?? chip.label;
-    const body = { project, session, text };
+    const body = { project, session, text, submit };
     const mc = (window as any).mc;
     // Copy resetActiveTerminal's dispatch shape: per-server invoke, fetch fallback.
     if (mc?.invokeOnServer) {
@@ -148,13 +161,56 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
     if (!editing) return;
     const parsed = parseChipInput(editing.value);
     if (parsed) {
-      if (editing.id === null) addChip(parsed);
-      else editChip(editing.id, { label: parsed.label, text: parsed.text ?? parsed.label });
+      if (editing.id === null) addChip({ ...parsed, compose: editing.compose });
+      else editChip(editing.id, { label: parsed.label, text: parsed.text ?? parsed.label, compose: editing.compose });
     }
     setEditing(null);
   };
 
   const visibleDefaults = DEFAULT_CHIPS.filter((c) => !hiddenDefaults.includes(c.id));
+  // Flat, ordered chip list (defaults pinned-left, then custom) — the roving-focus
+  // and scoped-key model index into this.
+  const orderedChips = [...visibleDefaults, ...custom];
+  // Clamp the roving index so exactly one chip stays a tab stop even after chips
+  // are deleted/hidden (a stale out-of-range index would orphan the toolbar).
+  const safeFocused = orderedChips.length ? Math.min(focusedIdx, orderedChips.length - 1) : 0;
+
+  const focusChipAt = (idx: number) => {
+    const n = orderedChips.length;
+    if (n === 0) return;
+    const next = ((idx % n) + n) % n;
+    setFocusedIdx(next);
+    chipRefs.current[next]?.focus();
+  };
+
+  // Keyboard model for the rail. SCOPED to the rail's own focus — this handler
+  // only fires when focus is inside the rail, so the xterm pane's keystrokes are
+  // never touched (no global bind). Arrows rove between chips; number/y/n trigger
+  // their chip; ⌘./Ctrl+. toggles the collapse hatch.
+  const onRailKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+      e.preventDefault();
+      toggleCollapsed();
+      return;
+    }
+    // Don't hijack the inline add/edit input.
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+
+    if (e.key === 'ArrowRight') { e.preventDefault(); focusChipAt(focusedIdx + 1); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); focusChipAt(focusedIdx - 1); return; }
+    if (e.key === 'Home') { e.preventDefault(); focusChipAt(0); return; }
+    if (e.key === 'End') { e.preventDefault(); focusChipAt(orderedChips.length - 1); return; }
+
+    const k = e.key.toLowerCase();
+    let target: Chip | undefined;
+    if (/^[1-9]$/.test(k)) target = orderedChips.find((c) => c.label === k);
+    else if (k === 'y') target = orderedChips.find((c) => c.id === 'yes');
+    else if (k === 'n') target = orderedChips.find((c) => c.id === 'no');
+    if (target) {
+      e.preventDefault();
+      sendChip(target, e.altKey);
+    }
+  };
 
   // Collapsed: a 4px hairline that re-expands on click. Deliberately no chevron —
   // collapsing is rare; surfacing the control would add the chrome the rail rejects.
@@ -171,35 +227,63 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
     );
   }
 
-  const renderEditor = (key: string, id: string | null) => (
-    <input
-      key={key}
-      autoFocus
-      value={editing?.value ?? ''}
-      placeholder="label = text"
-      onChange={(e) => setEditing({ id, value: e.target.value })}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') { e.preventDefault(); commitEditor(); }
-        else if (e.key === 'Escape') { e.preventDefault(); setEditing(null); }
-      }}
-      onBlur={() => setEditing(null)}
-      style={{
-        flex: '0 0 auto', width: 160, padding: '2px 8px', fontSize: 12, lineHeight: 1.4,
-        color: '#c9d1d9', background: '#0d1117',
-        border: '1px solid #58a6ff', borderRadius: 4, outline: 'none',
-      }}
-    />
-  );
+  const renderEditor = (key: string, id: string | null) => {
+    const compose = editing?.compose ?? false;
+    return (
+      <span key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flex: '0 0 auto' }}>
+        <input
+          autoFocus
+          value={editing?.value ?? ''}
+          placeholder="label = text"
+          onChange={(e) => setEditing({ id, value: e.target.value, compose })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitEditor(); }
+            else if (e.key === 'Escape') { e.preventDefault(); setEditing(null); }
+          }}
+          // Blur cancels — but a mousedown on the toggle (which preventDefaults)
+          // doesn't blur the input, so the toggle can flip without closing.
+          onBlur={() => setEditing(null)}
+          style={{
+            flex: '0 0 auto', width: 160, padding: '2px 8px', fontSize: 12, lineHeight: 1.4,
+            color: '#c9d1d9', background: '#0d1117',
+            border: '1px solid #58a6ff', borderRadius: 4, outline: 'none',
+          }}
+        />
+        {/* Create-time Send⇄Compose toggle (design §3c). */}
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); setEditing({ id, value: editing?.value ?? '', compose: !compose }); }}
+          title={compose ? 'Compose chip (types, no Enter) — click for Send' : 'Send chip (submits) — click for Compose'}
+          aria-label={compose ? 'compose chip, switch to send' : 'send chip, switch to compose'}
+          style={{
+            flex: '0 0 auto', padding: '2px 6px', fontSize: 11, lineHeight: 1.4, cursor: 'pointer',
+            color: compose ? '#d2a8ff' : '#c9d1d9',
+            background: compose ? 'transparent' : '#21262d',
+            border: `1px solid ${compose ? '#8957e5' : '#30363d'}`, borderRadius: 4,
+          }}
+        >
+          {compose ? 'compose ›' : 'send'}
+        </button>
+      </span>
+    );
+  };
 
-  const renderChip = (chip: Chip, isDefault: boolean) => {
+  const renderChip = (chip: Chip, isDefault: boolean, idx: number) => {
     // Edit grows in place: replace the chip with the inline editor.
     if (editing && editing.id === chip.id) return renderEditor(chip.id, chip.id);
     const isLocked = !!locked[chip.id];
     const compose = !!chip.compose;
+    const verb = compose ? 'Type' : 'Send';
+    const payload = chip.text ?? chip.label;
     return (
       <button
         key={chip.id}
+        ref={(el) => { chipRefs.current[idx] = el; }}
         type="button"
+        // Roving focus: only the focused chip is a tab stop; arrows move between.
+        tabIndex={idx === safeFocused ? 0 : -1}
+        onFocus={() => setFocusedIdx(idx)}
+        aria-label={`${verb.toLowerCase()} ${chip.label}`}
         draggable={!isDefault && !disabled}
         onDragStart={() => { if (!isDefault) dragId.current = chip.id; }}
         onDragOver={(e) => { if (!isDefault && dragId.current) e.preventDefault(); }}
@@ -210,12 +294,12 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           dragId.current = null;
         }}
         disabled={disabled || isLocked}
-        onClick={() => sendChip(chip)}
+        onClick={(e) => sendChip(chip, e.altKey)}
         onContextMenu={(e) => openContextMenu(e, chip, isDefault)}
         title={
-          isDefault
-            ? `Send "${chip.text ?? chip.label}" · right-click to hide`
-            : `${compose ? 'Type' : 'Send'} "${chip.text ?? chip.label}" · right-click to manage`
+          // Advertise send-vs-type + the ⌥ override (design §3a / §4.3).
+          `${verb} "${payload}" · ⌥-click to ${compose ? 'send' : 'type only'}` +
+          (isDefault ? ' · right-click to hide' : ' · right-click to manage')
         }
         style={{
           flex: '0 0 auto',
@@ -223,12 +307,14 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           padding: '2px 8px', fontSize: 12, lineHeight: 1.4,
           whiteSpace: 'nowrap',
           cursor: disabled || isLocked ? 'default' : 'pointer',
-          color: isLocked ? '#3fb950' : compose ? '#8b949e' : isDefault ? '#c9d1d9' : '#e6edf3',
-          // Filled = fires; outlined (transparent) + caret = stages-for-edit (compose).
+          // Compose chips: hue-shifted (violet) text + outline, not border-weight
+          // alone (Grok §3) — you SEE it stages-for-edit before tapping.
+          color: isLocked ? '#3fb950' : compose ? '#d2a8ff' : isDefault ? '#c9d1d9' : '#e6edf3',
+          // Filled = fires; transparent + caret = stages-for-edit (compose).
           background: compose ? 'transparent' : '#21262d',
-          border: `1px solid ${isLocked ? '#238636' : '#30363d'}`,
+          border: `1px solid ${isLocked ? '#238636' : compose ? '#8957e5' : '#30363d'}`,
           borderRadius: 4,
-          opacity: isLocked ? 0.6 : compose ? 0.85 : 1,
+          opacity: isLocked ? 0.6 : compose ? 0.8 : 1,
           transition: 'color 120ms, border-color 120ms',
         }}
       >
@@ -241,19 +327,15 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
 
   return (
     <div
-      tabIndex={-1}
+      role="toolbar"
+      aria-label="Quick replies"
+      aria-orientation="horizontal"
       onDoubleClick={(e) => {
         // Double-click the rail background (not a chip/button) collapses it.
         if ((e.target as HTMLElement).closest('button, input')) return;
         toggleCollapsed();
       }}
-      onKeyDown={(e) => {
-        // ⌘. (or Ctrl+.) when the rail holds focus toggles the collapse hatch.
-        if ((e.metaKey || e.ctrlKey) && e.key === '.') {
-          e.preventDefault();
-          toggleCollapsed();
-        }
-      }}
+      onKeyDown={onRailKeyDown}
       style={{
         display: 'flex', alignItems: 'center', gap: 4,
         flex: '0 0 auto', minHeight: 26,
@@ -266,11 +348,10 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
       }}
       title={disabled ? 'No console attached' : undefined}
     >
-      {/* Defaults — pinned left, non-draggable. */}
-      {visibleDefaults.map((chip) => renderChip(chip, true))}
-
-      {/* Custom chips — draggable to reorder. */}
-      {custom.map((chip) => renderChip(chip, false))}
+      {/* Defaults — pinned left, non-draggable. Then custom chips (draggable to
+          reorder). Index is the flat position for roving focus + scoped keys. */}
+      {visibleDefaults.map((chip, i) => renderChip(chip, true, i))}
+      {custom.map((chip, i) => renderChip(chip, false, visibleDefaults.length + i))}
 
       {/* Trailing +/editor — grows in place into an inline input. Sticky-right so
           it never scrolls out of reach as chips multiply. */}
@@ -281,7 +362,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           <button
             type="button"
             disabled={disabled}
-            onClick={() => setEditing({ id: null, value: '' })}
+            onClick={() => setEditing({ id: null, value: '', compose: false })}
             title="Add a custom chip (label or label = text)"
             style={{
               flex: '0 0 auto', padding: '2px 8px', fontSize: 14, lineHeight: 1.2,
@@ -319,7 +400,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
                 onClick={() => {
                   const c = menu.chip;
                   const value = c.text && c.text !== c.label ? `${c.label} = ${c.text}` : c.label;
-                  setEditing({ id: c.id, value });
+                  setEditing({ id: c.id, value, compose: !!c.compose });
                   setMenu(null);
                 }}
               />
