@@ -1,0 +1,3 @@
+- mcp-server
+- skills
+- coding-standards

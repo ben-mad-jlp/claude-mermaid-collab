@@ -1,0 +1,7 @@
+- `/src/types.ts` - Root shared types
+- `/src/types/question.ts` - Question and UI types
+- `/src/types/terminal.ts` - Terminal session types
+- `/ui/src/types/index.ts` - Central type exports
+- `/ui/src/types/ai-ui.ts` - AI-UI component props
+- `/ui/src/types/diagram.ts` - Diagram operation types
+- `/ui/src/types/session.ts` - Session and CollabState types

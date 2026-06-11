@@ -1,0 +1,4 @@
+- `/src/lib/mermaid.ts` - MermaidError class
+- `/src/lib/api.ts` - APIError interface
+- `/src/routes/api.ts` - API route error handling (35+ catch blocks)
+- `/src/terminal/PTYManager.ts` - Terminal error handling

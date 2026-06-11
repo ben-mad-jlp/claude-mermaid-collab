@@ -1,0 +1,5 @@
+- `/src/mcp/setup.ts` - All tool definitions (1354 lines)
+- `/src/mcp/tools/render-ui.ts` - UI rendering
+- `/src/mcp/tools/terminal-sessions.ts` - Terminal tools
+- `/src/mcp/workflow/complete-skill.ts` - Skill orchestration
+- `/src/mcp/workflow/state-machine.ts` - State definitions

@@ -1,0 +1,3 @@
+- type-conventions
+- error-patterns
+- file-naming

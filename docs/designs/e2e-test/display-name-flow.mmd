@@ -1,0 +1,8 @@
+graph TD
+    A["GET /api/session-state"] --> B["Read collab-state.json"]
+    B --> C{"state field set?"}
+    C -->|Yes| D["Compute displayName from state"]
+    C -->|No| E["Fall back to session name"]
+    D --> F["Return JSON response"]
+    E --> F
+    F --> G["SessionCard renders badge"]

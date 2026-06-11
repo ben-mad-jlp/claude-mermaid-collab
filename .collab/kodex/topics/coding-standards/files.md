@@ -1,0 +1,5 @@
+- `/tsconfig.json` - Root TypeScript config
+- `/ui/tsconfig.json` - Frontend TypeScript config
+- `/ui/.eslintrc.cjs` - ESLint configuration
+- `/ui/tailwind.config.js` - Tailwind configuration
+- `CLAUDE.md` - Version management instructions

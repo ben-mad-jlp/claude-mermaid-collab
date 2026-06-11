@@ -1,0 +1,5 @@
+- `/package.json` - Root package (v5.36.4)
+- `/tsconfig.json` - TypeScript config
+- `/ui/package.json` - Frontend package
+- `/ui/vite.config.ts` - Build config
+- `/.claude-plugin/plugin.json` - Plugin metadata

@@ -1,0 +1,5 @@
+- `/src/services/validator.ts` - Diagram validation
+- `/src/services/session-registry.ts` - Session validation
+- `/src/services/project-registry.ts` - Path validation
+- `/src/mcp/tools/render-ui.ts` - UI structure validation
+- `/src/config.ts` - Port validation

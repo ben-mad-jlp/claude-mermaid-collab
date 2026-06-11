@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "src/services/source-scanner.ts",
+  "title": "Source Scanner",
+  "purpose": "Regex-based Level 1 structural scanner. Walks source files per language and emits StructuralMethod[] with paramCount, visibility, multi-line signature support, and class context.",
+  "module_context": "Level 1 of the pseudo-db two-level indexing pipeline. Runs on every pre-commit via bin/structural-index.ts. Intentionally cheap — no AST, no LLM.",
+  "methods": [
+    {
+      "id": "m_7dda381f",
+      "name": "countParams",
+      "enclosing_class": null,
+      "normalized_params": "string",
+      "body_fingerprint": "h_1388ed0c",
+      "prose_origin": "manual",
+      "steps": [
+        {
+          "order": 0,
+          "content": "Return 0 if params is empty or whitespace-only"
+        },
+        {
+          "order": 1,
+          "content": "Walk the string char-by-char tracking depth of <, (, {, [ brackets"
+        },
+        {
+          "order": 2,
+          "content": "Track string state for ', \", and backtick (with escape char handling)"
+        },
+        {
+          "order": 3,
+          "content": "Count top-level commas (depth 0, not in string)"
+        },
+        {
+          "order": 4,
+          "content": "Return topLevelCommaCount + 1"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

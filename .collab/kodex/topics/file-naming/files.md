@@ -1,0 +1,4 @@
+- `/src/services/` - Backend service files
+- `/ui/src/components/` - React components
+- `/skills/` - Skill directories
+- `/ui/src/components/__tests__/` - Test directories

@@ -1,0 +1,5 @@
+- `/skills/` - All skill directories
+- `/skills/collab/SKILL.md` - Entry point skill
+- `/skills/test-driven-development/SKILL.md` - TDD methodology (477 lines)
+- `/skills/executing-plans/SKILL.md` - Task execution
+- `/skills/using-superpowers/SKILL.md` - Skill discovery
