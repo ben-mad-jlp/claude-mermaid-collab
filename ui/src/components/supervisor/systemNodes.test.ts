@@ -8,11 +8,12 @@ const base: DeriveInput = {
     { project: '/p', session: 'w2' },
     { project: '/other', session: 'w3' },
   ],
-  subscriptions: [
-    { project: '/p', session: 'w1', status: 'active' },
-    { project: '/p', session: 'w2', status: 'waiting' },
-  ],
-  escalations: [{ project: '/p', session: 'w2', status: 'open' }],
+  // subscriptionStore map shape (`serverId:project:session` → SessionStatus).
+  subscriptions: {
+    'local:/p:w1': { serverId: 'local', project: '/p', session: 'w1', status: 'active' },
+    'local:/p:w2': { serverId: 'local', project: '/p', session: 'w2', status: 'waiting' },
+  },
+  openEscalations: [{ project: '/p', session: 'w2' }],
   project: '/p',
 };
 
@@ -61,16 +62,19 @@ describe('deriveSystemNodes', () => {
 
 describe('supervisorLiveness', () => {
   const cfg = { supervisorProject: '/p', supervisorSession: 'sup' };
+  const supSub = (lastUpdate: number) => ({
+    'local:/p:sup': { serverId: 'local', project: '/p', session: 'sup', status: 'active' as const, lastUpdate },
+  });
   it('unknown without config', () => {
-    expect(supervisorLiveness(null, [], 1000)).toBe('unknown');
+    expect(supervisorLiveness(null, {}, 1000)).toBe('unknown');
   });
   it('running with a fresh status update', () => {
-    expect(supervisorLiveness(cfg, [{ project: '/p', session: 'sup', lastUpdate: 1000 }], 1000 + 5000)).toBe('running');
+    expect(supervisorLiveness(cfg, supSub(1000), 1000 + 5000)).toBe('running');
   });
   it('crashed when the signal is stale', () => {
-    expect(supervisorLiveness(cfg, [{ project: '/p', session: 'sup', lastUpdate: 1000 }], 1000 + 200_000)).toBe('crashed');
+    expect(supervisorLiveness(cfg, supSub(1000), 1000 + 200_000)).toBe('crashed');
   });
   it('crashed when config present but no signal at all', () => {
-    expect(supervisorLiveness(cfg, [], 1000)).toBe('crashed');
+    expect(supervisorLiveness(cfg, {}, 1000)).toBe('crashed');
   });
 });

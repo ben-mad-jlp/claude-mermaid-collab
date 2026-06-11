@@ -38,6 +38,7 @@ import { useSessionPolling } from '@/hooks/useSessionPolling';
 import { useProposedEditWatcher } from '@/hooks/useProposedEditWatcher';
 import { usePrefetchWatchedSessions } from '@/hooks/usePrefetchWatchedSessions';
 import { useWatchEvents } from '@/hooks/useWatchEvents';
+import { useStatusSync } from '@/hooks/useStatusSync';
 import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useShallow } from 'zustand/react/shallow';
@@ -314,6 +315,12 @@ const App: React.FC = () => {
   const subscriptionsForWatch = useSubscriptionStore((s) => s.subscriptions);
   const migrateLegacyEntries = useSubscriptionStore((s) => s.migrateLegacyEntries);
 
+  // L3 (design-ui-status-coherence §2): the single status-refresh owner —
+  // WS ingest (escalation_created → openEscalations, session_todos_updated →
+  // loadProjectTodos) + a bootstrap/reconnect hydrate over the watched servers.
+  // No interval, no new WS event, no poll.
+  useStatusSync(servers.map((srv) => srv.id));
+
   // (1) One-shot legacy-entry migration. Runs once, as soon as a boot-time
   // active server id is known, to tag/rekey pre-cross-server subscriptions
   // (serverId ''). This also collapses a legacy entry and a new explicit-
@@ -558,10 +565,10 @@ const App: React.FC = () => {
           message: `${projectLabel} / ${escSession}${escKind ? ` — ${escKind}` : ''}`,
           duration: 8000,
         });
-        // Idempotently refresh the escalation store so a brief WS gap (or a
-        // missed event) doesn't leave the NeedsYouZone/badge stale — not just a
-        // toast. Reload for the active server scope.
-        void useSupervisorStore.getState().loadEscalations(activeServerId ?? 'local', 'open');
+        // L3: the escalation store is now refreshed by useStatusSync's WS ingest
+        // (ingestEscalationCreated folds the broadcast straight into
+        // openEscalations) — no blanket loadEscalations reload here. This handler
+        // keeps only the user-facing toast.
         return;
       }
 

@@ -10,9 +10,11 @@
  * extras: a 🔒 lock indicator, a ⚠️ open-escalation indicator, and the shield
  * toggle acts as "stop supervising" (DELETE from the supervised set).
  *
- * Full card data (context %, elapsed, serverId) is merged from the Watching
- * feed (`useSubscriptionStore`) when a matching subscription exists; otherwise
- * we fall back to a polled persisted status (`/api/session-status`).
+ * Full card data (context %, elapsed, serverId) comes from the Watching feed
+ * (`useSubscriptionStore`) — the SINGLE worker-liveness source (design-ui-status-
+ * coherence §0/§3). The old divergent `/api/session-status` poll is gone, so this
+ * left column and the Bridge graph read liveness from the same store and cannot
+ * disagree (the R2/D5/D6 fix).
  */
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
@@ -26,7 +28,7 @@ import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components
 import { isOrchestratorSession } from '@/lib/liveness';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
-import { selectOpenEscalationsByProject } from '@/components/supervisor/bridge/escalationSelectors';
+import { selectOpenEscalationCount } from '@/lib/statusSelectors';
 import { AddProjectDialog } from '@/components/dialogs';
 import { OrchestratorLevelBadge } from '@/components/supervisor/bridge/OrchestratorLevelBadge';
 import { useFleetStatus } from '@/hooks/useFleetStatus';
@@ -172,7 +174,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     config,
     liveness,
     loadSupervised,
-    loadEscalations,
     loadConfig,
     loadLiveness,
   } = useSupervisorStore();
@@ -181,7 +182,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // the project index; escalation counts + coordinator state badge each row;
   // clicking a row drives the Bridge. watch === supervise (add/remove couples).
   const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
-  const escalations = useSupervisorStore((s) => s.escalations);
+  // Coherence: the open slice, read through the shared scoped selector below.
+  const openEscalations = useSupervisorStore((s) => s.openEscalations);
   const loadProjects = useSupervisorStore((s) => s.loadProjects);
   const addProject = useSupervisorStore((s) => s.addProject);
   const removeProject = useSupervisorStore((s) => s.removeProject);
@@ -199,32 +201,23 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const [collapsed, setCollapsed] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
-  // Persisted status source: map keyed `${project}:${session}` -> status.
-  // Polled from GET /api/session-status?project= per distinct (serverId, project).
-  // We keep the LAST-KNOWN status even when it goes stale (idle sessions send no
-  // heartbeat) and track staleness separately, so the card dims rather than
-  // flipping to gray/unknown.
-  const [fetchedStatuses, setFetchedStatuses] = useState<Record<string, string>>({});
-  const [staleStatuses, setStaleStatuses] = useState<Record<string, boolean>>({});
-
-  // Load supervised sessions / escalations for the active routing server, and
-  // refresh on an interval so newly-supervised sessions appear.
+  // Escalations + worker liveness are no longer refreshed here — escalations flow
+  // through the app-root useStatusSync (WS ingest + bootstrap hydrate) and liveness
+  // through subscriptionStore. This interval is scoped to the supervisor-ROLE facts
+  // the coherence design does not govern: supervised membership, watched projects,
+  // and the config/liveness that drive the 'none'/'crashed'/'running' front door
+  // (polled so the panel flips to Restart within the staleness window on a crash).
   useEffect(() => {
     const refresh = () => {
       void loadSupervised(serverScope);
-      void loadEscalations(serverScope);
-      // Config + liveness drive the front-door state ('none' / 'crashed' /
-      // 'running'); poll them on the same cadence so the panel flips to the
-      // Restart front door within the staleness window when the supervisor dies.
       void loadConfig(serverScope);
       void loadLiveness(serverScope);
-      // Unified tree: the watched-project set drives the rail.
       void loadProjects(serverScope);
     };
     refresh();
     const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
-  }, [serverScope, loadSupervised, loadEscalations, loadConfig, loadLiveness, loadProjects]);
+  }, [serverScope, loadSupervised, loadConfig, loadLiveness, loadProjects]);
 
   const watchedList = Array.isArray(watchedProjects) ? watchedProjects : [];
 
@@ -258,7 +251,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // per-row metadata (open-escalation count from the single roll-up path, the
   // coordinator dot). Sorted urgency-first: red (most escalations) → quiet
   // (alphabetical), so "which project needs you" floats to the top.
-  const escalationCounts = useMemo(() => selectOpenEscalationsByProject(escalations), [escalations]);
   const byProject = useMemo(() => {
     const m = new Map<string, SupervisedSession[]>();
     for (const s of supervised) {
@@ -273,7 +265,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       .map((project) => ({
         project,
         sessions: (m.get(project) ?? []).slice().sort((a, b) => a.session.localeCompare(b.session)),
-        escalationCount: escalationCounts[project] ?? 0,
+        escalationCount: selectOpenEscalationCount(openEscalations, { kind: 'project', project }),
       }))
       .sort((a, b) => {
         if ((b.escalationCount > 0 ? 1 : 0) !== (a.escalationCount > 0 ? 1 : 0)) {
@@ -282,7 +274,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         if (a.escalationCount !== b.escalationCount) return b.escalationCount - a.escalationCount;
         return a.project.localeCompare(b.project);
       });
-  }, [supervised, watchedList, escalationCounts]);
+  }, [supervised, watchedList, openEscalations]);
 
   // Display labels, parent-qualified only where basenames collide.
   const projectLabels = useMemo(
@@ -346,98 +338,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     [serverScope, byProject, superviseSession, removeProject, activeProject, setActiveProject, loadSupervised],
   );
 
-  // Distinct (activeId, project) pairs from supervised sessions — the unit of
-  // the per-project session-status API.
-  const distinctPairs = useMemo(() => {
-    const map = new Map<string, { serverId: string; project: string }>();
-    for (const s of supervised) {
-      map.set(`${activeId}|${s.project}`, { serverId: activeId ?? '', project: s.project });
-    }
-    return Array.from(map.values()).sort((a, b) =>
-      `${a.serverId}|${a.project}`.localeCompare(`${b.serverId}|${b.project}`),
-    );
-  }, [activeId, supervised]);
-  // Stable primitive dependency so the poll effect re-runs only when the
-  // actual set of (serverId, project) pairs changes, not on every render.
-  const distinctPairsKey = useMemo(
-    () => distinctPairs.map((p) => `${p.serverId}|${p.project}`).join('\n'),
-    [distinctPairs],
-  );
-
-  // Poll persisted statuses from GET /api/session-status?project= for each
-  // distinct (serverId, project). Server-aware via mc.invokeOnServer when the
-  // desktop bridge is present, otherwise plain fetch. Rows older than 120s are
-  // treated as 'unknown' (stale). Live WS events layer on top of this below.
-  useEffect(() => {
-    const pairs = distinctPairs;
-    if (pairs.length === 0) {
-      setFetchedStatuses({});
-      return;
-    }
-
-    let cancelled = false;
-    // Two-tier staleness: past DIM_MS the status is shown DIMMED (last-known, idle
-    // a while); past GONE_MS it's genuinely stale → 'unknown' (gray). Without the
-    // GONE cutoff a days-old 'active'/'permission' row would render as a live-looking
-    // card forever (the bug: clicking it opens an idle shell).
-    const DIM_MS = 120_000; // 2 min → dim
-    const GONE_MS = 15 * 60_000; // 15 min → gray (matches useSessionStatuses)
-
-    const fetchOne = async (
-      serverId: string,
-      project: string,
-    ): Promise<Array<{ project: string; session: string; status: string; updatedAt?: number }>> => {
-      const path = `/api/session-status?project=${encodeURIComponent(project)}`;
-      const mc = (window as any).mc;
-      try {
-        if (mc?.invokeOnServer) {
-          const res = await mc.invokeOnServer(serverId, { path, method: 'GET' });
-          if (res?.ok && res.body && typeof res.body === 'object') {
-            return (res.body as any).statuses ?? [];
-          }
-          return [];
-        }
-        const r = await fetch(path);
-        if (!r.ok) return [];
-        const data = await r.json();
-        return data.statuses ?? [];
-      } catch {
-        return [];
-      }
-    };
-
-    const poll = async () => {
-      const now = Date.now();
-      const results = await Promise.all(pairs.map((p) => fetchOne(p.serverId, p.project)));
-      if (cancelled) return;
-      const map: Record<string, string> = {};
-      const staleMap: Record<string, boolean> = {};
-      pairs.forEach((p, i) => {
-        for (const row of results[i]) {
-          const age = typeof row.updatedAt === 'number' ? now - row.updatedAt : Infinity;
-          // Keyed by project:session (serverId-agnostic) so lookups don't depend
-          // on which server we routed through — supervised rows may carry a
-          // different/blank serverId than the active one.
-          const key = `${row.project}:${row.session}`;
-          // < DIM: live (full color). DIM..GONE: last-known, DIMMED. > GONE: gray.
-          map[key] = age > GONE_MS ? 'unknown' : row.status;
-          staleMap[key] = age > DIM_MS;
-        }
-      });
-      if (!cancelled) {
-        setFetchedStatuses(map);
-        setStaleStatuses(staleMap);
-      }
-    };
-
-    void poll();
-    const id = setInterval(() => void poll(), 10_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [distinctPairsKey]);
-
   // Find the Watching-feed subscription that matches a project+session (any
   // serverId). It carries the live status, context %, lastUpdate, and the
   // serverId we should route per-server actions through.
@@ -451,27 +351,19 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     [subscriptions],
   );
 
-  // Build full card data for a supervised session: prefer the live subscription
-  // entry, fall back to the polled persisted status. Resolve a serverId for
-  // per-server routing from the subscription, the supervised record, or active.
+  // Build full card data for a supervised session from the live subscription
+  // (subscriptionStore — the single worker-liveness source; the divergent
+  // /api/session-status poll is gone). A session with no live subscription, or a
+  // status gone stale past 15 min, reads 'unknown' (gray); past 2 min it dims.
   const cardDataFor = useCallback(
     (s: SupervisedSession): SessionCardData => {
       const matched = findSubscription(s.project, s.session);
-      const key = `${s.project}:${s.session}`;
-      // Live-subscription age: past 15 min a 'live' status is genuinely stale →
-      // fall through to the polled value (which already applies the gray cutoff)
-      // rather than trusting a days-old WS status as if active.
       const matchedAge = typeof matched?.lastUpdate === 'number' ? Date.now() - matched.lastUpdate : Infinity;
-      const useMatched = !!(matched?.status && matched.status !== 'unknown' && matchedAge <= 15 * 60_000);
-      const status = (useMatched
-        ? matched!.status
-        : (fetchedStatuses[key] as SessionCardData['status'])) ?? 'unknown';
+      const fresh = !!(matched?.status && matched.status !== 'unknown' && matchedAge <= 15 * 60_000);
+      const status = (fresh ? matched!.status : 'unknown') as SessionCardData['status'];
       const serverId = matched?.serverId || s.serverId || activeId || 'local';
-      // Stale (dim, not gray) once past the short window. The live branch dims after
-      // 2 min; the polled branch uses the staleness the poll recorded (also gray > 15 min).
-      const stale = useMatched
-        ? matchedAge > 120_000
-        : !!staleStatuses[key];
+      // Dim (not gray) once past the short window; only a live match can dim.
+      const stale = fresh ? matchedAge > 120_000 : false;
       return {
         serverId,
         project: s.project,
@@ -483,7 +375,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         stale,
       };
     },
-    [findSubscription, fetchedStatuses, staleStatuses, activeId],
+    [findSubscription, activeId],
   );
 
   // Navigate: mirror the Watching panel — update local session state for

@@ -25,7 +25,12 @@ function relativeTime(ts: number): string {
 }
 
 export const EscalationInbox: React.FC<EscalationInboxProps> = ({ serverId, onJump }) => {
-  const escalations = useSupervisorStore((s) => s.escalations);
+  // Coherence (D2): the open tab reads the live `openEscalations` slice (hydrated
+  // by useStatusSync — no per-component load cadence); the resolved tab loads into
+  // the SEPARATE `resolvedEscalations` slice on demand, so viewing resolved can
+  // never zero the open counts.
+  const openEscalations = useSupervisorStore((s) => s.openEscalations);
+  const resolvedEscalations = useSupervisorStore((s) => s.resolvedEscalations);
   const loadEscalations = useSupervisorStore((s) => s.loadEscalations);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
@@ -43,19 +48,16 @@ export const EscalationInbox: React.FC<EscalationInboxProps> = ({ serverId, onJu
   };
   const [kindFilter, setKindFilter] = useState<string>('all');
 
+  // Open is kept fresh by useStatusSync (WS ingest + bootstrap hydrate) — no load
+  // here. The resolved tab fetches ONLY the resolved slice, on demand.
   useEffect(() => {
-    const status = statusFilter === 'open' ? 'open' : 'resolved';
-    void loadEscalations(serverId, status);
+    if (statusFilter === 'resolved') void loadEscalations(serverId, 'resolved');
   }, [serverId, statusFilter, loadEscalations]);
 
   const visible = useMemo(() => {
-    return escalations.filter((e: Escalation) => {
-      const statusMatch =
-        statusFilter === 'open' ? e.status === 'open' : e.status !== 'open';
-      const kindMatch = kindFilter === 'all' || e.kind === kindFilter;
-      return statusMatch && kindMatch;
-    });
-  }, [escalations, statusFilter, kindFilter]);
+    const source = statusFilter === 'open' ? openEscalations : resolvedEscalations;
+    return source.filter((e: Escalation) => kindFilter === 'all' || e.kind === kindFilter);
+  }, [openEscalations, resolvedEscalations, statusFilter, kindFilter]);
 
   return (
     <div className="space-y-2">
