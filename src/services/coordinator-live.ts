@@ -423,6 +423,28 @@ export function resolveEpicId(todo: Todo, project: string): string {
   return INBOX_EPIC_ID;
 }
 
+/** FALSE-STALL GUARD (a6fcbd79): is a worker's todo already FINISHED — i.e. its
+ *  change-set is committed on its epic's accumulation branch? A worker that has
+ *  built + committed and is now idle at its prompt (completion handshake in
+ *  flight) is byte-identical to a genuine stall, so the stall reaper would park
+ *  the done leaf `blocked`. This probe lets detectStalls skip such a worker.
+ *
+ *  Returns false (NOT-finished → eligible for stall handling) when worker
+ *  isolation is off, the project isn't a git repo, or any probe throws — the
+ *  fail-safe direction keeps the existing wedge-recovery behaviour for a worker
+ *  whose status we genuinely can't confirm. */
+export async function workCommittedOnEpic(project: string, todo: Todo): Promise<boolean> {
+  if (!workerIsolationEnabled()) return false;
+  try {
+    const wm = getWorktreeManager(todo.targetProject ?? project);
+    if (!(await wm.isGitRepoPublic())) return false;
+    const epicId = resolveEpicId(todo, project);
+    return await wm.todoOnEpicBranch(epicId, todo.id);
+  } catch {
+    return false; // can't confirm → treat as not-finished (fail-safe)
+  }
+}
+
 // --- BP0: reverse a phantom/stranded acceptance ---------------------------------
 // The store marks a todo accepted BEFORE the lane→epic-branch merge runs, so a
 // merge that integrates nothing (a clean worktree with no commit, or a lane whose
@@ -1276,6 +1298,20 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         const pulseAt = lanePulseAt(project, session);
         if (pulseAt == null || now - pulseAt < STALL_MS) continue;
         const prevSince = pulseAt;
+        // FALSE-STALL GUARD (a6fcbd79): a worker that has FINISHED — built its
+        // change-set and got it committed onto the epic branch — then sits idle
+        // at its prompt while its `complete_todo` handshake is still in flight
+        // (or about to fire) looks byte-identical to a genuinely stalled worker:
+        // alive, no spinner, pulse gone quiet. Parking it `blocked` here REVERTS
+        // a done leaf to status='blocked' with acceptanceStatus=null (the live
+        // defect: every type:ui / type:reviewer leaf flipped back to blocked,
+        // only un-stuck by a manual re-promote). type:backend was unaffected only
+        // because its completion handshake reliably lands before STALL_MS — a
+        // race, not a real difference. So: if the work is already on the epic
+        // branch, the worker is finished, NOT stalled — skip it and let the
+        // completion/roll-up path finalize it (done+accepted). Best-effort: any
+        // probe failure falls through to the normal stall handling (fail-safe).
+        if (await workCommittedOnEpic(project, t)) continue;
         try {
           // DOGFOOD #6 follow-up: classify the idle-at-prompt. A permission
           // prompt is NOT a decision the human can answer in the inbox — it's a
