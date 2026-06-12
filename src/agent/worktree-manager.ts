@@ -865,6 +865,107 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
+  // resolveIntegrationRef — the project's INTEGRATION branch (the configured
+  // default branch onto which epics land). Resolution order, most-authoritative
+  // first:
+  //   1. an explicit hint (caller-supplied, e.g. a configured baseRef),
+  //   2. `origin/HEAD`'s symbolic target (the remote's default branch),
+  //   3. a local `main`/`master` branch (in that order) if it exists,
+  //   4. fall back to the literal 'master'.
+  // Each candidate is verified to actually exist before being returned, so the
+  // ancestor gate never compares against a phantom ref. Returns null only when
+  // the repo is non-git (the caller's fail-safe trigger). Never throws.
+  // ---------------------------------------------------------------------------
+  async resolveIntegrationRef(hint?: string): Promise<string | null> {
+    if (!(await this.isGitRepo())) return null;
+    const exists = async (ref: string): Promise<boolean> => {
+      const r = await this.runGit(
+        this.opts.projectRoot,
+        ['rev-parse', '--verify', '--quiet', ref],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      return r.code === 0 && r.stdout.trim().length > 0;
+    };
+    // 1. explicit hint (local branch ref).
+    if (hint && hint.trim()) {
+      const h = hint.trim();
+      if (await exists(`refs/heads/${h}`)) return h;
+      if (await exists(h)) return h;
+    }
+    // 2. origin/HEAD symbolic target → e.g. "origin/main".
+    const sym = await this.runGit(
+      this.opts.projectRoot,
+      ['symbolic-ref', '--short', '--quiet', 'refs/remotes/origin/HEAD'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (sym.code === 0 && sym.stdout.trim()) {
+      const remoteRef = sym.stdout.trim(); // "origin/main"
+      if (await exists(`refs/remotes/${remoteRef}`)) return remoteRef;
+    }
+    // 3. local main / master.
+    for (const cand of ['main', 'master']) {
+      if (await exists(`refs/heads/${cand}`)) return cand;
+    }
+    // 4. literal fallback (matches the rest of the codebase's default).
+    return 'master';
+  }
+
+  // ---------------------------------------------------------------------------
+  // commitOnIntegration — ACCEPT-TIME ANCESTOR GATE (OI-1). Is the todo's
+  // change-set commit reachable from (an ancestor of) the integration ref? A
+  // leaf may only be `accepted` if its work can actually ship — i.e. it is either
+  //   (a) directly an ancestor of the integration ref, OR
+  //   (b) on its epic's accumulation branch which is itself fully reachable from
+  //       integration (the epic already landed).
+  // We locate the todo's commit by its `Collab-Todo: <todoId>` trailer (the same
+  // marker todoOnEpicBranch uses), searching the epic branch first then all refs,
+  // and test `git merge-base --is-ancestor <commit> <integrationRef>`.
+  // Returns:
+  //   true   → reachable from integration (safe to accept),
+  //   false  → NOT reachable (stranded — caller must NOT accept),
+  //   null   → indeterminate (non-git, no integration ref, or no commit found):
+  //            the caller's FAIL-SAFE — fall back to today's behaviour.
+  // Read-only; never throws.
+  // ---------------------------------------------------------------------------
+  async commitOnIntegration(
+    epicId: string,
+    todoId: string,
+    integrationRef?: string,
+  ): Promise<boolean | null> {
+    if (!(await this.isGitRepo())) return null;
+    const intRef = integrationRef ?? (await this.resolveIntegrationRef());
+    if (!intRef) return null;
+
+    // Find the todo's commit via its trailer. Prefer the epic branch (the merge
+    // commit carries the trailer), else fall back to a scan across all refs so a
+    // commit reachable from integration but already pruned off its epic branch
+    // still resolves.
+    const epicBranch = this.epicBranchName(epicId);
+    const findOn = async (ref: string): Promise<string | null> => {
+      const res = await this.runGit(
+        this.opts.projectRoot,
+        ['log', '--format=%H', '-1', `--grep=Collab-Todo: ${todoId}`, ref],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      if (res.code === 0 && res.stdout.trim()) return res.stdout.trim();
+      return null;
+    };
+    let commit = await findOn(`refs/heads/${epicBranch}`).catch(() => null);
+    if (!commit) commit = await findOn('--all').catch(() => null);
+    if (!commit) return null; // no commit carries the trailer → indeterminate.
+
+    const anc = await this.runGit(
+      this.opts.projectRoot,
+      ['merge-base', '--is-ancestor', commit, intRef],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 2, stdout: '', stderr: '' }));
+    // exit 0 → ancestor (reachable); exit 1 → not an ancestor; other → error.
+    if (anc.code === 0) return true;
+    if (anc.code === 1) return false;
+    return null; // git error → indeterminate (fail-safe).
+  }
+
+  // ---------------------------------------------------------------------------
   // landEpicToMaster — the land click (FBPE P4). Merge an epic's accumulation
   // branch (collab/epic/<id8>) onto master with a single --no-ff merge, then
   // advance the master branch ref to the result. A conflict ABORTS the merge and

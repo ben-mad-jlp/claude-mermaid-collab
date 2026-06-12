@@ -516,6 +516,85 @@ async function reopenStrandedAccept(
   }
 }
 
+// --- OI-1: accept-time ANCESTOR-OF-INTEGRATION gate -----------------------------
+// Close the stranded-acceptance class: `accepted` must imply `reachable from the
+// integration branch`, so accepted work can never silently fail to ship. This runs
+// AT ACCEPT (once per leaf — never per-tick, so it can't flood escalations) after
+// the worker→epic merge has succeeded:
+//   1. probe whether the leaf's commit is already an ancestor of the integration
+//      ref (the configured default branch, resolved dynamically — NOT hardcoded);
+//   2. if not, attempt ONE idempotent epic→integration land reconcile (a no-op if
+//      the epic already landed) so the accept path actually integrates the work
+//      rather than leaving it stranded on the epic branch;
+//   3. re-probe. If STILL not reachable → the work is genuinely stranded:
+//      reverse the acceptance (reopenStrandedAccept resets the leaf to `ready` and
+//      re-opens any prematurely-rolled-up epic) + escalate, instead of stamping a
+//      false `accepted`.
+// FAIL-SAFE: a null probe (non-git, isolation off, integration ref unresolvable,
+// or no commit carrying the trailer) falls back to today's behaviour (accept) and
+// is logged — uncertainty never hard-blocks. Returns true when the leaf is safe to
+// remain accepted, false when its acceptance was reversed. Best-effort; the caller
+// catches throws and treats them as fail-safe (accept).
+async function acceptTimeAncestorGate(
+  project: string,
+  todoId: string,
+  epicId: string,
+  rolledUp: string[],
+  title: string,
+  session: string,
+): Promise<boolean> {
+  const targetProject = (getTodo(project, todoId)?.targetProject) ?? project;
+  const wm = getWorktreeManager(targetProject);
+  if (!(await wm.isGitRepoPublic())) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-non-git' }) });
+    return true; // fail-safe: not a git repo → today's behaviour.
+  }
+  const intRef = await wm.resolveIntegrationRef();
+  if (!intRef) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-no-integration-ref' }) });
+    return true; // fail-safe: can't resolve integration → don't hard-block.
+  }
+
+  // 1. first probe.
+  let reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
+  if (reachable === null) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-accept' }) });
+    return true; // fail-safe: indeterminate (no commit / git error) → accept.
+  }
+  if (reachable === true) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-accept' }) });
+    return true;
+  }
+
+  // 2. NOT reachable yet — one-shot idempotent epic→integration land reconcile.
+  // landEpicToMaster is a no-op when nothing is ahead (already up to date); a
+  // conflict leaves integration untouched and we fall through to reversal below.
+  try {
+    const land = await wm.landEpicToMaster(epicId, { baseRef: intRef });
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile', landed: land.landed, conflict: land.conflict, reason: land.reason }) });
+  } catch (e) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
+  }
+
+  // 3. re-probe after the reconcile attempt.
+  reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
+  if (reachable === true) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-after-land' }) });
+    return true;
+  }
+  if (reachable === null) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-after-land-accept' }) });
+    return true; // fail-safe.
+  }
+
+  // Genuinely stranded → reverse the premature acceptance instead of stamping a
+  // false `accepted`. reopenStrandedAccept resets the leaf to `ready` (actionable)
+  // and raises an escalation; we annotate the reason as integration-unreachable.
+  await reopenStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session);
+  recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reversed-not-on-integration' }) });
+  return false;
+}
+
 // --- BP0: sweep already-stranded accepted todos ---------------------------------
 // A repair pass (Part 3 of the fix): scan the work-graph for leaf todos that are
 // done+accepted but whose work is NOT reachable from their epic branch (the
@@ -880,6 +959,27 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // the store just rolled up off the back of this child) and escalate.
             await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, merge.epicBranch, session);
           } else {
+            // OI-1 ACCEPT-TIME ANCESTOR GATE: the worker→epic merge succeeded, but
+            // `accepted` must imply `reachable from the integration branch`, not
+            // merely `on the epic branch`. Verify the leaf's commit is an ancestor
+            // of the integration ref (one-shot epic→integration land reconcile if
+            // not); if it's genuinely stranded, REVERSE the acceptance (keep the
+            // leaf actionable) rather than tearing down its worktree on a false
+            // accept. Only proceed with teardown when the leaf is confirmed-safe
+            // (or fail-safe: indeterminate/non-git → accept). Best-effort.
+            let safe = true;
+            try {
+              safe = await acceptTimeAncestorGate(project, id, epicId, r.rolledUp, r.completed.title, session);
+            } catch (e) {
+              // Gate threw → fail-safe to accept (today's behaviour), but log it.
+              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, oi1: 'gate-error-failsafe-accept', reason: e instanceof Error ? e.message : String(e) }) });
+            }
+            if (!safe) {
+              // Acceptance reversed: leaf is back to `ready`. Leave its worktree in
+              // place so the re-surfaced leaf / human can re-integrate the work
+              // rather than losing it to teardown.
+              return r;
+            }
             // Merge succeeded — the worktree branch is now in integration. Remove
             // the worktree so the next todo for this pool lane gets a fresh one
             // branched off the latest integration (sees this merge).
