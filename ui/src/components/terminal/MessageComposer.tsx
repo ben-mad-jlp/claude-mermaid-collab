@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 import { useTerminalPalette } from './terminalTheme';
+import { registerComposerDrop } from './composerDrop';
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -33,7 +34,6 @@ export function MessageComposer({ project, session, serverId, disabled = false }
   const p = useTerminalPalette();
 
   const [value, setValue] = useState('');
-  const [dragOver, setDragOver] = useState(false);
   // When text file(s) are dropped, hold them here and offer a choice: paste their
   // CONTENTS into the box, or insert their PATH. Non-text drops skip the chooser.
   const [pendingDrop, setPendingDrop] = useState<{ files: File[]; paths: string[] } | null>(null);
@@ -110,14 +110,12 @@ export function MessageComposer({ project, session, serverId, disabled = false }
     } catch { /* best-effort */ }
   };
 
-  const onDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
+  // Process a dropped DataTransfer (from the textarea OR the terminal-body drop
+  // zone). Returns nothing; updates the composer in place.
+  const processDrop = (dt: DataTransfer) => {
     if (disabled) return;
-    setDragOver(false);
-    const dt = e.dataTransfer;
-    if (!dt) return;
     const files = Array.from(dt.files ?? []);
     if (files.length) {
-      e.preventDefault();
       const paths = resolveDropPaths(files, dt);
       // A text file could be either useful as a path OR pasted inline → ask.
       // Non-text (binary) files only make sense as a path, so insert it directly.
@@ -127,11 +125,12 @@ export function MessageComposer({ project, session, serverId, disabled = false }
     }
     // No OS files (e.g. a path/URI dragged from another app) → fall back to text.
     const path = fileUriToPath(dt.getData('text/uri-list') || dt.getData('text/plain'));
-    if (path) {
-      e.preventDefault();
-      insertAtCaret(quotePath(path));
-    }
+    if (path) insertAtCaret(quotePath(path));
   };
+
+  // Register this composer as the drop target for the whole terminal body, so a
+  // file dropped anywhere in the terminal lands here (not just on the textarea).
+  useEffect(() => registerComposerDrop(processDrop));
 
   // Raw-key dispatch to the live REPL (no nudge toast, no Enter unless asked).
   const postKeys = (text: string, submit: boolean) => {
@@ -257,20 +256,17 @@ export function MessageComposer({ project, session, serverId, disabled = false }
         placeholder={sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)'}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
-        onDragOver={(e) => { if (!disabled) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        title={disabled ? undefined : 'Drag a file in to insert its path (or paste its contents)'}
+        title={disabled ? undefined : 'Drag a file anywhere in the terminal to insert its path (or paste its contents)'}
         style={{
           flex: '1 1 auto', minWidth: 0, width: '100%', resize: 'none',
           minHeight: 56, maxHeight: MAX_HEIGHT, padding: '6px 8px',
           fontSize: 13, lineHeight: 1.4, fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-          color: p.fg, background: dragOver ? p.dragBg : p.inputBg,
-          border: `1px solid ${dragOver ? p.accent : p.border}`, borderRadius: 6,
+          color: p.fg, background: p.inputBg,
+          border: `1px solid ${p.border}`, borderRadius: 6,
           outline: 'none', transition: 'background 120ms, border-color 120ms',
         }}
         onFocus={(e) => { e.currentTarget.style.borderColor = p.accent; }}
-        onBlur={(e) => { if (!dragOver) e.currentTarget.style.borderColor = p.border; }}
+        onBlur={(e) => { e.currentTarget.style.borderColor = p.border; }}
       />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, flex: '0 0 auto' }}>
         <button

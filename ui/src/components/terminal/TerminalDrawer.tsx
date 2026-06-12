@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useServers } from '@/contexts/ServerContext';
 import { useNotificationStore } from '@/stores/notificationStore';
@@ -8,6 +8,7 @@ import { InputRail } from './InputRail';
 import { MessageComposer } from './MessageComposer';
 import { TerminalThemePicker } from './TerminalThemePicker';
 import { useTerminalPalette } from './terminalTheme';
+import { routeComposerDrop } from './composerDrop';
 import { ServerIcon } from '@/components/ServerIcon';
 
 /**
@@ -25,6 +26,43 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   const setWidth = useTerminalStore((s) => s.setWidth);
   const { servers } = useServers();
   const p = useTerminalPalette();
+
+  // Whole-terminal file-drop zone → routes into the message composer. Native
+  // listeners (OS file drops don't reliably fire React synthetic drag events in a
+  // sandboxed Electron renderer). A drag carrying files/URIs anywhere over the
+  // terminal body highlights + drops into the composer.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [dropActive, setDropActive] = useState(false);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const hasFiles = (e: DragEvent) =>
+      !!e.dataTransfer && Array.from(e.dataTransfer.types || []).some((t) => t === 'Files' || t === 'text/uri-list');
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      setDropActive(true);
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!el.contains(e.relatedTarget as Node)) setDropActive(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!e.dataTransfer) return;
+      e.preventDefault();
+      setDropActive(false);
+      routeComposerDrop(e.dataTransfer);
+    };
+    // Capture phase so we intercept before xterm's canvas can swallow the drop.
+    el.addEventListener('dragover', onDragOver, true);
+    el.addEventListener('dragleave', onDragLeave, true);
+    el.addEventListener('drop', onDrop, true);
+    return () => {
+      el.removeEventListener('dragover', onDragOver, true);
+      el.removeEventListener('dragleave', onDragLeave, true);
+      el.removeEventListener('drop', onDrop, true);
+    };
+  }, []);
 
   // The single console's target: the active registered session (its tmux base +
   // server). The console re-points to this; selecting another session updates it.
@@ -86,7 +124,24 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   if (!open) return null;
 
   const inner = (
-      <div style={{ background: '#0d1117', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, height: embedded ? '100%' : undefined }}>
+      <div
+        ref={bodyRef}
+        style={{
+          position: 'relative',
+          background: '#0d1117', display: 'flex', flexDirection: 'column', flex: 1,
+          minHeight: 0, height: embedded ? '100%' : undefined,
+          outline: dropActive ? `2px dashed ${p.accent}` : 'none', outlineOffset: -2,
+        }}
+      >
+      {dropActive && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 50, pointerEvents: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(13,17,23,0.55)', color: p.fg, fontSize: 14, fontWeight: 600,
+        }}>
+          Drop file → composer
+        </div>
+      )}
       {/* Tab strip */}
       <div
         style={{
