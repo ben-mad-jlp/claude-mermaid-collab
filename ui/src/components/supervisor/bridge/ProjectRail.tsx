@@ -14,6 +14,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { ProjectRailRow, type ProjectRailRowData } from './ProjectRailRow';
+import { useBridgeOrderStore, applyBridgeOrder } from '@/stores/bridgeOrderStore';
 
 function projectBasename(project: string): string {
   return project.split('/').filter(Boolean).pop() ?? project;
@@ -40,7 +41,8 @@ export const ProjectRail: React.FC<ProjectRailProps> = ({
   onWatch,
 }) => {
   const [filter, setFilter] = useState('');
-  const [showQuiet, setShowQuiet] = useState(false);
+  const order = useBridgeOrderStore((s) => s.order);
+  const reorder = useBridgeOrderStore((s) => s.reorder);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -48,26 +50,12 @@ export const ProjectRail: React.FC<ProjectRailProps> = ({
     return projects.filter((p) => p.name.toLowerCase().includes(q) || p.project.toLowerCase().includes(q));
   }, [projects, filter]);
 
-  // Urgency sort: red (most escalations first) → amber idle-with-work → quiet
-  // (alphabetical). A project is "needs you" iff red or idle-with-work.
-  const { needsYou, quiet } = useMemo(() => {
-    const rank = (p: ProjectRailRowData) => (p.escalationCount > 0 ? 0 : p.idleWithWork ? 1 : 2);
-    const sorted = [...filtered].sort((a, b) => {
-      const ra = rank(a);
-      const rb = rank(b);
-      if (ra !== rb) return ra - rb;
-      if (a.escalationCount !== b.escalationCount) return b.escalationCount - a.escalationCount;
-      return a.name.localeCompare(b.name);
-    });
-    return {
-      needsYou: sorted.filter((p) => rank(p) < 2),
-      quiet: sorted.filter((p) => rank(p) === 2),
-    };
-  }, [filtered]);
-
-  // When filtering, surface everything that matched (don't bury quiet matches).
-  const quietForced = filter.trim().length > 0;
-  const quietVisible = showQuiet || quietForced;
+  // Manual order fully wins (option 1): the user's drag order drives the rail;
+  // urgency is conveyed by the row dot/badge, never by re-sorting. New projects
+  // (not yet ordered) append. This order also IS the Ctrl+Shift+F# mapping.
+  const ordered = useMemo(() => applyBridgeOrder(filtered, order), [filtered, order]);
+  const onReorder = (drag: string, drop: string) =>
+    reorder(ordered.map((p) => p.project), drag, drop);
 
   return (
     <div
@@ -85,45 +73,20 @@ export const ProjectRail: React.FC<ProjectRailProps> = ({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-1 space-y-0.5">
-        {needsYou.length === 0 && quiet.length === 0 && (
+        {ordered.length === 0 && (
           <div className="px-2 py-2 text-2xs text-gray-400 dark:text-gray-500">No projects</div>
         )}
 
-        {needsYou.map((p) => (
+        {ordered.map((p) => (
           <ProjectRailRow
             key={p.project}
             data={p}
             active={p.project === activeProject}
             onSelect={() => onSelect(p.project)}
             onRemove={() => onRemove(p.project)}
+            onReorder={onReorder}
           />
         ))}
-
-        {quiet.length > 0 && (
-          <>
-            {!quietForced && (
-              <button
-                type="button"
-                data-testid="project-rail-quiet-toggle"
-                onClick={() => setShowQuiet((s) => !s)}
-                className="w-full flex items-center gap-1 px-2 py-1 text-2xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-              >
-                <span className={`transition-transform ${quietVisible ? 'rotate-90' : ''}`}>▸</span>
-                {quiet.length} quiet
-              </button>
-            )}
-            {quietVisible &&
-              quiet.map((p) => (
-                <ProjectRailRow
-                  key={p.project}
-                  data={p}
-                  active={p.project === activeProject}
-                  onSelect={() => onSelect(p.project)}
-                  onRemove={() => onRemove(p.project)}
-                />
-              ))}
-          </>
-        )}
 
         {detected.length > 0 && onWatch && (
           <div className="mt-1 pt-1 border-t border-gray-200 dark:border-gray-700 space-y-0.5">

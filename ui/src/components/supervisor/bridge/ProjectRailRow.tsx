@@ -20,7 +20,9 @@ const ProjectRailRowImpl: React.FC<{
   active: boolean;
   onSelect: () => void;
   onRemove?: () => void;
-}> = ({ data, active, onSelect, onRemove }) => {
+  /** Drag-to-reorder (manual rail order). */
+  onReorder?: (dragProject: string, dropProject: string) => void;
+}> = ({ data, active, onSelect, onRemove, onReorder }) => {
   const red = data.escalationCount > 0;
   const dot = red ? 'bg-danger-500' : data.idleWithWork ? 'bg-warning-500' : 'border border-gray-400 dark:border-gray-500';
   return (
@@ -28,6 +30,13 @@ const ProjectRailRowImpl: React.FC<{
       data-testid="project-rail-row"
       data-project={data.project}
       data-active={active}
+      draggable={!!onReorder}
+      onDragStart={onReorder ? (e) => { e.dataTransfer.setData('text/x-mc-project', data.project); e.dataTransfer.effectAllowed = 'move'; } : undefined}
+      onDragOver={onReorder ? (e) => { if (e.dataTransfer.types.includes('text/x-mc-project')) e.preventDefault(); } : undefined}
+      onDrop={onReorder ? (e) => {
+        const drag = e.dataTransfer.getData('text/x-mc-project');
+        if (drag && drag !== data.project) { e.preventDefault(); onReorder(drag, data.project); }
+      } : undefined}
       className={`group flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer transition-colors ${
         active ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200'
       }`}
