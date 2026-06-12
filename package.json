@@ -31,7 +31,9 @@
     "version": "npm run version:sync && git add .claude-plugin/plugin.json .claude-plugin/marketplace.json src/mcp/server.ts desktop/package.json"
   },
   "dependencies": {
+    "@ai-sdk/xai": "^3.0.94",
     "@modelcontextprotocol/sdk": "^0.5.0",
+    "ai": "^6.0.202",
     "chokidar": "^3.5.3",
     "chrome-remote-interface": "^0.34.0",
     "electron-agent-bridge": "github:ben-mad-jlp/electron-agent-bridge#9b659619c9c2149582b2ea3655211a6d7cab92db",

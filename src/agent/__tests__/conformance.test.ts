@@ -5,8 +5,8 @@
  * the byte-identical guard for the detector MOVE out of coordinator-live.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { resolveWorkerAgent, registeredProviders } from '../registry';
-import { runConformance, CLAUDE_PANE_FIXTURES } from './conformance';
+import { resolveWorkerAgent, registeredProviders, resolveGrokAgent, checkGrokConformance } from '../registry';
+import { runConformance, CLAUDE_PANE_FIXTURES, GROK_PANE_FIXTURES, GROK_LIVENESS_FIXTURES } from './conformance';
 import { resolveCompletion } from '../completion-resolver';
 
 describe('WorkerAgent conformance', () => {
@@ -51,6 +51,20 @@ describe('WorkerAgent conformance', () => {
     const collected = [];
     for await (const ev of agent.events(stopping, { intervalMs: 0 })) collected.push(ev);
     expect(collected.length).toBe(2);
+  });
+
+  it('GrokOwnHarness (grok-build) passes the grok conformance suite', () => {
+    expect(checkGrokConformance()).toEqual([]);
+    const grok = resolveGrokAgent();
+    expect(grok.id).toBe('grok-build');
+    expect(runConformance(grok, GROK_PANE_FIXTURES, GROK_LIVENESS_FIXTURES)).toEqual([]);
+  });
+
+  it('grok-build stays DORMANT — the default registry remains claude-only (kill-switch floor)', () => {
+    // resolveGrokAgent() is the ONLY door to the grok adapter; the default registry
+    // (resolveWorkerAgent / registeredProviders) never surfaces it.
+    expect(registeredProviders()).toEqual(['claude']);
+    expect(() => resolveWorkerAgent('grok-build')).toThrow();
   });
 
   it('resolveWorkerAgent throws for an unregistered provider', () => {

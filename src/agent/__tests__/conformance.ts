@@ -118,6 +118,57 @@ export const CLAUDE_LIVENESS_FIXTURES: LivenessFixture[] = [
   },
 ];
 
+// --- Recorded grok-own (in-process loop) "pane-equivalent" panes -------------
+// The GrokOwnHarness has no real terminal; it synthesizes a tiny status line per
+// lifecycle phase (see src/agent/adapters/grok-own.ts) so the SAME normalized
+// WorkerEvent booleans are reproducible. These fixtures pin the grok detectors to
+// that contract BEFORE the adapter is registered (PAW P4 gate).
+
+const GROK_PANE_READY = 'grok-build | ready · for agents';
+const GROK_PANE_WORKING = 'grok-build | for agents\n✻ working step 3 (1s · ↓ tokens · esc to interrupt)';
+const GROK_PANE_RATE_LIMITED = 'grok-build | for agents\n⏳ Rate limited (429) — temporarily limiting requests';
+const GROK_PANE_EXITED = 'grok-build | done\n(loop ended)';
+
+/** The GrokOwnHarness lifecycle fixtures — the grok analogue of the Claude set.
+ *  A headless loop never sits on a permission prompt, so permission is always false. */
+export const GROK_PANE_FIXTURES: ConformanceFixture[] = [
+  {
+    phase: 'ready (loop bound, idle before first step)',
+    pane: GROK_PANE_READY,
+    expect: { tuiReady: true, tuiPresent: true, activelyWorking: false, permission: { isPermission: false } },
+  },
+  {
+    phase: 'working (agentic step in flight)',
+    pane: GROK_PANE_WORKING,
+    expect: { tuiReady: true, tuiPresent: true, activelyWorking: true, permission: { isPermission: false } },
+  },
+  {
+    phase: 'rate-limited (caught 429)',
+    pane: GROK_PANE_RATE_LIMITED,
+    expect: { tuiReady: true, tuiPresent: true, permission: { isPermission: false } },
+  },
+  {
+    phase: 'exited (loop ended)',
+    pane: GROK_PANE_EXITED,
+    expect: { tuiReady: false, tuiPresent: true, activelyWorking: false, permission: { isPermission: false } },
+  },
+];
+
+/** Liveness for the in-process grok loop is loop-promise-based, NOT a ps subtree —
+ *  the adapter owns no `grok` child process, so the subtree BFS must always return
+ *  false (it must never CLAIM a subtree it doesn't own). */
+export const GROK_LIVENESS_FIXTURES: LivenessFixture[] = [
+  {
+    phase: 'no grok process in subtree (in-process loop — subtree BFS is N/A)',
+    rootPid: 100,
+    snap: new Map([
+      [100, { children: [200], comm: '-zsh' }],
+      [200, { children: [], comm: 'bun' }],
+    ]),
+    expectAlive: false,
+  },
+];
+
 /** Assertion result for one fixture (so the harness is usable outside vitest too). */
 export interface ConformanceFailure {
   phase: string;

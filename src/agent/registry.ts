@@ -14,6 +14,8 @@
  * adding a provider means registering it here behind its own flag.
  */
 import { ClaudeCodeAgent } from './adapters/claude-code';
+import { GrokOwnHarness } from './adapters/grok-own';
+import { runConformance, GROK_PANE_FIXTURES, GROK_LIVENESS_FIXTURES } from './__tests__/conformance';
 import type { ProviderId, WorkerAgent } from './worker-agent';
 
 /** True when the registry is pinned to claude-only. Default (unset) is claude-only
@@ -56,4 +58,42 @@ export function resolveWorkerAgent(id: ProviderId = DEFAULT_PROVIDER): WorkerAge
 /** The set of registered provider ids (today: ['claude']). */
 export function registeredProviders(): ProviderId[] {
   return [...REGISTRY.keys()];
+}
+
+// ---------------------------------------------------------------------------
+// PAW P4: the 'grok-build' provider (GrokOwnHarness) — registered DORMANT.
+//
+// The kill-switch keeps the DEFAULT registry (resolveWorkerAgent / the pool
+// slot-tagging) claude-only, so default behavior is byte-identical and
+// registeredProviders() stays ['claude']. The grok adapter is reached ONLY via
+// resolveGrokAgent(), used by launchWorker's explicit `provider === 'grok-build'`
+// branch — and ONLY after it passes the SAME conformance suite the Claude adapter
+// must pass (its own recorded grok-loop fixtures). A non-conformant adapter throws
+// rather than ever launching. The verification runs once and is cached.
+// ---------------------------------------------------------------------------
+
+let grokConformanceChecked = false;
+
+/** Run the grok-own conformance suite against GrokOwnHarness. Returns the list of
+ *  mismatches (empty = conformant). Exposed so a vitest spec can assert it too. */
+export function checkGrokConformance(): ReturnType<typeof runConformance> {
+  return runConformance(GrokOwnHarness, GROK_PANE_FIXTURES, GROK_LIVENESS_FIXTURES);
+}
+
+/** Resolve the grok-build WorkerAgent, GATED on conformance. Throws (fail-closed)
+ *  if the adapter does not collapse its recorded lifecycle panes into the expected
+ *  normalized booleans — a non-conformant provider must NEVER launch. The check is
+ *  memoized after the first success. */
+export function resolveGrokAgent(): WorkerAgent {
+  if (!grokConformanceChecked) {
+    const failures = checkGrokConformance();
+    if (failures.length > 0) {
+      throw new Error(
+        `GrokOwnHarness failed conformance (${failures.length} mismatch(es)) — refusing to register grok-build: ` +
+          JSON.stringify(failures),
+      );
+    }
+    grokConformanceChecked = true;
+  }
+  return GrokOwnHarness;
 }

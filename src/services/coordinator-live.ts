@@ -37,7 +37,7 @@ import {
 // Claude adapter — they were MOVED there (regexes byte-for-byte unchanged), and
 // coordinator-live keeps re-exporting them so existing importers (fleet-status,
 // tmux-reaper) and tests resolve them from here exactly as before.
-import { resolveWorkerAgent } from '../agent/registry';
+import { resolveWorkerAgent, resolveGrokAgent } from '../agent/registry';
 import {
   agentAliveInSubtree,
   CLAUDE_COMM_MATCHER,
@@ -1277,14 +1277,22 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       //    it against the cold-start cap until the spawn finishes.
       lastSpawnAttempt.set(todo.id, Date.now());
       coldStartsInFlight++;
-      // PAW P1: route the spawn through the WorkerAgent registry (claude-only). The
-      // adapter wraps the exact ensureSession + runTodoInSession path, so `ready` /
-      // `reason` / `tmux` carry today's semantics — ensure-then-(if ready)-dispatch.
+      // PAW P1/P4: route the spawn through the WorkerAgent registry. ONE branch —
+      // when the resolved provider is 'grok-build', go through the conformance-gated
+      // GrokOwnHarness (an in-process AI SDK loop; resolveGrokAgent() throws unless it
+      // passes conformance). Otherwise the UNTOUCHED Claude tmux path (claude-only
+      // floor): the adapter wraps the exact ensureSession + runTodoInSession path so
+      // `ready` / `reason` / `tmux` carry today's semantics — ensure-then-(if
+      // ready)-dispatch. The grok handle has the SAME shape, so the bookkeeping below
+      // (markBusy / recordDispatch / supervised) is shared; completion for BOTH lanes
+      // funnels through the MCP complete_todo verb → handleWorkerComplete →
+      // resolveCompletion (gate + work-committed re-verify) — never a model self-report.
+      const launchAgent = provider === 'grok-build' ? resolveGrokAgent() : workerAgent;
       let handle: { ready: boolean; tmux?: string; sent?: boolean; reason?: string } = { ready: false };
       let started = false;
       let reason: string | undefined;
       try {
-        handle = await workerAgent.launch({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd, invokeSkill });
+        handle = await launchAgent.launch({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd, invokeSkill });
         started = handle.ready;
         reason = handle.reason;
       } finally {
