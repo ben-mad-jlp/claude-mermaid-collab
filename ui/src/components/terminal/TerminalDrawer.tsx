@@ -6,6 +6,8 @@ import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalConsole } from './TerminalPane';
 import { InputRail } from './InputRail';
 import { MessageComposer } from './MessageComposer';
+import { TerminalThemePicker } from './TerminalThemePicker';
+import { useTerminalPalette } from './terminalTheme';
 import { ServerIcon } from '@/components/ServerIcon';
 
 /**
@@ -21,8 +23,8 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   const activeTabId = useTerminalStore((s) => s.activeTabId);
   const width = useTerminalStore((s) => s.width);
   const setWidth = useTerminalStore((s) => s.setWidth);
-  const close = useTerminalStore((s) => s.close);
   const { servers } = useServers();
+  const p = useTerminalPalette();
 
   // The single console's target: the active registered session (its tmux base +
   // server). The console re-points to this; selecting another session updates it.
@@ -150,18 +152,8 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
           </button>
         )}
 
-        {/* Close drawer */}
-        <button
-          type="button"
-          onClick={close}
-          title="Close terminal"
-          style={{
-            cursor: 'pointer', color: '#6e7681', background: 'none',
-            border: 'none', padding: '4px 8px', fontSize: 12,
-          }}
-        >
-          ✕
-        </button>
+        {/* Terminal theme picker (Match collab / Light / Dark / Sepia). */}
+        <TerminalThemePicker palette={p} />
       </div>
 
       {/* Body — the single persistent console (no left switcher rail, per user).

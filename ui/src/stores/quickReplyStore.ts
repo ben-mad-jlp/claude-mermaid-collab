@@ -58,6 +58,31 @@ function newChipId(): string {
   return `c_${uuid.replace(/-/g, '').slice(0, 8)}`;
 }
 
+/**
+ * The unified, ordered chip list: visible defaults + custom, arranged by `order`,
+ * with any chips missing from `order` appended (defaults first, then custom) for a
+ * stable result across new defaults / freshly-added custom chips. This is the rail
+ * render order AND the Ctrl+F# assignment order.
+ */
+export function computeOrderedChips(
+  custom: Chip[],
+  hiddenDefaults: string[],
+  order: string[],
+): Chip[] {
+  const byId = new Map<string, Chip>();
+  for (const d of DEFAULT_CHIPS) if (!hiddenDefaults.includes(d.id)) byId.set(d.id, d);
+  for (const c of custom) byId.set(c.id, c);
+  const result: Chip[] = [];
+  const seen = new Set<string>();
+  for (const id of order) {
+    const chip = byId.get(id);
+    if (chip && !seen.has(id)) { result.push(chip); seen.add(id); }
+  }
+  for (const d of DEFAULT_CHIPS) if (byId.has(d.id) && !seen.has(d.id)) { result.push(byId.get(d.id)!); seen.add(d.id); }
+  for (const c of custom) if (!seen.has(c.id)) { result.push(c); seen.add(c.id); }
+  return result;
+}
+
 export interface ChipInput {
   label: string;
   text?: string;
@@ -67,15 +92,22 @@ export interface ChipInput {
 interface QuickReplyState {
   /** Power-user state — rail collapsed to a hairline (not surfaced by default). */
   collapsed: boolean;
-  /** Ids of default chips the user hid (right-click → Hide). */
+  /** Ids of default chips the user deleted (defaults are code-defined, so "delete"
+   *  = hide from the rail; re-derivable, never destroys a code default). */
   hiddenDefaults: string[];
-  /** The user's custom chips, in display order (after the visible defaults). */
+  /** The user's custom chips. */
   custom: Chip[];
+  /** Explicit display order across ALL chips (defaults + custom) by id. Drives the
+   *  rail order AND the Ctrl+F# assignment. Ids not present are appended (new
+   *  defaults/custom); ids no longer existing are ignored. */
+  order: string[];
 
   addChip: (input: ChipInput) => void;
   editChip: (id: string, patch: Partial<ChipInput>) => void;
+  /** Delete any chip — a custom chip is removed; a default is hidden. */
   deleteChip: (id: string) => void;
-  /** Reorder a custom chip, mirroring terminalStore.moveTab. */
+  /** Reorder ANY chip (default or custom): place dragId just before dropId in the
+   *  unified display order (which is also the Ctrl+F# order). */
   moveChip: (dragId: string, dropId: string) => void;
   toggleCompose: (id: string) => void;
   hideDefault: (id: string) => void;
@@ -99,6 +131,7 @@ export const useQuickReplyStore = create<QuickReplyState>()(
       collapsed: false,
       hiddenDefaults: [],
       custom: [],
+      order: [],
 
       addChip: (input) =>
         set((s) => {
@@ -112,7 +145,9 @@ export const useQuickReplyStore = create<QuickReplyState>()(
             ...(text && text !== label ? { text } : {}),
             ...(input.compose ? { compose: true } : {}),
           };
-          return { custom: [...s.custom, chip] };
+          // Append the new chip to the end of the unified order.
+          const ids = computeOrderedChips([...s.custom, chip], s.hiddenDefaults, s.order).map((c) => c.id);
+          return { custom: [...s.custom, chip], order: ids };
         }),
 
       editChip: (id, patch) =>
@@ -130,18 +165,30 @@ export const useQuickReplyStore = create<QuickReplyState>()(
           }),
         })),
 
-      deleteChip: (id) => set((s) => ({ custom: s.custom.filter((c) => c.id !== id) })),
+      deleteChip: (id) =>
+        set((s) => {
+          // A default is code-defined → "delete" = hide it; a custom chip is removed.
+          const isDefault = DEFAULT_IDS.has(id);
+          const custom = isDefault ? s.custom : s.custom.filter((c) => c.id !== id);
+          const hiddenDefaults = isDefault && !s.hiddenDefaults.includes(id)
+            ? [...s.hiddenDefaults, id]
+            : s.hiddenDefaults;
+          const order = s.order.filter((x) => x !== id);
+          return { custom, hiddenDefaults, order };
+        }),
 
       moveChip: (dragId, dropId) => {
         if (dragId === dropId) return;
         set((s) => {
-          const from = s.custom.findIndex((c) => c.id === dragId);
-          const to = s.custom.findIndex((c) => c.id === dropId);
+          // Operate on the full unified order (defaults + custom), normalising it
+          // first so a pre-`order` (migrated) state reorders correctly.
+          const ids = computeOrderedChips(s.custom, s.hiddenDefaults, s.order).map((c) => c.id);
+          const from = ids.indexOf(dragId);
+          const to = ids.indexOf(dropId);
           if (from === -1 || to === -1) return s;
-          const next = [...s.custom];
-          const [moved] = next.splice(from, 1);
-          next.splice(to, 0, moved);
-          return { custom: next };
+          ids.splice(from, 1);
+          ids.splice(ids.indexOf(dropId), 0, dragId);
+          return { order: ids };
         });
       },
 
@@ -176,6 +223,7 @@ export const useQuickReplyStore = create<QuickReplyState>()(
         collapsed: s.collapsed,
         hiddenDefaults: s.hiddenDefaults,
         custom: s.custom,
+        order: s.order,
         sendOnEnter: s.sendOnEnter,
         terminalTheme: s.terminalTheme,
       }),

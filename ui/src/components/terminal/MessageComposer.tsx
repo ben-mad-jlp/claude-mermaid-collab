@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
 import { useTerminalPalette } from './terminalTheme';
-import { TerminalThemePicker } from './TerminalThemePicker';
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -115,18 +114,39 @@ export function MessageComposer({ project, session, serverId, disabled = false }
     }
   };
 
-  // Global F1 → jump focus to the composer from anywhere in collab (plain F1; the
-  // chips use Ctrl+F# so there's no clash). preventDefault stops the browser help.
+  // Raw-key dispatch to the live REPL (no nudge toast, no Enter unless asked).
+  const postKeys = (text: string, submit: boolean) => {
+    const body = { project, session, text, submit, quiet: true };
+    const mc = (window as any).mc;
+    if (mc?.invokeOnServer) {
+      void mc.invokeOnServer(serverId, { path: '/api/ide/tmux-send-keys', method: 'POST', body })
+        .catch(() => { /* ignore — 404s harmlessly into a just-closed pane */ });
+    } else if (typeof fetch !== 'undefined') {
+      void fetch('/api/ide/tmux-send-keys', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      }).catch(() => { /* ignore */ });
+    }
+  };
+
+  // Global terminal shortcuts (work from anywhere in collab):
+  //  - Ctrl+Space → jump focus to this composer.
+  //  - Ctrl+Esc   → send a raw ESC into the terminal (interrupt/stop the agent).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'F1' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Space') {
         e.preventDefault();
         taRef.current?.focus();
+        return;
+      }
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Escape') {
+        e.preventDefault();
+        if (!disabled) postKeys("\u001b", false); // raw ESC byte, no Enter
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, session, serverId, disabled]);
 
   // Auto-grow: reset to auto to measure scrollHeight, then clamp to MAX_HEIGHT.
   useLayoutEffect(() => {
@@ -262,7 +282,6 @@ export function MessageComposer({ project, session, serverId, disabled = false }
           />
           Enter sends
         </label>
-        <TerminalThemePicker palette={p} disabled={disabled} />
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   useQuickReplyStore,
   DEFAULT_CHIPS,
+  computeOrderedChips,
   type Chip,
 } from '@/stores/quickReplyStore';
 import { useTerminalPalette, type TerminalPalette } from './terminalTheme';
@@ -32,6 +33,8 @@ import { useTerminalPalette, type TerminalPalette } from './terminalTheme';
 
 /** Per-chip lock window — kills the rage-double-tap into a live REPL (Grok #4). */
 const CHIP_LOCK_MS = 800;
+
+const DEFAULT_IDS = new Set(DEFAULT_CHIPS.map((c) => c.id));
 
 interface InputRailProps {
   project: string;
@@ -70,8 +73,8 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
   const editChip = useQuickReplyStore((s) => s.editChip);
   const deleteChip = useQuickReplyStore((s) => s.deleteChip);
   const moveChip = useQuickReplyStore((s) => s.moveChip);
+  const order = useQuickReplyStore((s) => s.order);
   const toggleCompose = useQuickReplyStore((s) => s.toggleCompose);
-  const hideDefault = useQuickReplyStore((s) => s.hideDefault);
   const toggleCollapsed = useQuickReplyStore((s) => s.toggleCollapsed);
   const p = useTerminalPalette();
 
@@ -171,10 +174,9 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
     setEditing(null);
   };
 
-  const visibleDefaults = DEFAULT_CHIPS.filter((c) => !hiddenDefaults.includes(c.id));
-  // Flat, ordered chip list (defaults pinned-left, then custom) — the roving-focus
-  // and scoped-key model index into this.
-  const orderedChips = [...visibleDefaults, ...custom];
+  // Flat, ordered chip list (defaults + custom in the user's unified order) — the
+  // render order, roving-focus index, AND the Ctrl+F# assignment all key off this.
+  const orderedChips = computeOrderedChips(custom, hiddenDefaults, order);
   // Clamp the roving index so exactly one chip stays a tab stop even after chips
   // are deleted/hidden (a stale out-of-range index would orphan the toolbar).
   const safeFocused = orderedChips.length ? Math.min(focusedIdx, orderedChips.length - 1) : 0;
@@ -246,7 +248,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
         title="Show quick-reply bar"
         style={{
           flex: '0 0 auto', height: 4, cursor: 'pointer',
-          borderTop: `1px solid `, background: p.surface,
+          borderTop: `1px solid ${p.border}`, background: p.surface,
         }}
       />
     );
@@ -271,7 +273,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           style={{
             flex: '0 0 auto', width: 160, padding: '2px 8px', fontSize: 12, lineHeight: 1.4,
             color: p.fg, background: p.inputBg,
-            border: `1px solid `, borderRadius: 4, outline: 'none',
+            border: `1px solid ${p.accent}`, borderRadius: 4, outline: 'none',
           }}
         />
         {/* Create-time Send⇄Compose toggle (design §3c). */}
@@ -309,11 +311,12 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
         tabIndex={idx === safeFocused ? 0 : -1}
         onFocus={() => setFocusedIdx(idx)}
         aria-label={`${verb.toLowerCase()} ${chip.label}`}
-        draggable={!isDefault && !disabled}
-        onDragStart={() => { if (!isDefault) dragId.current = chip.id; }}
-        onDragOver={(e) => { if (!isDefault && dragId.current) e.preventDefault(); }}
+        // Every chip is draggable to reorder (order drives the Ctrl+F# slot).
+        draggable={!disabled}
+        onDragStart={() => { dragId.current = chip.id; }}
+        onDragOver={(e) => { if (dragId.current) e.preventDefault(); }}
         onDrop={(e) => {
-          if (isDefault || !dragId.current) return;
+          if (!dragId.current) return;
           e.preventDefault();
           moveChip(dragId.current, chip.id);
           dragId.current = null;
@@ -323,8 +326,8 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
         onContextMenu={(e) => openContextMenu(e, chip, isDefault)}
         title={
           // Advertise send-vs-type + the ⌥ override (design §3a / §4.3).
-          `${verb} "${payload}" · ⌥-click to ${compose ? 'send' : 'type only'}` +
-          (isDefault ? ' · right-click to hide' : ' · right-click to manage')
+          `${verb} "${payload}" · ⌥-click to ${compose ? 'send' : 'type only'} · ⌃F${idx + 1}` +
+          ' · drag to reorder · right-click to manage'
         }
         style={{
           flex: '0 0 auto',
@@ -369,7 +372,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
         display: 'flex', alignItems: 'center', gap: 4,
         flex: '0 0 auto', minHeight: 26,
         padding: '3px 6px',
-        borderTop: `1px solid `,
+        borderTop: `1px solid ${p.border}`,
         background: p.surface,
         // Wrap chips onto additional rows when the rail is too narrow to fit them
         // on one line (the rail grows taller instead of scrolling sideways).
@@ -379,10 +382,9 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
       }}
       title={disabled ? 'No console attached' : undefined}
     >
-      {/* Defaults — pinned left, non-draggable. Then custom chips (draggable to
-          reorder). Index is the flat position for roving focus + scoped keys. */}
-      {visibleDefaults.map((chip, i) => renderChip(chip, true, i))}
-      {custom.map((chip, i) => renderChip(chip, false, visibleDefaults.length + i))}
+      {/* All chips (defaults + custom) in the user's unified order — every chip is
+          draggable to reorder, and its index is its Ctrl+F# + roving-focus slot. */}
+      {orderedChips.map((chip, i) => renderChip(chip, DEFAULT_IDS.has(chip.id), i))}
 
       {/* Trailing +/editor — grows in place into an inline input. marginLeft:auto
           keeps it at the right end of the last row as chips wrap. */}
@@ -399,7 +401,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
               flex: '0 0 auto', padding: '2px 8px', fontSize: 14, lineHeight: 1.2,
               cursor: disabled ? 'default' : 'pointer',
               color: p.mutedFg, background: 'transparent',
-              border: `1px solid `, borderRadius: 4,
+              border: `1px solid ${p.border}`, borderRadius: 4,
             }}
           >
             +
@@ -415,15 +417,16 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           style={{
             position: 'fixed', top: menu.y, left: menu.x, zIndex: 1000,
             minWidth: 140,
-            background: p.surface, border: `1px solid `,
+            background: p.surface, border: `1px solid ${p.border}`,
             borderRadius: 4, padding: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
           }}
         >
           {menu.isDefault ? (
             <MenuItem
-              label="Hide"
+              label="Delete"
               palette={p}
-              onClick={() => { hideDefault(menu.chip.id); setMenu(null); }}
+              tone={p.danger}
+              onClick={() => { deleteChip(menu.chip.id); setMenu(null); }}
             />
           ) : (
             <>
