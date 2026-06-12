@@ -1034,7 +1034,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // only by the context-watchdog, never an idle-kill here). The slot frees on
       // the session name the todo was claimed under.
       const session = r.completed.sessionName ?? '';
-      if (session) markIdle(session);
+      // The slot lives in the project the worker's tmux/worktree ran in
+      // (targetProject for cross-project todos, else the tracking project).
+      const slotProject = r.completed.targetProject ?? project;
+      if (session) markIdle(slotProject, session);
       recordSupervisorAudit({ kind: 'complete', project, session, detail: JSON.stringify({ todoId: id, acceptance: acceptance ?? r.completed.acceptanceStatus, promoted: r.promoted, rolledUp: r.rolledUp }) });
       // Escalation lifecycle: a todo that completes (accepted) may have left an
       // OPEN escalation behind — e.g. it exhausted its retry budget, the
@@ -1104,7 +1107,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // the pool slot so the next todo spawns a FRESH session in a FRESH
             // worktree instead of reusing a bare-shell session.
             try { await killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
-            removeSlot(session);
+            removeSlot(targetProject, session);
           }
         } catch (e) {
           // BP0 + abb4fd7e (unioned): the merge-back THREW, so the work almost
@@ -1195,9 +1198,15 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // regression). So under isolation never route to a warm idle session; always
       // grab a slot → a FRESH session in a FRESH worktree per todo. Keep-warm reuse
       // stays for the non-isolation shared-tree path.
-      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(type);
+      // The pool is partitioned by project; use the project that OWNS the lane —
+      // i.e. the project the worker's tmux/worktree lives in. That is the target
+      // repo (todo.targetProject) for cross-project todos, else the tracking
+      // project. Match tmuxBaseName(targetProject, poolName) below so the registry
+      // partition and the tmux name agree.
+      const poolProject = todo.targetProject ?? project;
+      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type);
       if (!poolName) {
-        const slot = getOrCreateSlot(type);
+        const slot = getOrCreateSlot(poolProject, type);
         if (!slot) {
           try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
           recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type), detail: JSON.stringify({ todoId: todo.id, type, started: false, reason: 'pool-busy-deferred', released: true }) });
@@ -1316,7 +1325,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       if (ok) {
         // Record the backing tmux so reapDeadSlots can free this slot on the
         // worker's death regardless of the todo's eventual status.
-        markBusy(poolName, todo.id, ensured.tmux ?? tmuxBaseName(targetProject, poolName));
+        markBusy(poolProject, poolName, todo.id, ensured.tmux ?? tmuxBaseName(targetProject, poolName));
         // Claim continues under the pool session name (todo.sessionName = poolName)
         // so reclaim/lease semantics and the dead-claim reaper key off it.
         // executedBySession pins the durable executor (the worker lane).
@@ -1365,7 +1374,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (session && await isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
         const next = await reclaimClaim(project, t.id);
         // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
-        if (session) markIdle(session);
+        // The slot lives in the project the worker's lane ran in (target for cross-project).
+        if (session) markIdle(t.targetProject ?? project, session);
         if (next === 'ready') reclaimed.push(t.id);
         else if (next === 'blocked') exhausted.push(t.id);
       }
@@ -1406,7 +1416,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (!shouldPulseReap(pulseAt, nowMs, PULSE_STALE_MS, dead)) continue;
         const next = await reclaimOrphan(project, t.id);
         if (next == null) continue; // raced to a terminal state
-        markIdle(session);          // free any pool slot it held
+        markIdle(t.targetProject ?? project, session);          // free any pool slot it held
         fastReaped.add(t.id);
         if (next === 'ready') reclaimed.push(t.id);
         else exhausted.push(t.id);
@@ -1432,7 +1442,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // or blocked once the retry cap is exceeded.
         const next = await reclaimOrphan(project, c.id);
         if (next == null) continue; // raced to a terminal state — nothing to reap
-        if (c.sessionName) markIdle(c.sessionName); // free any pool slot it held
+        if (c.sessionName) {
+          // The slot lives in the project the worker's lane ran in (target for cross-project).
+          const cProject = inProgress.find((t) => t.id === c.id)?.targetProject ?? project;
+          markIdle(cProject, c.sessionName); // free any pool slot it held
+        }
         if (next === 'ready') reclaimed.push(c.id);
         else exhausted.push(c.id);
         recordSupervisorAudit({
@@ -1519,7 +1533,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // Reset the lane: kill the dud bare-shell tmux, free the pool slot, and
             // reclaim the claim (retry-budget-aware → ready or blocked).
             await killTmuxSession(tmux);
-            markIdle(session);
+            markIdle(t.targetProject ?? project, session);
             await reclaimClaim(project, t.id);
             prev.escalated = true;
             stalled.push(t.id);
@@ -1652,7 +1666,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           try {
             await releaseClaim(project, t.id);
             await updateTodo(project, t.id, { status: 'blocked' });
-            markIdle(session);
+            markIdle(t.targetProject ?? project, session);
           } catch { /* recovery best-effort; never abort the tick */ }
         } catch { /* escalation best-effort; never abort the tick */ }
       }

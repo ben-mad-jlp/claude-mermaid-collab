@@ -135,6 +135,11 @@ export function poolSessionName(type: PoolType, slot = 1): string {
 export type SlotStatus = 'idle' | 'busy';
 
 export interface PoolSlot {
+  /** The project whose pool owns this slot. The registry is partitioned by
+   *  project so concurrent projects don't contend for one shared set of slots —
+   *  each project independently gets up to budget slots per type, and the same
+   *  logical slot name (`backend-1`) can exist once per project. */
+  project: string;
   type: PoolType;
   /** 1-based slot index within the type. */
   slot: number;
@@ -147,8 +152,18 @@ export interface PoolSlot {
   tmux?: string;
 }
 
-/** sessionName (`frontend-1`) → slot. Module-level; no DB (intentional). */
+/** regKey (`<project> <sessionName>`) → slot. Module-level; no DB (intentional).
+ *  Partitioned by project: the key combines the owning project with the logical
+ *  session name so each project has its own pool of slots. The logical session
+ *  name (`backend-1`) stays per-project-unscoped — the tmux layer scopes by
+ *  project via tmuxBaseName(targetProject, poolName), so adding project here only
+ *  (not to poolSessionName) avoids double-scoping. */
 const registry = new Map<string, PoolSlot>();
+
+/** Registry key for a slot: project + logical session name. */
+function regKey(project: string, sessionName: string): string {
+  return `${project} ${sessionName}`;
+}
 
 /** Reset the registry. Test-only helper; harmless in prod. */
 export function resetPool(): void {
@@ -164,47 +179,48 @@ export function resetPool(): void {
  * Slots are created at the lowest free index (1..config[type]). A newly created
  * slot starts `idle`.
  */
-export function getOrCreateSlot(type: PoolType, config: PoolConfig = POOL_CONFIG): PoolSlot | undefined {
+export function getOrCreateSlot(project: string, type: PoolType, config: PoolConfig = POOL_CONFIG): PoolSlot | undefined {
   const budget = config[type] ?? 0;
-  // Prefer an existing idle slot of this type.
-  const idle = findIdleSlotForType(type);
+  // Prefer an existing idle slot of this type IN THIS PROJECT.
+  const idle = findIdleSlotForType(project, type);
   if (idle) return idle;
-  // No idle slot — create the next one if budget allows.
+  // No idle slot — create the next one if this project's budget allows.
   for (let slot = 1; slot <= budget; slot++) {
     const name = poolSessionName(type, slot);
-    if (!registry.has(name)) {
-      const created: PoolSlot = { type, slot, status: 'idle' };
-      registry.set(name, created);
+    const key = regKey(project, name);
+    if (!registry.has(key)) {
+      const created: PoolSlot = { project, type, slot, status: 'idle' };
+      registry.set(key, created);
       return created;
     }
   }
-  // All slots exist (and none idle) — at capacity.
+  // All this project's slots exist (and none idle) — at capacity.
   return undefined;
 }
 
-/** All slots of a type that are currently idle. */
-function findIdleSlotForType(type: PoolType): PoolSlot | undefined {
+/** All slots of a type IN A PROJECT that are currently idle. */
+function findIdleSlotForType(project: string, type: PoolType): PoolSlot | undefined {
   for (const s of registry.values()) {
-    if (s.type === type && s.status === 'idle') return s;
+    if (s.project === project && s.type === type && s.status === 'idle') return s;
   }
   return undefined;
 }
 
 /**
- * Find the session NAME of an idle slot for a type (what POOL-4 routes to), or
- * `undefined` if none is idle/exists.
+ * Find the session NAME of an idle slot for a type IN A PROJECT (what POOL-4
+ * routes to), or `undefined` if none is idle/exists.
  */
-export function findIdleSessionForType(type: PoolType): string | undefined {
-  for (const [name, s] of registry.entries()) {
-    if (s.type === type && s.status === 'idle') return name;
+export function findIdleSessionForType(project: string, type: PoolType): string | undefined {
+  for (const s of registry.values()) {
+    if (s.project === project && s.type === type && s.status === 'idle') return poolSessionName(s.type, s.slot);
   }
   return undefined;
 }
 
 /** Mark a session busy on a todo. Pass `tmux` (the slot's tmux base name) so the
  *  slot can be reaped on its worker's death independent of todo status. */
-export function markBusy(sessionName: string, todoId: string, tmux?: string): PoolSlot | undefined {
-  const s = registry.get(sessionName);
+export function markBusy(project: string, sessionName: string, todoId: string, tmux?: string): PoolSlot | undefined {
+  const s = registry.get(regKey(project, sessionName));
   if (!s) return undefined;
   s.status = 'busy';
   s.currentTodoId = todoId;
@@ -213,8 +229,8 @@ export function markBusy(sessionName: string, todoId: string, tmux?: string): Po
 }
 
 /** Mark a session idle (todo finished). Returns the slot, or undefined if unknown. */
-export function markIdle(sessionName: string): PoolSlot | undefined {
-  const s = registry.get(sessionName);
+export function markIdle(project: string, sessionName: string): PoolSlot | undefined {
+  const s = registry.get(regKey(project, sessionName));
   if (!s) return undefined;
   s.status = 'idle';
   delete s.currentTodoId;
@@ -229,8 +245,8 @@ export function markIdle(sessionName: string): PoolSlot | undefined {
  *  FRESH slot (→ a fresh session in a fresh worktree) for the next todo. Returns
  *  true if a slot was removed. No-op (false) for the non-isolation keep-warm path,
  *  which calls markIdle instead. */
-export function removeSlot(sessionName: string): boolean {
-  return registry.delete(sessionName);
+export function removeSlot(project: string, sessionName: string): boolean {
+  return registry.delete(regKey(project, sessionName));
 }
 
 /** Free every busy slot whose backing tmux session is dead. Decouples slot
@@ -245,24 +261,30 @@ export async function reapDeadSlots(isAlive: (tmux: string) => boolean | Promise
   // registry while it may mutate. The predicate is async (944408c2: tmux liveness
   // is an async subprocess call now, never a blocking spawnSync on the sidecar).
   const busy = [...registry.entries()].filter(([, s]) => s.status === 'busy' && s.tmux);
-  for (const [name, s] of busy) {
+  for (const [key, s] of busy) {
     if (!(await isAlive(s.tmux!))) {
-      // Re-read in case it changed while awaiting.
-      const cur = registry.get(name);
+      // Re-read in case it changed while awaiting. Key by the slot's stored
+      // project so we re-read the same partitioned entry.
+      const cur = registry.get(key);
       if (cur && cur.status === 'busy') {
         cur.status = 'idle';
         delete cur.currentTodoId;
         delete cur.tmux;
-        freed.push(name);
+        // Report the logical session name (what callers route by).
+        freed.push(poolSessionName(cur.type, cur.slot));
       }
     }
   }
   return freed;
 }
 
-/** Snapshot of the registry: sessionName → slot (shallow copies). */
-export function listPool(): Record<string, PoolSlot> {
-  const out: Record<string, PoolSlot> = {};
-  for (const [name, s] of registry.entries()) out[name] = { ...s };
+/** Snapshot of the registry as an array of slots (shallow copies). Each entry
+ *  carries its `project` and logical session name so callers can group/scope by
+ *  project (the registry is partitioned by project). */
+export function listPool(): Array<PoolSlot & { sessionName: string }> {
+  const out: Array<PoolSlot & { sessionName: string }> = [];
+  for (const s of registry.values()) {
+    out.push({ ...s, sessionName: poolSessionName(s.type, s.slot) });
+  }
   return out;
 }

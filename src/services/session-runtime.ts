@@ -157,8 +157,9 @@ function readSources(project: string, now: number): RuntimeSources {
     supervisorStore.listOpenEscalations().filter((e) => e.project === project).map((e) => e.session),
   );
   const slotTmuxBySession = new Map<string, string>();
-  for (const [session, slot] of Object.entries(listPool())) {
-    if (slot.tmux) slotTmuxBySession.set(session, slot.tmux);
+  for (const slot of listPool()) {
+    // Registry is partitioned by project; only this project's slots are relevant.
+    if (slot.project === project && slot.tmux) slotTmuxBySession.set(slot.sessionName, slot.tmux);
   }
   return { statuses, inProgressTodos, supervisorSession, escalatedSessions, slotTmuxBySession, now };
 }

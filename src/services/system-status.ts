@@ -281,7 +281,8 @@ export async function systemStatus(project: string, deps: SystemStatusDeps = {})
   const gitInfoFn = deps.gitInfoImpl ?? defaultGitInfo;
 
   const orchestratorHealth = getOrchestratorHealth();
-  const poolOccupancy = Object.keys(listPool()).length;
+  // Registry is partitioned by project; count only this project's slots.
+  const poolOccupancy = listPool().filter((s) => s.project === project).length;
   const coldStartsInFlight = getColdStartsInFlight();
   const fleet = getFleetStatus(project, now);
   const violations = checkInvariants(project);

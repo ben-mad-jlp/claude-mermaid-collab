@@ -14,7 +14,17 @@ import {
   listPool,
   resetPool,
   reapDeadSlots,
+  type PoolSlot,
 } from '../worker-pool';
+
+// listPool now returns a project-partitioned array; this helper finds the slot
+// for a (project, sessionName) pair the way callers scope their readouts.
+function slotOf(project: string, sessionName: string): (PoolSlot & { sessionName: string }) | undefined {
+  return listPool().find((s) => s.project === project && s.sessionName === sessionName);
+}
+
+// A single test project for the legacy single-pool transition tests.
+const P = '/proj/main';
 
 describe('worker-pool config', () => {
   it('defaults to 1 slot per type, except frontend (3)', () => {
@@ -71,49 +81,86 @@ describe('pool registry transitions', () => {
   beforeEach(() => resetPool());
 
   it('lazily creates a slot and starts idle', () => {
-    const slot = getOrCreateSlot('frontend');
-    expect(slot).toEqual({ type: 'frontend', slot: 1, status: 'idle' });
-    expect(listPool()['frontend-1']).toBeDefined();
+    const slot = getOrCreateSlot(P, 'frontend');
+    expect(slot).toEqual({ project: P, type: 'frontend', slot: 1, status: 'idle' });
+    expect(slotOf(P, 'frontend-1')).toBeDefined();
   });
 
   it('reuses the existing idle slot instead of creating a new one', () => {
-    const a = getOrCreateSlot('backend');
-    const b = getOrCreateSlot('backend');
+    const a = getOrCreateSlot(P, 'backend');
+    const b = getOrCreateSlot(P, 'backend');
     expect(a).toEqual(b!);
-    expect(Object.keys(listPool())).toEqual(['backend-1']);
+    expect(listPool().map((s) => s.sessionName)).toEqual(['backend-1']);
   });
 
   it('returns undefined when at capacity and no idle slot', () => {
-    const slot = getOrCreateSlot('api');
-    markBusy(poolSessionName('api'), 'todo-1');
+    getOrCreateSlot(P, 'api');
+    markBusy(P, poolSessionName('api'), 'todo-1');
     // budget is 1 and the only slot is busy → at capacity
-    expect(getOrCreateSlot('api')).toBeUndefined();
+    expect(getOrCreateSlot(P, 'api')).toBeUndefined();
   });
 
   it('markBusy / markIdle drive status + currentTodoId', () => {
-    getOrCreateSlot('ui');
-    expect(findIdleSessionForType('ui')).toBe('ui-1');
+    getOrCreateSlot(P, 'ui');
+    expect(findIdleSessionForType(P, 'ui')).toBe('ui-1');
 
-    const busy = markBusy('ui-1', 'todo-42');
-    expect(busy).toEqual({ type: 'ui', slot: 1, status: 'busy', currentTodoId: 'todo-42' });
-    expect(findIdleSessionForType('ui')).toBeUndefined();
+    const busy = markBusy(P, 'ui-1', 'todo-42');
+    expect(busy).toEqual({ project: P, type: 'ui', slot: 1, status: 'busy', currentTodoId: 'todo-42' });
+    expect(findIdleSessionForType(P, 'ui')).toBeUndefined();
 
-    const idle = markIdle('ui-1');
-    expect(idle).toEqual({ type: 'ui', slot: 1, status: 'idle' });
+    const idle = markIdle(P, 'ui-1');
+    expect(idle).toEqual({ project: P, type: 'ui', slot: 1, status: 'idle' });
     expect(idle!.currentTodoId).toBeUndefined();
-    expect(findIdleSessionForType('ui')).toBe('ui-1');
+    expect(findIdleSessionForType(P, 'ui')).toBe('ui-1');
   });
 
   it('markBusy/markIdle return undefined for unknown sessions', () => {
-    expect(markBusy('nope-1', 't')).toBeUndefined();
-    expect(markIdle('nope-1')).toBeUndefined();
+    expect(markBusy(P, 'nope-1', 't')).toBeUndefined();
+    expect(markIdle(P, 'nope-1')).toBeUndefined();
   });
 
   it('listPool snapshots are copies (no aliasing into registry)', () => {
-    getOrCreateSlot('library');
+    getOrCreateSlot(P, 'library');
     const snap = listPool();
-    snap['library-1'].status = 'busy';
-    expect(listPool()['library-1'].status).toBe('idle');
+    snap.find((s) => s.sessionName === 'library-1')!.status = 'busy';
+    expect(slotOf(P, 'library-1')!.status).toBe('idle');
+  });
+});
+
+describe('pool registry is partitioned by project (P0 regression — multi-project contention)', () => {
+  beforeEach(() => resetPool());
+
+  it('gives each project its OWN pool: same logical name, different project, no cross-project starvation', () => {
+    const A = '/proj/A';
+    const B = '/proj/B';
+
+    // Each project independently gets a backend-1 slot (same logical name).
+    const a = getOrCreateSlot(A, 'backend');
+    const b = getOrCreateSlot(B, 'backend');
+    expect(a).toEqual({ project: A, type: 'backend', slot: 1, status: 'idle' });
+    expect(b).toEqual({ project: B, type: 'backend', slot: 1, status: 'idle' });
+    // Distinct registry entries despite the identical session name.
+    expect(slotOf(A, 'backend-1')).toBeDefined();
+    expect(slotOf(B, 'backend-1')).toBeDefined();
+
+    // Both can be busy simultaneously — they do not contend for one shared slot.
+    markBusy(A, 'backend-1', 'todo-A');
+    markBusy(B, 'backend-1', 'todo-B');
+    expect(slotOf(A, 'backend-1')!.status).toBe('busy');
+    expect(slotOf(A, 'backend-1')!.currentTodoId).toBe('todo-A');
+    expect(slotOf(B, 'backend-1')!.status).toBe('busy');
+    expect(slotOf(B, 'backend-1')!.currentTodoId).toBe('todo-B');
+
+    // An idle lookup for project A never returns project B's slot.
+    expect(findIdleSessionForType(A, 'backend')).toBeUndefined(); // A's only slot is busy
+    expect(findIdleSessionForType(B, 'backend')).toBeUndefined(); // B's only slot is busy
+
+    // With budget=1, project A at capacity must NOT starve project B: B still has
+    // its own free slot available (and vice-versa) until each fills its own pool.
+    expect(getOrCreateSlot(A, 'backend')).toBeUndefined(); // A at its own capacity
+    markIdle(B, 'backend-1');
+    expect(findIdleSessionForType(B, 'backend')).toBe('backend-1'); // B independently idle
+    expect(findIdleSessionForType(A, 'backend')).toBeUndefined();    // A still busy — unaffected
   });
 });
 
@@ -121,34 +168,48 @@ describe('reapDeadSlots (889e3e26 — slot release decoupled from todo status)',
   beforeEach(() => resetPool());
 
   it('frees a busy slot whose backing tmux is dead, leaving live ones alone', async () => {
-    const a = getOrCreateSlot('backend')!;
-    markBusy(poolSessionName(a.type, a.slot), 'todo-a', 'mc-proj-backend-1');
-    expect(listPool()['backend-1'].status).toBe('busy');
+    const a = getOrCreateSlot(P, 'backend')!;
+    markBusy(P, poolSessionName(a.type, a.slot), 'todo-a', 'mc-proj-backend-1');
+    expect(slotOf(P, 'backend-1')!.status).toBe('busy');
     // backend at capacity (1 slot) → no new slot until the dead one is reaped.
-    expect(getOrCreateSlot('backend')).toBeUndefined();
+    expect(getOrCreateSlot(P, 'backend')).toBeUndefined();
 
     // The worker's tmux vanished (dropped/abandoned todo, or killed lane). The
     // predicate is async now (944408c2: tmux liveness is a non-blocking subprocess).
     const freed = await reapDeadSlots(async (tmux) => tmux !== 'mc-proj-backend-1');
     expect(freed).toEqual(['backend-1']);
-    expect(listPool()['backend-1'].status).toBe('idle');
+    expect(slotOf(P, 'backend-1')!.status).toBe('idle');
     // Slot is reusable again — the wedge is gone.
-    expect(getOrCreateSlot('backend')).toBeDefined();
+    expect(getOrCreateSlot(P, 'backend')).toBeDefined();
   });
 
   it('leaves a busy slot with a LIVE tmux untouched', async () => {
-    const s = getOrCreateSlot('frontend')!;
-    markBusy(poolSessionName(s.type, s.slot), 'todo-x', 'mc-proj-frontend-1');
+    const s = getOrCreateSlot(P, 'frontend')!;
+    markBusy(P, poolSessionName(s.type, s.slot), 'todo-x', 'mc-proj-frontend-1');
     const freed = await reapDeadSlots(async () => true); // all alive
     expect(freed).toEqual([]);
-    expect(listPool()['frontend-1'].status).toBe('busy');
+    expect(slotOf(P, 'frontend-1')!.status).toBe('busy');
   });
 
   it('ignores a busy slot with no recorded tmux (legacy/in-flight backstop)', async () => {
-    const s = getOrCreateSlot('api')!;
-    markBusy(poolSessionName(s.type, s.slot), 'todo-y'); // no tmux recorded
+    const s = getOrCreateSlot(P, 'api')!;
+    markBusy(P, poolSessionName(s.type, s.slot), 'todo-y'); // no tmux recorded
     const freed = await reapDeadSlots(async () => false); // everything "dead"
     expect(freed).toEqual([]); // not reaped — todo-level reaper backstops it
-    expect(listPool()['api-1'].status).toBe('busy');
+    expect(slotOf(P, 'api-1')!.status).toBe('busy');
+  });
+
+  it('reaps across projects, keying each slot by its own stored project', async () => {
+    const A = '/proj/A';
+    const B = '/proj/B';
+    getOrCreateSlot(A, 'backend');
+    getOrCreateSlot(B, 'backend');
+    markBusy(A, 'backend-1', 'todo-A', 'A-backend-1');
+    markBusy(B, 'backend-1', 'todo-B', 'B-backend-1');
+    // Only A's tmux is dead.
+    const freed = await reapDeadSlots(async (tmux) => tmux !== 'A-backend-1');
+    expect(freed).toEqual(['backend-1']); // logical name reported
+    expect(slotOf(A, 'backend-1')!.status).toBe('idle'); // A freed
+    expect(slotOf(B, 'backend-1')!.status).toBe('busy'); // B untouched
   });
 });

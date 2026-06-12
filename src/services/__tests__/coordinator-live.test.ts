@@ -163,7 +163,7 @@ describe('launchWorker auto-subscribe into Watching (POOL-2)', () => {
 
     await deps.launchWorker(PROJECT, todo);
     // Free the slot (keep-warm) so the second route reuses the same session.
-    markIdle(POOL_SESSION);
+    markIdle(PROJECT, POOL_SESSION);
     await deps.launchWorker(PROJECT, todo);
 
     const matches = listSupervised().filter((s) => s.project === PROJECT && s.session === POOL_SESSION);
@@ -218,7 +218,7 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
     // runTodoInSession sent the skill twice — only ONE slot exists.
     expect(ensureSessionCalls).toEqual(['backend-1', 'backend-1']);
     expect(runTodoCalls.map((c) => c.session)).toEqual(['backend-1', 'backend-1']);
-    expect(Object.keys(listPool())).toEqual(['backend-1']);
+    expect(listPool().map((s) => s.sessionName)).toEqual(['backend-1']);
   });
 
   it('routes two different-type todos to two distinct named sessions', async () => {
@@ -227,7 +227,7 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
     expect(await deps.launchWorker(PROJECT, makeTodo('bbbbbbbb-2222-2222-2222-222222222222', 'api'))).toBe(true);
 
     expect(ensureSessionCalls).toEqual(['frontend-1', 'api-1']);
-    expect(Object.keys(listPool()).sort()).toEqual(['api-1', 'frontend-1']);
+    expect(listPool().map((s) => s.sessionName).sort()).toEqual(['api-1', 'frontend-1']);
   });
 
   it('untyped todo routes to the general pool', async () => {
@@ -254,14 +254,15 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
   it('complete marks the slot idle (warm, not killed)', async () => {
     const deps = makeCoordinatorDeps();
     await deps.launchWorker(PROJECT, makeTodo('ffffffff-1111-1111-1111-111111111111', 'library'));
-    expect(listPool()['library-1'].status).toBe('busy');
+    const lib = () => listPool().find((s) => s.project === PROJECT && s.sessionName === 'library-1')!;
+    expect(lib().status).toBe('busy');
 
     completeSessionName = 'library-1';
     await deps.completeTodo(PROJECT, 'ffffffff-1111-1111-1111-111111111111', 'accepted');
 
     // Slot still exists (session kept warm) but is now idle and available.
-    expect(listPool()['library-1'].status).toBe('idle');
-    expect(listPool()['library-1'].currentTodoId).toBeUndefined();
+    expect(lib().status).toBe('idle');
+    expect(lib().currentTodoId).toBeUndefined();
   });
 });
 

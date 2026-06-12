@@ -4969,8 +4969,10 @@ IMPORTANT - Common pitfalls to avoid:
             }
 
             // One slot row per OCCUPIED lane (a registered slot is an occupied lane).
-            const pool = Object.entries(listPool()).map(([session, s]) => ({
-              session,
+            // The registry is partitioned by project, so each row carries its project.
+            const pool = listPool().map((s) => ({
+              project: s.project,
+              session: s.sessionName,
               type: s.type,
               slot: s.slot,
               status: s.status,
