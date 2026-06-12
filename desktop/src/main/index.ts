@@ -12,6 +12,7 @@ import { DesktopControl } from './desktop-control';
 import { ServerProxy } from './server-proxy';
 import { ConnectionStore } from './connection-store';
 import { WatchAggregator } from './watch-aggregator';
+import { crossServerCall, validateWatchEvent } from './remote-boundary';
 import { enableCdp, publishDiscovery } from 'electron-agent-bridge/electron-main';
 import { installLinuxAutostart } from './linux-autostart';
 
@@ -102,8 +103,13 @@ function registerIpc(): void {
   // browser-focus, navigate) at the row's serverId instead of the active
   // server's proxy. Tokens stay in main. Returns a structured envelope so the
   // renderer can branch on ok/status without losing the body.
+  // EVERY renderer-initiated cross-server REST routes through the remote boundary
+  // (P2 §3A): the envelope shape is preserved, but a known route whose response
+  // fails validation is replaced with a fail-closed `invalid_remote_payload` so
+  // garbage from a peer never reaches the store. Token injection still happens in
+  // `invokeOnServer` (main); the boundary wraps it.
   ipcMain.handle('mc:invokeOnServer', (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
-    invokeOnServer(serverId, opts)
+    crossServerCall(invokeOnServer, serverId, opts)
   );
   ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
   ipcMain.handle('mc:openExternalTerminal', async (_e, tmuxName: string) => {
@@ -224,7 +230,11 @@ async function isSupervisedOnHome(homeServerId: string, project: string, session
   }
   return supervisedCache.has(`${project} ${session}`);
 }
-async function onWatchEvent(e: any): Promise<void> {
+async function onWatchEvent(raw: any): Promise<void> {
+  // Validate the inbound watch event at the boundary (P2 §6): a malformed/forged
+  // event is DROPPED before it reaches the renderer or the cross-machine nudge.
+  const e = validateWatchEvent(raw);
+  if (!e) return;
   mainWindow?.webContents.send('mc:watch-event', e);
   if (e.type !== 'claude_session_status') return;
   const status = e.status as string | undefined;

@@ -43,7 +43,10 @@ export class WatchAggregator {
     // Reset backoff once a connection actually establishes, so a server that
     // blips repeatedly doesn't get stuck at the 15s cap forever.
     ws.on('open', () => { const st = this.conns.get(s.id); if (st) st.attempt = 0; this.onOpen?.(s.id); });
-    ws.on('message', (data: any) => { try { const m = JSON.parse(data.toString()); if (m && WATCHED_TYPES.has(m.type)) this.forward({ ...m, serverId: s.id }); } catch { /* ignore non-JSON */ } });
+    // Forward only a well-formed watched event: a known type AND string
+    // project+session (P2 §6 — first structural gate before remote-boundary's
+    // zod validation downstream). A frame missing those is dropped here.
+    ws.on('message', (data: any) => { try { const m = JSON.parse(data.toString()); if (m && WATCHED_TYPES.has(m.type) && typeof m.project === 'string' && typeof m.session === 'string') this.forward({ ...m, serverId: s.id }); } catch { /* ignore non-JSON */ } });
     ws.on('close', () => this.scheduleReconnect(s));
     ws.on('error', () => this.scheduleReconnect(s));
   }
