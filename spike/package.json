@@ -1,0 +1,11 @@
+{
+  "name": "grok-worker-spike",
+  "private": true,
+  "type": "module",
+  "description": "Phase-0 spike: drive Grok via the Vercel AI SDK headless (no tmux, no pane-scraping)",
+  "dependencies": {
+    "@ai-sdk/xai": "^3.0.94",
+    "ai": "^6.0.202",
+    "zod": "^4.4.3"
+  }
+}
