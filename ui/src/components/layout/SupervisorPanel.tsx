@@ -33,7 +33,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { selectOpenEscalationCount } from '@/lib/statusSelectors';
 import { AddProjectDialog } from '@/components/dialogs';
 import { OrchestratorLevelBadge } from '@/components/supervisor/bridge/OrchestratorLevelBadge';
-import { useFleetStatus } from '@/hooks/useFleetStatus';
+import { useFleetStatus, useFleetStatusByProject, fleetKey, fleetStateToStatus } from '@/hooks/useFleetStatus';
 
 /**
  * Reduce a project's session-card statuses to ONE combined health status — the
@@ -286,6 +286,13 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const reorderProjects = useBridgeOrderStore((s) => s.reorder);
   const orderedProjects = useMemo(() => applyBridgeOrder(byProject, bridgeOrder), [byProject, bridgeOrder]);
 
+  // TRUE worker liveness across every watched project (server-computed from real
+  // tmux). Daemon-spawned pool workers don't emit the subscription WS status
+  // events, so without this they read 'unknown' and get decluttered (the "no
+  // workers in the Bridge" bug). cardDataFor falls back to this when no fresh sub.
+  const projectPaths = useMemo(() => byProject.map((r) => r.project), [byProject]);
+  const fleetByProject = useFleetStatusByProject(serverScope, projectPaths);
+
   // Display labels, parent-qualified only where basenames collide.
   const projectLabels = useMemo(
     () => disambiguateProjectLabels(byProject.map((r) => r.project)),
@@ -370,7 +377,11 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       const matched = findSubscription(s.project, s.session);
       const matchedAge = typeof matched?.lastUpdate === 'number' ? Date.now() - matched.lastUpdate : Infinity;
       const fresh = !!(matched?.status && matched.status !== 'unknown' && matchedAge <= 15 * 60_000);
-      const status = (fresh ? matched!.status : 'unknown') as SessionCardData['status'];
+      // Fall back to the fleet read-model for daemon-spawned pool workers, which
+      // don't publish subscription WS status (else they'd be 'unknown' → hidden).
+      const fleetEntry = fleetByProject[fleetKey(s.project, s.session)];
+      const fleetStatus = fleetStateToStatus(fleetEntry?.state);
+      const status = (fresh ? matched!.status : fleetStatus) as SessionCardData['status'];
       const serverId = matched?.serverId || s.serverId || activeId || 'local';
       // Dim (not gray) once past the short window; only a live match can dim.
       const stale = fresh ? matchedAge > 120_000 : false;
@@ -380,12 +391,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         session: s.session,
         claudeSessionId: matched?.claudeSessionId,
         status,
-        lastUpdate: matched?.lastUpdate ?? Date.now(),
+        lastUpdate: matched?.lastUpdate ?? fleetEntry?.lastActivity ?? Date.now(),
         contextPercent: matched?.contextPercent,
         stale,
       };
     },
-    [findSubscription, activeId],
+    [findSubscription, activeId, fleetByProject],
   );
 
   // Navigate: mirror the Watching panel — update local session state for

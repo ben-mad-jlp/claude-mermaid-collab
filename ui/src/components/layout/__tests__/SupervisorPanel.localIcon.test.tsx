@@ -51,7 +51,13 @@ vi.mock('@/stores/supervisorStore', () => {
 });
 
 vi.mock('@/stores/subscriptionStore', () => ({
-  useSubscriptionStore: (sel: (s: any) => any) => sel({ subscriptions: {} }),
+  // A fresh subscription so the row isn't decluttered (status !== 'unknown') and the
+  // icon-resolution assertion can find the card.
+  useSubscriptionStore: (sel: (s: any) => any) => sel({
+    subscriptions: {
+      k1: { project: '/proj', session: 'sess-a', serverId: 'local', status: 'active', lastUpdate: Date.now() },
+    },
+  }),
 }));
 
 vi.mock('@/stores/sessionStore', () => ({
