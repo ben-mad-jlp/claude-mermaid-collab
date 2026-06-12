@@ -34,6 +34,7 @@ import { WorkerRoster } from './WorkerRoster';
 import { StreamTicker } from './StreamTicker';
 import { PlanPanel } from '../PlanPanel';
 import { DecisionCard } from './focal/DecisionCard';
+import { EpicHistoryView } from './EpicHistoryView';
 import { funnelCounts, excludeEpics } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
@@ -339,10 +340,18 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // Stream card in the left panel. Seed sessionStore first — TodoDetailView reads
   // the todo from sessionStore.sessionTodos by id (same as PlanWorkspace.selectTodo).
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  // Per-epic history (todo b05125b6): clicking an epic node in the FleetGraph
+  // surfaces its escalation + decision history in Column 2 (taking precedence over
+  // the todo detail). Cleared on close or when a todo is clicked.
+  const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
   const [bridgeTab, setBridgeTab] = useState<'escalations' | 'todos' | 'workers' | 'stream'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
+    setSelectedEpic(null);
+  };
+  const handleSelectEpic = (epic: { id: string; label: string }) => {
+    setSelectedEpic(epic);
   };
 
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
@@ -447,29 +456,44 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                 </div>
               </div>
 
-              {/* Column 2 — Todo description (fills on graph-todo click). */}
+              {/* Column 2 — detail panel. An EPIC click surfaces the epic's
+                  escalation + decision history (takes precedence); a TODO click
+                  fills the todo description. */}
               <div
                 data-testid="bridge-todo-detail"
                 className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col min-h-[18rem] max-h-[28rem] min-w-0"
               >
                 <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                  <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Todo</span>
-                  {selectedTodoId && (
+                  <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    {selectedEpic ? 'Epic History' : 'Todo'}
+                  </span>
+                  {(selectedEpic || selectedTodoId) && (
                     <button
                       type="button"
-                      aria-label="Close todo detail"
-                      onClick={() => setSelectedTodoId(null)}
+                      aria-label={selectedEpic ? 'Close epic history' : 'Close todo detail'}
+                      onClick={() => (selectedEpic ? setSelectedEpic(null) : setSelectedTodoId(null))}
                       className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm leading-none px-1"
                     >
                       ✕
                     </button>
                   )}
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto p-3">
-                  {selectedTodoId ? (
-                    <TodoDetailView todoId={selectedTodoId} />
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  {selectedEpic ? (
+                    <EpicHistoryView
+                      epicId={selectedEpic.id}
+                      epicLabel={selectedEpic.label}
+                      serverScope={serverScope}
+                      project={project}
+                    />
+                  ) : selectedTodoId ? (
+                    <div className="p-3">
+                      <TodoDetailView todoId={selectedTodoId} />
+                    </div>
                   ) : (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 italic">Click a todo in the Plan below to see its description.</p>
+                    <p className="p-3 text-xs text-gray-400 dark:text-gray-500 italic">
+                      Click a todo to see its description, or an epic in the Plan below for its escalation &amp; decision history.
+                    </p>
                   )}
                 </div>
               </div>
@@ -481,6 +505,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             serverId={serverScope}
             project={project}
             onSelectTodo={handleSelectTodo}
+            onSelectEpic={handleSelectEpic}
           />
         }
       />

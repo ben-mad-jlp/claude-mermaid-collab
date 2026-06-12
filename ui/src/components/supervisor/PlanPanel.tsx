@@ -21,6 +21,11 @@ export interface PlanPanelProps {
    * underlying todo. Used by the Plan workspace to open a TodoDetailView.
    */
   onSelectTodo?: (todo: SessionTodo) => void;
+  /**
+   * Optional: clicking an epic node in the FleetGraph surfaces the epic's
+   * escalation + decision history (EpicHistoryView) in the Bridge.
+   */
+  onSelectEpic?: (epic: { id: string; label: string }) => void;
 }
 
 type Mode = 'kanban' | 'list' | 'graph';
@@ -109,7 +114,7 @@ function PlanRow({
   );
 }
 
-export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelectTodo }) => {
+export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelectTodo, onSelectEpic }) => {
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
 
@@ -298,7 +303,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
                   ))}
                 </div>
                 <div className="flex-1 min-h-0">
-                  <FleetGraph todos={active.todos} subs={[]} onSelectTodo={onSelectTodo} />
+                  <FleetGraph todos={active.todos} subs={[]} onSelectTodo={onSelectTodo} onSelectEpic={onSelectEpic} />
                 </div>
               </div>
             );

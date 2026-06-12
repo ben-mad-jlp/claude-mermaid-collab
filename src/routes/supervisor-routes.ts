@@ -57,6 +57,40 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // ESCALATION HISTORY — read-only OPEN+RESOLVED escalation trail (escalation_list
+  // is open-only). The frontend's per-epic history view (epicHistory) fetches this
+  // ON OPEN with an epicId, getting the epic's escalations (with triage outcome) AND
+  // its decision records folded in (getEscalationHistory does both). Mirrors the MCP
+  // escalation_history tool. REST-poll/on-demand only — NO new WS event, no polling.
+  if (url.pathname === '/api/supervisor/escalation-history' && req.method === 'GET') {
+    try {
+      const { getEscalationHistory } = await import('../services/escalation-history.ts');
+      const sp = url.searchParams;
+      const num = (k: string): number | undefined => {
+        const v = sp.get(k);
+        if (v == null) return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+      const f: Parameters<typeof getEscalationHistory>[0] = {};
+      const str = (k: string) => sp.get(k) ?? undefined;
+      if (str('epicId')) f.epicId = str('epicId');
+      if (str('project')) f.project = str('project');
+      if (str('todoId')) f.todoId = str('todoId');
+      if (str('session')) f.session = str('session');
+      if (str('status')) f.status = str('status');
+      if (str('kind')) f.kind = str('kind');
+      if (str('routedTo')) f.routedTo = str('routedTo');
+      if (num('since') !== undefined) f.since = num('since');
+      if (num('until') !== undefined) f.until = num('until');
+      if (num('limit') !== undefined) f.limit = num('limit');
+      if (sp.get('summary') === 'true') f.summary = true;
+      return Response.json(getEscalationHistory(f));
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   if (url.pathname === '/api/supervisor/projects' && req.method === 'POST') {
     try {
       const { project } = (await req.json()) as { project?: string };

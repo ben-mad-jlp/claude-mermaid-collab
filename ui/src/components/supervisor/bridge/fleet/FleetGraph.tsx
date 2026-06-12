@@ -64,11 +64,17 @@ export interface FleetGraphProps {
    * the task view) → clicking a todo just spotlights the node, no detail callout.
    */
   onSelectTodo?: (todo: SessionTodo) => void;
+  /**
+   * Notified when an epic node is clicked, with the epic's todo id + label. The
+   * Bridge wires this to surface the EpicHistoryView (escalation + decision history
+   * for the epic). OPTIONAL — absent → clicking an epic just spotlights it.
+   */
+  onSelectEpic?: (epic: { id: string; label: string }) => void;
 }
 
 const LOD_LABELS: Record<Lod | 'auto', string> = { auto: 'Auto', 0: 'L0', 1: 'L1', 2: 'L2' };
 
-const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect, onSelectTodo }) => {
+const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect, onSelectTodo, onSelectEpic }) => {
   const diveIn = useDiveIn();
   const setSelectedNodeId = useDeckStore((s) => s.setSelectedNodeId);
   const forcedLod = useDeckStore((s) => s.forcedLod);
@@ -149,8 +155,11 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
     (_evt, node) => {
       setSelectedNodeId(node.id);
       if (node.type === 'epic') {
-        // G1: epics are always expanded — clicking just spotlights the container
-        // (no collapse toggle).
+        // G1: epics are always expanded — clicking spotlights the container (no
+        // collapse toggle) and, when wired, surfaces the epic's escalation +
+        // decision history in the host (Bridge Column 2).
+        const epicData = node.data as { label?: string } | undefined;
+        onSelectEpic?.({ id: node.id, label: epicData?.label ?? node.id });
         return;
       }
       if (node.type === 'worker') {
@@ -186,7 +195,7 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
         }
       }
     },
-    [diveIn, onWorkerSelect, onSelectTodo, todos, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId, setActiveProject, setSelectedProject],
+    [diveIn, onWorkerSelect, onSelectTodo, onSelectEpic, todos, subs, setSelectedNodeId, escalationForTodo, setFocalEscalationId, setFocusNodeId, setActiveProject, setSelectedProject],
   );
 
   const lodButtons = useMemo<(Lod | 'auto')[]>(() => ['auto', 0, 1, 2], []);
