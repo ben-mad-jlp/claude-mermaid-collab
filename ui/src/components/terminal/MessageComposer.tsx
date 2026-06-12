@@ -36,7 +36,7 @@ export function MessageComposer({ project, session, serverId, disabled = false }
   const [dragOver, setDragOver] = useState(false);
   // When text file(s) are dropped, hold them here and offer a choice: paste their
   // CONTENTS into the box, or insert their PATH. Non-text drops skip the chooser.
-  const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
+  const [pendingDrop, setPendingDrop] = useState<{ files: File[]; paths: string[] } | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   /** Insert `insertText` at the textarea's caret (or replace the selection),
@@ -73,9 +73,28 @@ export function MessageComposer({ project, session, serverId, disabled = false }
   const resolvePath = (f: File): string | undefined =>
     (window as any).mc?.getPathForFile?.(f) ?? (f as any).path ?? undefined;
 
-  /** Insert the dropped files' absolute paths (space-joined, shell-quoted). */
-  const insertPaths = (files: File[]) => {
-    const paths = files.map(resolvePath).filter((p): p is string => !!p);
+  /** A file:// URI → absolute path (decoded). */
+  const fileUriToPath = (uri?: string): string | undefined => {
+    const s = (uri ?? '').trim();
+    if (!s) return undefined;
+    const bare = s.replace(/^file:\/\//, '');
+    try { return decodeURIComponent(bare); } catch { return bare; }
+  };
+
+  /** Resolve each dropped File to an absolute path. Preload getPathForFile first
+   *  (Electron 32+); else the drag's text/uri-list (file:// URIs by index), which
+   *  Electron populates for OS file drags even WITHOUT the preload bridge — so this
+   *  works before the desktop rebuild ships getPathForFile. */
+  const resolveDropPaths = (files: File[], dt: DataTransfer): string[] => {
+    const uris = (dt.getData('text/uri-list') || dt.getData('text/plain') || '')
+      .split('\n').map((s) => s.trim()).filter((s) => s && !s.startsWith('#'));
+    return files
+      .map((f, i) => resolvePath(f) ?? fileUriToPath(uris[i]))
+      .filter((path): path is string => !!path);
+  };
+
+  /** Insert pre-resolved absolute paths (space-joined, shell-quoted). */
+  const insertPaths = (paths: string[]) => {
     if (paths.length) insertAtCaret(paths.map(quotePath).join(' '));
     setPendingDrop(null);
   };
@@ -99,18 +118,18 @@ export function MessageComposer({ project, session, serverId, disabled = false }
     const files = Array.from(dt.files ?? []);
     if (files.length) {
       e.preventDefault();
+      const paths = resolveDropPaths(files, dt);
       // A text file could be either useful as a path OR pasted inline → ask.
       // Non-text (binary) files only make sense as a path, so insert it directly.
-      if (files.some(isTextFile)) setPendingDrop(files);
-      else insertPaths(files);
+      if (files.some(isTextFile)) setPendingDrop({ files, paths });
+      else insertPaths(paths);
       return;
     }
     // No OS files (e.g. a path/URI dragged from another app) → fall back to text.
-    const uri = dt.getData('text/uri-list') || dt.getData('text/plain');
-    if (uri) {
+    const path = fileUriToPath(dt.getData('text/uri-list') || dt.getData('text/plain'));
+    if (path) {
       e.preventDefault();
-      const cleaned = uri.replace(/^file:\/\//, '').trim();
-      insertAtCaret(quotePath(decodeURI(cleaned)));
+      insertAtCaret(quotePath(path));
     }
   };
 
@@ -220,12 +239,12 @@ export function MessageComposer({ project, session, serverId, disabled = false }
           }}
         >
           <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {pendingDrop.length === 1 ? pendingDrop[0].name : `${pendingDrop.length} files`}
+            {pendingDrop.files.length === 1 ? pendingDrop.files[0].name : `${pendingDrop.files.length} files`}
           </span>
-          <button type="button" onClick={() => void insertContents(pendingDrop)}
+          <button type="button" onClick={() => void insertContents(pendingDrop.files)}
             style={btn(p.primary, p.primaryBorder, p.primaryFg)}>Paste contents</button>
-          <button type="button" onClick={() => insertPaths(pendingDrop)}
-            style={btn(p.chipBg, p.border, p.fg)}>Insert path{pendingDrop.length > 1 ? 's' : ''}</button>
+          <button type="button" onClick={() => insertPaths(pendingDrop.paths)} disabled={pendingDrop.paths.length === 0}
+            style={btn(p.chipBg, p.border, p.fg)}>Insert path{pendingDrop.files.length > 1 ? 's' : ''}</button>
           <button type="button" onClick={() => setPendingDrop(null)} title="Cancel"
             style={{ ...btn('transparent', 'transparent', p.mutedFg), padding: '4px 8px' }}>✕</button>
         </div>
