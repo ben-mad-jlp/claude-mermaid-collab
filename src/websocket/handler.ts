@@ -6,6 +6,18 @@ import { setPeerRegistry } from '../services/supervisor-store.ts';
 
 type AgentDispatcherLike = { handle(ws: ServerWebSocket<{ subscriptions: Set<string> }>, cmd: AgentCommand): Promise<void> };
 
+/** True only for IPv4/IPv6 loopback remote addresses. The desktop aggregator
+ *  always dials its local collab servers over loopback, so a genuine
+ *  peer_registry frame originates from 127.0.0.1 (or its IPv6 forms). A LAN
+ *  browser — the forged-registry SSRF vector — never does. Used to gate
+ *  peer_registry ingest closed even when MERMAID_AUTH_TOKEN is unset (P1 §2).
+ *  Bun reports IPv4 as `127.0.0.1` and may report IPv6 loopback as `::1` or the
+ *  IPv4-mapped `::ffff:127.0.0.1`; all three are loopback. */
+export function isLoopbackAddress(addr: string | undefined | null): boolean {
+  if (!addr) return false;
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
 export type NotificationType = 'info' | 'success' | 'warning' | 'error';
 
 export interface NotificationData {
@@ -107,7 +119,7 @@ export type WSMessage =
   // escalation table stays the source of truth; the panel feed just narrates.
   | { type: 'steward_action'; project: string; id: string; action: string; proof?: string }
   | { type: 'steward_handback'; project: string; id: string; reason?: string }
-  | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string; token?: string }> };
+  | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string }> };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
@@ -207,7 +219,15 @@ export class WebSocketHandler {
           this.broadcastToChannel('ide', { type: 'ide_status', connected: true } as unknown as WSMessage);
         });
       } else if (data.type === 'peer_registry') {
-        setPeerRegistry(data.peers ?? []);
+        // Loopback-gate ingest (P1 §2): the desktop aggregator always dials its
+        // local servers over loopback, so only a 127.0.0.1 remote may set the
+        // peer registry. A LAN browser forging a peer_registry frame is rejected
+        // — closing the registry-injection SSRF even when no auth token is set.
+        if (isLoopbackAddress(ws.remoteAddress)) {
+          setPeerRegistry(data.peers ?? []);
+        } else {
+          console.warn('[ws] rejected peer_registry from non-loopback remote:', ws.remoteAddress);
+        }
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);

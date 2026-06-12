@@ -290,9 +290,11 @@ async function peerFetch(serverId: string | undefined, path: string, init?: { me
   if (!serverId) throw new Error('peerFetch requires serverId');
   const peer = supervisorStore.getPeer(serverId);
   if (!peer) throw new Error('unknown peer ' + serverId);
+  // Tokenless direct call (P1 §2): peers carry no token. A peer that enforces
+  // auth will 401 here, and the caller degrades to desktop-brokered routing.
   const res = await fetch(peer.baseUrl + path, {
     method: init?.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json', ...(peer.token ? { Authorization: 'Bearer ' + peer.token } : {}) },
+    headers: { 'Content-Type': 'application/json' },
     body: init?.body ? JSON.stringify(init.body) : undefined,
   });
   return await res.json();

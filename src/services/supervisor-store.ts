@@ -1127,7 +1127,11 @@ export function setSupervisorConfig(supervisorProject: string, supervisorSession
 
 // --- Peer registry (in-memory cache of known peer servers) ---
 
-export interface PeerInfo { serverId: string; baseUrl: string; token?: string }
+// No `token` field by design (P1 §2): a bearer token is structurally
+// unrepresentable on a peer, so it can never be broadcast on the wire. Direct
+// server-to-server calls go tokenless and degrade to desktop-brokered routing
+// (invokeOnServer) when a peer enforces auth.
+export interface PeerInfo { serverId: string; baseUrl: string }
 let peerRegistry: PeerInfo[] = [];
 export function setPeerRegistry(peers: PeerInfo[]): void { peerRegistry = peers; }
 export function getPeer(serverId: string): PeerInfo | undefined { return peerRegistry.find((p) => p.serverId === serverId); }

@@ -173,15 +173,17 @@ async function invokeOnServer(
   }
 }
 
-// Push the current server roster (with tokens) to all open upstream WS so each
-// collab server can reach its peers directly. Re-pushed on each fresh connect
+// Push the current server roster (serverId + baseUrl, NO tokens — P1 §2) to all
+// open upstream WS so each collab server knows its peers' addresses. Tokens are
+// never broadcast; direct peer calls go tokenless and degrade to desktop-brokered
+// routing. Re-pushed on each fresh connect
 // (aggregator onOpen) and after the watched set or local roster changes.
 function pushPeerRegistry(): void {
   if (!store || !aggregator) return;
   const peers = store.list()
     .map((s) => store!.get(s.id))
     .filter(Boolean)
-    .map((e: any) => ({ serverId: e.id, baseUrl: `http://${e.host}:${e.port}`, token: e.token }));
+    .map((e: any) => ({ serverId: e.id, baseUrl: `http://${e.host}:${e.port}` }));
   aggregator.broadcast({ type: 'peer_registry', peers });
 }
 
