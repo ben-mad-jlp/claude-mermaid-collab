@@ -81,6 +81,10 @@ interface QuickReplyState {
   hideDefault: (id: string) => void;
   unhideDefault: (id: string) => void;
   toggleCollapsed: () => void;
+  /** Composer: Enter sends (Shift+Enter = newline) when true; Enter inserts a
+   *  newline and only the Send button / ⌘↵ submits when false. Persisted. */
+  sendOnEnter: boolean;
+  setSendOnEnter: (on: boolean) => void;
 }
 
 export const useQuickReplyStore = create<QuickReplyState>()(
@@ -151,6 +155,9 @@ export const useQuickReplyStore = create<QuickReplyState>()(
         set((s) => ({ hiddenDefaults: s.hiddenDefaults.filter((x) => x !== id) })),
 
       toggleCollapsed: () => set((s) => ({ collapsed: !s.collapsed })),
+
+      sendOnEnter: true,
+      setSendOnEnter: (on) => set({ sendOnEnter: on }),
     }),
     {
       name: 'mc.terminal.chips.v1',
@@ -160,6 +167,7 @@ export const useQuickReplyStore = create<QuickReplyState>()(
         collapsed: s.collapsed,
         hiddenDefaults: s.hiddenDefaults,
         custom: s.custom,
+        sendOnEnter: s.sendOnEnter,
       }),
     },
   ),

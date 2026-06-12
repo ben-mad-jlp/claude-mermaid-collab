@@ -5,6 +5,7 @@ import { useNotificationStore } from '@/stores/notificationStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalConsole } from './TerminalPane';
 import { InputRail } from './InputRail';
+import { MessageComposer } from './MessageComposer';
 import { ServerIcon } from '@/components/ServerIcon';
 
 /**
@@ -189,6 +190,16 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
           ~26px once; the xterm viewport above keeps its flex:1. Reads the one
           attached session; greys out when no console is attached. */}
       <InputRail
+        project={activeTab?.project ?? ''}
+        session={activeTab?.session ?? ''}
+        serverId={activeTab?.serverId ?? ''}
+        disabled={!activeTab}
+      />
+
+      {/* Multi-line composer — a real auto-growing textbox below the canned chips,
+          for typing an actual message into the live REPL. Send button + a persisted
+          "Enter sends" toggle. */}
+      <MessageComposer
         project={activeTab?.project ?? ''}
         session={activeTab?.session ?? ''}
         serverId={activeTab?.serverId ?? ''}
