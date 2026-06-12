@@ -32,6 +32,9 @@ export function MessageComposer({ project, session, serverId, disabled = false }
 
   const [value, setValue] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  // When text file(s) are dropped, hold them here and offer a choice: paste their
+  // CONTENTS into the box, or insert their PATH. Non-text drops skip the chooser.
+  const [pendingDrop, setPendingDrop] = useState<File[] | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   /** Insert `insertText` at the textarea's caret (or replace the selection),
@@ -60,23 +63,44 @@ export function MessageComposer({ project, session, serverId, disabled = false }
    *  token. Leaves clean paths bare. */
   const quotePath = (p: string) => (/\s/.test(p) ? `'${p.replace(/'/g, `'\\''`)}'` : p);
 
+  /** Heuristic: is this a text file we could paste the contents of? text/* MIME,
+   *  or a known text/code/config extension (many code files report empty type). */
+  const TEXT_EXT = /\.(txt|md|markdown|log|csv|tsv|json|jsonc|ya?ml|toml|ini|env|conf|xml|html?|css|scss|less|js|jsx|ts|tsx|mjs|cjs|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|php|swift|sh|bash|zsh|fish|sql|graphql|gql|svg|diff|patch|gitignore|dockerfile)$/i;
+  const isTextFile = (f: File) => f.type.startsWith('text/') || TEXT_EXT.test(f.name) || /^(dockerfile|makefile|\.[\w.-]+rc)$/i.test(f.name);
+
+  const resolvePath = (f: File): string | undefined =>
+    (window as any).mc?.getPathForFile?.(f) ?? (f as any).path ?? undefined;
+
+  /** Insert the dropped files' absolute paths (space-joined, shell-quoted). */
+  const insertPaths = (files: File[]) => {
+    const paths = files.map(resolvePath).filter((p): p is string => !!p);
+    if (paths.length) insertAtCaret(paths.map(quotePath).join(' '));
+    setPendingDrop(null);
+  };
+
+  /** Read the dropped files' contents and insert them (multiple files separated by
+   *  a blank line). Standard File.text() — works without the preload bridge. */
+  const insertContents = async (files: File[]) => {
+    setPendingDrop(null);
+    try {
+      const parts = await Promise.all(files.map((f) => f.text().catch(() => '')));
+      const joined = parts.filter(Boolean).join('\n\n');
+      if (joined) insertAtCaret(joined);
+    } catch { /* best-effort */ }
+  };
+
   const onDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
     if (disabled) return;
     setDragOver(false);
     const dt = e.dataTransfer;
     if (!dt) return;
-    const mc = (window as any).mc;
-    // Dropped OS files → resolve each to its absolute path (Electron webUtils via
-    // the preload bridge; Electron <32 File.path as a fallback).
     const files = Array.from(dt.files ?? []);
-    const paths: string[] = [];
-    for (const f of files) {
-      const p = mc?.getPathForFile?.(f) ?? (f as any).path;
-      if (p) paths.push(p);
-    }
-    if (paths.length) {
+    if (files.length) {
       e.preventDefault();
-      insertAtCaret(paths.map(quotePath).join(' '));
+      // A text file could be either useful as a path OR pasted inline → ask.
+      // Non-text (binary) files only make sense as a path, so insert it directly.
+      if (files.some(isTextFile)) setPendingDrop(files);
+      else insertPaths(files);
       return;
     }
     // No OS files (e.g. a path/URI dragged from another app) → fall back to text.
@@ -141,9 +165,10 @@ export function MessageComposer({ project, session, serverId, disabled = false }
   return (
     <div
       style={{
-        display: 'flex', alignItems: 'flex-end', gap: 6,
+        position: 'relative',
+        display: 'flex', alignItems: 'flex-end', gap: 8,
         flex: '0 0 auto',
-        padding: '6px',
+        padding: '12px 14px 16px',
         borderTop: '1px solid #30363d',
         background: '#161b22',
         opacity: disabled ? 0.5 : 1,
@@ -151,6 +176,30 @@ export function MessageComposer({ project, session, serverId, disabled = false }
       }}
       title={disabled ? 'No console attached' : undefined}
     >
+      {/* Drop chooser — a text file can be inserted as a path OR pasted inline. */}
+      {pendingDrop && (
+        <div
+          style={{
+            position: 'absolute', left: 14, right: 14, bottom: 'calc(100% - 2px)',
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            padding: '8px 10px', zIndex: 20,
+            fontSize: 12, color: '#c9d1d9',
+            background: '#1c2330', border: '1px solid #58a6ff', borderRadius: 8,
+            boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
+          }}
+        >
+          <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {pendingDrop.length === 1 ? pendingDrop[0].name : `${pendingDrop.length} files`}
+          </span>
+          <button type="button" onClick={() => void insertContents(pendingDrop)}
+            style={chooserBtn('#238636', '#2ea043', '#fff')}>Paste contents</button>
+          <button type="button" onClick={() => insertPaths(pendingDrop)}
+            style={chooserBtn('#21262d', '#30363d', '#c9d1d9')}>Insert path{pendingDrop.length > 1 ? 's' : ''}</button>
+          <button type="button" onClick={() => setPendingDrop(null)}
+            title="Cancel"
+            style={{ ...chooserBtn('transparent', '#30363d', '#8b949e'), padding: '4px 8px' }}>✕</button>
+        </div>
+      )}
       <textarea
         ref={taRef}
         value={value}
@@ -162,7 +211,7 @@ export function MessageComposer({ project, session, serverId, disabled = false }
         onDragOver={(e) => { if (!disabled) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        title={disabled ? undefined : 'Drag a file in to insert its full path'}
+        title={disabled ? undefined : 'Drag a file in to insert its path (or paste its contents)'}
         style={{
           flex: '1 1 auto',
           // minWidth:0 lets the flex item actually fill/shrink — without it a
@@ -225,6 +274,15 @@ export function MessageComposer({ project, session, serverId, disabled = false }
       </div>
     </div>
   );
+}
+
+/** Shared style for the drop-chooser buttons. */
+function chooserBtn(bg: string, border: string, color: string): React.CSSProperties {
+  return {
+    flex: '0 0 auto', padding: '4px 10px', fontSize: 12, lineHeight: 1.3,
+    fontWeight: 600, cursor: 'pointer', color,
+    background: bg, border: `1px solid ${border}`, borderRadius: 6,
+  };
 }
 
 export default MessageComposer;
