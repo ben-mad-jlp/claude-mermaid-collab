@@ -12,6 +12,7 @@ import { DesktopControl } from './desktop-control';
 import { ServerProxy } from './server-proxy';
 import { ConnectionStore } from './connection-store';
 import { WatchAggregator } from './watch-aggregator';
+import { crossServerCall, validateWatchEvent } from './remote-boundary';
 import { enableCdp, publishDiscovery } from 'electron-agent-bridge/electron-main';
 import { installLinuxAutostart } from './linux-autostart';
 
@@ -37,6 +38,9 @@ function registerIpc(): void {
   );
   ipcMain.handle('mc:removeServer', (_e, id: string) => {
     store?.remove(id);
+  });
+  ipcMain.handle('mc:setServerToken', (_e, id: string, token: string | undefined) => {
+    store?.setToken(id, token);
   });
   ipcMain.handle('mc:browser:listTabs', () => paneManager?.listTabs() ?? []);
   ipcMain.handle('mc:browser:openTab', (_e, opts) => paneManager?.openUserTab(opts ?? {}) ?? null);
@@ -102,9 +106,18 @@ function registerIpc(): void {
   // browser-focus, navigate) at the row's serverId instead of the active
   // server's proxy. Tokens stay in main. Returns a structured envelope so the
   // renderer can branch on ok/status without losing the body.
+  // EVERY renderer-initiated cross-server REST routes through the remote boundary
+  // (P2 §3A): the envelope shape is preserved, but a known route whose response
+  // fails validation is replaced with a fail-closed `invalid_remote_payload` so
+  // garbage from a peer never reaches the store. Token injection still happens in
+  // `invokeOnServer` (main); the boundary wraps it.
   ipcMain.handle('mc:invokeOnServer', (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
-    invokeOnServer(serverId, opts)
+    crossServerCall(invokeOnServer, serverId, opts, (id) => store?.isPaired(id) ?? false)
   );
+  // P4a pairing actions: Pair a pending discovered peer (→ trusted), or Unpair
+  // (delete the row; a discovered instance re-appears as pending on next refresh).
+  ipcMain.handle('mc:pairServer', (_e, id: string) => { store?.pair(id); return store?.list() ?? []; });
+  ipcMain.handle('mc:unpairServer', (_e, id: string) => { store?.unpair(id); return store?.list() ?? []; });
   ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
   ipcMain.handle('mc:openExternalTerminal', async (_e, tmuxName: string) => {
     // Sanitize: tmux session names here are mc-* alnum+dash; reject anything else to avoid shell injection.
@@ -173,15 +186,17 @@ async function invokeOnServer(
   }
 }
 
-// Push the current server roster (with tokens) to all open upstream WS so each
-// collab server can reach its peers directly. Re-pushed on each fresh connect
+// Push the current server roster (serverId + baseUrl, NO tokens — P1 §2) to all
+// open upstream WS so each collab server knows its peers' addresses. Tokens are
+// never broadcast; direct peer calls go tokenless and degrade to desktop-brokered
+// routing. Re-pushed on each fresh connect
 // (aggregator onOpen) and after the watched set or local roster changes.
 function pushPeerRegistry(): void {
   if (!store || !aggregator) return;
   const peers = store.list()
     .map((s) => store!.get(s.id))
     .filter(Boolean)
-    .map((e: any) => ({ serverId: e.id, baseUrl: `http://${e.host}:${e.port}`, token: e.token }));
+    .map((e: any) => ({ serverId: e.id, baseUrl: `http://${e.host}:${e.port}` }));
   aggregator.broadcast({ type: 'peer_registry', peers });
 }
 
@@ -222,7 +237,11 @@ async function isSupervisedOnHome(homeServerId: string, project: string, session
   }
   return supervisedCache.has(`${project} ${session}`);
 }
-async function onWatchEvent(e: any): Promise<void> {
+async function onWatchEvent(raw: any): Promise<void> {
+  // Validate the inbound watch event at the boundary (P2 §6): a malformed/forged
+  // event is DROPPED before it reaches the renderer or the cross-machine nudge.
+  const e = validateWatchEvent(raw);
+  if (!e) return;
   mainWindow?.webContents.send('mc:watch-event', e);
   if (e.type !== 'claude_session_status') return;
   const status = e.status as string | undefined;
@@ -575,6 +594,10 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
   store = new ConnectionStore();
   await store.init();
   await store.refreshLocal();
+  // Auto-pair the desktop's OWN primary local server (the sidecar on `port`) so
+  // the home server is never gated by pairing (P4a). Other discovered instances
+  // stay 'pending' until the user explicitly pairs them.
+  store.pairLocalByPort(port);
   // Resolver: live lookup keeps tokens in main and lets per-server WS bridges
   // pick the right upstream regardless of which server is "active".
   proxy.setResolver((id) => {

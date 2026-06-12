@@ -28,7 +28,7 @@ export interface ServersTreeSectionHandle {
 
 const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSectionProps>(
   (props, ref) => {
-    const { available, servers, addServer, removeServer, recheckServer } = useServers();
+    const { available, servers, addServer, removeServer, pairServer, unpairServer, recheckServer, setServerToken } = useServers();
 
     const [internalCollapsed, setInternalCollapsed] = useState(false);
     const isCollapsed = props.collapsed ?? internalCollapsed;
@@ -43,7 +43,10 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
     // command are remembered per host (non-secret, localStorage); the password
     // is asked each time and never stored.
     const [launchFor, setLaunchFor] = useState<string | null>(null);
-    const [launchForm, setLaunchForm] = useState({ user: '', password: '', command: '' });
+    // `token` is the bearer token the detect step wove into the start command;
+    // we thread it back on launch so a hand-edited command still comes up
+    // auth-required (a 0.0.0.0-bound server must never be open on the LAN).
+    const [launchForm, setLaunchForm] = useState({ user: '', password: '', command: '', token: '' });
     const [launching, setLaunching] = useState(false);
     const [launchMsg, setLaunchMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
@@ -59,7 +62,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
         if (saved.user) user = saved.user;
         if (saved.command) command = saved.command;
       } catch { /* ignore */ }
-      setLaunchForm({ user, password: '', command });
+      setLaunchForm({ user, password: '', command, token: '' });
       setLaunchFor(id);
     };
 
@@ -76,7 +79,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.ok) {
           if (body.suggestedCommand) {
-            setLaunchForm((f) => ({ ...f, command: body.suggestedCommand }));
+            setLaunchForm((f) => ({ ...f, command: body.suggestedCommand, token: body.token || '' }));
             setLaunchMsg(body.note ? { kind: 'err', text: body.note } : { kind: 'ok', text: 'Detected a start command.' });
           } else {
             setLaunchMsg({ kind: 'err', text: body.note || 'Could not detect a start command — set it manually.' });
@@ -109,10 +112,17 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
             user: launchForm.user.trim() || undefined,
             password: launchForm.password || undefined,
             command: launchForm.command,
+            token: launchForm.token || undefined,
           }),
         });
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.ok) {
+          // The launched server now requires this token — persist it onto the
+          // connection so the immediate recheck/connect authenticates instead of
+          // hitting a 401. (No-op outside Electron / when no token was minted.)
+          if (launchForm.token) {
+            try { await setServerToken(launchFor!, launchForm.token); } catch { /* best-effort */ }
+          }
           // Remember the non-secret bits for next time.
           try {
             localStorage.setItem(prefillKey(host, port), JSON.stringify({ user: launchForm.user.trim(), command: launchForm.command }));
@@ -158,6 +168,16 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
     const handleRemove = async (id: string) => {
       if (!available) return;
       try { await removeServer(id); } catch { /* surface in toast later */ }
+    };
+
+    const handlePair = async (id: string) => {
+      if (!available) return;
+      try { await pairServer(id); } catch { /* surface in toast later */ }
+    };
+
+    const handleUnpair = async (id: string) => {
+      if (!available) return;
+      try { await unpairServer(id); } catch { /* surface in toast later */ }
     };
 
     return (
@@ -208,14 +228,19 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
             )}
             {servers.map((s) => {
               const isManual = s.source === 'manual';
+              const isPending = s.pairing === 'pending';
+              // A paired server gets an Unpair affordance — except the desktop's own
+              // local/home server, which is auto-paired; hiding Unpair for source==='local'
+              // keeps the user from locking themselves out of their home instance.
+              const canUnpair = s.pairing === 'paired' && s.source !== 'local';
               return (
                 <div
                   key={s.id}
                   data-testid={`sidebar-server-row-${s.id}`}
                 >
                   <div
-                    className="relative group flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-700 dark:text-gray-300"
-                    title={s.label}
+                    className={`relative group flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray-700 dark:text-gray-300 ${isPending ? 'opacity-60' : ''}`}
+                    title={isPending ? `${s.label} (pending — pair to trust)` : s.label}
                   >
                     <span
                       aria-hidden
@@ -234,6 +259,41 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                     <span className="text-gray-400 dark:text-gray-500 truncate">
                       {s.host}:{s.port}
                     </span>
+                    {isPending && (
+                      <span
+                        data-testid={`server-pending-badge-${s.id}`}
+                        className="shrink-0 px-1 py-px text-[10px] leading-none rounded bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300"
+                        title="This server is discovered but not yet trusted"
+                      >
+                        Pending
+                      </span>
+                    )}
+                    {isPending && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void handlePair(s.id); }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-success-500 dark:hover:text-success-400"
+                        title="Pair (trust this server for cross-server calls)"
+                        aria-label={`Pair ${s.label}`}
+                      >
+                        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.704 5.29a1 1 0 010 1.42l-7.5 7.5a1 1 0 01-1.42 0l-3.5-3.5a1 1 0 011.42-1.42l2.79 2.79 6.79-6.79a1 1 0 011.42 0z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
+                    {canUnpair && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void handleUnpair(s.id); }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-warning-500 dark:hover:text-warning-400"
+                        title="Unpair (revoke trust and remove this server)"
+                        aria-label={`Unpair ${s.label}`}
+                      >
+                        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
                     {s.status !== 'online' && (
                       <button
                         type="button"

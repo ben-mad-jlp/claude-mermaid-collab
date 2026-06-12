@@ -81,11 +81,12 @@ afterEach(() => {
 });
 
 describe('TerminalConsole robustness', () => {
-  it('opens exactly one WebSocket per server to the persistent PTY', () => {
+  it('opens exactly one WebSocket per server to the per-client console PTY', () => {
     const { container } = render(<TerminalConsole serverId="local" tmuxBase="mc-x" />);
     expect(container).toBeTruthy();
     expect(MockWebSocket.instances.length).toBe(1);
-    expect(MockWebSocket.instances[0].url).toContain('mc-persistent-console');
+    // jsdom provides localStorage, so the console mints a per-UI-instance id.
+    expect(MockWebSocket.instances[0].url).toMatch(/\/terminal\/mc-console-/);
   });
 
   it('degrades to a disconnected state (no throw) when the WS closes uncleanly before open', () => {

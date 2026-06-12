@@ -7,15 +7,52 @@
  * regardless of which server is currently "active".
  */
 /**
- * The stable PTY id for THE single persistent, re-pointable console on a given
- * server. The console opens ONE WebSocket per server to this fixed id (each
- * server has its own backend + PTYManager, so a fixed id is unique per server)
- * and re-points it between tmux targets with `switch` messages — instead of the
- * old model that minted a fresh per-UUID PTY for every opened session. Attaching
- * to this id auto-creates a bare host shell that `switchTarget` drives, and a
- * bare shell is never reaped on detach, so it survives across switches.
+ * Fallback PTY id for the persistent console when no per-client id can be minted
+ * (SSR / tests / localStorage unavailable). In those single-client contexts a
+ * fixed id is fine. Real browser clients use a PER-UI-INSTANCE id instead — see
+ * `getConsolePtyId` — so two UIs on the same server get SEPARATE server-side
+ * console PTYs and can drive different sessions without re-pointing each other.
  */
 export const PERSISTENT_CONSOLE_PTY_ID = 'mc-persistent-console';
+
+/** localStorage key holding this client's minted console PTY id. */
+const CONSOLE_PTY_ID_STORAGE_KEY = 'mc-console-pty-id';
+
+/**
+ * The PTY id for THE single persistent, re-pointable console, scoped PER UI
+ * INSTANCE. The console opens ONE WebSocket per server to this id and re-points
+ * it between tmux targets with `switch` messages. Attaching to the id auto-creates
+ * a bare host shell that `switchTarget` drives, and a bare shell is never reaped
+ * on detach, so it survives across switches.
+ *
+ * The id is minted ONCE per renderer (a random uuid) and persisted in this
+ * client's localStorage, so it is stable across reloads but DISTINCT between two
+ * separate UI clients. Because the per-server proxy keys warm upstreams per
+ * (serverId, rest), distinct ids land in distinct warm slots — so two UIs on the
+ * same server get independent console PTYs and can target different sessions
+ * without re-pointing one another. SSR/tests (no window/localStorage) fall back
+ * to the shared `PERSISTENT_CONSOLE_PTY_ID`.
+ */
+export function getConsolePtyId(): string {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return PERSISTENT_CONSOLE_PTY_ID;
+  }
+  try {
+    let id = window.localStorage.getItem(CONSOLE_PTY_ID_STORAGE_KEY);
+    if (!id) {
+      const rand =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      id = `mc-console-${rand}`;
+      window.localStorage.setItem(CONSOLE_PTY_ID_STORAGE_KEY, id);
+    }
+    return id;
+  } catch {
+    // localStorage can throw (private mode / disabled) — degrade to shared id.
+    return PERSISTENT_CONSOLE_PTY_ID;
+  }
+}
 
 /**
  * Escape sequence written to xterm to clear any sticky terminal modes the

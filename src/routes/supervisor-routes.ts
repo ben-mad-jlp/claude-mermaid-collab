@@ -370,9 +370,11 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       let sent: boolean;
       if (serverId && getPeer(serverId)) {
         const peer = getPeer(serverId)!;
+        // Tokenless direct nudge (P1 §2): peers carry no token. A token-enforcing
+        // peer 401s here and the nudge degrades to desktop-brokered routing.
         const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-keys', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(peer.token ? { Authorization: 'Bearer ' + peer.token } : {}) },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project, session, text }),
         });
         result = await res.json();

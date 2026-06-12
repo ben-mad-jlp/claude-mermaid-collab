@@ -9,7 +9,15 @@
  *
  * The remote command is wrapped so the server detaches (nohup + background) and
  * the SSH session can return; we then poll the remote /api/health to confirm.
+ *
+ * SECURITY: a remote launch binds 0.0.0.0 (reachable off-box), so the server
+ * MUST come up auth-required or it is an open hole on the LAN. We therefore
+ * generate a bearer token, weave MERMAID_AUTH_TOKEN=<token> into the synthesized
+ * start command, and hand the token back so the connection that immediately
+ * adds/connects uses it. NEVER bind 0.0.0.0 without a token.
  */
+
+import { randomBytes } from 'crypto';
 
 export interface RemoteLaunchOpts {
   host: string;
@@ -20,6 +28,58 @@ export interface RemoteLaunchOpts {
   password?: string;
   /** The command to run on the remote box to start the collab server. */
   command: string;
+  /**
+   * Bearer token the launched server must require. When set and the command does
+   * not already export MERMAID_AUTH_TOKEN, we prepend it so the server comes up
+   * auth-required even if the caller passed a hand-edited command.
+   */
+  token?: string;
+}
+
+/** Generate a fresh bearer token for a remote-launched (0.0.0.0-bound) server. */
+export function generateAuthToken(): string {
+  return randomBytes(24).toString('hex');
+}
+
+/**
+ * Pure synthesis of the suggested start command from the remote probe results.
+ * Extracted from {@link detectRemoteLaunch} so the security-critical invariant
+ * "0.0.0.0 implies a token" is unit-testable without a real SSH session.
+ *
+ * Every command we synthesize sets BOTH MERMAID_BIND_HOST=0.0.0.0 AND
+ * MERMAID_AUTH_TOKEN=<token> — binding off-box without a token would leave the
+ * server open on the LAN.
+ */
+export function synthesizeStartCommand(
+  probe: { port: number; token: string; mc: string; cache: string; bun: string; snapBun: boolean },
+): { suggestedCommand: string; note?: string } {
+  const { port, token, mc, cache, bun, snapBun } = probe;
+  const auth = `MERMAID_AUTH_TOKEN=${token}`;
+  if (mc) {
+    return { suggestedCommand: `${auth} MERMAID_BIND_HOST=0.0.0.0 mermaid-collab start --port ${port}` };
+  }
+  if (cache && bun && !snapBun) {
+    return { suggestedCommand: `cd ${cache} && ${auth} MERMAID_BIND_HOST=0.0.0.0 PORT=${port} ${bun} run src/server.ts` };
+  }
+  if (cache && snapBun) {
+    return { suggestedCommand: '', note: 'Only a snap-confined bun was found; it cannot read ~/.claude. Install a non-snap bun (curl -fsSL https://bun.sh/install | bash), then re-detect.' };
+  }
+  if (!bun) {
+    return { suggestedCommand: '', note: 'No bun found on the remote. Install bun (curl -fsSL https://bun.sh/install | bash) or a global mermaid-collab.' };
+  }
+  return { suggestedCommand: '', note: 'No mermaid-collab CLI or plugin-cache install found. Set the start command manually.' };
+}
+
+/**
+ * Ensure a launched command exports the bearer token. If the command already
+ * sets MERMAID_AUTH_TOKEN (e.g. the synthesized one), it is returned unchanged;
+ * otherwise the token is prepended so a hand-edited command can't bind 0.0.0.0
+ * open. Returns the command unchanged when no token is supplied.
+ */
+export function applyTokenToCommand(command: string, token?: string): string {
+  if (!token) return command;
+  if (/(^|\s)MERMAID_AUTH_TOKEN=/.test(command)) return command;
+  return `MERMAID_AUTH_TOKEN=${token} ${command}`;
 }
 
 export interface RemoteLaunchResult {
@@ -96,15 +156,19 @@ async function sshRun(
 }
 
 export async function launchRemoteServer(opts: RemoteLaunchOpts): Promise<RemoteLaunchResult> {
-  const { host, port, user, password, command } = opts;
+  const { host, port, user, password, command, token } = opts;
   if (!host || !command) {
     return { ok: false, reachable: false, output: '', error: 'host and command are required' };
   }
 
+  // A 0.0.0.0-bound server must be auth-required: make sure the token is in the
+  // command env even if the caller hand-edited it (no-op if already present).
+  const effectiveCommand = applyTokenToCommand(command, token);
+
   // Detach the server fully so it survives the SSH session closing. We start a
   // new session (setsid, if present — Linux) so a PTY teardown can't SIGHUP it,
   // and fall back to plain nohup. stdio is redirected and stdin closed.
-  const q = shSingleQuote(command);
+  const q = shSingleQuote(effectiveCommand);
   const remoteScript =
     `if command -v setsid >/dev/null 2>&1; then ` +
     `setsid sh -lc ${q} > "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & ` +
@@ -140,6 +204,12 @@ export interface RemoteDetectResult {
   pluginCacheDir?: string;
   /** True when the only bun found is snap-confined (can't read ~/.claude). */
   snapBun?: boolean;
+  /**
+   * Bearer token woven into suggestedCommand. The UI stores this as the
+   * connection's token so the immediate connect to the (auth-required) server
+   * authenticates. Present whenever a command was synthesized.
+   */
+  token?: string;
   note?: string;
   output?: string;
   error?: string;
@@ -151,13 +221,16 @@ export interface RemoteDetectResult {
  *  - a global `mermaid-collab` on PATH → use it;
  *  - else the newest plugin-cache version dir + a usable bun → `bun run src/server.ts`;
  *  - prefer a non-snap bun (~/.bun/bin/bun) since snap-confined bun can't read ~/.claude.
- * Always binds 0.0.0.0 so the server is reachable off-box.
+ * Always binds 0.0.0.0 so the server is reachable off-box — and therefore always
+ * sets MERMAID_AUTH_TOKEN so it comes up auth-required (never open on the LAN).
  */
 export async function detectRemoteLaunch(
-  opts: { host: string; port: number; user?: string; password?: string },
+  opts: { host: string; port: number; user?: string; password?: string; token?: string },
 ): Promise<RemoteDetectResult> {
   const { host, port, user, password } = opts;
   if (!host) return { ok: false, suggestedCommand: '', error: 'host is required' };
+  // Reuse a caller-supplied token (e.g. an existing connection's) or mint one.
+  const token = opts.token || generateAuthToken();
 
   // One probe script; prints KEY=value lines we parse. Prefer ~/.bun/bin/bun.
   const probe =
@@ -182,19 +255,7 @@ export async function detectRemoteLaunch(
   const cache = get('CACHE');
   const snapBun = !!bun && bun.startsWith('/snap/');
 
-  let suggestedCommand = '';
-  let note: string | undefined;
-  if (mc) {
-    suggestedCommand = `MERMAID_BIND_HOST=0.0.0.0 mermaid-collab start --port ${port}`;
-  } else if (cache && bun && !snapBun) {
-    suggestedCommand = `cd ${cache} && MERMAID_BIND_HOST=0.0.0.0 PORT=${port} ${bun} run src/server.ts`;
-  } else if (cache && snapBun) {
-    note = 'Only a snap-confined bun was found; it cannot read ~/.claude. Install a non-snap bun (curl -fsSL https://bun.sh/install | bash), then re-detect.';
-  } else if (!bun) {
-    note = 'No bun found on the remote. Install bun (curl -fsSL https://bun.sh/install | bash) or a global mermaid-collab.';
-  } else {
-    note = 'No mermaid-collab CLI or plugin-cache install found. Set the start command manually.';
-  }
+  const { suggestedCommand, note } = synthesizeStartCommand({ port, token, mc, cache, bun, snapBun });
 
   return {
     ok: true,
@@ -203,6 +264,8 @@ export async function detectRemoteLaunch(
     mermaidCli: mc || undefined,
     pluginCacheDir: cache || undefined,
     snapBun: snapBun || undefined,
+    // Only hand back the token when it's actually wired into a command.
+    token: suggestedCommand ? token : undefined,
     note,
     output: output.slice(-2000),
   };

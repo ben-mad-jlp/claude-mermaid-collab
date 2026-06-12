@@ -18,6 +18,9 @@ type WsMessage = { data: import('ws').RawData; isBinary: boolean };
  * is parked WARM instead of torn down; switching back reuses it so only the
  * cheap browser↔localhost reconnect is paid, not a full cold cross-host attach.
  */
+/** Upstream liveness (design §3B), same vocabulary as the watch aggregator. */
+export type UpstreamLiveness = 'connecting' | 'live' | 'degraded' | 'dead';
+
 interface PerServerConn {
   key: string;
   up: WebSocket;
@@ -31,6 +34,24 @@ interface PerServerConn {
   pendingToUp: WsMessage[];
   // Detaches the CURRENT client's listeners (set by attachClient, cleared on detach).
   detachClient: (() => void) | null;
+  // Idle LEASE (design §3C): armed when the conn is parked WARM (no client), so
+  // an abandoned remote attach is reaped by TIME (not only by the MAX_WARM LRU).
+  // Cleared on warm reuse / client (re)attach / dispose.
+  idleLeaseTimer: ReturnType<typeof setTimeout> | null;
+  // App-level heartbeat (design §3B) on the upstream socket.
+  pingTimer: ReturnType<typeof setInterval> | null;
+  pongTimer: ReturnType<typeof setTimeout> | null;
+  missed: number;
+  state: UpstreamLiveness;
+}
+
+/** Tunable timings — overridable in tests so heartbeat/lease run sub-second
+ *  without faking the socket. Defaults are the production cadence (§3B/§3C). */
+export interface ServerProxyOptions {
+  heartbeatMs?: number;
+  pongGraceMs?: number;
+  /** Idle lease before a warm-parked attach is reaped (default 5 min). */
+  idleLeaseMs?: number;
 }
 
 function rawLen(d: import('ws').RawData): number {
@@ -66,9 +87,21 @@ export class ServerProxy {
   private static readonly MAX_WARM_BUFFER_BYTES = 1_048_576;
   private resolver: ((id: string) => Upstream | null) | null = null;
   private port: number | null = null;
+  private readonly heartbeatMs: number;
+  private readonly pongGraceMs: number;
+  private readonly idleLeaseMs: number;
 
-  constructor(localUpstream: Upstream) {
+  constructor(localUpstream: Upstream, opts: ServerProxyOptions = {}) {
     this.localUpstream = localUpstream;
+    this.heartbeatMs = opts.heartbeatMs ?? 17_000;
+    this.pongGraceMs = opts.pongGraceMs ?? 10_000;
+    this.idleLeaseMs = opts.idleLeaseMs ?? 5 * 60 * 1000;
+  }
+
+  /** Upstream liveness for a warm/attached per-server bridge (test/diagnostic). */
+  connState(key: string): UpstreamLiveness | undefined {
+    for (const c of this.perServerConns) if (c.key === key) return c.state;
+    return this.warmUpstreams.get(key)?.state;
   }
 
   // `preferredPort` keeps the renderer origin (http://127.0.0.1:<port>) STABLE
@@ -182,6 +215,7 @@ export class ServerProxy {
           // Warm hit: reuse the live upstream attach — only the browser↔localhost
           // socket is new, the cross-host tmux attach is already established.
           this.warmUpstreams.delete(key);
+          this.clearIdleLease(warm); // genuinely re-attached → cancel the idle reap
           this.attachClient(warm, client);
           return;
         }
@@ -201,6 +235,11 @@ export class ServerProxy {
           bufferedBytes: 0,
           pendingToUp: [],
           detachClient: null,
+          idleLeaseTimer: null,
+          pingTimer: null,
+          pongTimer: null,
+          missed: 0,
+          state: 'connecting',
         };
         this.wireUpstream(conn);
         this.attachClient(conn, client);
@@ -279,8 +318,17 @@ export class ServerProxy {
   private wireUpstream(conn: PerServerConn): void {
     const { up } = conn;
     up.on('open', () => {
+      conn.state = 'live';
+      conn.missed = 0;
+      this.startHeartbeat(conn);
       for (const m of conn.pendingToUp) up.send(m.data, { binary: m.isBinary });
       conn.pendingToUp.length = 0;
+    });
+    // A pong clears the outstanding miss-window and restores liveness.
+    up.on('pong', () => {
+      if (conn.pongTimer) { clearTimeout(conn.pongTimer); conn.pongTimer = null; }
+      conn.missed = 0;
+      conn.state = 'live';
     });
     up.on('message', (data, isBinary) => {
       if (conn.client && conn.client.readyState === WebSocket.OPEN) {
@@ -303,9 +351,53 @@ export class ServerProxy {
     up.on('error', onUpGone);
   }
 
+  // App-level heartbeat on the UPSTREAM socket (§3B): ping every heartbeatMs; a
+  // missing pong within pongGraceMs degrades, a second consecutive miss kills the
+  // upstream (terminate → close → disposeConn), so a half-open cross-host attach
+  // is detected and reaped instead of lingering as a zombie warm entry.
+  private startHeartbeat(conn: PerServerConn): void {
+    this.stopHeartbeat(conn);
+    conn.pingTimer = setInterval(() => {
+      if (conn.up.readyState !== WebSocket.OPEN) return;
+      if (conn.pongTimer === null) {
+        conn.pongTimer = setTimeout(() => {
+          conn.pongTimer = null;
+          conn.missed += 1;
+          if (conn.missed >= 2) { conn.state = 'dead'; try { conn.up.terminate(); } catch { /* ignore */ } }
+          else { conn.state = 'degraded'; }
+        }, this.pongGraceMs);
+      }
+      try { conn.up.ping(); } catch { /* ignore — close/error path tears down */ }
+    }, this.heartbeatMs);
+  }
+
+  private stopHeartbeat(conn: PerServerConn): void {
+    if (conn.pingTimer) { clearInterval(conn.pingTimer); conn.pingTimer = null; }
+    if (conn.pongTimer) { clearTimeout(conn.pongTimer); conn.pongTimer = null; }
+  }
+
+  // Idle LEASE (§3C): arm a timer when a conn is parked warm so an abandoned
+  // remote attach is reaped by TIME. Clearing is idempotent.
+  private armIdleLease(conn: PerServerConn): void {
+    this.clearIdleLease(conn);
+    conn.idleLeaseTimer = setTimeout(() => {
+      conn.idleLeaseTimer = null;
+      // Only reap if STILL warm (no client took it over in the meantime).
+      if (conn.client === null && this.warmUpstreams.get(conn.key) === conn) {
+        this.warmUpstreams.delete(conn.key);
+        this.disposeConn(conn);
+      }
+    }, this.idleLeaseMs);
+  }
+
+  private clearIdleLease(conn: PerServerConn): void {
+    if (conn.idleLeaseTimer) { clearTimeout(conn.idleLeaseTimer); conn.idleLeaseTimer = null; }
+  }
+
   // Bind a renderer client to a per-server bridge (fresh or reused-warm), flush
   // any buffered upstream output, and forward client→upstream frames.
   private attachClient(conn: PerServerConn, client: WebSocket): void {
+    this.clearIdleLease(conn); // actively attached → not idle
     conn.client = client;
     this.perServerConns.add(conn);
 
@@ -347,6 +439,7 @@ export class ServerProxy {
       if (existing && existing !== conn) this.disposeConn(existing);
       this.warmUpstreams.delete(conn.key);
       this.warmUpstreams.set(conn.key, conn);
+      this.armIdleLease(conn); // reap by TIME if it's never reused (§3C)
       this.evictWarm();
     } else {
       this.disposeConn(conn);
@@ -366,6 +459,9 @@ export class ServerProxy {
 
   // Fully tear down a per-server bridge: both sockets and all registries.
   private disposeConn(conn: PerServerConn): void {
+    this.stopHeartbeat(conn);
+    this.clearIdleLease(conn);
+    conn.state = 'dead';
     this.perServerConns.delete(conn);
     if (this.warmUpstreams.get(conn.key) === conn) this.warmUpstreams.delete(conn.key);
     conn.detachClient?.();

@@ -20,6 +20,12 @@ export interface ServerCapabilities {
   tmux: boolean;
 }
 
+/** Pairing state (design §2, P4a — optional defense-in-depth). A freshly
+ *  DISCOVERED instance is `pending` (no longer auto-trusted); the user must
+ *  explicitly Pair it before cross-server calls to it are allowed. A manually
+ *  added server is `paired` (the add IS the explicit trust). */
+export type PairingState = 'pending' | 'paired';
+
 export interface ServerEntry {
   id: string;
   label: string;
@@ -32,6 +38,8 @@ export interface ServerEntry {
   source: 'local' | 'manual';
   /** Deterministic emoji icon assigned at add/discover time, persisted. */
   icon: string;
+  /** Trust state — gates crossServerCall via allowPeer (P4a). */
+  pairing: PairingState;
 }
 
 /**
@@ -173,6 +181,9 @@ export class ConnectionStore {
       for (const p of parsed.entries ?? []) {
         const { encryptedToken, ...rest } = p;
         const entry: ServerEntry = { ...rest };
+        // Legacy persisted servers (pre-pairing) were already trusted — default
+        // them to 'paired' so this change never silently breaks an existing peer.
+        if (entry.pairing !== 'pending' && entry.pairing !== 'paired') entry.pairing = 'paired';
         if (encryptedToken && encryptedToken.length > 0) {
           try {
             entry.token = this.safeStorage.decryptString(Buffer.from(encryptedToken));
@@ -233,10 +244,59 @@ export class ConnectionStore {
       status: 'offline',
       source: 'manual',
       icon: pickIcon(this.takenIcons()),
+      // A manual add is an explicit trust decision → paired from the start (P4a).
+      pairing: 'paired',
     });
     // Fire-and-forget for UI responsiveness; before-quit awaits flush() for durability.
     void this.persist().catch(() => {});
     return id;
+  }
+
+  /**
+   * Set (or clear) the bearer token on an existing entry — used after a remote
+   * launch generates a token the launched server now requires, so the existing
+   * connection authenticates on its immediate reconnect. No-ops on unknown id.
+   */
+  setToken(id: string, token: string | undefined): void {
+    const e = this.entries.get(id);
+    if (!e) return;
+    e.token = token || undefined;
+    void this.persist().catch(() => {});
+  }
+
+  /** P4a — pair a pending server (→ 'paired', persisted). No-op for unknown id. */
+  pair(id: string): void {
+    const e = this.entries.get(id);
+    if (!e || e.pairing === 'paired') return;
+    e.pairing = 'paired';
+    void this.persist().catch(() => {});
+  }
+
+  /** P4a — unpair: DELETE the row (design §2). A discovered local server simply
+   *  re-appears as 'pending' on the next refreshLocal (no 'forgotten' marker), so
+   *  unpairing genuinely revokes trust without permanently hiding the instance. */
+  unpair(id: string): void {
+    this.entries.delete(id);
+    this.capabilities.delete(id);
+    void this.persist().catch(() => {});
+  }
+
+  /** P4a — is this server trusted for cross-server calls? Unknown id → false. */
+  isPaired(id: string): boolean {
+    return this.entries.get(id)?.pairing === 'paired';
+  }
+
+  /** P4a — auto-pair the desktop's OWN primary local server (the discovered
+   *  instance on the sidecar's port). The home server is implicitly trusted; only
+   *  OTHER discovered instances stay 'pending' until the user pairs them. */
+  pairLocalByPort(port: number): void {
+    for (const e of this.entries.values()) {
+      if (e.source === 'local' && e.port === port && e.pairing !== 'paired') {
+        e.pairing = 'paired';
+        void this.persist().catch(() => {});
+        return;
+      }
+    }
   }
 
   remove(id: string): void {
@@ -347,6 +407,9 @@ export class ConnectionStore {
           lastProject: inst.project,
           lastSession: inst.session,
           icon: pickIcon(this.takenIcons()),
+          // A newly discovered instance is NOT auto-trusted (P4a §2): pending
+          // until paired. The desktop's own primary is auto-paired (pairLocalByPort).
+          pairing: 'pending',
         });
       }
     }
