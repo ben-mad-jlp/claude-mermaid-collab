@@ -121,7 +121,9 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
     const submit = altKey ? composeDefault : !composeDefault;
 
     const text = chip.text ?? chip.label;
-    const body = { project, session, text, submit };
+    // quiet:true — a user tapping their own quick-reply is not a supervisor nudge,
+    // so suppress the nudge toast (mirrors the composer).
+    const body = { project, session, text, submit, quiet: true };
     const mc = (window as any).mc;
     // Copy resetActiveTerminal's dispatch shape: per-server invoke, fetch fallback.
     if (mc?.invokeOnServer) {

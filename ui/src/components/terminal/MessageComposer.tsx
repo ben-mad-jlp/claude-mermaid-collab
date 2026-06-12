@@ -31,7 +31,62 @@ export function MessageComposer({ project, session, serverId, disabled = false }
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
 
   const [value, setValue] = useState('');
+  const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  /** Insert `insertText` at the textarea's caret (or replace the selection),
+   *  surrounded by single spaces, and leave the caret right after it. */
+  const insertAtCaret = (insertText: string) => {
+    const ta = taRef.current;
+    setValue((prev) => {
+      const start = ta?.selectionStart ?? prev.length;
+      const end = ta?.selectionEnd ?? prev.length;
+      const before = prev.slice(0, start);
+      const after = prev.slice(end);
+      const lead = before && !before.endsWith(' ') ? ' ' : '';
+      const trail = after && !after.startsWith(' ') ? ' ' : '';
+      const next = before + lead + insertText + trail + after;
+      const caret = (before + lead + insertText).length;
+      requestAnimationFrame(() => {
+        if (!ta) return;
+        ta.focus();
+        ta.setSelectionRange(caret, caret);
+      });
+      return next;
+    });
+  };
+
+  /** Shell-quote a path that contains whitespace so it pastes into the REPL as one
+   *  token. Leaves clean paths bare. */
+  const quotePath = (p: string) => (/\s/.test(p) ? `'${p.replace(/'/g, `'\\''`)}'` : p);
+
+  const onDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
+    if (disabled) return;
+    setDragOver(false);
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const mc = (window as any).mc;
+    // Dropped OS files → resolve each to its absolute path (Electron webUtils via
+    // the preload bridge; Electron <32 File.path as a fallback).
+    const files = Array.from(dt.files ?? []);
+    const paths: string[] = [];
+    for (const f of files) {
+      const p = mc?.getPathForFile?.(f) ?? (f as any).path;
+      if (p) paths.push(p);
+    }
+    if (paths.length) {
+      e.preventDefault();
+      insertAtCaret(paths.map(quotePath).join(' '));
+      return;
+    }
+    // No OS files (e.g. a path/URI dragged from another app) → fall back to text.
+    const uri = dt.getData('text/uri-list') || dt.getData('text/plain');
+    if (uri) {
+      e.preventDefault();
+      const cleaned = uri.replace(/^file:\/\//, '').trim();
+      insertAtCaret(quotePath(decodeURI(cleaned)));
+    }
+  };
 
   // Auto-grow: reset to auto to measure scrollHeight, then clamp to MAX_HEIGHT.
   useLayoutEffect(() => {
@@ -46,7 +101,9 @@ export function MessageComposer({ project, session, serverId, disabled = false }
     if (disabled) return;
     const text = value;
     if (!text.trim()) return;
-    const body = { project, session, text, submit: true };
+    // quiet:true — a user typing into their own session is not a supervisor nudge,
+    // so suppress the nudge toast (the chips do the same).
+    const body = { project, session, text, submit: true, quiet: true };
     const mc = (window as any).mc;
     // Mirror InputRail.sendChip's dispatch: per-server invoke, fetch fallback.
     if (mc?.invokeOnServer) {
@@ -102,23 +159,32 @@ export function MessageComposer({ project, session, serverId, disabled = false }
         placeholder={sendOnEnter ? 'Type a message…  (Enter to send, Shift+Enter for newline)' : 'Type a message…  (⌘/Ctrl+Enter to send)'}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
+        onDragOver={(e) => { if (!disabled) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        title={disabled ? undefined : 'Drag a file in to insert its full path'}
         style={{
           flex: '1 1 auto',
+          // minWidth:0 lets the flex item actually fill/shrink — without it a
+          // textarea's intrinsic column width keeps it from filling the row.
+          minWidth: 0,
+          width: '100%',
           resize: 'none',
-          minHeight: 28,
+          minHeight: 56,
           maxHeight: MAX_HEIGHT,
-          padding: '5px 8px',
+          padding: '6px 8px',
           fontSize: 13,
           lineHeight: 1.4,
           fontFamily: 'inherit',
           color: '#c9d1d9',
-          background: '#0d1117',
-          border: '1px solid #30363d',
+          background: dragOver ? '#10243e' : '#0d1117',
+          border: `1px solid ${dragOver ? '#58a6ff' : '#30363d'}`,
           borderRadius: 6,
           outline: 'none',
+          transition: 'background 120ms, border-color 120ms',
         }}
         onFocus={(e) => { e.currentTarget.style.borderColor = '#58a6ff'; }}
-        onBlur={(e) => { e.currentTarget.style.borderColor = '#30363d'; }}
+        onBlur={(e) => { if (!dragOver) e.currentTarget.style.borderColor = '#30363d'; }}
       />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, flex: '0 0 auto' }}>
         <button

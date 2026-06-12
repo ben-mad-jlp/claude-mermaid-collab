@@ -114,7 +114,7 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
 
   if (url.pathname === '/api/ide/tmux-send-keys' && req.method === 'POST') {
     try {
-      const { project, session, text, submit } = await req.json() as { project?: string; session?: string; text?: string; submit?: boolean };
+      const { project, session, text, submit, quiet } = await req.json() as { project?: string; session?: string; text?: string; submit?: boolean; quiet?: boolean };
       if (!project || typeof project !== 'string') {
         return jsonError('project is required', 400);
       }
@@ -134,7 +134,10 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       // toast for nudges that land here, mirroring the local-nudge broadcast in
       // the supervisor_nudge MCP handler. A compose-stage (submit:false) is not
       // a nudge — it stages text for the user to edit — so don't broadcast it.
-      if (doSubmit) {
+      // `quiet` suppresses the toast for USER-originated sends (the terminal
+      // composer + quick-reply chips): a person typing into their own session is
+      // not a supervisor nudge. Real supervisor/remote nudges omit `quiet`.
+      if (doSubmit && !quiet) {
         wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text, sent: result.sent });
       }
       return Response.json({ success: true, tmux: result.sent });

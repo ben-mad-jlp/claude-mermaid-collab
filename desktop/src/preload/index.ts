@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 // The `mc` bridge — the single contextBridge surface to the main process.
 // Server-switcher methods are thin IPC wrappers; tokens never cross this
@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('mc', {
   unpairServer: (id: string) => ipcRenderer.invoke('mc:unpairServer', id),
   setServerToken: (id: string, token: string | undefined) =>
     ipcRenderer.invoke('mc:setServerToken', id, token),
+  // Resolve a dropped File's absolute filesystem path. Electron 32+ removed
+  // File.path; webUtils.getPathForFile is the supported renderer-side replacement
+  // (synchronous, no IPC). Used by the terminal composer's drag-to-insert-path.
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   setZoomFactor: (factor: number) => ipcRenderer.invoke('mc:setZoomFactor', factor),
   probeServer: (host: string, port: number) => ipcRenderer.invoke('mc:probeServer', { host, port }),
   setWatchedServers: (ids: string[]) => ipcRenderer.invoke('mc:setWatchedServers', ids),
