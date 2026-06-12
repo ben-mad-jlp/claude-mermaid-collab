@@ -25,6 +25,7 @@ import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useServers } from '@/contexts/ServerContext';
 import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
+import { useFleetShortcuts } from '@/components/layout/useFleetShortcuts';
 import { isOrchestratorSession } from '@/lib/liveness';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
@@ -161,6 +162,8 @@ export function buildServerLabelMap(servers: IconServer[]): Map<string, string> 
 
 
 export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject, currentSession, onNavigate, onOpenSupervisorView }) => {
+  // Global fleet shortcuts: Shift+F# → watch card, Ctrl+Shift+F# → Bridge project.
+  useFleetShortcuts();
   const activeId = useSessionStore((s) => s.currentSession)?.serverId ?? null;
   // Routing scope for supervisor API calls. The supervisor store is GLOBAL
   // (server-side), so its data is the same regardless of which server we route

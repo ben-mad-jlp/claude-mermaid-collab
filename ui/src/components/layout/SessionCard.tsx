@@ -256,6 +256,7 @@ export const SessionCard: React.FC<{
     <div className={`flex items-center gap-1 ${isDragOver ? 'border-t-2 border-t-info-400' : ''}`}>
       {/* Colored status card */}
       <div
+        data-watch-card
         className={`relative group flex-1 flex items-stretch gap-2 pl-3 pr-2 py-1 rounded text-sm cursor-pointer transition-colors min-w-0 overflow-hidden ${statusBg} ${staleDim} ${ctxHigh ? 'ring-2 ring-danger-500 ring-inset' : ''}`}
         draggable={draggable}
         onDragStart={draggable && subKey ? (e) => onDragStart?.(e, subKey) : undefined}
