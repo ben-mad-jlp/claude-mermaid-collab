@@ -1,4 +1,5 @@
 import type { Todo } from './todo-store';
+import { resolveCompletion } from '../agent/completion-resolver';
 
 /** The Coordinator daemon: a non-LLM, per-project loop that claims ready todos and
  *  spawns workers for them, and reclaims expired leases. All I/O is injected (DI) so
@@ -60,6 +61,11 @@ export interface CoordinatorDeps {
    *  failed verdict overrides a worker 'accepted' to 'rejected' so unverified work
    *  never lands — the #6/#7 lesson made enforceable (5374e299). Optional. */
   runGate?: (project: string, todoId: string) => Promise<GateVerdict | null>;
+  /** Re-verify a worker's 'accepted' actually produced committable work (PAW P1
+   *  ride-along). Returns true (work exists), false (provably none → a hallucinated
+   *  completion, downgrade to 'pending'), or null (indeterminate → preserve). Runs
+   *  AFTER a green gate inside the completion resolver. Optional. */
+  verifyWorkCommitted?: (project: string, todoId: string) => Promise<boolean | null>;
   /** Notify the UI that this project's todos changed (broadcast session_todos_updated)
    *  after a DAEMON-driven transition — reclaim→ready, retry-exhaust→blocked, claim→
    *  in_progress, reap. Without this the only session_todos_updated broadcasts come
@@ -164,31 +170,23 @@ export async function handleWorkerComplete(
   project: string,
   todoId: string,
   acceptance: 'accepted' | 'rejected',
-): Promise<{ promoted: string[]; escalated: boolean; gateOverride?: GateVerdict }> {
-  // AUTHORITATIVE GATE (5374e299): a worker can only PROPOSE 'accepted'. The
-  // Coordinator runs the project's declared gate on the committed artifact; a
-  // failed — or un-runnable — gate overrides to 'rejected' so nothing the worker
-  // self-certifies lands unverified. No declared gate (runGate → null) preserves
-  // the prior trust-the-worker behavior.
-  let effective: 'accepted' | 'rejected' = acceptance;
-  let gateOverride: GateVerdict | undefined;
-  if (acceptance === 'accepted' && deps.runGate) {
-    let verdict: GateVerdict | null;
-    try {
-      verdict = await deps.runGate(project, todoId);
-    } catch (e) {
-      // Fail CLOSED: a gate that errors must NOT auto-accept unverified work.
-      verdict = { passed: false, reasons: [`gate execution error: ${e instanceof Error ? e.message : String(e)}`] };
-    }
-    if (verdict && !verdict.passed) {
-      effective = 'rejected';
-      gateOverride = verdict;
-    }
-  }
+): Promise<{ promoted: string[]; escalated: boolean; gateOverride?: GateVerdict; effective?: 'accepted' | 'rejected' | 'pending'; pendingReason?: string }> {
+  // AUTHORITATIVE RESOLUTION (5374e299 + PAW P1): a worker can only PROPOSE an
+  // acceptance. The server-authoritative completion-resolver decides the effective
+  // outcome — the declared gate (fail-closed; overrides 'accepted'→'rejected'), then
+  // a work-committed re-verify (fail-open; downgrades a gate-green-but-empty
+  // 'accepted'→'pending', closing the hallucinated-completion hole). No declared
+  // gate / indeterminate re-verify preserves the prior trust-the-worker behavior.
+  const { effective, gateOverride, pendingReason } = await resolveCompletion(
+    { runGate: deps.runGate, verifyWorkCommitted: deps.verifyWorkCommitted },
+    project,
+    todoId,
+    acceptance,
+  );
   const { promoted } = await deps.completeTodo(project, todoId, effective);
   let escalated = false;
   if (effective === 'rejected' && deps.escalateRejected) {
     try { await deps.escalateRejected(project, todoId); escalated = true; } catch { /* never block the report */ }
   }
-  return { promoted, escalated, gateOverride };
+  return { promoted, escalated, gateOverride, effective, pendingReason };
 }

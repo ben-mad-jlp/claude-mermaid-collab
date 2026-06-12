@@ -13,8 +13,14 @@
  */
 import { listTodos } from './todo-store';
 import { tmuxBaseName } from './tmux-naming';
-import { claudeAliveInSubtree, isClaudeTuiPresent, detectPermissionPrompt } from './coordinator-live';
+import { resolveWorkerAgent } from '../agent/registry';
 import { getStatus } from './session-status-store';
+
+// PAW P1: the same pane-scrape liveness the watchdog uses, resolved through the
+// WorkerAgent registry (claude-only) so this read-model and the coordinator stay
+// byte-identical. (Was: direct imports of claudeAliveInSubtree / isClaudeTuiPresent
+// / detectPermissionPrompt from coordinator-live.)
+const workerAgent = resolveWorkerAgent('claude');
 
 /** Coarse worker state, derived from tmux liveness + Claude PID + pane content. */
 export type WorkerState =
@@ -192,11 +198,6 @@ function capturePane(tmux: string): string {
   }
 }
 
-/** Same active-work signal the stall detector uses. */
-function isActivelyWorking(pane: string): boolean {
-  return /\(\d+(?:m\s*\d+)?s\s*·/.test(pane) || /esc to interrupt/i.test(pane);
-}
-
 /** Snapshot the live fleet for a project: every in-progress todo with its worker,
  *  elapsed time, lease headroom, and derived health state. */
 export function getFleetStatus(project: string, now: number = Date.now()): FleetStatus {
@@ -233,16 +234,16 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
       state = 'no_tmux';
     } else {
       const panePid = tmuxPanePid(tmux);
-      const claudeAlive = snap && panePid != null ? claudeAliveInSubtree(panePid, snap.byPid) : null;
+      const claudeAlive = snap && panePid != null ? workerAgent.isAgentAliveInSubtree(panePid, snap.byPid) : null;
       const pane = capturePane(tmux);
-      if (claudeAlive === false && !isClaudeTuiPresent(pane)) {
+      if (claudeAlive === false && !workerAgent.isTuiPresent(pane)) {
         state = 'dead_shell';
       } else if (claudeAlive === null) {
         state = 'unknown';
       } else {
-        const perm = detectPermissionPrompt(pane);
+        const perm = workerAgent.detectPermissionPrompt(pane);
         if (perm.isPermission) { state = 'permission'; blockedOnTool = perm.tool; }
-        else if (isActivelyWorking(pane)) state = 'working';
+        else if (workerAgent.isActivelyWorking(pane)) state = 'working';
         else state = 'idle';
       }
     }
