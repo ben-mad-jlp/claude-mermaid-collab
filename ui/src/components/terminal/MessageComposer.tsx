@@ -119,8 +119,16 @@ export function MessageComposer({ project, session, serverId, disabled = false }
       const paths = resolveDropPaths(files, dt);
       // A text file could be either useful as a path OR pasted inline → ask.
       // Non-text (binary) files only make sense as a path, so insert it directly.
-      if (files.some(isTextFile)) setPendingDrop({ files, paths });
-      else insertPaths(paths);
+      if (files.some(isTextFile)) {
+        setPendingDrop({ files, paths });
+      } else if (paths.length) {
+        insertPaths(paths);
+      } else {
+        // Last resort (no getPathForFile + no uri-list): insert the names so the
+        // drop is never silently dead. The desktop rebuild's getPathForFile makes
+        // this resolve to the absolute path instead.
+        insertAtCaret(files.map((f) => quotePath(f.name)).join(' '));
+      }
       return;
     }
     // No OS files (e.g. a path/URI dragged from another app) → fall back to text.

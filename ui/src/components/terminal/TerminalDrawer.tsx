@@ -54,10 +54,14 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
       routeComposerDrop(e.dataTransfer);
     };
     // Capture phase so we intercept before xterm's canvas can swallow the drop.
+    // dragenter preventDefault too — some Chromium builds won't fire `drop`
+    // without it. Capture phase so we beat xterm's canvas.
+    el.addEventListener('dragenter', onDragOver, true);
     el.addEventListener('dragover', onDragOver, true);
     el.addEventListener('dragleave', onDragLeave, true);
     el.addEventListener('drop', onDrop, true);
     return () => {
+      el.removeEventListener('dragenter', onDragOver, true);
       el.removeEventListener('dragover', onDragOver, true);
       el.removeEventListener('dragleave', onDragLeave, true);
       el.removeEventListener('drop', onDrop, true);
