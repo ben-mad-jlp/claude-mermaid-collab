@@ -21,7 +21,16 @@ let userDataDir: string;
 let instancesDir: string;
 
 async function makeStore(): Promise<ConnectionStore> {
-  const store = new ConnectionStore({ userDataDir, instancesDir, safeStorage: fakeSafeStorage });
+  // Stub liveness: the fixtures write instance files with pid:1 on non-listening
+  // ports, so the REAL probe (pid-alive + port-listening) would prune them as
+  // phantom. Inject a deterministic always-live probe so refreshLocal keeps the
+  // discovered fixtures (mirrors connection-store.test.ts).
+  const store = new ConnectionStore({
+    userDataDir,
+    instancesDir,
+    safeStorage: fakeSafeStorage,
+    isInstanceLive: () => true,
+  });
   await store.init();
   return store;
 }

@@ -77,14 +77,14 @@ describe('instanceTopology (injected deps)', () => {
         owner: 'desktop',
       }),
       readLockImpl: () => ({ pid: 100, exePath: '/app', version: '5.92.0', port: CANONICAL_PORT, owner: 'desktop' }),
-      listPeersImpl: () => [{ serverId: 'peer-1', baseUrl: 'https://peer.example', token: 't' }],
+      listPeersImpl: () => [{ serverId: 'peer-1', baseUrl: 'https://peer.example' }],
     });
 
     expect(topo.canonicalHolder?.pid).toBe(100);
     expect(topo.hasShadow).toBe(true);
     expect(topo.instances.find((i) => i.pid === 100)!.tag).toBe('canonical');
     expect(topo.instances.find((i) => i.pid === 200)!.tag).toBe('shadow');
-    expect(topo.peers).toEqual([{ serverId: 'peer-1', baseUrl: 'https://peer.example', authed: true }]);
+    expect(topo.peers).toEqual([{ serverId: 'peer-1', baseUrl: 'https://peer.example' }]);
   });
 
   test('falls back to a live lockfile owner when /api/health does not answer', async () => {

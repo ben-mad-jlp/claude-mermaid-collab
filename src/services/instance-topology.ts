@@ -72,8 +72,6 @@ export interface TaggedInstance {
 export interface RemotePeer {
   serverId: string;
   baseUrl: string;
-  /** True when this peer is reachable with a token (auth configured). */
-  authed: boolean;
 }
 
 /** Identity of the live process actually answering on the canonical port, if any. */
@@ -215,7 +213,6 @@ export async function instanceTopology(deps: InstanceTopologyDeps = {}): Promise
   const peers: RemotePeer[] = listPeersFn().map((p) => ({
     serverId: p.serverId,
     baseUrl: p.baseUrl,
-    authed: Boolean(p.token),
   }));
 
   return {
