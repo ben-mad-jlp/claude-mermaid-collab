@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { useDaemonPulse } from '@/stores/daemonPulseStore';
 
 /**
  * useStatusSync — the single owner of status refresh
@@ -76,6 +77,11 @@ export function useStatusSync(serverIds: string[]) {
           if (!project) break;
           const ids = serverIdsRef.current.length ? serverIdsRef.current : ['local'];
           for (const id of ids) void useSupervisorStore.getState().loadProjectTodos(id, project);
+          break;
+        }
+        case 'orchestrator_tick': {
+          // Daemon woke to poll — flash the header live dot.
+          useDaemonPulse.getState().pulse();
           break;
         }
         // claude_session_* stay on the existing useWatchEvents handler.

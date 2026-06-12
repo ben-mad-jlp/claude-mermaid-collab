@@ -21,6 +21,7 @@ import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
+import { getWebSocketHandler } from './ws-handler-manager.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -138,6 +139,8 @@ export function startOrchestrator(intervalMs = 30_000): void {
   const t = setInterval(async () => {
     if (tickRunning) return; // skip overlapping tick
     tickRunning = true;
+    // Heartbeat: tell the UI the daemon woke to poll (flashes the header live dot).
+    try { getWebSocketHandler()?.broadcast({ type: 'orchestrator_tick', at: Date.now() }); } catch { /* best-effort */ }
     try {
       await runOrchestratorTick();
     } catch (err) {

@@ -17,6 +17,7 @@ import { NavMenu } from './NavMenu';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore, type PaneKey } from '@/stores/uiStore';
+import { useDaemonPulse } from '@/stores/daemonPulseStore';
 import { Session } from '@/types';
 
 export interface HeaderProps {
@@ -88,6 +89,17 @@ export const Header: React.FC<HeaderProps> = ({
   // paneOrder lives in the persisted ui-preferences store, so order survives
   // restarts. `dragKey` tracks the toggle currently being dragged.
   const [dragKey, setDragKey] = useState<PaneKey | null>(null);
+
+  // Daemon heartbeat: flash the live dot briefly each time the orchestrator wakes
+  // to poll (orchestrator_tick WS event → daemonPulseStore).
+  const lastTick = useDaemonPulse((s) => s.lastTick);
+  const [pulsing, setPulsing] = useState(false);
+  useEffect(() => {
+    if (!lastTick) return;
+    setPulsing(true);
+    const id = setTimeout(() => setPulsing(false), 600);
+    return () => clearTimeout(id);
+  }, [lastTick]);
   const reorderPane = useCallback(
     (target: PaneKey) => {
       const src = dragKey;
@@ -334,9 +346,10 @@ export const Header: React.FC<HeaderProps> = ({
             `}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
+              title={pulsing ? 'daemon tick' : undefined}
+              className={`w-2 h-2 rounded-full transition-all duration-150 ${
                 isConnected ? 'bg-success-500' : isConnecting ? 'bg-warning-500 animate-pulse' : 'bg-gray-400'
-              }`}
+              } ${isConnected && pulsing ? 'scale-[1.9] ring-2 ring-success-400/70 shadow-[0_0_6px_2px] shadow-success-400/60' : ''}`}
             />
             <span>{isConnected ? 'Live' : isConnecting ? 'Reconnecting…' : 'Offline'}</span>
           </div>
