@@ -112,8 +112,12 @@ function registerIpc(): void {
   // garbage from a peer never reaches the store. Token injection still happens in
   // `invokeOnServer` (main); the boundary wraps it.
   ipcMain.handle('mc:invokeOnServer', (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
-    crossServerCall(invokeOnServer, serverId, opts)
+    crossServerCall(invokeOnServer, serverId, opts, (id) => store?.isPaired(id) ?? false)
   );
+  // P4a pairing actions: Pair a pending discovered peer (→ trusted), or Unpair
+  // (delete the row; a discovered instance re-appears as pending on next refresh).
+  ipcMain.handle('mc:pairServer', (_e, id: string) => { store?.pair(id); return store?.list() ?? []; });
+  ipcMain.handle('mc:unpairServer', (_e, id: string) => { store?.unpair(id); return store?.list() ?? []; });
   ipcMain.handle('mc:getServerCapabilities', (_e, serverId: string) => store?.getServerCapabilities(serverId) ?? { tmux: false });
   ipcMain.handle('mc:openExternalTerminal', async (_e, tmuxName: string) => {
     // Sanitize: tmux session names here are mc-* alnum+dash; reject anything else to avoid shell injection.
@@ -590,6 +594,10 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
   store = new ConnectionStore();
   await store.init();
   await store.refreshLocal();
+  // Auto-pair the desktop's OWN primary local server (the sidecar on `port`) so
+  // the home server is never gated by pairing (P4a). Other discovered instances
+  // stay 'pending' until the user explicitly pairs them.
+  store.pairLocalByPort(port);
   // Resolver: live lookup keeps tokens in main and lets per-server WS bridges
   // pick the right upstream regardless of which server is "active".
   proxy.setResolver((id) => {

@@ -35,10 +35,17 @@ export type RemoteInvoker = (
   opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> },
 ) => Promise<RemoteEnvelope>;
 
-/** ① Pairing gate — NO-OP pass-through until P4 wires real peer-pairing. Kept as
- *  a seam so P4 only fills in the body; today every peer is allowed. */
-export function allowPeer(_serverId: string): boolean {
-  return true;
+/** Pairing predicate: is this peer trusted for cross-server calls? Supplied by
+ *  the caller (the ConnectionStore.isPaired bound in main). */
+export type IsPaired = (serverId: string) => boolean;
+
+/** ① Pairing gate (P4a §2). With no predicate this is a pass-through (the P2
+ *  behaviour). With a predicate, a peer is allowed only when it is paired — the
+ *  'local'/empty sentinel (the desktop's own primary) is always allowed. */
+export function allowPeer(serverId: string, isPaired?: IsPaired): boolean {
+  if (!isPaired) return true;
+  if (!serverId || serverId === 'local') return true;
+  return isPaired(serverId);
 }
 
 /** No-op rate-limit seam (NOT wired on — P2 leaves it always-allow). */
@@ -99,10 +106,11 @@ export async function crossServerCall(
   invoke: RemoteInvoker,
   serverId: string,
   opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> },
+  isPaired?: IsPaired,
 ): Promise<RemoteEnvelope> {
-  // ① pairing gate (no-op until P4)
-  if (!allowPeer(serverId)) {
-    return { ok: false, status: 403, body: { error: 'peer_not_allowed' } };
+  // ① pairing gate (P4a): a non-paired peer is rejected before any invoke.
+  if (!allowPeer(serverId, isPaired)) {
+    return { ok: false, status: 403, body: { error: 'peer_not_paired' } };
   }
   // ② invoke (token injection stays in main, inside `invoke`)
   const res = await invoke(serverId, opts);
