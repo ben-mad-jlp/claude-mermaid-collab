@@ -4,8 +4,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import {
   getTerminalWebSocketURL,
+  getConsolePtyId,
   makeSwitchMessage,
-  PERSISTENT_CONSOLE_PTY_ID,
   TERMINAL_MODE_RESET,
 } from '@/lib/terminal-ws';
 
@@ -15,7 +15,7 @@ type ConnState = 'connecting' | 'connected' | 'disconnected';
  * THE single persistent xterm console (replaces the old per-tab pane model).
  *
  * Instead of one xterm + WebSocket + PTY per opened session, the console keeps
- * ONE WebSocket per server — to the stable PERSISTENT_CONSOLE_PTY_ID — and
+ * ONE WebSocket per server — to this client's per-UI console PTY id — and
  * re-points it between tmux targets with `switch` messages. Selecting a
  * different session re-points the SAME connection (no teardown); selecting a
  * session on a different server reconnects the WebSocket through that server's
@@ -116,7 +116,9 @@ function TerminalConsoleInner({
       }
     };
 
-    const ws = new WebSocket(getTerminalWebSocketURL(serverId, PERSISTENT_CONSOLE_PTY_ID));
+    // Per-UI-instance console PTY id (stable per client via localStorage), so two
+    // UIs on the same server get independent server-side consoles.
+    const ws = new WebSocket(getTerminalWebSocketURL(serverId, getConsolePtyId()));
     const send = (msg: unknown) => {
       if (!disposed && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
