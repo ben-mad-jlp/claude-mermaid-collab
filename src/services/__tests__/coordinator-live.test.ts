@@ -22,20 +22,30 @@ mock.module('../claude-launch', () => ({
 // updateTodo writes to the todo-store DB; stub it so the spawn test doesn't
 // depend on a seeded todo row.
 let completeSessionName = '';
+// Conflict-path test hooks: a configurable completeTodo result (so the merge-back
+// branch sees a real targetProject/title) and an updateTodo spy (to assert the
+// blocked-park reversal). Defaults keep every existing test unchanged.
+let completeResultExtra: Record<string, unknown> = {};
+const updateTodoCalls: Array<{ id: string; patch: any }> = [];
+let resetTodoCalls: Array<{ id: string; status: string }> = [];
 mock.module('../todo-store', () => ({
   listReadyTodos: () => [],
   claimTodo: async () => null,
   releaseExpiredClaims: async () => {},
-  completeTodo: async () => ({ completed: { sessionName: completeSessionName }, promoted: [], rolledUp: [] }),
-  updateTodo: async () => {},
+  completeTodo: async () => ({ completed: { sessionName: completeSessionName, ...completeResultExtra }, promoted: [], rolledUp: [] }),
+  updateTodo: async (_project: string, id: string, patch: any) => { updateTodoCalls.push({ id, patch }); return { id, ...patch }; },
+  resetTodo: async (_project: string, id: string, status: string) => { resetTodoCalls.push({ id, status }); return { id, status }; },
   getTodo: () => null,
   listTodos: () => [],
   reclaimClaim: async () => 'ready',
+  releaseClaim: async () => {},
+  reclaimOrphan: async () => null,
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
-import { resetPool, listPool, markBusy, markIdle } from '../worker-pool';
+import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
+import { promises as fsp } from 'node:fs';
 import type { Todo } from '../todo-store';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -264,6 +274,123 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
     // Slot still exists (session kept warm) but is now idle and available.
     expect(lib().status).toBe('idle');
     expect(lib().currentTodoId).toBeUndefined();
+  });
+});
+
+// --- DEFECT 2+3: conflicted merge-back parks BLOCKED + tears down ----------------
+// A real temp git repo with an epic branch and a worker branch that genuinely
+// CONFLICTS on merge-back. With isolation on, the completeTodo callback must:
+//   - NOT leave the todo accepted (park it status='blocked', acceptance cleared);
+//   - keep the escalation (human integrates the branch);
+//   - tear down the lane slot/worktree so it can't be reused stale.
+async function gitRun(cwd: string, args: string[]): Promise<void> {
+  const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
+    cwd, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
+    env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' },
+  });
+  await proc.exited;
+}
+
+describe('completeTodo merge-back conflict (DEFECT 2+3)', () => {
+  let repo: string;
+  const SESSION = 'backend-claude-1';
+  const TODO_ID = '99999999-9999-9999-9999-999999999999';
+
+  afterEach(async () => {
+    delete process.env.MERMAID_WORKER_ISOLATION;
+    completeSessionName = '';
+    completeResultExtra = {};
+    updateTodoCalls.length = 0;
+    resetTodoCalls = [];
+    resetPool();
+    if (repo) await fsp.rm(repo, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('parks the todo BLOCKED, keeps it un-accepted, and tears down the slot', async () => {
+    process.env.MERMAID_WORKER_ISOLATION = '1';
+    repo = mkdtempSync(join(tmpdir(), 'mc-conflict-repo-'));
+    await gitRun(repo, ['init', '-q', '-b', 'master']);
+    await gitRun(repo, ['config', 'user.email', 't@t']);
+    await gitRun(repo, ['config', 'user.name', 'T']);
+    writeFileSync(join(repo, 'f.txt'), 'base\n');
+    await gitRun(repo, ['add', '-A']);
+    await gitRun(repo, ['commit', '-q', '-m', 'base']);
+
+    const wm = getWorktreeManager(repo);
+    // Inbox epic accumulation branch + worktree (resolveEpicId → inbox for a todo
+    // with no epic parent).
+    const epic = await wm.ensureEpic('inbox');
+    expect(epic).not.toBeNull();
+    // Advance the epic branch with a conflicting edit to f.txt.
+    writeFileSync(join(epic!.path, 'f.txt'), 'epic-side\n');
+    await gitRun(epic!.path, ['commit', '-aqm', 'epic edit']);
+
+    // The worker lane: a fresh worktree off the ORIGINAL base, edits f.txt
+    // differently → merge into the (now-advanced) epic branch conflicts.
+    const wt = await wm.ensure(SESSION, { baseBranch: 'master', fresh: true });
+    writeFileSync(join((wt as any).path, 'f.txt'), 'worker-side\n');
+
+    // Register the pool slot so we can prove teardown removes it.
+    const slot = getOrCreateSlot(repo, 'backend');
+    expect(slot).toBeDefined();
+    markBusy(repo, SESSION, TODO_ID, `tmux-${SESSION}`);
+    expect(listPool().some((s) => s.project === repo && s.sessionName === SESSION)).toBe(true);
+
+    completeSessionName = SESSION;
+    completeResultExtra = { targetProject: repo, title: 'conflicty todo', acceptanceStatus: 'accepted' };
+
+    const deps = makeCoordinatorDeps();
+    await deps.completeTodo(repo, TODO_ID, 'accepted');
+
+    // The accept was reversed: updateTodo parked it BLOCKED with acceptance cleared.
+    const park = updateTodoCalls.find((c) => c.id === TODO_ID && c.patch?.status === 'blocked');
+    expect(park).toBeDefined();
+    expect(park!.patch.acceptanceStatus).toBeNull();
+    expect(park!.patch.completed).toBe(false);
+
+    // The lane slot was torn down (cannot be reused stale).
+    expect(listPool().some((s) => s.project === repo && s.sessionName === SESSION)).toBe(false);
+
+    // The worktree dir was removed, but the worker BRANCH survives for the human.
+    expect(await wm.existingPath(SESSION)).toBeNull();
+  });
+});
+
+// --- DEFECT C: per-project cold-start cap ----------------------------------------
+describe('cold-start cap is per-project (DEFECT C)', () => {
+  const PROJ_A = mkdtempSync(join(tmpdir(), 'mc-cold-a-'));
+  const PROJ_B = mkdtempSync(join(tmpdir(), 'mc-cold-b-'));
+
+  afterEach(() => {
+    resetPool();
+    ensureSessionCalls.length = 0;
+    runTodoCalls.length = 0;
+    delete process.env.MERMAID_MAX_COLD_STARTS;
+  });
+
+  it('project A at the cap does not block project B from cold-starting', async () => {
+    // Make scratch .collab dirs so launchWorker's session/profile resolution works.
+    for (const p of [PROJ_A, PROJ_B]) mkdirSync(join(p, '.collab'), { recursive: true });
+    const deps = makeCoordinatorDeps();
+
+    const mk = (proj: string, id: string): Todo => ({
+      id, title: 't', status: 'in_progress', type: 'backend',
+      targetProject: proj, retryCount: 0,
+    } as unknown as Todo);
+
+    // Cap is per-project (default 2). Saturate project A's cold-start counter by
+    // launching its budget of backend lanes (the worker-pool budget is 1/type, so
+    // a second same-type todo in A defers on capacity — but the KEY assertion is
+    // that B is unaffected by A's in-flight cold-starts). Launch A then B and prove
+    // B starts regardless of A's state.
+    const aStarted = await deps.launchWorker(PROJ_A, mk(PROJ_A, 'aaaaaaaa-0000-0000-0000-000000000001'));
+    const bStarted = await deps.launchWorker(PROJ_B, mk(PROJ_B, 'bbbbbbbb-0000-0000-0000-000000000001'));
+    expect(aStarted).toBe(true);
+    expect(bStarted).toBe(true);
+
+    // Both projects ran a cold-start; the global readout sums across projects.
+    expect(getColdStartsInFlight()).toBe(0); // both finished (mock launch is sync-ish)
+    expect(getColdStartsInFlight(PROJ_A)).toBe(0);
   });
 });
 

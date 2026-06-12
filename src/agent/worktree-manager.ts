@@ -102,6 +102,13 @@ export interface EnsureOpts {
    *  Used by the isolation model to branch each worker off the LATEST integration
    *  branch so it sees all prior accepted work. */
   baseBranch?: string;
+  /** Force a brand-NEW worktree+branch even when a cached record still points at
+   *  an existing dir. Under the isolation model a lane worktree is per-TODO: a
+   *  cached worktree from a prior run carries its old branch (and any unrelated
+   *  accumulated commits), so reusing it strands the new todo's work on the wrong
+   *  branch. When true, tear down the cached worktree+branch (best-effort) and
+   *  fall through to create a fresh one. Defaults false (legacy resume behaviour). */
+  fresh?: boolean;
 }
 
 interface SpawnResult {
@@ -141,12 +148,33 @@ export class WorktreeManager {
   private async _ensureInner(sessionId: string, opts?: EnsureOpts): Promise<SessionWorktree> {
     // 1. cached record? verify the dir still exists.
     const cached = await this.readRecord(sessionId);
+    let priorBranch: string | undefined;
     if (cached) {
       if (await this.pathExists(cached.path)) {
-        return cached;
+        if (!opts?.fresh) return cached;
+        priorBranch = cached.branch;
+        // DEFECT 1 — under isolation a lane worktree is per-todo. A cached worktree
+        // from a prior run carries its OLD branch (and any commits accumulated
+        // across earlier todos), so reusing it strands the new todo on the wrong
+        // branch. With `fresh`, tear down the cached worktree+branch (best-effort)
+        // and fall through to create a brand-new one off the requested base.
+        await this.runGit(
+          this.opts.projectRoot,
+          ['worktree', 'remove', '--force', cached.path],
+          QUICK_TIMEOUT_MS,
+        ).catch(() => ({ code: 0, stdout: '', stderr: '' }));
+        if (cached.branch) {
+          await this.runGit(
+            this.opts.projectRoot,
+            ['branch', '-D', cached.branch],
+            QUICK_TIMEOUT_MS,
+          ).catch(() => ({ code: 0, stdout: '', stderr: '' }));
+        }
+        await this.deleteRecord(sessionId).catch(() => {});
+      } else {
+        // stale record — drop and fall through to re-create.
+        await this.deleteRecord(sessionId).catch(() => {});
       }
-      // stale record — drop and fall through to re-create.
-      await this.deleteRecord(sessionId).catch(() => {});
     }
 
     // 2. projectRoot a git repo?
@@ -168,8 +196,23 @@ export class WorktreeManager {
     let branch = `collab/${slug}-${stamp}`;
     let wtPath = path.join(this.opts.baseDir, slug);
 
-    // Path collision: if a dir already exists at the preferred path, suffix.
-    if (await this.pathExists(wtPath)) {
+    // Path or branch-ref collision: if a dir already exists at the preferred path,
+    // OR a branch with the preferred name already exists (the per-minute stamp can
+    // repeat — notably under `fresh`, where we just deleted the prior same-named
+    // branch and would otherwise re-create an identical one), suffix to stay unique.
+    const branchRefExists = async (b: string): Promise<boolean> =>
+      (
+        await this.runGit(
+          this.opts.projectRoot,
+          ['rev-parse', '--verify', '--quiet', `refs/heads/${b}`],
+          QUICK_TIMEOUT_MS,
+        ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
+      ).code === 0;
+    // Under `fresh` we just deleted `priorBranch`; if the per-minute stamp would
+    // regenerate that exact name, force a suffix so the new lane branch is provably
+    // DISTINCT from the torn-down one (never silently reuse the stale identity).
+    const collidesWithPrior = priorBranch !== undefined && branch === priorBranch;
+    if ((await this.pathExists(wtPath)) || (await branchRefExists(branch)) || collidesWithPrior) {
       const suffix = randomBytes(2).toString('hex');
       wtPath = path.join(this.opts.baseDir, `${slug}-${suffix}`);
       branch = `${branch}-${suffix}`;

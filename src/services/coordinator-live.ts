@@ -225,12 +225,32 @@ function respawnBackoffMs(retryCount: number): number {
   return Math.min(5_000 * 2 ** (retryCount - 1), 5 * 60_000); // 5s,10s,20s,40s… cap 5m
 }
 const MAX_COLD_STARTS = Math.max(1, Number(process.env.MERMAID_MAX_COLD_STARTS) || 2);
-let coldStartsInFlight = 0;
+// PER-PROJECT cold-start counter (keyed by the lane's project). The cap applies
+// per project so one busy project can't starve another project's cold-starts
+// (the prior single module int meant project A at cap blocked project B). The cap
+// (MAX_COLD_STARTS) itself stays per-project.
+const coldStartsInFlightByProject = new Map<string, number>();
+function coldStartsFor(project: string): number {
+  return coldStartsInFlightByProject.get(project) ?? 0;
+}
+function incColdStarts(project: string): void {
+  coldStartsInFlightByProject.set(project, coldStartsFor(project) + 1);
+}
+function decColdStarts(project: string): void {
+  const next = coldStartsFor(project) - 1;
+  if (next <= 0) coldStartsInFlightByProject.delete(project);
+  else coldStartsInFlightByProject.set(project, next);
+}
 
-/** Live count of worker cold-starts currently in flight (capped at MAX_COLD_STARTS).
+/** Live count of worker cold-starts currently in flight (capped per-project at
+ *  MAX_COLD_STARTS). Pass a `project` for that project's count; omit it for the
+ *  fleet-wide sum across all projects (the existing whole-fleet status readout).
  *  Read-only snapshot for observability (e.g. the orchestrator_status MCP tool). */
-export function getColdStartsInFlight(): number {
-  return coldStartsInFlight;
+export function getColdStartsInFlight(project?: string): number {
+  if (project != null) return coldStartsFor(project);
+  let sum = 0;
+  for (const n of coldStartsInFlightByProject.values()) sum += n;
+  return sum;
 }
 
 /** Resolved cold-start concurrency cap the daemon actually uses. Read-only
@@ -1029,6 +1049,16 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           const merge = await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
           recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
           if (merge.conflict) {
+            // DEFECT 2 — a conflicted merge-back must NOT leave the todo accepted.
+            // Reverse the premature accept by PARKING the todo BLOCKED (a conflict
+            // needs a human to integrate the branch — not an auto-rebuild, so we do
+            // NOT reset it to `ready`). Clear the acceptance/completion the store
+            // stamped (mirrors reopenStrandedAccept's field-clearing, but blocked).
+            try {
+              await updateTodo(project, id, { status: 'blocked', completed: false, acceptanceStatus: null });
+            } catch (e) {
+              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'park-blocked-failed', reason: e instanceof Error ? e.message : String(e) }) });
+            }
             createEscalation({
               project,
               session,
@@ -1036,6 +1066,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               kind: 'assumption-invalidated',
               questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${r.completed.title}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
             });
+            // DEFECT 3 — tear down the lane worktree so it can NEVER be reused stale
+            // (a surviving worktree feeds the cached-reuse bug). `git worktree
+            // remove` deletes only the worktree DIR — the worker's branch survives,
+            // so the human's commit is preserved for manual integration.
+            await wm.remove(session).catch(() => {});
+            try { await killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
+            removeSlot(targetProject, session);
+            recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
           } else if (!merge.integrated) {
             // BP0 INVARIANT: the merge reported success but the todo's work is NOT
             // on the epic branch (PHANTOM: a clean worktree with no commit; or a
@@ -1084,9 +1122,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // (reopenStrandedAccept) AND raise an escalation so a human integrates the
           // orphaned session branch rather than discovering it via `git log --all`.
           const reason = e instanceof Error ? e.message : String(e);
+          const errTargetProject = r.completed.targetProject ?? project;
           recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, isolation: 'merge-back-failed', reason }) });
           try {
-            const wm = getWorktreeManager(r.completed.targetProject ?? project);
+            const wm = getWorktreeManager(errTargetProject);
             const epicId = resolveEpicId(r.completed, project);
             if (!(await wm.todoOnEpicBranch(epicId, id))) {
               await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, wm.epicBranchName(epicId), session);
@@ -1099,6 +1138,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
                   questionText: `Stranded leaf: todo "${r.completed.title}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
                 });
               } catch { /* best-effort: never let escalation failure mask the accept */ }
+              // DEFECT 3 — an errored lane must also be torn down so its worktree
+              // can't be reused stale. The branch survives `git worktree remove`, so
+              // the orphaned commit is preserved for the human to integrate.
+              await wm.remove(session).catch(() => {});
+              try { await killTmuxSession(tmuxBaseName(errTargetProject, session)); } catch { /* best-effort teardown */ }
+              removeSlot(errTargetProject, session);
+              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
             }
           } catch { /* best-effort BP0 re-surface; never throw from the complete callback */ }
         }
@@ -1260,7 +1306,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           const epicId = resolveEpicId(todo, project);
           const epic = await wm.ensureEpic(epicId, targetProject);
           if (epic) {
-            const wt = await wm.ensure(poolName, { baseBranch: epic.branch });
+            // DEFECT 1 — under isolation each lane worktree is per-todo: pass
+            // `fresh` so a cached worktree from a prior todo is torn down (never
+            // reused with its stale branch). Branch off the epic's accumulation
+            // branch TIP so the lane sees all prior accepted work for this epic;
+            // ensureEpic just materialised the branch, so it exists. (If it
+            // somehow doesn't, ensure() falls back to the detected base branch.)
+            const wt = await wm.ensure(poolName, { baseBranch: epic.branch, fresh: true });
             launchCwd = wt.path;
           }
         } catch (e) {
@@ -1274,9 +1326,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // next tick once an in-flight spawn finishes). Counts only REAL spawn attempts
       // (after all the deferrals above), so a wave of N todos with cap=2 spawns in
       // waves of 2 instead of all at once.
-      if (coldStartsInFlight >= MAX_COLD_STARTS) {
+      if (coldStartsFor(poolProject) >= MAX_COLD_STARTS) {
         try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-        recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'cold-start-cap', inFlight: coldStartsInFlight, cap: MAX_COLD_STARTS, released: true }) });
+        recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'cold-start-cap', inFlight: coldStartsFor(poolProject), cap: MAX_COLD_STARTS, released: true }) });
         return false;
       }
 
@@ -1286,7 +1338,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       //    isolation) or the target repo. Stamp the attempt (for backoff) and count
       //    it against the cold-start cap until the spawn finishes.
       lastSpawnAttempt.set(todo.id, Date.now());
-      coldStartsInFlight++;
+      incColdStarts(poolProject);
       // PAW P1/P4: route the spawn through the WorkerAgent registry. ONE branch —
       // when the resolved provider is 'grok-build', go through the conformance-gated
       // GrokOwnHarness (an in-process AI SDK loop; resolveGrokAgent() throws unless it
@@ -1306,7 +1358,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         started = handle.ready;
         reason = handle.reason;
       } finally {
-        coldStartsInFlight--;
+        decColdStarts(poolProject);
       }
       const ok = started && reason === undefined;
 

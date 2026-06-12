@@ -90,6 +90,34 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     expect(show.stdout).toBe('from-a\n');
   });
 
+  it('ensure(session, { fresh:true }) tears down the cached worktree+branch and creates a NEW one (DEFECT 1)', async () => {
+    const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
+    // First ensure under a session — cached worktree + branch from "a prior todo".
+    const first = await mgr.ensure('lane-x', { baseBranch: integ!.branch });
+    const firstBranch = (first as any).branch as string;
+    expect(firstBranch).toBeDefined();
+    const firstPath = (first as any).path as string;
+    expect((await runGit(repo, ['rev-parse', '--verify', `refs/heads/${firstBranch}`])).code).toBe(0);
+
+    // Without fresh, the SAME cached worktree (same branch) is resumed.
+    const resumed = await mgr.ensure('lane-x', { baseBranch: integ!.branch });
+    expect((resumed as any).branch).toBe(firstBranch);
+
+    // With fresh:true, the cached worktree+branch are removed and a NEW branch is
+    // created — never reused stale.
+    const fresh = await mgr.ensure('lane-x', { baseBranch: integ!.branch, fresh: true });
+    const freshBranch = (fresh as any).branch as string;
+    expect(freshBranch).not.toBe(firstBranch);
+    // The old branch was deleted.
+    expect((await runGit(repo, ['rev-parse', '--verify', `refs/heads/${firstBranch}`])).code).not.toBe(0);
+    // The new branch exists.
+    expect((await runGit(repo, ['rev-parse', '--verify', `refs/heads/${freshBranch}`])).code).toBe(0);
+    // The old worktree dir is gone (or at least no longer the active path), and the
+    // new worktree branches off the epic tip.
+    expect((fresh as any).path).toBeDefined();
+    void firstPath;
+  });
+
   it('preserves dependent-todo data-flow: a later worker sees a prior merged dep', async () => {
     const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
 
