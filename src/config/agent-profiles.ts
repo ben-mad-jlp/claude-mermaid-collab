@@ -1,4 +1,6 @@
 import type { RuntimeMode } from '../agent/contracts';
+import type { ProviderId } from '../agent/worker-agent';
+import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
 import { manifestProfile, inferTypeFromManifest } from './project-manifest';
 import { TECH_PACKS } from './tech-packs';
 
@@ -34,6 +36,16 @@ export interface AgentProfile {
    *  permission axis. Omitted → resolves to the default (`edit`). See
    *  {@link Capability} / {@link resolveCapability}. */
   capability?: Capability;
+  /** Manual provider PIN for this profile (PAW P3). DORMANT: with nothing set,
+   *  {@link resolveProvider} returns 'claude' (pass-through). A profile MAY pin a
+   *  provider (e.g. a project's `cad` profile preferring a specific build model),
+   *  but a session-level pin still wins. No automatic cost routing — this is an
+   *  explicit, manual selection only. */
+  provider?: ProviderId;
+  /** How the pinned provider authenticates: a subscription-backed CLI vs an
+   *  API key. Carried alongside `provider` so the future adapter knows which auth
+   *  path to take. DORMANT today (no adapter reads it yet). */
+  authMode?: 'subscription-cli' | 'api-key';
 }
 
 export type AgentProfileType = 'default' | 'frontend' | 'backend' | 'api' | 'ui' | 'library' | 'cad';
@@ -175,6 +187,27 @@ export function resolveProfile(type?: string | null, project?: string, capabilit
     contextPrompt: override.contextPrompt ?? base.contextPrompt,
     capability: resolvedCap,
   };
+}
+
+/**
+ * Resolve the provider for a worker launch (PAW P3) — manual selection only,
+ * ships DORMANT. Precedence (first non-null wins):
+ *
+ *   session.provider  →  profile.provider  →  DEFAULT_PROVIDER_ID ('claude')
+ *
+ * `session` is the watched/supervised session record slice carrying an optional
+ * manual PIN (set via the ProviderSelector); `todo` is accepted for a future
+ * per-todo pin but is intentionally NOT consulted yet (todos default to
+ * pass-through). With nothing pinned anywhere this ALWAYS returns 'claude', so
+ * routing is a no-op until a human explicitly pins a provider. There is NO
+ * automatic cost routing and NO spend cap here.
+ */
+export function resolveProvider(
+  profile?: Pick<AgentProfile, 'provider'> | null,
+  _todo?: { provider?: ProviderId | null } | unknown | null,
+  session?: { provider?: ProviderId | null } | null,
+): ProviderId {
+  return session?.provider ?? profile?.provider ?? DEFAULT_PROVIDER_ID;
 }
 
 /**

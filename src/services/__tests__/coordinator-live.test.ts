@@ -131,8 +131,9 @@ describe('launchWorker auto-subscribe into Watching (POOL-2)', () => {
   const makeTodo = (id: string): Todo =>
     ({ id, type: 'frontend' } as Todo);
 
-  // POOL-4: pool routing names the session by type+slot (frontend-1), not worker-<id8>.
-  const POOL_SESSION = 'frontend-1';
+  // POOL-4: pool routing names the session by type+provider+slot (frontend-claude-1
+  // since PAW P3), not worker-<id8>.
+  const POOL_SESSION = 'frontend-claude-1';
 
   afterEach(() => {
     launchStarted = true;
@@ -208,17 +209,17 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
 
     expect(await deps.launchWorker(PROJECT, t1)).toBe(true);
     // First todo completes → slot goes idle (keep-warm, not killed).
-    completeSessionName = 'backend-1';
+    completeSessionName = 'backend-claude-1';
     await deps.completeTodo(PROJECT, t1.id, 'accepted');
 
     const t2 = makeTodo('22222222-2222-2222-2222-222222222222', 'backend');
     expect(await deps.launchWorker(PROJECT, t2)).toBe(true);
 
-    // Same session reused: ensureSession called for backend-1 both times,
+    // Same session reused: ensureSession called for backend-claude-1 both times,
     // runTodoInSession sent the skill twice — only ONE slot exists.
-    expect(ensureSessionCalls).toEqual(['backend-1', 'backend-1']);
-    expect(runTodoCalls.map((c) => c.session)).toEqual(['backend-1', 'backend-1']);
-    expect(listPool().map((s) => s.sessionName)).toEqual(['backend-1']);
+    expect(ensureSessionCalls).toEqual(['backend-claude-1', 'backend-claude-1']);
+    expect(runTodoCalls.map((c) => c.session)).toEqual(['backend-claude-1', 'backend-claude-1']);
+    expect(listPool().map((s) => s.sessionName)).toEqual(['backend-claude-1']);
   });
 
   it('routes two different-type todos to two distinct named sessions', async () => {
@@ -226,14 +227,14 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
     expect(await deps.launchWorker(PROJECT, makeTodo('aaaaaaaa-1111-1111-1111-111111111111', 'frontend'))).toBe(true);
     expect(await deps.launchWorker(PROJECT, makeTodo('bbbbbbbb-2222-2222-2222-222222222222', 'api'))).toBe(true);
 
-    expect(ensureSessionCalls).toEqual(['frontend-1', 'api-1']);
-    expect(listPool().map((s) => s.sessionName).sort()).toEqual(['api-1', 'frontend-1']);
+    expect(ensureSessionCalls).toEqual(['frontend-claude-1', 'api-claude-1']);
+    expect(listPool().map((s) => s.sessionName).sort()).toEqual(['api-claude-1', 'frontend-claude-1']);
   });
 
   it('untyped todo routes to the general pool', async () => {
     const deps = makeCoordinatorDeps();
     expect(await deps.launchWorker(PROJECT, makeTodo('cccccccc-3333-3333-3333-333333333333', null))).toBe(true);
-    expect(ensureSessionCalls).toEqual(['general-1']);
+    expect(ensureSessionCalls).toEqual(['general-claude-1']);
   });
 
   it('defers (returns false, no spawn) when the type is at capacity', async () => {
@@ -254,10 +255,10 @@ describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
   it('complete marks the slot idle (warm, not killed)', async () => {
     const deps = makeCoordinatorDeps();
     await deps.launchWorker(PROJECT, makeTodo('ffffffff-1111-1111-1111-111111111111', 'library'));
-    const lib = () => listPool().find((s) => s.project === PROJECT && s.sessionName === 'library-1')!;
+    const lib = () => listPool().find((s) => s.project === PROJECT && s.sessionName === 'library-claude-1')!;
     expect(lib().status).toBe('busy');
 
-    completeSessionName = 'library-1';
+    completeSessionName = 'library-claude-1';
     await deps.completeTodo(PROJECT, 'ffffffff-1111-1111-1111-111111111111', 'accepted');
 
     // Slot still exists (session kept warm) but is now idle and available.

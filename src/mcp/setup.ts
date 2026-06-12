@@ -4974,6 +4974,7 @@ IMPORTANT - Common pitfalls to avoid:
               project: s.project,
               session: s.sessionName,
               type: s.type,
+              provider: s.provider, // PAW P3: provider-tagged slot (DORMANT → 'claude')
               slot: s.slot,
               status: s.status,
               todoId: s.currentTodoId ?? null,

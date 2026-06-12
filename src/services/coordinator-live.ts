@@ -3,14 +3,13 @@ import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, levelRank } from './orchestrator-config';
-import { getStatus } from './session-status-store';
+import { getStatus, recordSessionProvider } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
-import { ensureSession, runTodoInSession } from './claude-launch';
 import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
@@ -19,7 +18,8 @@ import { validateStewardProof } from './steward-proof';
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
-import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
+import { resolveProfile, resolveProvider, type AgentProfile } from '../config/agent-profiles';
+import type { ProviderId } from '../agent/worker-agent';
 import { resolveManifestPacks } from '../config/tech-packs';
 import {
   resolveType,
@@ -32,6 +32,42 @@ import {
   removeSlot,
   reapDeadSlots,
 } from './worker-pool';
+// PAW P1: route the worker spawn + pane-scrape liveness through the WorkerAgent
+// registry (claude-only today). The pane detectors below are RE-EXPORTED from the
+// Claude adapter — they were MOVED there (regexes byte-for-byte unchanged), and
+// coordinator-live keeps re-exporting them so existing importers (fleet-status,
+// tmux-reaper) and tests resolve them from here exactly as before.
+import { resolveWorkerAgent, resolveGrokAgent } from '../agent/registry';
+import {
+  agentAliveInSubtree,
+  CLAUDE_COMM_MATCHER,
+  isClaudeTuiPresent,
+  detectPermissionPrompt,
+  extractRequestedTool,
+} from '../agent/adapters/claude-code';
+
+// Re-exports (back-compat): the canonical definitions now live in the Claude
+// adapter; these keep `import { … } from './coordinator-live'` resolving unchanged.
+// (isActivelyWorking / extractStallContext are consumed via the registry agent
+// below — workerAgent.isActivelyWorking / .extractStallContext — not re-exported.)
+export { isClaudeTuiPresent, detectPermissionPrompt, extractRequestedTool };
+
+/** The single claude WorkerAgent (registry floor). Resolved once — stateless. */
+const workerAgent = resolveWorkerAgent('claude');
+
+/** PAW P3 dispatch record: the resolved { provider, model } a todo was dispatched
+ *  with. In-memory (intentionally — like the pool registry, no DB), keyed by todo
+ *  id, so the fleet read-model can surface which provider/model ran a lane without
+ *  a todo-schema migration. DORMANT today: provider is always 'claude'. */
+export interface DispatchRecord { provider: ProviderId; model?: string }
+const dispatchByTodo = new Map<string, DispatchRecord>();
+function recordDispatch(todoId: string, rec: DispatchRecord): void {
+  dispatchByTodo.set(todoId, rec);
+}
+/** The dispatch's resolved provider/model for a todo, or undefined if none ran. */
+export function getDispatch(todoId: string): DispatchRecord | undefined {
+  return dispatchByTodo.get(todoId);
+}
 
 /** Run a subprocess ASYNC and await it — NEVER block the single-threaded sidecar
  *  event loop with spawnSync (bug 944408c2: the coordinator/watchdog runs in the
@@ -129,20 +165,12 @@ export async function tmuxPanePid(tmux: string): Promise<number | null> {
 }
 
 /** Pure BFS: is a `claude` process anywhere in `rootPid`'s subtree, per the
- *  snapshot's child index? Exported for unit testing (no tmux/ps required). */
+ *  snapshot's child index? Exported for unit testing (no tmux/ps required). The
+ *  generalized agentAliveInSubtree(root, snap, matcher) lives in the Claude
+ *  adapter; this back-compat wrapper pins the `claude` matcher so existing callers
+ *  (claudeProcessPresent, fleet-status, tmux-reaper) and tests are unchanged. */
 export function claudeAliveInSubtree(rootPid: number, snap: Map<number, { children: number[]; comm: string }>): boolean {
-  const seen = new Set<number>();
-  const queue: number[] = [rootPid];
-  while (queue.length > 0) {
-    const pid = queue.shift()!;
-    if (seen.has(pid)) continue;
-    seen.add(pid);
-    const node = snap.get(pid);
-    if (!node) continue;
-    if (/claude/i.test(node.comm)) return true;
-    for (const c of node.children) if (!seen.has(c)) queue.push(c);
-  }
-  return false;
+  return agentAliveInSubtree(rootPid, snap, CLAUDE_COMM_MATCHER);
 }
 
 /** Is a `claude` process alive in this tmux pane's process subtree? Returns
@@ -153,15 +181,6 @@ async function claudeProcessPresent(tmux: string, snap: Map<number, { children: 
   const panePid = await tmuxPanePid(tmux);
   if (panePid == null) return null;
   return claudeAliveInSubtree(panePid, snap);
-}
-
-/** Cheap corroboration: does the pane render any Claude TUI chrome (status bar,
- *  spinner, interrupt hint)? Used only to AVOID a false dead-shell call during the
- *  brief spawn gap before claude paints — the PID check is the primary signal.
- *  Deliberately omits the bare `❯` (oh-my-zsh/p10k prompts use it too). Exported
- *  for unit testing. */
-export function isClaudeTuiPresent(pane: string): boolean {
-  return /ctx\s*\||for agents|esc to interrupt|\(\d+(?:m\s*\d+)?s\s*·/.test(pane);
 }
 
 /** Dead-worker tracker (tmux → first-confirmed-dead + escalated), parallel to
@@ -236,14 +255,6 @@ async function capturePane(tmux: string): Promise<string> {
   }
 }
 
-/** A Claude TUI pane is ACTIVELY WORKING when it shows a spinner with an elapsed
- *  timer (e.g. "✻ Zesting… (26s · ↓ 1.1k tokens)") or the interrupt hint. When the
- *  worker has ended its turn and sits at the input prompt awaiting a human, neither
- *  is present. */
-function isActivelyWorking(pane: string): boolean {
-  return /\(\d+(?:m\s*\d+)?s\s*·/.test(pane) || /esc to interrupt/i.test(pane);
-}
-
 /** Detect a TRANSIENT Anthropic server-side rate limit in a worker's pane — the
  *  throttle Claude Code surfaces as e.g.:
  *    "API Error: Server is temporarily limiting requests (not your usage limit) · Rate limited"
@@ -260,54 +271,11 @@ export function detectRateLimit(pane: string): boolean {
   return /temporarily limiting requests/i.test(pane) || /\bRate limited\b/i.test(pane);
 }
 
-/** Best-effort: pull the worker's pending question/options out of the pane so the
- *  escalation card carries context (fix-3) rather than a bare "stalled". */
-function extractStallContext(pane: string): string {
-  const lines = pane.split('\n').map((l) => l.trim()).filter(Boolean);
-  const picked = lines.filter((l) =>
-    /^[•\-*]?\s*\(?[a-cA-C1-3][).]/.test(l) ||
-    /\boption\b|\bescalat/i.test(l) ||
-    /\brecommend/i.test(l) ||
-    /reply with|which option|proceed with/i.test(l),
-  );
-  const ctx = picked.slice(-8).join('\n');
-  return ctx.length > 0 ? ctx : lines.slice(-6).join('\n');
-}
-
-/** DOGFOOD #6 follow-up: a Claude Code PERMISSION PROMPT is a distinct class of
- *  idle-at-prompt from a self-filed escalation/decision. It renders the tool
- *  call plus the "Do you want to proceed?" 1.Yes / 2.Yes-don't-ask / 3.No menu
- *  for a non-allowlisted tool. The remedy differs: not a generic decision (the
- *  human can't usefully "decide" the worker's question — there is none), but a
- *  "permission needed: <tool>" signal (root fix is the profile allowlist; see
- *  P3 cad-profile). We classify it here so detectStalls can surface it
- *  correctly. Returns the requested tool name when extractable. */
-export function detectPermissionPrompt(pane: string): { isPermission: boolean; tool: string | null } {
-  // The prompt question + the don't-ask-again affordance is the most specific
-  // signature (the bare "Do you want to proceed?" can appear in other prose).
-  const hasQuestion = /Do you want to proceed\?/i.test(pane);
-  const hasDontAsk = /Yes,?\s*(?:and\s*)?don'?t ask again/i.test(pane);
-  const hasYesNoMenu =
-    /(?:^|\n)\s*❯?\s*1\.\s*Yes\b/i.test(pane) && /(?:^|\n)\s*❯?\s*(?:2|3)\.\s*(?:Yes|No)\b/i.test(pane);
-  const isPermission = hasQuestion && (hasDontAsk || hasYesNoMenu);
-  if (!isPermission) return { isPermission: false, tool: null };
-  return { isPermission: true, tool: extractRequestedTool(pane) };
-}
-
-/** Best-effort: pull the tool the permission prompt is gating out of the pane.
- *  Prefers an explicit MCP tool token (mcp__server__tool), then a tool-call
- *  line ending in "(", then null. */
-export function extractRequestedTool(pane: string): string | null {
-  const mcp = pane.match(/mcp__[a-zA-Z0-9_-]+__[a-zA-Z0-9_-]+/);
-  if (mcp) return mcp[0];
-  const lines = pane.split('\n').map((l) => l.trim()).filter(Boolean);
-  for (const l of lines) {
-    // A tool call line typically looks like "ToolName(arg: …)" or "ToolName(".
-    const m = l.match(/^([A-Za-z][\w-]*)\s*\(/);
-    if (m && !/^(?:if|for|while|switch|function|return)$/i.test(m[1])) return m[1];
-  }
-  return null;
-}
+// (isActivelyWorking / extractStallContext / detectPermissionPrompt /
+//  extractRequestedTool were MOVED to the Claude adapter — imported above with
+//  regexes byte-for-byte unchanged. detectPermissionPrompt + extractRequestedTool
+//  are re-exported for back-compat; isActivelyWorking + extractStallContext are
+//  used internally below via the imported bindings.)
 
 // --- Phase 1 (decision 9cd01858): durable per-lane staleness ---------------------
 // The orphan/stall paths derive staleness from the DURABLE session_status pulse
@@ -1204,15 +1172,28 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // project. Match tmuxBaseName(targetProject, poolName) below so the registry
       // partition and the tmux name agree.
       const poolProject = todo.targetProject ?? project;
-      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type);
+
+      // PAW P3: resolve the worker PROVIDER (manual selection, ships DORMANT).
+      // Precedence session.provider → profile.provider → 'claude'. With nothing
+      // pinned this is ALWAYS 'claude' (pass-through), so the pool tags slots
+      // `<type>-claude-<slot>` exactly as before. A session pin (set via the
+      // ProviderSelector, stored on the session-status row) routes the lane to a
+      // provider-tagged slot instead. No automatic cost routing, no spend caps.
+      const launchProfile = resolveProfile(todo.type, todo.targetProject ?? project);
+      const sessionPin = todo.sessionName
+        ? getStatus(project, todo.sessionName)?.provider ?? null
+        : null;
+      const provider: ProviderId = resolveProvider(launchProfile, todo, { provider: sessionPin });
+
+      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type, provider);
       if (!poolName) {
-        const slot = getOrCreateSlot(poolProject, type);
+        const slot = getOrCreateSlot(poolProject, type, provider);
         if (!slot) {
           try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type), detail: JSON.stringify({ todoId: todo.id, type, started: false, reason: 'pool-busy-deferred', released: true }) });
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type, provider), detail: JSON.stringify({ todoId: todo.id, type, provider, started: false, reason: 'pool-busy-deferred', released: true }) });
           return false;
         }
-        poolName = poolSessionName(slot.type, slot.slot);
+        poolName = poolSessionName(slot.type, slot.provider, slot.slot);
       }
 
       // Persist the pool lane onto the todo NOW — as soon as the lane is committed,
@@ -1306,17 +1287,24 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       //    it against the cold-start cap until the spawn finishes.
       lastSpawnAttempt.set(todo.id, Date.now());
       coldStartsInFlight++;
-      let ensured: Awaited<ReturnType<typeof ensureSession>> = { ready: false };
+      // PAW P1/P4: route the spawn through the WorkerAgent registry. ONE branch —
+      // when the resolved provider is 'grok-build', go through the conformance-gated
+      // GrokOwnHarness (an in-process AI SDK loop; resolveGrokAgent() throws unless it
+      // passes conformance). Otherwise the UNTOUCHED Claude tmux path (claude-only
+      // floor): the adapter wraps the exact ensureSession + runTodoInSession path so
+      // `ready` / `reason` / `tmux` carry today's semantics — ensure-then-(if
+      // ready)-dispatch. The grok handle has the SAME shape, so the bookkeeping below
+      // (markBusy / recordDispatch / supervised) is shared; completion for BOTH lanes
+      // funnels through the MCP complete_todo verb → handleWorkerComplete →
+      // resolveCompletion (gate + work-committed re-verify) — never a model self-report.
+      const launchAgent = provider === 'grok-build' ? resolveGrokAgent() : workerAgent;
+      let handle: { ready: boolean; tmux?: string; sent?: boolean; reason?: string } = { ready: false };
       let started = false;
       let reason: string | undefined;
       try {
-        ensured = await ensureSession({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd });
-        started = ensured.ready;
-        reason = ensured.reason;
-        if (started) {
-          const run = await runTodoInSession({ session: poolName, invokeSkill, tmux: ensured.tmux });
-          if (!run.sent) reason = run.reason;
-        }
+        handle = await launchAgent.launch({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd, invokeSkill });
+        started = handle.ready;
+        reason = handle.reason;
       } finally {
         coldStartsInFlight--;
       }
@@ -1325,7 +1313,15 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       if (ok) {
         // Record the backing tmux so reapDeadSlots can free this slot on the
         // worker's death regardless of the todo's eventual status.
-        markBusy(poolProject, poolName, todo.id, ensured.tmux ?? tmuxBaseName(targetProject, poolName));
+        markBusy(poolProject, poolName, todo.id, handle.tmux ?? tmuxBaseName(targetProject, poolName));
+        // PAW P3: record the dispatch's resolved { provider, model } so the watch
+        // card / fleet-status can surface WHICH provider ran this lane. DORMANT
+        // today (provider is always 'claude'), but persisting it now means the
+        // surfacing is in place the moment a real pin is set. Pinned on the
+        // session-status row (the slice the watch card reads); model goes into the
+        // in-memory dispatch record below for the fleet read-model.
+        try { recordSessionProvider(project, poolName, provider); } catch { /* best-effort surfacing */ }
+        recordDispatch(todo.id, { provider, model });
         // Claim continues under the pool session name (todo.sessionName = poolName)
         // so reclaim/lease semantics and the dead-claim reaper key off it.
         // executedBySession pins the durable executor (the worker lane).
@@ -1499,7 +1495,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // Confirm across DEAD_GRACE_MS, then ESCALATE (the death was previously
         // silent), kill the dud session, and reclaim the claim so the lane resets.
         const claudePresent = await claudeProcessPresent(tmux, snap);
-        if (claudePresent === false && !isClaudeTuiPresent(pane)) {
+        if (claudePresent === false && !workerAgent.isTuiPresent(pane)) {
           const now = Date.now();
           const prevDead = deadTracker.get(tmux);
           if (prevDead?.escalated) continue;
@@ -1543,7 +1539,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // Claude is present (or liveness unknown) → clear any dead-tracking for it.
         deadTracker.delete(tmux);
 
-        if (!pane || isActivelyWorking(pane)) continue;
+        if (!pane || workerAgent.isActivelyWorking(pane)) continue;
 
         // TRANSIENT RATE-LIMIT RECOVERY: a worker whose Claude hit Anthropic's
         // server-side throttle ("temporarily limiting requests · Rate limited")
@@ -1626,7 +1622,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // profile allowlist (P3). Surface it as a distinct 'approval'
           // escalation naming the tool, so it reads as "allowlist this tool",
           // not a generic stalled-decision card.
-          const perm = detectPermissionPrompt(pane);
+          const perm = workerAgent.detectPermissionPrompt(pane);
           const idleMin = Math.round((now - prevSince) / 60000);
           if (perm.isPermission) {
             const toolLabel = perm.tool ?? 'an unknown tool';
@@ -1651,7 +1647,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               questionText:
                 `Worker for "${t.title ?? t.id}" appears STALLED — idle at its prompt with no progress for ` +
                 `${idleMin}+ min, awaiting input but no escalation was filed ` +
-                `(DOGFOOD #6 auto-detected). Pending context:\n\n${extractStallContext(pane)}`,
+                `(DOGFOOD #6 auto-detected). Pending context:\n\n${workerAgent.extractStallContext(pane)}`,
             });
             recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: t.id, reason: 'stall-detected', idleMs: now - prevSince }) });
           }
@@ -1741,6 +1737,33 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         laneCwd,
         integrationBase,
       });
+    },
+    verifyWorkCommitted: async (project: string, todoId: string): Promise<boolean | null> => {
+      // PAW P1 re-verify: corroborate a worker's 'accepted' actually produced
+      // committable work, closing the hallucinated-completion hole (complete_todo
+      // with no edits/commit). Under isolation each lane has its OWN worktree, so
+      // "real work" = a DIRTY worktree (uncommitted edits, not yet merged back) OR
+      // commits already ahead of the epic base. A clean tree with 0 ahead is a
+      // hallucination → false → resolved 'pending' not 'accepted'.
+      //
+      // Returns null (indeterminate → PRESERVE prior trust, never false-downgrade)
+      // for the shared-tree path (not lane-isolatable), a missing lane worktree, or
+      // any probe error — strictly never-worse than today. CROSS-PROJECT: the lane
+      // worktree lives in the TARGET repo; the work-graph (epic walk) in the tracking project.
+      if (!workerIsolationEnabled()) return null;
+      const todo = getTodo(project, todoId);
+      if (!todo?.sessionName) return null;
+      const targetProject = todo.targetProject ?? project;
+      try {
+        const wm = getWorktreeManager(targetProject);
+        const wtPath = await wm.existingPath(todo.sessionName);
+        if (!wtPath) return null; // no lane worktree → can't isolate work → preserve
+        if (await wm.isDirty(todo.sessionName)) return true; // uncommitted edits present
+        const epicId = resolveEpicId(todo, project);
+        return (await wm.laneCommitsAheadOfEpic(todo.sessionName, epicId)) > 0;
+      } catch {
+        return null; // probe error → indeterminate → preserve (never false-downgrade)
+      }
     },
   };
 }

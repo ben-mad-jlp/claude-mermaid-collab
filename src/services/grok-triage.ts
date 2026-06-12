@@ -25,7 +25,8 @@
 import type { Escalation, SuggestedAction, TriageBucket } from './supervisor-store.ts';
 import { getTodo } from './todo-store.ts';
 import { listSupervisorAudit } from './supervisor-store.ts';
-import { getConfig } from './config-service.ts';
+import { getJudgmentConfig } from './config-service.ts';
+import { makeJudgmentLLM } from './judgment-llm.ts';
 import { execFileSync } from 'node:child_process';
 
 const BUCKETS: TriageBucket[] = ['stale', 'verified-done', 'now-buildable', 'genuine-decision', 'needs-design'];
@@ -109,23 +110,14 @@ function realCommitsBehindMaster(project: string): number {
   }
 }
 
-async function realCallGrok(system: string, prompt: string): Promise<string> {
-  const apiKey = getConfig('XAI_API_KEY');
-  if (!apiKey) throw new Error('XAI_API_KEY is not set');
-  const res = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: 'grok-build-0.1',
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: prompt },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`Grok API error ${res.status}`);
-  const data = (await res.json()) as any;
-  return data.choices?.[0]?.message?.content ?? '';
+/**
+ * Default judgment call: route through the swappable JudgmentLLM port. With no
+ * config set this resolves to today's xAI/grok-build-0.1 behaviour (byte-equivalent
+ * to the previous hard-wired realCallGrok). The `deps.callGrok` injection seam below
+ * stays intact so tests still inject a fake.
+ */
+function defaultCallGrok(system: string, prompt: string): Promise<string> {
+  return makeJudgmentLLM(getJudgmentConfig()).complete(system, prompt);
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +260,7 @@ export async function classifyEscalation(
   deps: TriageDeps = {},
   now: number = Date.now(),
 ): Promise<SuggestedAction | null> {
-  const callGrok = deps.callGrok ?? realCallGrok;
+  const callGrok = deps.callGrok ?? defaultCallGrok;
   const bundle = packBundle(project, esc, deps);
 
   let raw: string;

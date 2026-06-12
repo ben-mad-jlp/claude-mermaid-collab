@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { trackingProjectRoot } from './project-registry.js';
+import type { ProviderId } from '../agent/worker-agent';
 
 /**
  * Per-PROJECT session status store. Mirrors the bun:sqlite-per-project pattern
@@ -26,6 +27,12 @@ export interface SessionStatusRow {
   /** When the session confirmed its checkpoint was persisted (ms epoch), or null.
    *  The context-watchdog's HARD GATE: never /clear until this is recent. */
   checkpointReadyAt: number | null;
+  /** Manual provider PIN for this session (PAW P3), set via the ProviderSelector.
+   *  DORMANT: null means pass-through ('claude'). Threaded into resolveProvider's
+   *  precedence (session pin wins over the profile pin). No automatic routing.
+   *  Optional so pre-pin rows / derived projections (SessionRuntime) need not
+   *  carry it; absent ⇒ pass-through ('claude'). */
+  provider?: ProviderId | null;
 }
 
 const DDL = `
@@ -37,6 +44,7 @@ CREATE TABLE IF NOT EXISTS session_status (
   contextPercent INTEGER,
   contextUpdatedAt INTEGER,
   checkpointReadyAt INTEGER,
+  provider TEXT,
   PRIMARY KEY (project, session)
 );
 CREATE TABLE IF NOT EXISTS watchdog_debounce (
@@ -78,6 +86,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'session_status', 'contextPercent', 'contextPercent INTEGER');
   addColumnIfMissing(db, 'session_status', 'contextUpdatedAt', 'contextUpdatedAt INTEGER');
   addColumnIfMissing(db, 'session_status', 'checkpointReadyAt', 'checkpointReadyAt INTEGER');
+  addColumnIfMissing(db, 'session_status', 'provider', 'provider TEXT');
   dbCache.set(root, db);
   return db;
 }
@@ -206,7 +215,7 @@ export function resetWatchdogDebounce(project: string, session: string): void {
 export function getStatuses(project: string): SessionStatusRow[] {
   const db = openDb(project);
   return db.query(
-    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt
+    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt, provider
      FROM session_status
      WHERE project = ?`,
   ).all(project) as SessionStatusRow[];
@@ -215,9 +224,23 @@ export function getStatuses(project: string): SessionStatusRow[] {
 export function getStatus(project: string, session: string): SessionStatusRow | null {
   const db = openDb(project);
   const row = db.query(
-    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt
+    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt, provider
      FROM session_status
      WHERE project = ? AND session = ?`,
   ).get(project, session) as SessionStatusRow | undefined;
   return row ?? null;
+}
+
+/** Persist a manual provider PIN for a session (PAW P3) — written by the
+ *  ProviderSelector. DORMANT: nothing reads it for ROUTING until a provider
+ *  adapter lands; resolveProvider returns 'claude' when this is null. Seeds an
+ *  'active' status row if none exists yet (the pin can be set before the worker
+ *  first reports). Pass null to clear the pin (revert to pass-through). */
+export function recordSessionProvider(project: string, session: string, provider: ProviderId | null): void {
+  const db = openDb(project);
+  db.query(
+    `INSERT INTO session_status (project, session, status, updatedAt, provider)
+     VALUES (?, ?, 'active', ?, ?)
+     ON CONFLICT(project, session) DO UPDATE SET provider = excluded.provider`,
+  ).run(project, session, Date.now(), provider);
 }

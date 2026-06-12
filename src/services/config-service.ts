@@ -91,3 +91,38 @@ export function setConfig(updates: Record<string, string>): Record<string, unkno
 
 /** Test helper: drop the cached file so the next getConfig re-reads. */
 export function _resetConfigCache(): void { cache = null; }
+
+// ---------------------------------------------------------------------------
+// Judgment LLM config (the daemon's swappable reasoning provider)
+// ---------------------------------------------------------------------------
+
+import type { JudgmentConfig, JudgmentProvider } from './judgment-llm.ts';
+
+/** The xAI model the triage classifier has always used — the default when no
+ *  JUDGMENT_MODEL is configured. Keep in sync with grok-triage.ts's xAI path. */
+export const DEFAULT_JUDGMENT_MODEL = 'grok-build-0.1';
+
+const JUDGMENT_PROVIDERS: JudgmentProvider[] = ['xai', 'openai', 'anthropic'];
+
+const JUDGMENT_KEY_BY_PROVIDER: Record<JudgmentProvider, string> = {
+  xai: 'XAI_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+};
+
+/**
+ * Resolve the daemon's judgment LLM config from config/secrets. Defaults to
+ * today's xAI/grok behaviour when nothing is set:
+ *  - provider ← JUDGMENT_PROVIDER (default 'xai'; unknown values fall back to 'xai')
+ *  - model    ← JUDGMENT_MODEL    (default DEFAULT_JUDGMENT_MODEL)
+ *  - apiKey   ← getSecret(per-provider key) — Secrets UI authoritative.
+ */
+export function getJudgmentConfig(): JudgmentConfig {
+  const rawProvider = getConfig('JUDGMENT_PROVIDER', 'xai');
+  const provider: JudgmentProvider = JUDGMENT_PROVIDERS.includes(rawProvider as JudgmentProvider)
+    ? (rawProvider as JudgmentProvider)
+    : 'xai';
+  const model = getConfig('JUDGMENT_MODEL', DEFAULT_JUDGMENT_MODEL) ?? DEFAULT_JUDGMENT_MODEL;
+  const apiKey = getSecret(JUDGMENT_KEY_BY_PROVIDER[provider]) ?? '';
+  return { provider, model, apiKey };
+}

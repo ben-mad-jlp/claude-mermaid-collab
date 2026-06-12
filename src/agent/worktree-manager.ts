@@ -630,6 +630,27 @@ export class WorktreeManager {
     return parseInt(res.stdout.trim() || '0', 10) || 0;
   }
 
+  /** Count the commits a LANE worktree's HEAD carries beyond its epic's
+   *  accumulation branch: `git -C <worktree> rev-list --count <epicBranch>..HEAD`.
+   *  Used by the completion re-verify (PAW P1) to corroborate a worker's
+   *  'accepted' actually produced committed work — combined with isDirty() (which
+   *  catches uncommitted edits not yet merged back), a clean tree with 0 ahead is
+   *  a hallucinated completion. Returns 0 off a non-git repo, a missing worktree,
+   *  or on error. Never throws. */
+  async laneCommitsAheadOfEpic(sessionId: string, epicId: string): Promise<number> {
+    if (!(await this.isGitRepo())) return 0;
+    const wtPath = await this.existingPath(sessionId);
+    if (!wtPath) return 0;
+    const epicBranch = this.epicBranchName(epicId);
+    const res = await this.runGit(
+      wtPath,
+      ['rev-list', '--count', `${epicBranch}..HEAD`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0) return 0;
+    return parseInt(res.stdout.trim() || '0', 10) || 0;
+  }
+
   /** Enumerate every `collab/epic/*` accumulation branch that is AHEAD of master
    *  (carries unlanded commits), with its commit count. Pure git read (no merge,
    *  no land) — the deterministic detector behind the Bridge's unlanded-epic
