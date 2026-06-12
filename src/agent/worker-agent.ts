@@ -16,8 +16,16 @@
  * recorded pane fixtures.
  */
 
-/** Provider identity. Today only 'claude' is ever registered. */
-export type ProviderId = 'claude';
+/** Provider identity. The registry only ever REGISTERS 'claude' today (the
+ *  kill-switch floor), but the type admits the future provider ids so a routing
+ *  PIN can be expressed and threaded DORMANT ahead of any adapter landing (PAW
+ *  P3). Selecting a non-claude id resolves nowhere at runtime yet — routing
+ *  ships pass-through (every todo defaults to 'claude'). */
+export type ProviderId = 'claude' | 'grok-build' | 'codex';
+
+/** The default provider — the registry floor and the value every dormant
+ *  resolution collapses to. */
+export const DEFAULT_PROVIDER_ID: ProviderId = 'claude';
 
 /** Everything needed to launch one worker into a (pool) session. Mirrors the
  *  union of ensureSession + runTodoInSession inputs so the adapter can wrap them

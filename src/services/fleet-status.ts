@@ -15,6 +15,8 @@ import { listTodos } from './todo-store';
 import { tmuxBaseName } from './tmux-naming';
 import { resolveWorkerAgent } from '../agent/registry';
 import { getStatus } from './session-status-store';
+import type { ProviderId } from '../agent/worker-agent';
+import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
 
 // PAW P1: the same pane-scrape liveness the watchdog uses, resolved through the
 // WorkerAgent registry (claude-only) so this read-model and the coordinator stay
@@ -64,6 +66,11 @@ export interface FleetEntry {
   lastActivity: number | null;
   /** When state is 'permission', the tool the prompt is gating (best-effort). */
   blockedOnTool?: string | null;
+  /** The provider this lane was dispatched with (PAW P3). DORMANT: always
+   *  'claude' until a provider is manually pinned. Surfaced so the watch card can
+   *  show the lane's provider. Derived from the session-status provider pin,
+   *  defaulting to 'claude'. */
+  provider: ProviderId;
 }
 
 /**
@@ -223,8 +230,12 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
     // signal), falling back to claim age. Both are persisted/stable across polls,
     // so the timer reflects real activity and never resets in lockstep on the 2s
     // poll. Null only when neither exists → UI renders '—', never render-time.
-    const heartbeatMs = getStatus(project, worker)?.updatedAt ?? null;
+    const statusRow = getStatus(project, worker);
+    const heartbeatMs = statusRow?.updatedAt ?? null;
     const lastActivity = heartbeatMs ?? claimedAtValid;
+    // PAW P3: the lane's provider (DORMANT → 'claude'). The session-status pin is
+    // the durable surface; fall back to the default provider when unpinned.
+    const provider: ProviderId = statusRow?.provider ?? DEFAULT_PROVIDER_ID;
     const leaseRemainingMs =
       elapsedMs != null && t.claimLeaseMs != null ? t.claimLeaseMs - elapsedMs : null;
 
@@ -263,6 +274,7 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
       retryCount: t.retryCount ?? 0,
       state,
       lastActivity,
+      provider,
       ...(blockedOnTool !== undefined ? { blockedOnTool } : {}),
     });
   }
