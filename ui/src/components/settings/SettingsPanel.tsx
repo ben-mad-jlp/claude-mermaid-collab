@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { PermissionRulesEditor } from './PermissionRulesEditor';
 import { EnvVarsEditor } from './EnvVarsEditor';
 import { SecretsEditor } from './SecretsEditor';
+import { JudgmentLLMEditor } from './JudgmentLLMEditor';
 import { McpServersPanel } from '../mcp/McpServersPanel';
 import { AddMcpServerDialog } from '../mcp/AddMcpServerDialog';
 
@@ -107,7 +108,12 @@ export function SettingsPanel({ open, onClose, openTab, project }: SettingsPanel
           {activeTab === 'env' && (
             <EnvVarsEditor project={project ?? window.location.pathname} />
           )}
-          {activeTab === 'secrets' && <SecretsEditor />}
+          {activeTab === 'secrets' && (
+            <div className="space-y-6">
+              <JudgmentLLMEditor />
+              <SecretsEditor />
+            </div>
+          )}
           {activeTab === 'policy' && (
             <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
               Managed Policy — coming soon
