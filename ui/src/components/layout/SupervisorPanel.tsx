@@ -26,6 +26,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useServers } from '@/contexts/ServerContext';
 import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
 import { useFleetShortcuts } from '@/components/layout/useFleetShortcuts';
+import { useBridgeOrderStore, applyBridgeOrder } from '@/stores/bridgeOrderStore';
 import { isOrchestratorSession } from '@/lib/liveness';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { useUIStore } from '@/stores/uiStore';
@@ -279,6 +280,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       });
   }, [supervised, watchedList, openEscalations]);
 
+  // Manual project order (drag-reorder; option 1 — fully wins over the urgency
+  // sort). Also drives the Ctrl+Shift+F# project mapping. New projects append.
+  const bridgeOrder = useBridgeOrderStore((s) => s.order);
+  const reorderProjects = useBridgeOrderStore((s) => s.reorder);
+  const orderedProjects = useMemo(() => applyBridgeOrder(byProject, bridgeOrder), [byProject, bridgeOrder]);
+
   // Display labels, parent-qualified only where basenames collide.
   const projectLabels = useMemo(
     () => disambiguateProjectLabels(byProject.map((r) => r.project)),
@@ -464,7 +471,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               No projects yet — add one below
             </div>
           ) : (
-            byProject.map(({ project, sessions: projSessions, escalationCount }, i) => {
+            orderedProjects.map(({ project, sessions: projSessions, escalationCount }, i) => {
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
@@ -488,6 +495,13 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     data-combined-status={combined}
                     data-active={isActive}
                     aria-expanded={!isProjCollapsed}
+                    draggable
+                    onDragStart={(e) => { e.dataTransfer.setData('text/x-mc-project', project); e.dataTransfer.effectAllowed = 'move'; }}
+                    onDragOver={(e) => { if (e.dataTransfer.types.includes('text/x-mc-project')) e.preventDefault(); }}
+                    onDrop={(e) => {
+                      const drag = e.dataTransfer.getData('text/x-mc-project');
+                      if (drag && drag !== project) { e.preventDefault(); reorderProjects(orderedProjects.map((p) => p.project), drag, project); }
+                    }}
                     className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
                   >
                     <button
@@ -503,6 +517,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     </button>
                     <button
                       type="button"
+                      data-bridge-project={project}
                       onClick={() => handleSelectProject(project)}
                       title={`Open ${projName} in the Bridge`}
                       className="flex-1 min-w-0 flex items-center gap-2 text-left"

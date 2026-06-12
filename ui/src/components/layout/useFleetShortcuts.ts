@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 /**
  * Global function-key shortcuts for the fleet, by display order (no on-card badge):
  *   - Shift+F1..F12       → click watching card #N   ([data-watch-card] in DOM order)
- *   - Ctrl+Shift+F1..F12  → click Bridge project #N  ([data-testid=project-rail-row])
+ *   - Ctrl+Shift+F1..F12  → click Bridge project #N  ([data-bridge-project] in order)
  *
  * "Essentially clicking" the element: we dispatch a real click on the Nth match in
  * document order, so this stays decoupled from each panel's internals and tracks
@@ -22,7 +22,7 @@ export function useFleetShortcuts(): void {
       };
       // Ctrl+Shift+F# → Bridge project (check ctrl first; Shift+F# is the no-ctrl case).
       if (e.shiftKey && e.ctrlKey && !e.altKey && !e.metaKey) {
-        clickNth('[data-testid="project-rail-row"]');
+        clickNth('[data-bridge-project]');
       } else if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
         clickNth('[data-watch-card]');
       }
