@@ -516,6 +516,127 @@ async function reopenStrandedAccept(
   }
 }
 
+// --- OI-1: accept-time ANCESTOR-OF-INTEGRATION gate -----------------------------
+// Close the stranded-acceptance class: `accepted` must imply `reachable from the
+// integration branch`, so accepted work can never silently fail to ship. This runs
+// AT ACCEPT (once per leaf — never per-tick, so it can't flood escalations) after
+// the worker→epic merge has succeeded:
+//   1. probe whether the leaf's commit is already an ancestor of the integration
+//      ref (the configured default branch, resolved dynamically — NOT hardcoded);
+//   2. if not, attempt ONE idempotent epic→integration land reconcile (a no-op if
+//      the epic already landed) so the accept path actually integrates the work
+//      rather than leaving it stranded on the epic branch;
+//   3. re-probe. If STILL not reachable → the work is genuinely stranded:
+//      reverse the acceptance (reopenStrandedAccept resets the leaf to `ready` and
+//      re-opens any prematurely-rolled-up epic) + escalate, instead of stamping a
+//      false `accepted`.
+// FAIL-SAFE: a null probe (non-git, isolation off, integration ref unresolvable,
+// or no commit carrying the trailer) falls back to today's behaviour (accept) and
+// is logged — uncertainty never hard-blocks. Returns true when the leaf is safe to
+// remain accepted, false when its acceptance was reversed. Best-effort; the caller
+// catches throws and treats them as fail-safe (accept).
+async function acceptTimeAncestorGate(
+  project: string,
+  todoId: string,
+  epicId: string,
+  rolledUp: string[],
+  title: string,
+  session: string,
+): Promise<boolean> {
+  const targetProject = (getTodo(project, todoId)?.targetProject) ?? project;
+  const wm = getWorktreeManager(targetProject);
+  if (!(await wm.isGitRepoPublic())) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-non-git' }) });
+    return true; // fail-safe: not a git repo → today's behaviour.
+  }
+  const intRef = await wm.resolveIntegrationRef();
+  if (!intRef) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-no-integration-ref' }) });
+    return true; // fail-safe: can't resolve integration → don't hard-block.
+  }
+
+  // 1. first probe.
+  let reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
+  if (reachable === null) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-accept' }) });
+    return true; // fail-safe: indeterminate (no commit / git error) → accept.
+  }
+  if (reachable === true) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-accept' }) });
+    return true;
+  }
+
+  // 2. NOT reachable yet — one-shot idempotent epic→integration land reconcile.
+  // landEpicToMaster is a no-op when nothing is ahead (already up to date); a
+  // conflict leaves integration untouched and we fall through to reversal below.
+  try {
+    const land = await wm.landEpicToMaster(epicId, { baseRef: intRef });
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile', landed: land.landed, conflict: land.conflict, reason: land.reason }) });
+  } catch (e) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
+  }
+
+  // 3. re-probe after the reconcile attempt.
+  reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
+  if (reachable === true) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-after-land' }) });
+    return true;
+  }
+  if (reachable === null) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-after-land-accept' }) });
+    return true; // fail-safe.
+  }
+
+  // Genuinely stranded → reverse the premature acceptance instead of stamping a
+  // false `accepted`. reopenStrandedAccept resets the leaf to `ready` (actionable)
+  // and raises an escalation; we annotate the reason as integration-unreachable.
+  await reopenStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session);
+  recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reversed-not-on-integration' }) });
+  return false;
+}
+
+// --- BP1: block a dependent whose foundation is accepted-but-stranded -----------
+// The dual of OI-1's accept-time gate. depSatisfied keys only on a dep's
+// status==='done', so a dependent can go 'ready' off a foundation that was marked
+// done+accepted but whose commit never reached the integration branch (a pre-fix
+// strand). Building on that phantom foundation produces broken/duplicated work.
+// This is a PURE claim-time FILTER (composed into claimGuard — no status write):
+// drop any ready todo that has a `done` dependency whose commit is provably NOT an
+// ancestor of integration (commitOnIntegration === false). The dependent simply
+// isn't claimed THIS tick; once OI-1's accept-time gate (or a human) re-integrates
+// the foundation, commitOnIntegration flips to true and the dependent flows again.
+// FAIL-SAFE: a true/null probe (reachable, or indeterminate / non-git / no
+// integration ref / no commit) is treated as satisfied — uncertainty never blocks.
+export async function bp1FilterStrandedFoundations(project: string, todos: Todo[]): Promise<Todo[]> {
+  if (todos.length === 0) return todos;
+  const out: Todo[] = [];
+  for (const t of todos) {
+    let foundationStranded = false;
+    for (const depId of t.dependsOn ?? []) {
+      const dep = getTodo(project, depId);
+      // Only a DONE dep can be a (claimed-as-satisfied) foundation; a not-done dep
+      // already excludes the dependent via depSatisfied, so it's not our concern.
+      if (!dep || dep.status !== 'done') continue;
+      try {
+        const wm = getWorktreeManager(dep.targetProject ?? project);
+        if (!(await wm.isGitRepoPublic())) continue; // fail-safe: non-git → satisfied
+        const intRef = await wm.resolveIntegrationRef();
+        if (!intRef) continue; // fail-safe: unresolvable integration → satisfied
+        const reachable = await wm.commitOnIntegration(resolveEpicId(dep, project), depId, intRef);
+        if (reachable === false) {
+          foundationStranded = true;
+          recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ todoId: t.id, depId, intRef, bp1: 'blocked-stranded-foundation' }) });
+          break;
+        }
+      } catch {
+        // probe error → fail-safe: treat this dep as satisfied (don't block).
+      }
+    }
+    if (!foundationStranded) out.push(t);
+  }
+  return out;
+}
+
 // --- BP0: sweep already-stranded accepted todos ---------------------------------
 // A repair pass (Part 3 of the fix): scan the work-graph for leaf todos that are
 // done+accepted but whose work is NOT reachable from their epic branch (the
@@ -824,7 +945,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set
     // while its env service is down, and auto-claimed once the probe passes — no
     // status write, no human completing a [GATE].
-    claimGuard: (_project, todos) => filterClaimable(todos),
+    // Two pure claim-time filters, composed: (1) readiness-gates P4 liveness probe
+    // (hold a claimProbe todo while its env is down), then (2) BP1 — drop a
+    // dependent whose foundation is accepted-but-stranded off integration. Neither
+    // writes status; a held-back todo is just not claimed this tick.
+    claimGuard: async (project, todos) => bp1FilterStrandedFoundations(project, await filterClaimable(todos)),
     // Wrapped to record coordinator lifecycle events into the supervisor audit
     // log → it doubles as the unified orchestration trace (open-problem #10/obs).
     claimTodo: async (project, id, claimedBy, leaseMs) => {
@@ -880,6 +1005,27 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // the store just rolled up off the back of this child) and escalate.
             await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, merge.epicBranch, session);
           } else {
+            // OI-1 ACCEPT-TIME ANCESTOR GATE: the worker→epic merge succeeded, but
+            // `accepted` must imply `reachable from the integration branch`, not
+            // merely `on the epic branch`. Verify the leaf's commit is an ancestor
+            // of the integration ref (one-shot epic→integration land reconcile if
+            // not); if it's genuinely stranded, REVERSE the acceptance (keep the
+            // leaf actionable) rather than tearing down its worktree on a false
+            // accept. Only proceed with teardown when the leaf is confirmed-safe
+            // (or fail-safe: indeterminate/non-git → accept). Best-effort.
+            let safe = true;
+            try {
+              safe = await acceptTimeAncestorGate(project, id, epicId, r.rolledUp, r.completed.title, session);
+            } catch (e) {
+              // Gate threw → fail-safe to accept (today's behaviour), but log it.
+              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, oi1: 'gate-error-failsafe-accept', reason: e instanceof Error ? e.message : String(e) }) });
+            }
+            if (!safe) {
+              // Acceptance reversed: leaf is back to `ready`. Leave its worktree in
+              // place so the re-surfaced leaf / human can re-integrate the work
+              // rather than losing it to teardown.
+              return r;
+            }
             // Merge succeeded — the worktree branch is now in integration. Remove
             // the worktree so the next todo for this pool lane gets a fresh one
             // branched off the latest integration (sees this merge).
