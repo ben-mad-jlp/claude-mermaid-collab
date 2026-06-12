@@ -595,6 +595,48 @@ async function acceptTimeAncestorGate(
   return false;
 }
 
+// --- BP1: block a dependent whose foundation is accepted-but-stranded -----------
+// The dual of OI-1's accept-time gate. depSatisfied keys only on a dep's
+// status==='done', so a dependent can go 'ready' off a foundation that was marked
+// done+accepted but whose commit never reached the integration branch (a pre-fix
+// strand). Building on that phantom foundation produces broken/duplicated work.
+// This is a PURE claim-time FILTER (composed into claimGuard — no status write):
+// drop any ready todo that has a `done` dependency whose commit is provably NOT an
+// ancestor of integration (commitOnIntegration === false). The dependent simply
+// isn't claimed THIS tick; once OI-1's accept-time gate (or a human) re-integrates
+// the foundation, commitOnIntegration flips to true and the dependent flows again.
+// FAIL-SAFE: a true/null probe (reachable, or indeterminate / non-git / no
+// integration ref / no commit) is treated as satisfied — uncertainty never blocks.
+export async function bp1FilterStrandedFoundations(project: string, todos: Todo[]): Promise<Todo[]> {
+  if (todos.length === 0) return todos;
+  const out: Todo[] = [];
+  for (const t of todos) {
+    let foundationStranded = false;
+    for (const depId of t.dependsOn ?? []) {
+      const dep = getTodo(project, depId);
+      // Only a DONE dep can be a (claimed-as-satisfied) foundation; a not-done dep
+      // already excludes the dependent via depSatisfied, so it's not our concern.
+      if (!dep || dep.status !== 'done') continue;
+      try {
+        const wm = getWorktreeManager(dep.targetProject ?? project);
+        if (!(await wm.isGitRepoPublic())) continue; // fail-safe: non-git → satisfied
+        const intRef = await wm.resolveIntegrationRef();
+        if (!intRef) continue; // fail-safe: unresolvable integration → satisfied
+        const reachable = await wm.commitOnIntegration(resolveEpicId(dep, project), depId, intRef);
+        if (reachable === false) {
+          foundationStranded = true;
+          recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ todoId: t.id, depId, intRef, bp1: 'blocked-stranded-foundation' }) });
+          break;
+        }
+      } catch {
+        // probe error → fail-safe: treat this dep as satisfied (don't block).
+      }
+    }
+    if (!foundationStranded) out.push(t);
+  }
+  return out;
+}
+
 // --- BP0: sweep already-stranded accepted todos ---------------------------------
 // A repair pass (Part 3 of the fix): scan the work-graph for leaf todos that are
 // done+accepted but whose work is NOT reachable from their epic branch (the
@@ -903,7 +945,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set
     // while its env service is down, and auto-claimed once the probe passes — no
     // status write, no human completing a [GATE].
-    claimGuard: (_project, todos) => filterClaimable(todos),
+    // Two pure claim-time filters, composed: (1) readiness-gates P4 liveness probe
+    // (hold a claimProbe todo while its env is down), then (2) BP1 — drop a
+    // dependent whose foundation is accepted-but-stranded off integration. Neither
+    // writes status; a held-back todo is just not claimed this tick.
+    claimGuard: async (project, todos) => bp1FilterStrandedFoundations(project, await filterClaimable(todos)),
     // Wrapped to record coordinator lifecycle events into the supervisor audit
     // log → it doubles as the unified orchestration trace (open-problem #10/obs).
     claimTodo: async (project, id, claimedBy, leaseMs) => {
