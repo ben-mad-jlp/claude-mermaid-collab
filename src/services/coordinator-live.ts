@@ -3,7 +3,7 @@ import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, levelRank } from './orchestrator-config';
-import { getStatus } from './session-status-store';
+import { getStatus, recordSessionProvider } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
@@ -18,7 +18,8 @@ import { validateStewardProof } from './steward-proof';
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
-import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
+import { resolveProfile, resolveProvider, type AgentProfile } from '../config/agent-profiles';
+import type { ProviderId } from '../agent/worker-agent';
 import { resolveManifestPacks } from '../config/tech-packs';
 import {
   resolveType,
@@ -53,6 +54,20 @@ export { isClaudeTuiPresent, detectPermissionPrompt, extractRequestedTool };
 
 /** The single claude WorkerAgent (registry floor). Resolved once — stateless. */
 const workerAgent = resolveWorkerAgent('claude');
+
+/** PAW P3 dispatch record: the resolved { provider, model } a todo was dispatched
+ *  with. In-memory (intentionally — like the pool registry, no DB), keyed by todo
+ *  id, so the fleet read-model can surface which provider/model ran a lane without
+ *  a todo-schema migration. DORMANT today: provider is always 'claude'. */
+export interface DispatchRecord { provider: ProviderId; model?: string }
+const dispatchByTodo = new Map<string, DispatchRecord>();
+function recordDispatch(todoId: string, rec: DispatchRecord): void {
+  dispatchByTodo.set(todoId, rec);
+}
+/** The dispatch's resolved provider/model for a todo, or undefined if none ran. */
+export function getDispatch(todoId: string): DispatchRecord | undefined {
+  return dispatchByTodo.get(todoId);
+}
 
 /** Run a subprocess ASYNC and await it — NEVER block the single-threaded sidecar
  *  event loop with spawnSync (bug 944408c2: the coordinator/watchdog runs in the
@@ -1148,15 +1163,27 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // regression). So under isolation never route to a warm idle session; always
       // grab a slot → a FRESH session in a FRESH worktree per todo. Keep-warm reuse
       // stays for the non-isolation shared-tree path.
-      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(type);
+      // PAW P3: resolve the worker PROVIDER (manual selection, ships DORMANT).
+      // Precedence session.provider → profile.provider → 'claude'. With nothing
+      // pinned this is ALWAYS 'claude' (pass-through), so the pool tags slots
+      // `<type>-claude-<slot>` exactly as before. A session pin (set via the
+      // ProviderSelector, stored on the session-status row) routes the lane to a
+      // provider-tagged slot instead. No automatic cost routing, no spend caps.
+      const launchProfile = resolveProfile(todo.type, todo.targetProject ?? project);
+      const sessionPin = todo.sessionName
+        ? getStatus(project, todo.sessionName)?.provider ?? null
+        : null;
+      const provider: ProviderId = resolveProvider(launchProfile, todo, { provider: sessionPin });
+
+      let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(type, provider);
       if (!poolName) {
-        const slot = getOrCreateSlot(type);
+        const slot = getOrCreateSlot(type, provider);
         if (!slot) {
           try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type), detail: JSON.stringify({ todoId: todo.id, type, started: false, reason: 'pool-busy-deferred', released: true }) });
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type, provider), detail: JSON.stringify({ todoId: todo.id, type, provider, started: false, reason: 'pool-busy-deferred', released: true }) });
           return false;
         }
-        poolName = poolSessionName(slot.type, slot.slot);
+        poolName = poolSessionName(slot.type, slot.provider, slot.slot);
       }
 
       // Persist the pool lane onto the todo NOW — as soon as the lane is committed,
@@ -1269,6 +1296,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // Record the backing tmux so reapDeadSlots can free this slot on the
         // worker's death regardless of the todo's eventual status.
         markBusy(poolName, todo.id, handle.tmux ?? tmuxBaseName(targetProject, poolName));
+        // PAW P3: record the dispatch's resolved { provider, model } so the watch
+        // card / fleet-status can surface WHICH provider ran this lane. DORMANT
+        // today (provider is always 'claude'), but persisting it now means the
+        // surfacing is in place the moment a real pin is set. Pinned on the
+        // session-status row (the slice the watch card reads); model goes into the
+        // in-memory dispatch record below for the fleet read-model.
+        try { recordSessionProvider(project, poolName, provider); } catch { /* best-effort surfacing */ }
+        recordDispatch(todo.id, { provider, model });
         // Claim continues under the pool session name (todo.sessionName = poolName)
         // so reclaim/lease semantics and the dead-claim reaper key off it.
         // executedBySession pins the durable executor (the worker lane).

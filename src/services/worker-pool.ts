@@ -17,6 +17,8 @@ import {
   type AgentProfileType,
   inferProfileType,
 } from '../config/agent-profiles';
+import type { ProviderId } from '../agent/worker-agent';
+import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
 
 /**
  * The set of valid routing `type` values (canonical vocabulary: the todo routing
@@ -123,11 +125,23 @@ export function typeForFiles(files: string[] | undefined | null): PoolType {
 }
 
 /**
- * Descriptive session name for a (type, slot). `slot` is 1-based.
- * e.g. `poolSessionName('frontend')` → `frontend-1`.
+ * Descriptive session name for a (type, provider, slot). `slot` is 1-based.
+ * e.g. `poolSessionName('frontend')` → `frontend-claude-1`;
+ *      `poolSessionName('backend', 'grok-build')` → `backend-grok-build-1`.
+ *
+ * PAW P3: the logical name now carries the PROVIDER dimension between the type
+ * and the slot, so two providers of the same type occupy DISTINCT slots
+ * (`backend-claude-1` ≠ `backend-grok-build-1`). Provider defaults to 'claude',
+ * so existing callers that don't pass a provider still resolve to
+ * `<type>-claude-<slot>`.
+ *
+ * COMPOSES with the per-project keying that landed separately on master (the
+ * registry there is keyed `${project} ${sessionName}`): this only changes the
+ * sessionName segment, leaving the project key dimension untouched — the eventual
+ * 3-way merge just adds the leading `project` param alongside this provider one.
  */
-export function poolSessionName(type: PoolType, slot = 1): string {
-  return `${type}-${slot}`;
+export function poolSessionName(type: PoolType, provider: ProviderId = DEFAULT_PROVIDER_ID, slot = 1): string {
+  return `${type}-${provider}-${slot}`;
 }
 
 // --- In-memory pool registry (POOL-4 consumes this) ---
@@ -136,7 +150,11 @@ export type SlotStatus = 'idle' | 'busy';
 
 export interface PoolSlot {
   type: PoolType;
-  /** 1-based slot index within the type. */
+  /** Provider this slot is tagged for (PAW P3). Defaults to 'claude'. A
+   *  (type, provider) pair is the slot's identity, so `backend-claude-1` and
+   *  `backend-grok-build-1` are distinct slots. */
+  provider: ProviderId;
+  /** 1-based slot index within the (type, provider). */
   slot: number;
   status: SlotStatus;
   /** The todo id the slot is currently working, when busy. */
@@ -164,16 +182,20 @@ export function resetPool(): void {
  * Slots are created at the lowest free index (1..config[type]). A newly created
  * slot starts `idle`.
  */
-export function getOrCreateSlot(type: PoolType, config: PoolConfig = POOL_CONFIG): PoolSlot | undefined {
+export function getOrCreateSlot(
+  type: PoolType,
+  provider: ProviderId = DEFAULT_PROVIDER_ID,
+  config: PoolConfig = POOL_CONFIG,
+): PoolSlot | undefined {
   const budget = config[type] ?? 0;
-  // Prefer an existing idle slot of this type.
-  const idle = findIdleSlotForType(type);
+  // Prefer an existing idle slot of this (type, provider).
+  const idle = findIdleSlotForType(type, provider);
   if (idle) return idle;
   // No idle slot — create the next one if budget allows.
   for (let slot = 1; slot <= budget; slot++) {
-    const name = poolSessionName(type, slot);
+    const name = poolSessionName(type, provider, slot);
     if (!registry.has(name)) {
-      const created: PoolSlot = { type, slot, status: 'idle' };
+      const created: PoolSlot = { type, provider, slot, status: 'idle' };
       registry.set(name, created);
       return created;
     }
@@ -182,21 +204,21 @@ export function getOrCreateSlot(type: PoolType, config: PoolConfig = POOL_CONFIG
   return undefined;
 }
 
-/** All slots of a type that are currently idle. */
-function findIdleSlotForType(type: PoolType): PoolSlot | undefined {
+/** All slots of a (type, provider) that are currently idle. */
+function findIdleSlotForType(type: PoolType, provider: ProviderId = DEFAULT_PROVIDER_ID): PoolSlot | undefined {
   for (const s of registry.values()) {
-    if (s.type === type && s.status === 'idle') return s;
+    if (s.type === type && s.provider === provider && s.status === 'idle') return s;
   }
   return undefined;
 }
 
 /**
- * Find the session NAME of an idle slot for a type (what POOL-4 routes to), or
- * `undefined` if none is idle/exists.
+ * Find the session NAME of an idle slot for a (type, provider) (what POOL-4
+ * routes to), or `undefined` if none is idle/exists.
  */
-export function findIdleSessionForType(type: PoolType): string | undefined {
+export function findIdleSessionForType(type: PoolType, provider: ProviderId = DEFAULT_PROVIDER_ID): string | undefined {
   for (const [name, s] of registry.entries()) {
-    if (s.type === type && s.status === 'idle') return name;
+    if (s.type === type && s.provider === provider && s.status === 'idle') return name;
   }
   return undefined;
 }

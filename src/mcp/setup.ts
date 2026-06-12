@@ -4972,6 +4972,7 @@ IMPORTANT - Common pitfalls to avoid:
             const pool = Object.entries(listPool()).map(([session, s]) => ({
               session,
               type: s.type,
+              provider: s.provider, // PAW P3: provider-tagged slot (DORMANT → 'claude')
               slot: s.slot,
               status: s.status,
               todoId: s.currentTodoId ?? null,
