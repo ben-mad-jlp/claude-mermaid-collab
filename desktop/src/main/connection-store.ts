@@ -239,6 +239,18 @@ export class ConnectionStore {
     return id;
   }
 
+  /**
+   * Set (or clear) the bearer token on an existing entry — used after a remote
+   * launch generates a token the launched server now requires, so the existing
+   * connection authenticates on its immediate reconnect. No-ops on unknown id.
+   */
+  setToken(id: string, token: string | undefined): void {
+    const e = this.entries.get(id);
+    if (!e) return;
+    e.token = token || undefined;
+    void this.persist().catch(() => {});
+  }
+
   remove(id: string): void {
     const e = this.entries.get(id);
     // Forgetting a still-running local server must stick — otherwise refreshLocal

@@ -39,6 +39,9 @@ function registerIpc(): void {
   ipcMain.handle('mc:removeServer', (_e, id: string) => {
     store?.remove(id);
   });
+  ipcMain.handle('mc:setServerToken', (_e, id: string, token: string | undefined) => {
+    store?.setToken(id, token);
+  });
   ipcMain.handle('mc:browser:listTabs', () => paneManager?.listTabs() ?? []);
   ipcMain.handle('mc:browser:openTab', (_e, opts) => paneManager?.openUserTab(opts ?? {}) ?? null);
   ipcMain.handle('mc:browser:closeTab', (_e, id: string) => { paneManager?.closeTab(id); });

@@ -46,6 +46,8 @@ export interface McBridge {
   listServers(): Promise<ServerInfo[]>;
   addServer(opts: { label: string; host: string; port: number; token?: string }): Promise<string>;
   removeServer(id: string): Promise<void>;
+  /** Set/clear a connection's bearer token (e.g. after a remote launch mints one). */
+  setServerToken?(id: string, token: string | undefined): Promise<void>;
   probeServer?(host: string, port: number): Promise<boolean>;
   setWatchedServers?(ids: string[]): Promise<void>;
   onWatchEvent?(cb: (e: WatchEvent) => void): () => void;
@@ -71,6 +73,8 @@ interface ServerContextValue {
   recheckServer: (id: string) => Promise<void>;
   addServer: (opts: { label: string; host: string; port: number; token?: string }) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
+  /** Persist a bearer token onto an existing connection (no-op outside Electron). */
+  setServerToken: (id: string, token: string | undefined) => Promise<void>;
 }
 
 const ServerContext = createContext<ServerContextValue | null>(null);
@@ -177,9 +181,17 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     [mc, refresh]
   );
 
+  const setServerToken = useCallback(
+    async (id: string, token: string | undefined) => {
+      if (!mc?.setServerToken) return;
+      await mc.setServerToken(id, token);
+    },
+    [mc]
+  );
+
   const value = useMemo<ServerContextValue>(
-    () => ({ available, servers, refresh, recheckServer, addServer, removeServer }),
-    [available, servers, refresh, recheckServer, addServer, removeServer]
+    () => ({ available, servers, refresh, recheckServer, addServer, removeServer, setServerToken }),
+    [available, servers, refresh, recheckServer, addServer, removeServer, setServerToken]
   );
 
   return <ServerContext.Provider value={value}>{children}</ServerContext.Provider>;
@@ -192,6 +204,7 @@ const NO_PROVIDER: ServerContextValue = {
   recheckServer: async () => {},
   addServer: async () => {},
   removeServer: async () => {},
+  setServerToken: async () => {},
 };
 
 /**

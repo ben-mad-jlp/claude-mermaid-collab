@@ -60,6 +60,23 @@ describe('ConnectionStore', () => {
     expect(store.get(id)?.token).toBe('secret');
   });
 
+  it('setToken() sets, clears, and persists the token on an existing entry', async () => {
+    const s1 = await makeStore();
+    const id = s1.add({ label: 'T', host: '127.0.0.1', port: 3000 });
+    expect(s1.get(id)?.token).toBeUndefined();
+    s1.setToken(id, 'minted-on-launch');
+    expect(s1.get(id)?.token).toBe('minted-on-launch');
+    // setToken on an unknown id is a no-op (does not throw / create an entry).
+    s1.setToken('no-such-id', 'x');
+    // empty string clears the token rather than storing ''
+    s1.setToken(id, '');
+    expect(s1.get(id)?.token).toBeUndefined();
+    s1.setToken(id, 'persisted');
+    await s1.flush();
+    const s2 = await makeStore();
+    expect(s2.get(id)?.token).toBe('persisted');
+  });
+
   it('remove() deletes the entry', async () => {
     const store = await makeStore();
     const id = store.add({ label: 'T', host: '127.0.0.1', port: 3000 });

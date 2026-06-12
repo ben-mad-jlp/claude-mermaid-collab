@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('mc', {
   addServer: (opts: { label: string; host: string; port: number; token?: string }) =>
     ipcRenderer.invoke('mc:addServer', opts),
   removeServer: (id: string) => ipcRenderer.invoke('mc:removeServer', id),
+  setServerToken: (id: string, token: string | undefined) =>
+    ipcRenderer.invoke('mc:setServerToken', id, token),
   setZoomFactor: (factor: number) => ipcRenderer.invoke('mc:setZoomFactor', factor),
   probeServer: (host: string, port: number) => ipcRenderer.invoke('mc:probeServer', { host, port }),
   setWatchedServers: (ids: string[]) => ipcRenderer.invoke('mc:setWatchedServers', ids),

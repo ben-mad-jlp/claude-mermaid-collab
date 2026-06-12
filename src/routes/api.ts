@@ -447,7 +447,7 @@ export async function handleAPI(
   if (path === '/api/server/launch' && req.method === 'POST') {
     try {
       const body = (await req.json()) as {
-        host?: string; port?: number; user?: string; password?: string; command?: string;
+        host?: string; port?: number; user?: string; password?: string; command?: string; token?: string;
       };
       if (!body.host || !body.command) {
         return Response.json({ ok: false, error: 'host and command are required' }, { status: 400 });
@@ -458,6 +458,7 @@ export async function handleAPI(
         user: body.user?.trim() || undefined,
         password: body.password || undefined,
         command: body.command,
+        token: body.token?.trim() || undefined,
       });
       return Response.json(result, { status: result.ok ? 200 : 502 });
     } catch (err) {

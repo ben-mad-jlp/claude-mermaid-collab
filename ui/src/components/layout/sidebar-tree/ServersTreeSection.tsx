@@ -28,7 +28,7 @@ export interface ServersTreeSectionHandle {
 
 const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSectionProps>(
   (props, ref) => {
-    const { available, servers, addServer, removeServer, recheckServer } = useServers();
+    const { available, servers, addServer, removeServer, recheckServer, setServerToken } = useServers();
 
     const [internalCollapsed, setInternalCollapsed] = useState(false);
     const isCollapsed = props.collapsed ?? internalCollapsed;
@@ -43,7 +43,10 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
     // command are remembered per host (non-secret, localStorage); the password
     // is asked each time and never stored.
     const [launchFor, setLaunchFor] = useState<string | null>(null);
-    const [launchForm, setLaunchForm] = useState({ user: '', password: '', command: '' });
+    // `token` is the bearer token the detect step wove into the start command;
+    // we thread it back on launch so a hand-edited command still comes up
+    // auth-required (a 0.0.0.0-bound server must never be open on the LAN).
+    const [launchForm, setLaunchForm] = useState({ user: '', password: '', command: '', token: '' });
     const [launching, setLaunching] = useState(false);
     const [launchMsg, setLaunchMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
@@ -59,7 +62,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
         if (saved.user) user = saved.user;
         if (saved.command) command = saved.command;
       } catch { /* ignore */ }
-      setLaunchForm({ user, password: '', command });
+      setLaunchForm({ user, password: '', command, token: '' });
       setLaunchFor(id);
     };
 
@@ -76,7 +79,7 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.ok) {
           if (body.suggestedCommand) {
-            setLaunchForm((f) => ({ ...f, command: body.suggestedCommand }));
+            setLaunchForm((f) => ({ ...f, command: body.suggestedCommand, token: body.token || '' }));
             setLaunchMsg(body.note ? { kind: 'err', text: body.note } : { kind: 'ok', text: 'Detected a start command.' });
           } else {
             setLaunchMsg({ kind: 'err', text: body.note || 'Could not detect a start command — set it manually.' });
@@ -109,10 +112,17 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
             user: launchForm.user.trim() || undefined,
             password: launchForm.password || undefined,
             command: launchForm.command,
+            token: launchForm.token || undefined,
           }),
         });
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.ok) {
+          // The launched server now requires this token — persist it onto the
+          // connection so the immediate recheck/connect authenticates instead of
+          // hitting a 401. (No-op outside Electron / when no token was minted.)
+          if (launchForm.token) {
+            try { await setServerToken(launchFor!, launchForm.token); } catch { /* best-effort */ }
+          }
           // Remember the non-secret bits for next time.
           try {
             localStorage.setItem(prefillKey(host, port), JSON.stringify({ user: launchForm.user.trim(), command: launchForm.command }));
