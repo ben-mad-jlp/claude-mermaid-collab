@@ -8,6 +8,7 @@ import {
   makeSwitchMessage,
   TERMINAL_MODE_RESET,
 } from '@/lib/terminal-ws';
+import { useTerminalPalette } from './terminalTheme';
 
 type ConnState = 'connecting' | 'connected' | 'disconnected';
 
@@ -46,7 +47,22 @@ function TerminalConsoleInner({
   onConnChange?: (state: ConnState) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const palette = useTerminalPalette();
   const [conn, setConn] = useState<ConnState>('connecting');
+
+  // Live-update the xterm palette when the terminal theme changes — no teardown,
+  // so scrollback + the WS survive a theme switch.
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.theme = {
+        background: palette.bg,
+        foreground: palette.fg,
+        cursor: palette.cursor,
+        cursorAccent: palette.bg,
+      };
+    }
+  }, [palette]);
 
   // Latest requested target, readable from the WS onopen callback (which fires
   // asynchronously after the tmuxBase prop may have advanced).
@@ -73,9 +89,11 @@ function TerminalConsoleInner({
       // NB: do NOT set convertEol — the PTY/tmux already emits explicit \r\n.
       fontSize: 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
-      theme: { background: '#0d1117', foreground: '#c9d1d9' },
+      // Initial palette; the [palette] effect live-updates it on a theme switch.
+      theme: { background: palette.bg, foreground: palette.fg, cursor: palette.cursor, cursorAccent: palette.bg },
       cursorBlink: true,
     });
+    termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
 
@@ -212,7 +230,11 @@ function TerminalConsoleInner({
       onData.dispose();
       try { ws.close(); } catch { /* ignore */ }
       try { term.dispose(); } catch { /* guard double/partial dispose */ }
+      if (termRef.current === term) termRef.current = null;
     };
+    // palette intentionally excluded — the [palette] effect live-updates the theme
+    // without tearing down the connection (which would drop scrollback + the WS).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverId]);
 
   // Re-point the live connection when the selected session changes (same server).

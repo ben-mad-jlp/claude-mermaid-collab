@@ -4,6 +4,7 @@ import {
   DEFAULT_CHIPS,
   type Chip,
 } from '@/stores/quickReplyStore';
+import { useTerminalPalette, type TerminalPalette } from './terminalTheme';
 
 /**
  * InputRail — the quick-reply chip bar (QR1 + QR2).
@@ -72,6 +73,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
   const toggleCompose = useQuickReplyStore((s) => s.toggleCompose);
   const hideDefault = useQuickReplyStore((s) => s.hideDefault);
   const toggleCollapsed = useQuickReplyStore((s) => s.toggleCollapsed);
+  const p = useTerminalPalette();
 
   // Per-chip lock map: a chip is locked for ~800ms after its own tap. Cross-chip
   // taps are independent (a sequence like 1→continue is allowed); only re-tapping
@@ -177,6 +179,27 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
   // are deleted/hidden (a stale out-of-range index would orphan the toolbar).
   const safeFocused = orderedChips.length ? Math.min(focusedIdx, orderedChips.length - 1) : 0;
 
+  // GLOBAL Ctrl+F1..F12 → fire the auto-response (chip) at that position, from
+  // anywhere in collab (plain F1 is the composer-focus shortcut — Ctrl distinguishes
+  // them). The window listener is bound once; refs keep it reading the latest chips
+  // + send fn without re-binding each render.
+  const sendChipRef = useRef(sendChip); sendChipRef.current = sendChip;
+  const orderedChipsRef = useRef(orderedChips); orderedChipsRef.current = orderedChips;
+  const disabledRef = useRef(disabled); disabledRef.current = disabled;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey) return;
+      const m = /^F(\d{1,2})$/.exec(e.key);
+      if (!m) return;
+      const chip = orderedChipsRef.current[parseInt(m[1], 10) - 1];
+      if (!chip || disabledRef.current) return;
+      e.preventDefault();
+      sendChipRef.current(chip);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const focusChipAt = (idx: number) => {
     const n = orderedChips.length;
     if (n === 0) return;
@@ -223,7 +246,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
         title="Show quick-reply bar"
         style={{
           flex: '0 0 auto', height: 4, cursor: 'pointer',
-          borderTop: '1px solid #30363d', background: '#161b22',
+          borderTop: `1px solid `, background: p.surface,
         }}
       />
     );
@@ -247,8 +270,8 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           onBlur={() => setEditing(null)}
           style={{
             flex: '0 0 auto', width: 160, padding: '2px 8px', fontSize: 12, lineHeight: 1.4,
-            color: '#c9d1d9', background: '#0d1117',
-            border: '1px solid #58a6ff', borderRadius: 4, outline: 'none',
+            color: p.fg, background: p.inputBg,
+            border: `1px solid `, borderRadius: 4, outline: 'none',
           }}
         />
         {/* Create-time Send⇄Compose toggle (design §3c). */}
@@ -259,9 +282,9 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           aria-label={compose ? 'compose chip, switch to send' : 'send chip, switch to compose'}
           style={{
             flex: '0 0 auto', padding: '2px 6px', fontSize: 11, lineHeight: 1.4, cursor: 'pointer',
-            color: compose ? '#d2a8ff' : '#c9d1d9',
-            background: compose ? 'transparent' : '#21262d',
-            border: `1px solid ${compose ? '#8957e5' : '#30363d'}`, borderRadius: 4,
+            color: compose ? p.accentSoft : p.fg,
+            background: compose ? 'transparent' : p.chipBg,
+            border: `1px solid ${compose ? p.accentSoft : p.border}`, borderRadius: 4,
           }}
         >
           {compose ? 'compose ›' : 'send'}
@@ -311,10 +334,10 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           cursor: disabled || isLocked ? 'default' : 'pointer',
           // Compose chips: hue-shifted (violet) text + outline, not border-weight
           // alone (Grok §3) — you SEE it stages-for-edit before tapping.
-          color: isLocked ? '#3fb950' : compose ? '#d2a8ff' : isDefault ? '#c9d1d9' : '#e6edf3',
+          color: isLocked ? p.success : compose ? p.accentSoft : isDefault ? p.fg : p.fg,
           // Filled = fires; transparent + caret = stages-for-edit (compose).
-          background: compose ? 'transparent' : '#21262d',
-          border: `1px solid ${isLocked ? '#238636' : compose ? '#8957e5' : '#30363d'}`,
+          background: compose ? 'transparent' : p.chipBg,
+          border: `1px solid ${isLocked ? p.successBorder : compose ? p.accentSoft : p.border}`,
           borderRadius: 4,
           opacity: isLocked ? 0.6 : compose ? 0.8 : 1,
           transition: 'color 120ms, border-color 120ms',
@@ -322,6 +345,10 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
       >
         {isLocked && <span aria-hidden="true">✓</span>}
         <span>{chip.label}</span>
+        {/* Ctrl+F# auto-response shortcut for the first 12 chips. */}
+        {idx < 12 && (
+          <span aria-hidden="true" style={{ opacity: 0.5, fontSize: 10, marginLeft: 1 }}>⌃F{idx + 1}</span>
+        )}
         {compose && !isLocked && <span aria-hidden="true" style={{ opacity: 0.7 }}>›</span>}
       </button>
     );
@@ -342,8 +369,8 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
         display: 'flex', alignItems: 'center', gap: 4,
         flex: '0 0 auto', minHeight: 26,
         padding: '3px 6px',
-        borderTop: '1px solid #30363d',
-        background: '#161b22',
+        borderTop: `1px solid `,
+        background: p.surface,
         // Wrap chips onto additional rows when the rail is too narrow to fit them
         // on one line (the rail grows taller instead of scrolling sideways).
         flexWrap: 'wrap',
@@ -359,7 +386,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
 
       {/* Trailing +/editor — grows in place into an inline input. marginLeft:auto
           keeps it at the right end of the last row as chips wrap. */}
-      <div style={{ flex: '0 0 auto', marginLeft: 'auto', background: '#161b22' }}>
+      <div style={{ flex: '0 0 auto', marginLeft: 'auto', background: p.surface }}>
         {editing && editing.id === null ? (
           renderEditor('add-editor', null)
         ) : (
@@ -371,8 +398,8 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
             style={{
               flex: '0 0 auto', padding: '2px 8px', fontSize: 14, lineHeight: 1.2,
               cursor: disabled ? 'default' : 'pointer',
-              color: '#8b949e', background: 'transparent',
-              border: '1px solid #30363d', borderRadius: 4,
+              color: p.mutedFg, background: 'transparent',
+              border: `1px solid `, borderRadius: 4,
             }}
           >
             +
@@ -388,19 +415,21 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
           style={{
             position: 'fixed', top: menu.y, left: menu.x, zIndex: 1000,
             minWidth: 140,
-            background: '#161b22', border: '1px solid #30363d',
+            background: p.surface, border: `1px solid `,
             borderRadius: 4, padding: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
           }}
         >
           {menu.isDefault ? (
             <MenuItem
               label="Hide"
+              palette={p}
               onClick={() => { hideDefault(menu.chip.id); setMenu(null); }}
             />
           ) : (
             <>
               <MenuItem
                 label="Edit"
+                palette={p}
                 onClick={() => {
                   const c = menu.chip;
                   const value = c.text && c.text !== c.label ? `${c.label} = ${c.text}` : c.label;
@@ -410,11 +439,13 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
               />
               <MenuItem
                 label={menu.chip.compose ? 'Make Send chip' : 'Make Compose chip'}
+                palette={p}
                 onClick={() => { toggleCompose(menu.chip.id); setMenu(null); }}
               />
               <MenuItem
                 label="Delete"
-                tone="#f85149"
+                palette={p}
+                tone={p.danger}
                 onClick={() => { deleteChip(menu.chip.id); setMenu(null); }}
               />
             </>
@@ -425,7 +456,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
   );
 }
 
-function MenuItem({ label, onClick, tone }: { label: string; onClick: () => void; tone?: string }) {
+function MenuItem({ label, onClick, palette, tone }: { label: string; onClick: () => void; palette: TerminalPalette; tone?: string }) {
   return (
     <div
       role="menuitem"
@@ -433,9 +464,9 @@ function MenuItem({ label, onClick, tone }: { label: string; onClick: () => void
       onMouseDown={(e) => e.preventDefault()}
       style={{
         padding: '4px 8px', cursor: 'pointer', fontSize: 12, borderRadius: 2,
-        color: tone ?? '#c9d1d9',
+        color: tone ?? palette.fg,
       }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#30363d'; }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = palette.chipBg; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
     >
       {label}

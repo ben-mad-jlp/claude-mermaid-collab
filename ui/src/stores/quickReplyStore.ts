@@ -85,7 +85,13 @@ interface QuickReplyState {
    *  newline and only the Send button / ⌘↵ submits when false. Persisted. */
   sendOnEnter: boolean;
   setSendOnEnter: (on: boolean) => void;
+  /** Terminal theme: 'match' follows the collab app theme; light/dark/sepia pin it.
+   *  Drives the xterm palette AND the chip bar + composer chrome. Persisted. */
+  terminalTheme: TerminalThemeSetting;
+  setTerminalTheme: (t: TerminalThemeSetting) => void;
 }
+
+export type TerminalThemeSetting = 'match' | 'light' | 'dark' | 'sepia';
 
 export const useQuickReplyStore = create<QuickReplyState>()(
   persist(
@@ -158,6 +164,9 @@ export const useQuickReplyStore = create<QuickReplyState>()(
 
       sendOnEnter: true,
       setSendOnEnter: (on) => set({ sendOnEnter: on }),
+
+      terminalTheme: 'match',
+      setTerminalTheme: (t) => set({ terminalTheme: t }),
     }),
     {
       name: 'mc.terminal.chips.v1',
@@ -168,6 +177,7 @@ export const useQuickReplyStore = create<QuickReplyState>()(
         hiddenDefaults: s.hiddenDefaults,
         custom: s.custom,
         sendOnEnter: s.sendOnEnter,
+        terminalTheme: s.terminalTheme,
       }),
     },
   ),

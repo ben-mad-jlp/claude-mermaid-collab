@@ -1,5 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuickReplyStore } from '@/stores/quickReplyStore';
+import { useTerminalPalette } from './terminalTheme';
+import { TerminalThemePicker } from './TerminalThemePicker';
 
 /**
  * MessageComposer — a real multi-line input below the quick-reply chip bar.
@@ -29,6 +31,7 @@ interface MessageComposerProps {
 export function MessageComposer({ project, session, serverId, disabled = false }: MessageComposerProps) {
   const sendOnEnter = useQuickReplyStore((s) => s.sendOnEnter);
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
+  const p = useTerminalPalette();
 
   const [value, setValue] = useState('');
   const [dragOver, setDragOver] = useState(false);
@@ -112,6 +115,19 @@ export function MessageComposer({ project, session, serverId, disabled = false }
     }
   };
 
+  // Global F1 → jump focus to the composer from anywhere in collab (plain F1; the
+  // chips use Ctrl+F# so there's no clash). preventDefault stops the browser help.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F1' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        taRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Auto-grow: reset to auto to measure scrollHeight, then clamp to MAX_HEIGHT.
   useLayoutEffect(() => {
     const ta = taRef.current;
@@ -165,14 +181,10 @@ export function MessageComposer({ project, session, serverId, disabled = false }
   return (
     <div
       style={{
-        position: 'relative',
-        display: 'flex', alignItems: 'flex-end', gap: 8,
-        flex: '0 0 auto',
-        padding: '12px 14px 16px',
-        borderTop: '1px solid #30363d',
-        background: '#161b22',
-        opacity: disabled ? 0.5 : 1,
-        pointerEvents: disabled ? 'none' : 'auto',
+        position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 8,
+        flex: '0 0 auto', padding: '12px 14px 16px',
+        borderTop: `1px solid ${p.border}`, background: p.surface,
+        opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto',
       }}
       title={disabled ? 'No console attached' : undefined}
     >
@@ -180,24 +192,22 @@ export function MessageComposer({ project, session, serverId, disabled = false }
       {pendingDrop && (
         <div
           style={{
-            position: 'absolute', left: 14, right: 14, bottom: 'calc(100% - 2px)',
+            position: 'absolute', left: 14, right: 14, bottom: 'calc(100% - 2px)', zIndex: 20,
             display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-            padding: '8px 10px', zIndex: 20,
-            fontSize: 12, color: '#c9d1d9',
-            background: '#1c2330', border: '1px solid #58a6ff', borderRadius: 8,
-            boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
+            padding: '8px 10px', fontSize: 12, color: p.fg,
+            background: p.surface, border: `1px solid ${p.accent}`, borderRadius: 8,
+            boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
           }}
         >
           <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {pendingDrop.length === 1 ? pendingDrop[0].name : `${pendingDrop.length} files`}
           </span>
           <button type="button" onClick={() => void insertContents(pendingDrop)}
-            style={chooserBtn('#238636', '#2ea043', '#fff')}>Paste contents</button>
+            style={btn(p.primary, p.primaryBorder, p.primaryFg)}>Paste contents</button>
           <button type="button" onClick={() => insertPaths(pendingDrop)}
-            style={chooserBtn('#21262d', '#30363d', '#c9d1d9')}>Insert path{pendingDrop.length > 1 ? 's' : ''}</button>
-          <button type="button" onClick={() => setPendingDrop(null)}
-            title="Cancel"
-            style={{ ...chooserBtn('transparent', '#30363d', '#8b949e'), padding: '4px 8px' }}>✕</button>
+            style={btn(p.chipBg, p.border, p.fg)}>Insert path{pendingDrop.length > 1 ? 's' : ''}</button>
+          <button type="button" onClick={() => setPendingDrop(null)} title="Cancel"
+            style={{ ...btn('transparent', 'transparent', p.mutedFg), padding: '4px 8px' }}>✕</button>
         </div>
       )}
       <textarea
@@ -213,42 +223,26 @@ export function MessageComposer({ project, session, serverId, disabled = false }
         onDrop={onDrop}
         title={disabled ? undefined : 'Drag a file in to insert its path (or paste its contents)'}
         style={{
-          flex: '1 1 auto',
-          // minWidth:0 lets the flex item actually fill/shrink — without it a
-          // textarea's intrinsic column width keeps it from filling the row.
-          minWidth: 0,
-          width: '100%',
-          resize: 'none',
-          minHeight: 56,
-          maxHeight: MAX_HEIGHT,
-          padding: '6px 8px',
-          fontSize: 13,
-          lineHeight: 1.4,
-          fontFamily: 'inherit',
-          color: '#c9d1d9',
-          background: dragOver ? '#10243e' : '#0d1117',
-          border: `1px solid ${dragOver ? '#58a6ff' : '#30363d'}`,
-          borderRadius: 6,
-          outline: 'none',
-          transition: 'background 120ms, border-color 120ms',
+          flex: '1 1 auto', minWidth: 0, width: '100%', resize: 'none',
+          minHeight: 56, maxHeight: MAX_HEIGHT, padding: '6px 8px',
+          fontSize: 13, lineHeight: 1.4, fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+          color: p.fg, background: dragOver ? p.dragBg : p.inputBg,
+          border: `1px solid ${dragOver ? p.accent : p.border}`, borderRadius: 6,
+          outline: 'none', transition: 'background 120ms, border-color 120ms',
         }}
-        onFocus={(e) => { e.currentTarget.style.borderColor = '#58a6ff'; }}
-        onBlur={(e) => { if (!dragOver) e.currentTarget.style.borderColor = '#30363d'; }}
+        onFocus={(e) => { e.currentTarget.style.borderColor = p.accent; }}
+        onBlur={(e) => { if (!dragOver) e.currentTarget.style.borderColor = p.border; }}
       />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, flex: '0 0 auto' }}>
         <button
-          type="button"
-          disabled={!canSend}
-          onClick={send}
-          title="Send to the terminal"
+          type="button" disabled={!canSend} onClick={send} title="Send to the terminal"
           style={{
             padding: '5px 14px', fontSize: 13, lineHeight: 1.4, fontWeight: 600,
             cursor: canSend ? 'pointer' : 'default',
-            color: canSend ? '#ffffff' : '#8b949e',
-            background: canSend ? '#238636' : '#21262d',
-            border: `1px solid ${canSend ? '#2ea043' : '#30363d'}`,
-            borderRadius: 6,
-            transition: 'background 120ms, color 120ms',
+            color: canSend ? p.primaryFg : p.mutedFg,
+            background: canSend ? p.primary : p.chipBg,
+            border: `1px solid ${canSend ? p.primaryBorder : p.border}`,
+            borderRadius: 6, transition: 'background 120ms, color 120ms',
           }}
         >
           Send
@@ -257,27 +251,25 @@ export function MessageComposer({ project, session, serverId, disabled = false }
           title="When on, Enter sends and Shift+Enter inserts a newline"
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontSize: 11, lineHeight: 1.2, color: '#8b949e',
-            cursor: disabled ? 'default' : 'pointer', whiteSpace: 'nowrap',
-            userSelect: 'none',
+            fontSize: 11, lineHeight: 1.2, color: p.mutedFg,
+            cursor: disabled ? 'default' : 'pointer', whiteSpace: 'nowrap', userSelect: 'none',
           }}
         >
           <input
-            type="checkbox"
-            checked={sendOnEnter}
-            disabled={disabled}
+            type="checkbox" checked={sendOnEnter} disabled={disabled}
             onChange={(e) => setSendOnEnter(e.target.checked)}
-            style={{ cursor: disabled ? 'default' : 'pointer', margin: 0 }}
+            style={{ cursor: disabled ? 'default' : 'pointer', margin: 0, accentColor: p.accent }}
           />
           Enter sends
         </label>
+        <TerminalThemePicker palette={p} disabled={disabled} />
       </div>
     </div>
   );
 }
 
-/** Shared style for the drop-chooser buttons. */
-function chooserBtn(bg: string, border: string, color: string): React.CSSProperties {
+/** Shared inline style for the small composer buttons. */
+function btn(bg: string, border: string, color: string): React.CSSProperties {
   return {
     flex: '0 0 auto', padding: '4px 10px', fontSize: 12, lineHeight: 1.3,
     fontWeight: 600, cursor: 'pointer', color,
