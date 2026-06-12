@@ -28,6 +28,8 @@ export interface ServerInfo {
   lastProject?: string;
   lastSession?: string;
   icon?: string;
+  /** Trust state (P4a). A discovered instance is 'pending' until the user pairs it. */
+  pairing?: 'pending' | 'paired';
 }
 
 export interface WatchEvent {
@@ -46,6 +48,9 @@ export interface McBridge {
   listServers(): Promise<ServerInfo[]>;
   addServer(opts: { label: string; host: string; port: number; token?: string }): Promise<string>;
   removeServer(id: string): Promise<void>;
+  /** Pair a pending server / unpair (DELETE) a paired one — returns the updated list (P4a). */
+  pairServer?(id: string): Promise<ServerInfo[]>;
+  unpairServer?(id: string): Promise<ServerInfo[]>;
   /** Set/clear a connection's bearer token (e.g. after a remote launch mints one). */
   setServerToken?(id: string, token: string | undefined): Promise<void>;
   probeServer?(host: string, port: number): Promise<boolean>;
@@ -73,6 +78,10 @@ interface ServerContextValue {
   recheckServer: (id: string) => Promise<void>;
   addServer: (opts: { label: string; host: string; port: number; token?: string }) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
+  /** Pair a pending discovered server (no-op outside Electron). */
+  pairServer: (id: string) => Promise<void>;
+  /** Unpair (revoke trust + drop) a paired server (no-op outside Electron). */
+  unpairServer: (id: string) => Promise<void>;
   /** Persist a bearer token onto an existing connection (no-op outside Electron). */
   setServerToken: (id: string, token: string | undefined) => Promise<void>;
 }
@@ -181,6 +190,24 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     [mc, refresh]
   );
 
+  const pairServer = useCallback(
+    async (id: string) => {
+      if (!mc?.pairServer) return;
+      await mc.pairServer(id);
+      await refresh();
+    },
+    [mc, refresh]
+  );
+
+  const unpairServer = useCallback(
+    async (id: string) => {
+      if (!mc?.unpairServer) return;
+      await mc.unpairServer(id);
+      await refresh();
+    },
+    [mc, refresh]
+  );
+
   const setServerToken = useCallback(
     async (id: string, token: string | undefined) => {
       if (!mc?.setServerToken) return;
@@ -190,8 +217,8 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo<ServerContextValue>(
-    () => ({ available, servers, refresh, recheckServer, addServer, removeServer, setServerToken }),
-    [available, servers, refresh, recheckServer, addServer, removeServer, setServerToken]
+    () => ({ available, servers, refresh, recheckServer, addServer, removeServer, pairServer, unpairServer, setServerToken }),
+    [available, servers, refresh, recheckServer, addServer, removeServer, pairServer, unpairServer, setServerToken]
   );
 
   return <ServerContext.Provider value={value}>{children}</ServerContext.Provider>;
@@ -204,6 +231,8 @@ const NO_PROVIDER: ServerContextValue = {
   recheckServer: async () => {},
   addServer: async () => {},
   removeServer: async () => {},
+  pairServer: async () => {},
+  unpairServer: async () => {},
   setServerToken: async () => {},
 };
 
