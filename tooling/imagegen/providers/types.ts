@@ -30,6 +30,18 @@ export interface GenOptions {
   outDir: string;
   /** Base filename (without extension) for the written files. */
   basename: string;
+
+  // --- IMG P3: sprite post-processing (sharp pipeline) ---
+  /** Post-process stages to run on the raw gen, in order. Raw is always kept. */
+  postprocess?: Array<'removeBg' | 'downscale' | 'pack'>;
+  /** Chroma key color for removeBg, hex ('00b140'/'#00b140') or [r,g,b]. */
+  keyColor?: string | [number, number, number];
+  /** Chroma distance tolerance for removeBg. */
+  tolerance?: number;
+  /** Target pixel height for downscale (nearest-neighbor). */
+  pixelHeight?: number;
+  /** Optional palette quantize color count for downscale. */
+  palette?: number;
 }
 
 export interface GenImage {

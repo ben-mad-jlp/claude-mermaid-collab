@@ -2,6 +2,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { applyTaskPreset } from './prompts.ts';
 import { xaiProvider } from './providers/xai.ts';
+import { removeBackground } from './pipeline/removeBg.ts';
+import { downscale } from './pipeline/downscale.ts';
+import { packSheet } from './pipeline/packSheet.ts';
 import type { GenOptions, ImageProvider } from './providers/types.ts';
 
 const PROVIDERS: Record<string, ImageProvider> = {
@@ -22,6 +25,11 @@ export interface GenerateImageResult {
   files: string[];
   metaFiles: string[];
   costUsd: number;
+  /** IMG P3: per-frame post-processed sprite PNG paths (if postprocess ran). */
+  spriteFiles?: string[];
+  /** IMG P3: packed sheet atlas + manifest paths (if 'pack' ran on >1 frame). */
+  sheetPath?: string;
+  manifestPath?: string;
 }
 
 /**
@@ -52,6 +60,14 @@ export async function generateImage(
   const createdAt = new Date().toISOString();
   const multiple = result.images.length > 1;
 
+  const stages = opts.postprocess ?? [];
+  const wantRemoveBg = stages.includes('removeBg');
+  const wantDownscale = stages.includes('downscale');
+  const wantPack = stages.includes('pack');
+  const spriteFiles: string[] = [];
+  const spriteBuffers: Buffer[] = [];
+  const stems: string[] = [];
+
   for (let i = 0; i < result.images.length; i++) {
     const img = result.images[i];
 
@@ -76,6 +92,33 @@ export async function generateImage(
     const metaPath = join(opts.outDir, `${stem}.meta.json`);
 
     writeFileSync(imgPath, bytes);
+    stems.push(stem);
+
+    // --- IMG P3: post-processing (removeBg -> downscale), per image. The raw
+    // image is always kept above; processed outputs land alongside it. ---
+    const postprocessApplied: string[] = [];
+    let spritePath: string | null = null;
+    if (wantRemoveBg || wantDownscale) {
+      let buf: Buffer = Buffer.from(bytes);
+      if (wantRemoveBg) {
+        buf = await removeBackground(buf, {
+          keyColor: opts.keyColor,
+          tolerance: opts.tolerance,
+        });
+        postprocessApplied.push('removeBg');
+      }
+      if (wantDownscale) {
+        buf = await downscale(buf, {
+          pixelHeight: opts.pixelHeight ?? 64,
+          palette: opts.palette,
+        });
+        postprocessApplied.push('downscale');
+      }
+      spritePath = join(opts.outDir, `${stem}.sprite.png`);
+      writeFileSync(spritePath, buf);
+      spriteFiles.push(spritePath);
+      spriteBuffers.push(buf);
+    }
 
     const meta = {
       provider: providerId,
@@ -87,6 +130,16 @@ export async function generateImage(
       mimeType: img.mimeType,
       createdAt,
       sourceUrl: img.url ?? null,
+      postprocess: postprocessApplied.length
+        ? {
+            stages: postprocessApplied,
+            keyColor: opts.keyColor ?? null,
+            tolerance: opts.tolerance ?? null,
+            pixelHeight: opts.pixelHeight ?? null,
+            palette: opts.palette ?? null,
+            spritePath,
+          }
+        : null,
     };
     writeFileSync(metaPath, JSON.stringify(meta, null, 2));
 
@@ -94,5 +147,22 @@ export async function generateImage(
     metaFiles.push(metaPath);
   }
 
-  return { files, metaFiles, costUsd: result.costUsd };
+  // --- IMG P3: pack processed frames into a sprite sheet (n>1). ---
+  let sheetPath: string | undefined;
+  let manifestPath: string | undefined;
+  if (wantPack && spriteBuffers.length > 1) {
+    const outPath = join(opts.outDir, `${opts.basename}.sheet.png`);
+    const packed = await packSheet(spriteBuffers, { outPath });
+    sheetPath = packed.atlasPath;
+    manifestPath = packed.manifestPath;
+  }
+
+  return {
+    files,
+    metaFiles,
+    costUsd: result.costUsd,
+    spriteFiles: spriteFiles.length ? spriteFiles : undefined,
+    sheetPath,
+    manifestPath,
+  };
 }

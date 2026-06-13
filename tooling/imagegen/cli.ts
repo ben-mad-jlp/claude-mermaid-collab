@@ -6,7 +6,9 @@ import type { GenOptions, ImageTask } from './providers/types.ts';
  * Usage:
  *   bun run tooling/imagegen/cli.ts "<prompt>" --out <dir> --basename <name> \
  *     [--provider xai] [--task icon] [--model grok-imagine-image-quality] \
- *     [--n 1] [--aspect 16:9] [--resolution 2k]
+ *     [--n 1] [--aspect 16:9] [--resolution 2k] \
+ *     [--postprocess removeBg,downscale] [--pack] [--key-color 00b140] \
+ *     [--tolerance 100] [--pixel-height 64] [--palette 32]
  */
 function parseArgs(argv: string[]): { prompt: string; flags: Record<string, string> } {
   const positional: string[] = [];
@@ -51,10 +53,34 @@ async function main() {
     resolution: flags.resolution as GenOptions['resolution'],
   };
 
-  const { files, metaFiles, costUsd } = await generateImage(prompt, opts);
+  // IMG P3 post-processing flags.
+  if (flags.postprocess) {
+    opts.postprocess = flags.postprocess
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean) as GenOptions['postprocess'];
+  }
+  if (flags.pack === 'true') {
+    opts.postprocess = [...(opts.postprocess ?? []), 'pack'];
+  }
+  if (flags['key-color']) opts.keyColor = flags['key-color'];
+  if (flags.tolerance) opts.tolerance = Number(flags.tolerance);
+  if (flags['pixel-height']) opts.pixelHeight = Number(flags['pixel-height']);
+  if (flags.palette) opts.palette = Number(flags.palette);
+
+  const res = await generateImage(prompt, opts);
+  const { files, metaFiles, costUsd, spriteFiles, sheetPath, manifestPath } = res;
 
   console.log('Saved images:');
   for (const f of files) console.log(`  ${f}`);
+  if (spriteFiles?.length) {
+    console.log('Processed sprites:');
+    for (const f of spriteFiles) console.log(`  ${f}`);
+  }
+  if (sheetPath) {
+    console.log(`Sprite sheet: ${sheetPath}`);
+    console.log(`Sheet manifest: ${manifestPath}`);
+  }
   console.log('Sidecar metadata:');
   for (const m of metaFiles) console.log(`  ${m}`);
   console.log(`Total cost: $${costUsd.toFixed(4)}`);
