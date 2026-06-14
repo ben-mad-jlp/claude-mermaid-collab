@@ -50,6 +50,9 @@ export const xaiProvider: ImageProvider = {
     };
     if (opts.aspectRatio) body.aspect_ratio = opts.aspectRatio;
     if (opts.resolution) body.resolution = opts.resolution;
+    // img2img: condition on a reference image (data: URL or http URL) so the output
+    // matches a specific character. xAI accepts image_urls for loose semantic conditioning.
+    if (opts.referenceImage) body.image_urls = [opts.referenceImage];
 
     const res = await fetch(XAI_ENDPOINT, {
       method: 'POST',

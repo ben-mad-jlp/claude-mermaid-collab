@@ -62,7 +62,7 @@ import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames
 import { removeBackground } from '../../tooling/imagegen/pipeline/removeBg';
 import { downscale } from '../../tooling/imagegen/pipeline/downscale';
 import { packSheet } from '../../tooling/imagegen/pipeline/packSheet';
-import { sliceGrid, autocropRecenter } from '../../tooling/imagegen/pipeline/spriteSheet';
+import { sliceGrid, autocropRecenter, pickMarkerColor } from '../../tooling/imagegen/pipeline/spriteSheet';
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
 
@@ -2567,6 +2567,7 @@ export async function handleAPI(
     try {
       const body = await req.json() as {
         character?: string; animation?: string; name?: string;
+        seedImageId?: string; seedSource?: string;
         frames?: number; angles?: number; fps?: number;
         cellWidth?: number; cellHeight?: number;
         keyColor?: string; markerColor?: string; model?: string;
@@ -2583,13 +2584,33 @@ export async function handleAPI(
       const cols = Math.min(6, frames);                                // ≤6 per row keeps detail + gaps
       const rows = Math.ceil(frames / cols);
       const keyColor = body.keyColor ?? '#00b140';
-      const markerColor = body.markerColor ?? '#00ecf8';              // cyan pedestal, absent from most chars
       const cellW = body.cellWidth ?? 96, cellH = body.cellHeight ?? 128;
+
+      const { imageManager } = await createManagers(params.project, params.session);
+
+      // 0. optional character reference (img2img) — locks a specific character
+      let referenceImage: string | undefined;
+      let refBuf: Buffer | undefined;
+      if (body.seedImageId) {
+        const c = await imageManager.getContent(body.seedImageId);
+        if (!c) return Response.json({ error: `seedImageId not found: ${body.seedImageId}` }, { status: 404 });
+        refBuf = c.buffer;
+        referenceImage = `data:${c.mimeType};base64,${c.buffer.toString('base64')}`;
+      } else if (body.seedSource) {
+        const loaded = await loadImageSourceToBuffer(body.seedSource);
+        refBuf = loaded.buffer;
+        referenceImage = `data:${loaded.mimeType};base64,${loaded.buffer.toString('base64')}`;
+      }
+
+      // marker/pedestal color: explicit > auto-pick from the reference char > cyan default
+      let marker = { name: 'cyan', hex: body.markerColor ?? '#00ecf8' };
+      if (!body.markerColor && refBuf) marker = await pickMarkerColor(refBuf);
+      const markerColor = marker.hex;
 
       // 1. seed grid image (structured prompt — the validated recipe)
       const gridDesc = rows > 1 ? `${rows} rows and ${cols} columns` : `a single row of ${cols}`;
-      const seedPrompt = `a 2D game sprite sheet: ${gridDesc} of identical ${body.character} figures (${frames} total), evenly spaced with WIDE empty gaps between every figure, each figure standing on its OWN small round solid cyan turntable pedestal disc, each figure a different sequential frame of ${body.animation} (a seamless loop where the last frame leads back into the first), all identical size on a common baseline, NO text NO labels NO numbers NO grid lines, flat solid chroma green background #00b140, the only cyan is the pedestals and the only green is the background`;
-      const seedGen = await xaiProvider.generate(seedPrompt, { resolution: '2k', outDir: '', basename: '' });
+      const seedPrompt = `a 2D game sprite sheet: ${gridDesc} of identical ${body.character} figures (${frames} total), evenly spaced with WIDE empty gaps between every figure, each figure standing on its OWN small round solid ${marker.name} turntable pedestal disc, each figure a different sequential frame of ${body.animation} (a seamless loop where the last frame leads back into the first), all identical size on a common baseline, NO text NO labels NO numbers NO grid lines, flat solid chroma green background #00b140, the only ${marker.name} is the pedestals and the only green is the background`;
+      const seedGen = await xaiProvider.generate(seedPrompt, { resolution: '2k', outDir: '', basename: '', referenceImage });
       const sImg = seedGen.images[0];
       let seedBuf: Buffer;
       if (sImg.bytes) seedBuf = Buffer.from(sImg.bytes);
@@ -2620,7 +2641,6 @@ export async function handleAPI(
       } finally { await fsRm(tmp, { recursive: true, force: true }).catch(() => {}); }
 
       const baseName = (body.name || body.character).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sprite';
-      const { imageManager } = await createManagers(params.project, params.session);
       const image = await imageManager.create({ name: `${baseName}-sheet.png`, buffer: atlasBuf, mimeType: 'image/png' });
       wsHandler.broadcast({
         type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType,

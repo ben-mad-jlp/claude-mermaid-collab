@@ -9,6 +9,51 @@ import sharp from 'sharp';
  * registers; the caller stacks [angle × pose] and packs with packSheet().
  */
 
+/** Distinct, saturated marker colors (with model-friendly names) for the pivot pedestal. */
+export const MARKER_CANDIDATES: Array<{ name: string; hex: string; rgb: [number, number, number] }> = [
+  { name: 'cyan', hex: '#00ecf8', rgb: [0, 236, 248] },
+  { name: 'magenta', hex: '#ff10e0', rgb: [255, 16, 224] },
+  { name: 'orange', hex: '#ff7a00', rgb: [255, 122, 0] },
+  { name: 'blue', hex: '#1030ff', rgb: [16, 48, 255] },
+  { name: 'yellow', hex: '#ffe000', rgb: [255, 224, 0] },
+  { name: 'red', hex: '#ff1020', rgb: [255, 16, 32] },
+  { name: 'purple', hex: '#9000ff', rgb: [144, 0, 255] },
+];
+
+/**
+ * Pick the marker/pedestal color most ABSENT from a character image, so it keys out
+ * cleanly without eating the character. Samples non-background pixels and chooses the
+ * candidate whose nearest character color (and the chroma bg) is farthest.
+ */
+export async function pickMarkerColor(
+  input: Buffer | string,
+  bgKeyRgb: [number, number, number] = [0, 177, 64],
+): Promise<{ name: string; hex: string }> {
+  const { data, info } = await sharp(input).resize(64, 64, { fit: 'inside' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const w = info.width, h = info.height, ch = info.channels;
+  const charColors: [number, number, number][] = [];
+  for (let i = 0; i < w * h; i++) {
+    const o = i * ch;
+    const r = data[o], g = data[o + 1], b = data[o + 2], a = ch === 4 ? data[o + 3] : 255;
+    if (a < 32) continue; // transparent
+    const dbg = Math.abs(r - bgKeyRgb[0]) + Math.abs(g - bgKeyRgb[1]) + Math.abs(b - bgKeyRgb[2]);
+    if (dbg < 80) continue; // background pixel
+    charColors.push([r, g, b]);
+  }
+  let best = MARKER_CANDIDATES[0], bestScore = -1;
+  for (const c of MARKER_CANDIDATES) {
+    let minD = Infinity;
+    for (const cc of charColors) {
+      const d = Math.hypot(c.rgb[0] - cc[0], c.rgb[1] - cc[1], c.rgb[2] - cc[2]);
+      if (d < minD) minD = d;
+    }
+    const dbgc = Math.hypot(c.rgb[0] - bgKeyRgb[0], c.rgb[1] - bgKeyRgb[1], c.rgb[2] - bgKeyRgb[2]);
+    const score = Math.min(minD === Infinity ? 999 : minD, dbgc);
+    if (score > bestScore) { bestScore = score; best = c; }
+  }
+  return { name: best.name, hex: best.hex };
+}
+
 /** Cut an image into rows×cols equal cells (even division). Returns row-major buffers. */
 export async function sliceGrid(input: Buffer | string, rows: number, cols: number): Promise<Buffer[]> {
   const img = sharp(input);
