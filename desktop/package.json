@@ -49,7 +49,11 @@
         "to": ".",
         "filter": [
           "mc-server",
-          "mc-server.exe"
+          "mc-server.exe",
+          "ffmpeg",
+          "ffmpeg.exe",
+          "ffprobe",
+          "ffprobe.exe"
         ]
       },
       {

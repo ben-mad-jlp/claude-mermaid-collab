@@ -1,10 +1,45 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Resolve an ffmpeg/ffprobe binary path, in order:
+ *  1. env override (MERMAID_FFMPEG_PATH / MERMAID_FFPROBE_PATH)
+ *  2. bundled next to the compiled sidecar (MERMAID_RESOURCES_PATH/<name>) — prod
+ *  3. the ffmpeg-static / ffprobe-static package binary — dev / source runs
+ *  4. the bare name on PATH — last-resort fallback
+ */
+function resolveBin(name: 'ffmpeg' | 'ffprobe'): string {
+  const env = process.env[name === 'ffmpeg' ? 'MERMAID_FFMPEG_PATH' : 'MERMAID_FFPROBE_PATH'];
+  if (env && existsSync(env)) return env;
+
+  const res = process.env.MERMAID_RESOURCES_PATH;
+  if (res) {
+    const exe = process.platform === 'win32' ? `${name}.exe` : name;
+    const p = join(res, exe);
+    if (existsSync(p)) return p;
+  }
+
+  try {
+    if (name === 'ffmpeg') {
+      const p = require('ffmpeg-static') as string | null;
+      if (p && existsSync(p)) return p;
+    } else {
+      const { path } = require('ffprobe-static') as { path: string };
+      if (path && existsSync(path)) return path;
+    }
+  } catch { /* package not installed in this context — fall through */ }
+
+  return name; // PATH fallback
+}
+
+const FFMPEG = resolveBin('ffmpeg');
+const FFPROBE = resolveBin('ffprobe');
 
 let ffmpegChecked: boolean | null = null;
 
@@ -12,7 +47,7 @@ let ffmpegChecked: boolean | null = null;
 export async function hasFfmpeg(): Promise<boolean> {
   if (ffmpegChecked !== null) return ffmpegChecked;
   try {
-    await execFileAsync('ffmpeg', ['-version']);
+    await execFileAsync(FFMPEG, ['-version']);
     ffmpegChecked = true;
   } catch {
     ffmpegChecked = false;
@@ -46,7 +81,7 @@ export async function extractFrames(mp4: Buffer | Uint8Array, opts: ExtractFrame
     const filters: string[] = [];
     if (opts.count && opts.count > 0) {
       // probe duration to compute an even fps for exactly ~count frames
-      const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', inPath]).catch(() => ({ stdout: '8' }));
+      const { stdout } = await execFileAsync(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', inPath]).catch(() => ({ stdout: '8' }));
       const dur = Math.max(0.1, parseFloat(String(stdout).trim()) || 8);
       filters.push(`fps=${opts.count}/${dur}`);
     } else {
@@ -54,7 +89,7 @@ export async function extractFrames(mp4: Buffer | Uint8Array, opts: ExtractFrame
     }
     if (opts.maxWidth) filters.push(`scale='min(${opts.maxWidth},iw)':-1`);
 
-    await execFileAsync('ffmpeg', ['-nostdin', '-loglevel', 'error', '-y', '-i', inPath, '-vf', filters.join(','), join(dir, 'f%04d.png')]);
+    await execFileAsync(FFMPEG, ['-nostdin', '-loglevel', 'error', '-y', '-i', inPath, '-vf', filters.join(','), join(dir, 'f%04d.png')]);
 
     const files = (await readdir(dir)).filter((f) => /^f\d+\.png$/.test(f)).sort();
     let frames = await Promise.all(files.map((f) => readFile(join(dir, f))));
