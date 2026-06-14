@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import { Jimp, ResizeStrategy } from 'jimp';
 
 /**
  * Sprite-sheet assembly helpers for the grid-orbit pipeline.
@@ -29,8 +29,9 @@ export async function pickMarkerColor(
   input: Buffer | string,
   bgKeyRgb: [number, number, number] = [0, 177, 64],
 ): Promise<{ name: string; hex: string }> {
-  const { data, info } = await sharp(input).resize(64, 64, { fit: 'inside' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const w = info.width, h = info.height, ch = info.channels;
+  const sample = await Jimp.read(input as Buffer);
+  sample.resize({ w: 64, h: Math.max(1, Math.round(64 * sample.bitmap.height / sample.bitmap.width)), mode: ResizeStrategy.BILINEAR });
+  const data = sample.bitmap.data; const w = sample.bitmap.width, h = sample.bitmap.height, ch = 4;
   const charColors: [number, number, number][] = [];
   for (let i = 0; i < w * h; i++) {
     const o = i * ch;
@@ -56,20 +57,15 @@ export async function pickMarkerColor(
 
 /** Cut an image into rows×cols equal cells (even division). Returns row-major buffers. */
 export async function sliceGrid(input: Buffer | string, rows: number, cols: number): Promise<Buffer[]> {
-  const img = sharp(input);
-  const meta = await img.metadata();
-  const W = meta.width ?? 0, H = meta.height ?? 0;
+  const img = await Jimp.read(input as Buffer);
+  const W = img.bitmap.width, H = img.bitmap.height;
   if (!W || !H) throw new Error('sliceGrid: input has no dimensions');
   const cw = Math.floor(W / cols), chh = Math.floor(H / rows);
   const cells: Buffer[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      cells.push(
-        await sharp(input)
-          .extract({ left: c * cw, top: r * chh, width: cw, height: chh })
-          .png()
-          .toBuffer(),
-      );
+      const cell = img.clone().crop({ x: c * cw, y: r * chh, w: cw, h: chh });
+      cells.push(await cell.getBuffer('image/png'));
     }
   }
   return cells;
@@ -87,8 +83,9 @@ export async function autocropRecenter(
   outH: number,
   alphaThreshold = 16,
 ): Promise<Buffer> {
-  const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const w = info.width, h = info.height, ch = info.channels;
+  const img = await Jimp.read(input as Buffer);
+  const w = img.bitmap.width, h = img.bitmap.height, ch = 4;
+  const data = img.bitmap.data;
   let minX = w, minY = h, maxX = -1, maxY = -1;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -98,16 +95,16 @@ export async function autocropRecenter(
       }
     }
   }
-  const canvas = sharp({ create: { width: outW, height: outH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } });
-  if (maxX < 0) return canvas.png().toBuffer(); // empty
+  const canvas = new Jimp({ width: outW, height: outH, color: 0x00000000 });
+  if (maxX < 0) return canvas.getBuffer('image/png'); // empty
 
   const bw = maxX - minX + 1, bh = maxY - minY + 1;
   // scale down to fit if the content is larger than the target cell (preserve aspect)
   const scale = Math.min(1, outW / bw, outH / bh);
   const tw = Math.max(1, Math.round(bw * scale)), th = Math.max(1, Math.round(bh * scale));
-  let content = sharp(input).extract({ left: minX, top: minY, width: bw, height: bh });
-  if (scale < 1) content = content.resize(tw, th, { kernel: 'nearest' });
-  const contentBuf = await content.png().toBuffer();
+  const content = img.clone().crop({ x: minX, y: minY, w: bw, h: bh });
+  if (scale < 1) content.resize({ w: tw, h: th, mode: ResizeStrategy.NEAREST_NEIGHBOR });
   const left = Math.round((outW - tw) / 2), top = Math.round((outH - th) / 2);
-  return canvas.composite([{ input: contentBuf, left, top }]).png().toBuffer();
+  canvas.composite(content, left, top);
+  return canvas.getBuffer('image/png');
 }

@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import { Jimp } from 'jimp';
 
 /**
  * Chroma-key background removal (IMG P3).
@@ -88,13 +88,10 @@ export async function removeBackground(
   const despill = opts.despill ?? 0.5;
   const edgeShrink = opts.edgeShrink ?? 1;
 
-  const { data, info } = await sharp(input)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const { width: w, height: h, channels } = info;
-  const px = new Uint8Array(data); // RGBA
+  const image = await Jimp.read(input as Buffer);
+  const w = image.bitmap.width, h = image.bitmap.height;
+  const channels = 4; // jimp bitmaps are always RGBA
+  const px = image.bitmap.data; // RGBA Buffer
   const alpha = new Uint8Array(w * h);
 
   // Soft ramp band: fully transparent at dist<=tolerance, fully opaque at dist>=tolerance+band.
@@ -140,12 +137,10 @@ export async function removeBackground(
     morph(alpha, w, h, edgeShrink, 'dilate');
   }
 
-  // Bind cleaned alpha back into the RGBA buffer.
+  // Bind cleaned alpha back into the RGBA buffer (mutates image.bitmap.data in place).
   for (let i = 0; i < w * h; i++) {
     px[i * channels + 3] = alpha[i];
   }
 
-  return sharp(Buffer.from(px.buffer), { raw: { width: w, height: h, channels: channels as 1 | 2 | 3 | 4 } })
-    .png()
-    .toBuffer();
+  return image.getBuffer('image/png');
 }

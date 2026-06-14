@@ -59,10 +59,10 @@ import { applyTaskPreset } from '../../tooling/imagegen/prompts';
 import type { ImageTask } from '../../tooling/imagegen/providers/types';
 import { generateVideo } from '../../tooling/imagegen/providers/xai-video';
 import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames';
-// NOTE: the sharp-based pipeline (removeBg/downscale/packSheet/spriteSheet) is imported
-// LAZILY inside the sprite route handlers via loadSpritePipeline() — sharp's native module
-// cannot load inside a bun --compile sidecar, so a top-level import would crash startup.
-// Lazy import keeps the server booting; the sprite routes fail gracefully if sharp is absent.
+// The image pipeline (removeBg/downscale/packSheet/spriteSheet) uses jimp (pure JS),
+// which embeds + runs inside the bun --compile sidecar (sharp's native module does NOT —
+// it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
+// lean and isolate any pipeline load error to the sprite routes.
 async function loadSpritePipeline() {
   const [{ removeBackground }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }] = await Promise.all([
     import('../../tooling/imagegen/pipeline/removeBg'),

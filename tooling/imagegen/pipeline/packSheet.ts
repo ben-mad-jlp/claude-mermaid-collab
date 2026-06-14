@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import { Jimp } from 'jimp';
 import { writeFileSync } from 'node:fs';
 
 /**
@@ -40,15 +40,15 @@ export async function packSheet(
 ): Promise<{ atlasPath: string; manifestPath: string; manifest: SpriteSheetManifest }> {
   if (frames.length === 0) throw new Error('packSheet: no frames provided');
 
-  // Validate uniform frame size.
-  const metas = await Promise.all(frames.map((f) => sharp(f).metadata()));
-  const frameWidth = metas[0].width ?? 0;
-  const frameHeight = metas[0].height ?? 0;
+  // Decode + validate uniform frame size.
+  const imgs = await Promise.all(frames.map((f) => Jimp.read(f as Buffer)));
+  const frameWidth = imgs[0].bitmap.width;
+  const frameHeight = imgs[0].bitmap.height;
   if (!frameWidth || !frameHeight) throw new Error('packSheet: first frame has no dimensions');
-  for (let i = 1; i < metas.length; i++) {
-    if (metas[i].width !== frameWidth || metas[i].height !== frameHeight) {
+  for (let i = 1; i < imgs.length; i++) {
+    if (imgs[i].bitmap.width !== frameWidth || imgs[i].bitmap.height !== frameHeight) {
       throw new Error(
-        `packSheet: frame ${i} is ${metas[i].width}x${metas[i].height}, expected ${frameWidth}x${frameHeight}`,
+        `packSheet: frame ${i} is ${imgs[i].bitmap.width}x${imgs[i].bitmap.height}, expected ${frameWidth}x${frameHeight}`,
       );
     }
   }
@@ -62,30 +62,16 @@ export async function packSheet(
   const atlasH = rows * frameHeight;
 
   const frameRects: FrameRect[] = [];
-  const composites = await Promise.all(
-    frames.map(async (f, i) => {
-      const col = i % columns;
-      const row = Math.floor(i / columns);
-      const x = col * frameWidth;
-      const y = row * frameHeight;
-      frameRects.push({ index: i, x, y, w: frameWidth, h: frameHeight });
-      // Ensure PNG/RGBA input for compositing.
-      const buf = await sharp(f).ensureAlpha().png().toBuffer();
-      return { input: buf, left: x, top: y };
-    }),
-  );
-
-  const atlas = await sharp({
-    create: {
-      width: atlasW,
-      height: atlasH,
-      channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    },
-  })
-    .composite(composites)
-    .png()
-    .toBuffer();
+  const atlasImg = new Jimp({ width: atlasW, height: atlasH, color: 0x00000000 });
+  for (let i = 0; i < imgs.length; i++) {
+    const col = i % columns;
+    const row = Math.floor(i / columns);
+    const x = col * frameWidth;
+    const y = row * frameHeight;
+    frameRects.push({ index: i, x, y, w: frameWidth, h: frameHeight });
+    atlasImg.composite(imgs[i], x, y);
+  }
+  const atlas = await atlasImg.getBuffer('image/png');
 
   const atlasPath = opts.outPath;
   const manifestPath = atlasPath.replace(/\.[^.]+$/, '') + '.json';
