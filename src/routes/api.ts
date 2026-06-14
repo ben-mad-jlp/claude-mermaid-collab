@@ -59,19 +59,21 @@ import { applyTaskPreset } from '../../tooling/imagegen/prompts';
 import type { ImageTask } from '../../tooling/imagegen/providers/types';
 import { generateVideo } from '../../tooling/imagegen/providers/xai-video';
 import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames';
+import { loadProjectStyle, saveProjectStyle, applyStyleToPrompt, type ProjectStyle } from '../services/project-style';
 // The image pipeline (removeBg/downscale/packSheet/spriteSheet) uses jimp (pure JS),
 // which embeds + runs inside the bun --compile sidecar (sharp's native module does NOT —
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
 // lean and isolate any pipeline load error to the sprite routes.
 async function loadSpritePipeline() {
-  const [{ removeBackground }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }, { normalizeExportFormats }] = await Promise.all([
+  const [{ removeBackground }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }, { normalizeExportFormats }, { quantizeBuffer }] = await Promise.all([
     import('../../tooling/imagegen/pipeline/removeBg'),
     import('../../tooling/imagegen/pipeline/downscale'),
     import('../../tooling/imagegen/pipeline/packSheet'),
     import('../../tooling/imagegen/pipeline/spriteSheet'),
     import('../../tooling/imagegen/pipeline/exporters'),
+    import('../../tooling/imagegen/pipeline/quantize'),
   ]);
-  return { removeBackground, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats };
+  return { removeBackground, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer };
 }
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
@@ -2421,6 +2423,27 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/project-style — read the session's cohesive-look style (palette + prompt fragment).
+  if (path === '/api/project-style' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    const style = await loadProjectStyle(params.project, params.session);
+    return Response.json({ style: style ?? null });
+  }
+
+  // POST /api/project-style — set the session's cohesive-look style. Body: { palette?, stylePromptFragment? }.
+  if (path === '/api/project-style' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as ProjectStyle;
+      const saved = await saveProjectStyle(params.project, params.session, body);
+      return Response.json({ success: true, style: saved });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
   // POST /api/generate-image — generate via Grok Imagine (xAI) and save as a session image
   if (path === '/api/generate-image' && req.method === 'POST') {
     const params = getSessionParams(url);
@@ -2433,8 +2456,11 @@ export async function handleAPI(
       };
       if (!body.prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
 
+      // T1: project style — same palette + aesthetic across every generated asset.
+      const style = await loadProjectStyle(params.project, params.session);
+
       const n = Math.max(1, Math.min(4, body.n ?? 1));
-      const finalPrompt = applyTaskPreset(body.prompt, body.task);
+      const finalPrompt = applyStyleToPrompt(applyTaskPreset(body.prompt, body.task), style);
       const result = await xaiProvider.generate(finalPrompt, {
         task: body.task, model: body.model, n,
         aspectRatio: body.aspectRatio, resolution: body.resolution,
@@ -2457,9 +2483,17 @@ export async function handleAPI(
         } else {
           continue;
         }
-        const ext = img.mimeType.includes('png') ? 'png' : 'jpg';
+        // T1: snap to the project palette so this asset matches the rest of the set.
+        let mimeType = img.mimeType;
+        let ext = img.mimeType.includes('png') ? 'png' : 'jpg';
+        if (style?.palette?.length) {
+          const { quantizeBuffer } = await loadSpritePipeline();
+          buffer = await quantizeBuffer(buffer, style.palette);
+          mimeType = 'image/png';
+          ext = 'png';
+        }
         const name = result.images.length > 1 ? `${baseName}-${i + 1}.${ext}` : `${baseName}.${ext}`;
-        const image = await imageManager.create({ name, buffer, mimeType: img.mimeType });
+        const image = await imageManager.create({ name, buffer, mimeType });
         wsHandler.broadcast({
           type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType,
           size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session,
@@ -2500,6 +2534,9 @@ export async function handleAPI(
 
       const { imageManager } = await createManagers(params.project, params.session);
 
+      // T1: project style — same palette + aesthetic across every generated asset.
+      const style = await loadProjectStyle(params.project, params.session);
+
       // 1. resolve the seed image bytes (must already be on a solid chroma background)
       let seedBuf: Buffer; let seedMime: string;
       if (body.seedImageId) {
@@ -2510,7 +2547,7 @@ export async function handleAPI(
         const loaded = await loadImageSourceToBuffer(body.seedSource);
         seedBuf = loaded.buffer; seedMime = loaded.mimeType;
       } else if (body.seedPrompt) {
-        const gen = await xaiProvider.generate(applyTaskPreset(body.seedPrompt, 'sprite'), { n: 1, resolution: '2k', outDir: '', basename: '' });
+        const gen = await xaiProvider.generate(applyStyleToPrompt(applyTaskPreset(body.seedPrompt, 'sprite'), style), { n: 1, resolution: '2k', outDir: '', basename: '' });
         const g0 = gen.images[0];
         if (g0.bytes) { seedBuf = Buffer.from(g0.bytes); }
         else { const dl = await fetch(g0.url!); seedBuf = Buffer.from(await dl.arrayBuffer()); }
@@ -2536,7 +2573,8 @@ export async function handleAPI(
       const sprites: Buffer[] = [];
       for (const f of rawFrames) {
         const keyed = await removeBackground(f, { keyColor, tolerance });
-        sprites.push(await downscale(keyed, { pixelHeight }));
+        // T1: snap every frame to the project palette so the whole sheet is cohesive.
+        sprites.push(await downscale(keyed, { pixelHeight, palette: style?.palette }));
       }
 
       // 4. pack sheet (temp) -> read back -> save as a session image
@@ -2604,7 +2642,10 @@ export async function handleAPI(
       if (!(await hasFfmpeg())) {
         return Response.json({ error: 'ffmpeg not available on the server — required for video frame extraction.' }, { status: 501 });
       }
-      const { removeBackground, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats } = await loadSpritePipeline();
+      const { removeBackground, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer } = await loadSpritePipeline();
+
+      // T1: project style — same palette + aesthetic across every generated asset.
+      const style = await loadProjectStyle(params.project, params.session);
 
       const frames = Math.max(2, Math.min(8, body.frames ?? 6));      // poses; >8 clones poses
       const angles = Math.max(2, Math.min(16, body.angles ?? 8));     // facings sampled from the orbit
@@ -2637,7 +2678,7 @@ export async function handleAPI(
       // 1. seed grid image (structured prompt — the validated recipe)
       const gridDesc = rows > 1 ? `${rows} rows and ${cols} columns` : `a single row of ${cols}`;
       const seedPrompt = `a 2D game sprite sheet: ${gridDesc} of identical ${body.character} figures (${frames} total), evenly spaced with WIDE empty gaps between every figure, each figure standing on its OWN small round solid ${marker.name} turntable pedestal disc, each figure a different sequential frame of ${body.animation} (a seamless loop where the last frame leads back into the first), all identical size on a common baseline, NO text NO labels NO numbers NO grid lines, flat solid chroma green background #00b140, the only ${marker.name} is the pedestals and the only green is the background`;
-      const seedGen = await xaiProvider.generate(seedPrompt, { resolution: '2k', outDir: '', basename: '', referenceImage });
+      const seedGen = await xaiProvider.generate(applyStyleToPrompt(seedPrompt, style), { resolution: '2k', outDir: '', basename: '', referenceImage });
       const sImg = seedGen.images[0];
       let seedBuf: Buffer;
       if (sImg.bytes) seedBuf = Buffer.from(sImg.bytes);
@@ -2654,7 +2695,12 @@ export async function handleAPI(
       for (const af of angleFrames) {
         const keyed = await removeBackground(af, { keyColor, keyColors: [markerColor, '#3cc6e6'], tolerance: 110 });
         const sliced = await sliceGrid(keyed, rows, cols);
-        for (let p = 0; p < frames; p++) cells.push(await autocropRecenter(sliced[p] ?? sliced[sliced.length - 1], cellW, cellH));
+        for (let p = 0; p < frames; p++) {
+          let cell = await autocropRecenter(sliced[p] ?? sliced[sliced.length - 1], cellW, cellH);
+          // T1: snap each cell to the project palette for a cohesive cross-asset look.
+          if (style?.palette?.length) cell = await quantizeBuffer(cell, style.palette);
+          cells.push(cell);
+        }
       }
 
       // 5. pack [angles × poses] and save

@@ -80,11 +80,57 @@ describe('downscale (nearest-neighbor)', () => {
     expect(meta.hasAlpha).toBe(true);
   });
 
-  it('quantizes to a palette when requested', async () => {
+  it('quantizes to N colors (median-cut) when given a number', async () => {
     const src = await greenFieldWithRedSquare(64, 24);
     const out = await downscale(src, { pixelHeight: 16, palette: 8 });
     const meta = await sharp(out).metadata();
     expect(meta.height).toBe(16);
+  });
+
+  it('snaps every opaque pixel onto a FIXED hex palette', async () => {
+    const palette = ['#1a1c2c', '#f4f4f4', '#b13e53']; // dark, light, red
+    const src = await greenFieldWithRedSquare(48, 18);
+    const out = await downscale(src, { pixelHeight: 24, palette });
+    const { data, info } = await rawRGBA(out);
+
+    const allowed = new Set(palette.map((h) => h.replace('#', '').toLowerCase()));
+    // Every opaque pixel must be EXACTLY one of the three palette colors.
+    for (let i = 0; i < info.width * info.height; i++) {
+      const o = i * info.channels;
+      if (data[o + 3] === 0) continue;
+      const hex = [data[o], data[o + 1], data[o + 2]]
+        .map((v) => v.toString(16).padStart(2, '0')).join('');
+      expect(allowed.has(hex)).toBe(true);
+    }
+  });
+
+  it('ACCEPTANCE: two different assets snapped to the same palette share one color set', async () => {
+    const palette = ['#1a1c2c', '#5d275d', '#b13e53', '#ef7d57'];
+    // Two genuinely different source images.
+    const assetA = await greenFieldWithRedSquare(64, 30);
+    const assetB = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: { r: 200, g: 120, b: 60 } },
+    }).png().toBuffer();
+
+    const outA = await downscale(assetA, { pixelHeight: 16, palette });
+    const outB = await downscale(assetB, { pixelHeight: 16, palette });
+
+    const colorsOf = async (buf: Buffer) => {
+      const { data, info } = await rawRGBA(buf);
+      const set = new Set<string>();
+      for (let i = 0; i < info.width * info.height; i++) {
+        const o = i * info.channels;
+        if (data[o + 3] === 0) continue;
+        set.add([data[o], data[o + 1], data[o + 2]].map((v) => v.toString(16).padStart(2, '0')).join(''));
+      }
+      return set;
+    };
+    const allowed = new Set(palette.map((h) => h.replace('#', '').toLowerCase()));
+    const a = await colorsOf(outA);
+    const b = await colorsOf(outB);
+    // Both assets draw ONLY from the shared project palette — the cohesion guarantee.
+    for (const c of a) expect(allowed.has(c)).toBe(true);
+    for (const c of b) expect(allowed.has(c)).toBe(true);
   });
 });
 

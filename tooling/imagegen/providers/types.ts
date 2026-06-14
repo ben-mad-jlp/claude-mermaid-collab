@@ -40,8 +40,11 @@ export interface GenOptions {
   tolerance?: number;
   /** Target pixel height for downscale (nearest-neighbor). */
   pixelHeight?: number;
-  /** Optional palette quantize color count for downscale. */
-  palette?: number;
+  /**
+   * Palette quantize for downscale: a FIXED palette (hex list) for a cohesive
+   * cross-asset look, or N (number) for median-cut quantize. See pipeline/quantize.ts.
+   */
+  palette?: number | string[];
 }
 
 export interface GenImage {

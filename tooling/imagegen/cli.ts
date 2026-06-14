@@ -66,7 +66,13 @@ async function main() {
   if (flags['key-color']) opts.keyColor = flags['key-color'];
   if (flags.tolerance) opts.tolerance = Number(flags.tolerance);
   if (flags['pixel-height']) opts.pixelHeight = Number(flags['pixel-height']);
-  if (flags.palette) opts.palette = Number(flags.palette);
+  // --palette accepts either an N-color count (e.g. 32) or a fixed hex list
+  // (e.g. '#1a1c2c,#5d275d,#b13e53') for a cohesive cross-asset look.
+  if (flags.palette) {
+    opts.palette = flags.palette.includes(',') || /[a-fA-F#]/.test(flags.palette)
+      ? flags.palette.split(',').map((s) => s.trim()).filter(Boolean)
+      : Number(flags.palette);
+  }
 
   const res = await generateImage(prompt, opts);
   const { files, metaFiles, costUsd, spriteFiles, sheetPath, manifestPath } = res;
