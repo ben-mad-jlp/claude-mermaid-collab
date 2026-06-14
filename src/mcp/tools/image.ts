@@ -70,6 +70,7 @@ export interface GenerateSpriteResult {
   mode: 'animation' | 'rotation';
   sheet: { id: string; name: string; size: number };
   manifest: unknown;
+  exports?: Record<string, string>;
   frameCount: number;
   costUsd: number;
   model: string;
@@ -91,6 +92,10 @@ const spriteCommon = {
   keyColor: { type: 'string', description: "Chroma key color, hex (default '#00b140')." },
   tolerance: { type: 'number', description: 'Chroma key tolerance (default 100).' },
   pixelHeight: { type: 'number', description: 'Target sprite pixel height (default 128).' },
+  padding: { type: 'number', description: 'Px gap between and around atlas cells to prevent texture bleed (default 0).' },
+  powerOfTwo: { type: 'boolean', description: 'Round the atlas up to power-of-two dimensions (default false).' },
+  trim: { type: 'boolean', description: 'Trim transparent margins per frame; records tight rect + source offsets (default false).' },
+  exportFormat: { type: 'string', description: "Engine export sidecars to also emit (returned in `exports`), comma-separated: aseprite, phaser, godot. Default none (three.js manifest only)." },
 };
 
 export const generateSpriteAnimationSchema = {
@@ -115,6 +120,7 @@ export interface GenerateSpriteSheetResult {
   success: boolean;
   sheet: { id: string; name: string; size: number };
   manifest: unknown;
+  exports?: Record<string, string>;
   frames: number;
   angles: number;
   cellCount: number;
@@ -139,6 +145,10 @@ export const generateSpriteSheetSchema = {
     keyColor: { type: 'string', description: "Chroma background key (default '#00b140')." },
     markerColor: { type: 'string', description: "Pedestal/marker color removed alongside the background. Default: auto-picked absent from the seed character, else cyan '#00ecf8'." },
     model: { type: 'string', description: 'xAI video model (default grok-imagine-video).' },
+    padding: { type: 'number', description: 'Px gap between and around atlas cells to prevent texture bleed (default 0).' },
+    powerOfTwo: { type: 'boolean', description: 'Round the atlas up to power-of-two dimensions (default false).' },
+    trim: { type: 'boolean', description: 'Trim transparent margins per cell; records tight rect + source offsets (default false).' },
+    exportFormat: { type: 'string', description: "Engine export sidecars to also emit (returned in `exports`), comma-separated: aseprite, phaser, godot. One animation tag per angle row. Default none." },
   },
   required: ['project', 'session', 'character', 'animation'],
 };

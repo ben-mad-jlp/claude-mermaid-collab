@@ -120,12 +120,94 @@ describe('packSheet', () => {
     expect(manifest.frameWidth).toBe(16);
     expect(manifest.frameHeight).toBe(16);
     expect(manifest.frames).toHaveLength(5);
+    expect(manifest.padding).toBe(0);
+    expect(manifest.atlasWidth).toBe(48);
+    expect(manifest.atlasHeight).toBe(32);
 
-    // Frame index 4 sits at row 1, col 1 => x=16, y=16.
-    expect(manifest.frames[4]).toEqual({ index: 4, x: 16, y: 16, w: 16, h: 16 });
+    // Frame index 4 sits at row 1, col 1 => x=16, y=16. fps 10 => 100ms/frame.
+    expect(manifest.frames[4]).toMatchObject({ index: 4, x: 16, y: 16, w: 16, h: 16, duration: 100, trimmed: false });
 
     const onDisk = JSON.parse(readFileSync(manifestPath, 'utf8'));
     expect(onDisk.frames).toHaveLength(5);
+  });
+
+  it('inserts padding between/around cells and grows the atlas accordingly', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'imagegen-pad-'));
+    const frame = await sharp({ create: { width: 16, height: 16, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
+    const frames = [frame, frame, frame, frame]; // 2x2 with cols=2
+
+    const outPath = join(dir, 'pad.sheet.png');
+    const { manifest } = await packSheet(frames, { outPath, columns: 2, padding: 2 });
+
+    // pitch = 16+2 = 18; atlas = 2 + 2*18 = 38 each side.
+    expect(manifest.atlasWidth).toBe(38);
+    expect(manifest.atlasHeight).toBe(38);
+    expect(manifest.padding).toBe(2);
+    // Frame 0 sits at (padding, padding); frame 3 (row1,col1) at (2+18, 2+18) = (20,20).
+    expect(manifest.frames[0]).toMatchObject({ x: 2, y: 2 });
+    expect(manifest.frames[3]).toMatchObject({ x: 20, y: 20 });
+
+    const meta = await sharp(outPath).metadata();
+    expect(meta.width).toBe(38);
+    expect(meta.height).toBe(38);
+  });
+
+  it('rounds the atlas up to power-of-two dimensions when requested', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'imagegen-pow2-'));
+    const frame = await sharp({ create: { width: 16, height: 16, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
+    const { manifest } = await packSheet([frame, frame, frame], { outPath: join(dir, 'p2.sheet.png'), columns: 3, powerOfTwo: true });
+    // raw atlas = 48x16 -> pow2 = 64x16.
+    expect(manifest.atlasWidth).toBe(64);
+    expect(manifest.atlasHeight).toBe(16);
+  });
+
+  it('trims transparent margins and records the tight rect + source offsets', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'imagegen-trim-'));
+    // 32x32 frame, fully transparent except an 8x8 opaque block at (12,12).
+    const block = await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
+    const frame = await sharp({ create: { width: 32, height: 32, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .composite([{ input: block, left: 12, top: 12 }]).png().toBuffer();
+
+    const { manifest } = await packSheet([frame], { outPath: join(dir, 'trim.sheet.png'), columns: 1, trim: true });
+    const f = manifest.frames[0];
+    expect(f.trimmed).toBe(true);
+    expect(f).toMatchObject({ x: 12, y: 12, w: 8, h: 8 });
+    expect(f.spriteSourceSize).toEqual({ x: 12, y: 12, w: 8, h: 8 });
+    expect(f.sourceSize).toEqual({ w: 32, h: 32 });
+  });
+
+  it('emits Aseprite + Phaser + Godot export sidecars with frame tags', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'imagegen-exp-'));
+    const frame = await sharp({ create: { width: 16, height: 16, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } }).png().toBuffer();
+    const frames = [frame, frame, frame, frame];
+
+    const outPath = join(dir, 'hero.sheet.png');
+    const { exports } = await packSheet(frames, {
+      outPath, columns: 4, fps: 8,
+      animations: [{ name: 'walk', from: 0, to: 3, direction: 'forward', repeat: 0 }],
+      exportFormats: ['aseprite', 'phaser', 'godot'],
+    });
+
+    // Aseprite: frames hash + frameTags + per-frame durations (1000/8 = 125ms).
+    const ase = JSON.parse(exports.aseprite!.content);
+    expect(Object.keys(ase.frames)).toHaveLength(4);
+    expect(ase.meta.frameTags[0]).toMatchObject({ name: 'walk', from: 0, to: 3 });
+    expect(ase.meta.image).toBe('hero.sheet.png');
+    expect(Object.values(ase.frames)[0]).toMatchObject({ duration: 125 });
+    expect(existsSync(exports.aseprite!.path)).toBe(true);
+
+    // Phaser TexturePacker hash.
+    const phaser = JSON.parse(exports.phaser!.content);
+    expect(Object.keys(phaser.frames)).toHaveLength(4);
+    expect(phaser.meta.image).toBe('hero.sheet.png');
+
+    // Godot .tres references the texture + a named animation.
+    const godot = exports.godot!.content;
+    expect(godot).toContain('[gd_resource type="SpriteFrames"');
+    expect(godot).toContain('path="res://hero.sheet.png"');
+    expect(godot).toContain('&"walk"');
+    expect(godot).toContain('SubResource("frame_3")');
+    expect(existsSync(exports.godot!.path)).toBe(true);
   });
 
   it('rejects frames of differing size', async () => {

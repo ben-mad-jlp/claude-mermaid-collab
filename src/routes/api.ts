@@ -64,13 +64,14 @@ import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
 // lean and isolate any pipeline load error to the sprite routes.
 async function loadSpritePipeline() {
-  const [{ removeBackground }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }] = await Promise.all([
+  const [{ removeBackground }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }, { normalizeExportFormats }] = await Promise.all([
     import('../../tooling/imagegen/pipeline/removeBg'),
     import('../../tooling/imagegen/pipeline/downscale'),
     import('../../tooling/imagegen/pipeline/packSheet'),
     import('../../tooling/imagegen/pipeline/spriteSheet'),
+    import('../../tooling/imagegen/pipeline/exporters'),
   ]);
-  return { removeBackground, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor };
+  return { removeBackground, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats };
 }
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
@@ -2485,6 +2486,8 @@ export async function handleAPI(
         seedImageId?: string; seedSource?: string; seedPrompt?: string;
         model?: string; frames?: number; fps?: number; columns?: number;
         keyColor?: string; tolerance?: number; pixelHeight?: number;
+        padding?: number; powerOfTwo?: boolean; trim?: boolean;
+        exportFormat?: string | string[]; exportFormats?: string | string[];
       };
       const mode = body.mode === 'rotation' ? 'rotation' : 'animation';
       if (!(await hasFfmpeg())) {
@@ -2493,7 +2496,7 @@ export async function handleAPI(
       if (mode === 'animation' && !body.prompt) {
         return Response.json({ error: "prompt required for mode 'animation' (the action to animate)" }, { status: 400 });
       }
-      const { removeBackground, downscale, packSheet } = await loadSpritePipeline();
+      const { removeBackground, downscale, packSheet, normalizeExportFormats } = await loadSpritePipeline();
 
       const { imageManager } = await createManagers(params.project, params.session);
 
@@ -2538,12 +2541,23 @@ export async function handleAPI(
 
       // 4. pack sheet (temp) -> read back -> save as a session image
       const tmp = await fsMkdtemp(join(osTmpdir(), 'spritesheet-'));
-      let atlasBuf: Buffer; let manifest: any;
+      const exportFormats = normalizeExportFormats(body.exportFormats ?? body.exportFormat);
+      // Animation mode is one looping clip; rotation frames are facings, not a timeline.
+      const spriteFps = body.fps ?? (mode === 'rotation' ? 0 : 12);
+      const animations = mode === 'animation'
+        ? [{ name: (body.prompt || 'animation').slice(0, 40), from: 0, to: sprites.length - 1, direction: 'forward' as const, repeat: 0 }]
+        : [];
+      let atlasBuf: Buffer; let manifest: any; let exports: any;
       try {
         const out = join(tmp, 'sheet.png');
-        const packed = await packSheet(sprites, { columns: body.columns, fps: body.fps ?? (mode === 'rotation' ? 0 : 12), outPath: out });
+        const packed = await packSheet(sprites, {
+          columns: body.columns, fps: spriteFps, outPath: out,
+          padding: body.padding, powerOfTwo: body.powerOfTwo, trim: body.trim,
+          animations, exportFormats,
+        });
         atlasBuf = await fsReadFile(packed.atlasPath);
         manifest = packed.manifest;
+        exports = Object.fromEntries(Object.entries(packed.exports).map(([k, v]) => [k, (v as any).content]));
       } finally {
         await fsRm(tmp, { recursive: true, force: true }).catch(() => {});
       }
@@ -2559,7 +2573,7 @@ export async function handleAPI(
 
       return Response.json({
         success: true, mode, sheet: { id: image.id, name: image.name, size: image.size },
-        manifest, frameCount: sprites.length, costUsd: video.costUsd, model: video.model,
+        manifest, exports, frameCount: sprites.length, costUsd: video.costUsd, model: video.model,
       });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -2581,6 +2595,8 @@ export async function handleAPI(
         frames?: number; angles?: number; fps?: number;
         cellWidth?: number; cellHeight?: number;
         keyColor?: string; markerColor?: string; model?: string;
+        padding?: number; powerOfTwo?: boolean; trim?: boolean;
+        exportFormat?: string | string[]; exportFormats?: string | string[];
       };
       if (!body.character || !body.animation) {
         return Response.json({ error: 'character and animation are required' }, { status: 400 });
@@ -2588,7 +2604,7 @@ export async function handleAPI(
       if (!(await hasFfmpeg())) {
         return Response.json({ error: 'ffmpeg not available on the server — required for video frame extraction.' }, { status: 501 });
       }
-      const { removeBackground, packSheet, sliceGrid, autocropRecenter, pickMarkerColor } = await loadSpritePipeline();
+      const { removeBackground, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats } = await loadSpritePipeline();
 
       const frames = Math.max(2, Math.min(8, body.frames ?? 6));      // poses; >8 clones poses
       const angles = Math.max(2, Math.min(16, body.angles ?? 8));     // facings sampled from the orbit
@@ -2643,12 +2659,24 @@ export async function handleAPI(
 
       // 5. pack [angles × poses] and save
       const tmp = await fsMkdtemp(join(osTmpdir(), 'spritesheet-'));
-      let atlasBuf: Buffer; let manifest: any;
+      const exportFormats = normalizeExportFormats(body.exportFormats ?? body.exportFormat);
+      // Each angle row is one looping animation for that facing (e.g. walk_a0, walk_a1, ...).
+      const animBase = (body.animation || 'anim').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'anim';
+      const sheetAnimations = Array.from({ length: angles }, (_, a) => ({
+        name: `${animBase}_a${a}`, from: a * frames, to: a * frames + frames - 1,
+        direction: 'forward' as const, repeat: 0,
+      }));
+      let atlasBuf: Buffer; let manifest: any; let exports: any;
       try {
         const out = join(tmp, 'sheet.png');
-        const packed = await packSheet(cells, { columns: frames, fps: body.fps ?? 12, outPath: out });
+        const packed = await packSheet(cells, {
+          columns: frames, fps: body.fps ?? 12, outPath: out,
+          padding: body.padding, powerOfTwo: body.powerOfTwo, trim: body.trim,
+          animations: sheetAnimations, exportFormats,
+        });
         atlasBuf = await fsReadFile(packed.atlasPath);
         manifest = { ...packed.manifest, frames, angles, rows: angles, cols: frames };
+        exports = Object.fromEntries(Object.entries(packed.exports).map(([k, v]) => [k, (v as any).content]));
       } finally { await fsRm(tmp, { recursive: true, force: true }).catch(() => {}); }
 
       const baseName = (body.name || body.character).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sprite';
@@ -2660,7 +2688,7 @@ export async function handleAPI(
 
       return Response.json({
         success: true, sheet: { id: image.id, name: image.name, size: image.size },
-        manifest, frames, angles, cellCount: cells.length, costUsd: video.costUsd + seedGen.costUsd, model: video.model,
+        manifest, exports, frames, angles, cellCount: cells.length, costUsd: video.costUsd + seedGen.costUsd, model: video.model,
       });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
