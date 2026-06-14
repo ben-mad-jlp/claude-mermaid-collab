@@ -84,6 +84,17 @@ cp "$RES/mc-server" "$RES/mc-server.bak-$TS"
 mv "$RES/ui/dist" "$RES/ui/dist.bak-$TS"
 ditto "$SIDECAR_SRC" "$RES/mc-server"
 ditto "$UI_SRC" "$RES/ui/dist"
+# ffmpeg/ffprobe bundled next to mc-server (build:sidecar copies them into desktop/resources)
+# — the sprite video tools need them; the compiled sidecar resolves via MERMAID_RESOURCES_PATH.
+for bin in ffmpeg ffprobe; do
+  if [ -f "$REPO/desktop/resources/$bin" ]; then
+    ditto "$REPO/desktop/resources/$bin" "$RES/$bin"
+    chmod +x "$RES/$bin" 2>/dev/null || true
+    log "bundled $bin into app Resources"
+  else
+    log "WARNING: $REPO/desktop/resources/$bin missing — sprite video tools will 501"
+  fi
+done
 log "swapped (rollback: restore mc-server.bak-$TS / ui/dist.bak-$TS)"
 
 # ── 4. force-restart ─────────────────────────────────────────────────────────
