@@ -3,6 +3,10 @@ out/
 dist/
 resources/mc-server
 resources/mc-server.exe
+resources/ffmpeg
+resources/ffmpeg.exe
+resources/ffprobe
+resources/ffprobe.exe
 spike-result.json
 spike-extended-result.json
 spike-emulation-result.json
