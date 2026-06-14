@@ -224,7 +224,7 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage } from './tools/image.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2413,6 +2413,10 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'create_storybook_embed', description: 'Create a Storybook embed from a story ID. Constructs the iframe URL and creates an embed artifact with storybook metadata.', inputSchema: createStorybookEmbedSchema },
       { name: 'list_storybook_stories', description: 'List available Storybook stories by fetching index.json from the running Storybook dev server.', inputSchema: listStorybookStoriesSchema },
       { name: 'create_image', description: 'Create an image artifact from a file path, URL, or base64 data URI.', inputSchema: createImageSchema },
+      { name: 'generate_image', description: 'Generate an image from a text prompt via Grok Imagine (xAI) and save it as a session image artifact. Returns the saved image id(s) + cost.', inputSchema: generateImageSchema },
+      { name: 'generate_sprite_animation', description: 'Generate an ANIMATED billboard sprite sheet: a Grok Imagine video of a seed character performing an action, chroma-keyed + packed into a transparent atlas (with a frame manifest). Needs ffmpeg on the server.', inputSchema: generateSpriteAnimationSchema },
+      { name: 'generate_sprite_rotation', description: 'Generate a turntable ROTATION sprite strip: a Grok Imagine camera-orbit video of a seed character, chroma-keyed + packed into a transparent atlas of angles (for billboard facing/rotation). Needs ffmpeg on the server.', inputSchema: generateSpriteRotationSchema },
+      { name: 'generate_sprite_sheet', description: 'Spec-driven DIRECTIONAL ANIMATION sheet (recommended): describe character + animation + frames + angles. Generates a grid of frozen poses on turntable pedestals, orbits it (one clip rotates every cell), then keys/slices/recenters into a packed [angles × frames] transparent sprite sheet with a manifest. ~1 image + 1 video. Needs ffmpeg.', inputSchema: generateSpriteSheetSchema },
       { name: 'list_images', description: 'List all image artifacts in a session.', inputSchema: listImagesSchema },
       { name: 'get_image', description: 'Get image artifact metadata by ID. Returns an absolute disk path; use the Read tool on that path to view the image.', inputSchema: getImageSchema },
       { name: 'delete_image', description: 'Delete an image artifact by ID.', inputSchema: deleteImageSchema },
@@ -4323,6 +4327,30 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, name, source } = args as any;
             if (!project || !session || !name || !source) throw new Error('Missing required: project, session, name, source');
             const result = await handleCreateImage(project, session, name, source);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_image': {
+            const { project, session, prompt, name, task, model, n, aspectRatio, resolution } = args as any;
+            if (!project || !session || !prompt) throw new Error('Missing required: project, session, prompt');
+            const result = await handleGenerateImage(project, session, { prompt, name, task, model, n, aspectRatio, resolution });
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_sprite_animation': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
+            const result = await handleGenerateSprite(project, session, 'animation', rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_sprite_rotation': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleGenerateSprite(project, session, 'rotation', rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_sprite_sheet': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.character || !rest.animation) throw new Error('Missing required: project, session, character, animation');
+            const result = await handleGenerateSpriteSheet(project, session, rest);
             return JSON.stringify(result, null, 2);
           }
           case 'list_images': {

@@ -54,6 +54,17 @@ import { tmuxBaseName } from '../services/tmux-naming.js';
 import { SERVER_VERSION } from '../mcp/server';
 import { currentExePath, serverOwner } from '../services/port-ownership';
 import { config } from '../config';
+import { xaiProvider } from '../../tooling/imagegen/providers/xai';
+import { applyTaskPreset } from '../../tooling/imagegen/prompts';
+import type { ImageTask } from '../../tooling/imagegen/providers/types';
+import { generateVideo } from '../../tooling/imagegen/providers/xai-video';
+import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames';
+import { removeBackground } from '../../tooling/imagegen/pipeline/removeBg';
+import { downscale } from '../../tooling/imagegen/pipeline/downscale';
+import { packSheet } from '../../tooling/imagegen/pipeline/packSheet';
+import { sliceGrid, autocropRecenter } from '../../tooling/imagegen/pipeline/spriteSheet';
+import { tmpdir as osTmpdir } from 'os';
+import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
 
 /**
  * Expand ~ to home directory in paths
@@ -2395,6 +2406,231 @@ export async function handleAPI(
       });
 
       return Response.json({ ...image, success: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/generate-image — generate via Grok Imagine (xAI) and save as a session image
+  if (path === '/api/generate-image' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+
+    try {
+      const body = await req.json() as {
+        prompt?: string; name?: string; task?: ImageTask; model?: string;
+        n?: number; aspectRatio?: string; resolution?: '1k' | '2k';
+      };
+      if (!body.prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
+
+      const n = Math.max(1, Math.min(4, body.n ?? 1));
+      const finalPrompt = applyTaskPreset(body.prompt, body.task);
+      const result = await xaiProvider.generate(finalPrompt, {
+        task: body.task, model: body.model, n,
+        aspectRatio: body.aspectRatio, resolution: body.resolution,
+        outDir: '', basename: '', // unused by the provider (it returns bytes/url)
+      });
+
+      const baseName = (body.name || body.prompt.slice(0, 40).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'generated');
+      const { imageManager } = await createManagers(params.project, params.session);
+      const saved: Array<{ id: string; name: string; mimeType: string; size: number }> = [];
+
+      for (let i = 0; i < result.images.length; i++) {
+        const img = result.images[i];
+        let buffer: Buffer;
+        if (img.bytes) {
+          buffer = Buffer.from(img.bytes);
+        } else if (img.url) {
+          const dl = await fetch(img.url);
+          if (!dl.ok) throw new Error(`failed to download generated image: ${dl.status}`);
+          buffer = Buffer.from(await dl.arrayBuffer());
+        } else {
+          continue;
+        }
+        const ext = img.mimeType.includes('png') ? 'png' : 'jpg';
+        const name = result.images.length > 1 ? `${baseName}-${i + 1}.${ext}` : `${baseName}.${ext}`;
+        const image = await imageManager.create({ name, buffer, mimeType: img.mimeType });
+        wsHandler.broadcast({
+          type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType,
+          size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session,
+        });
+        saved.push({ id: image.id, name: image.name, mimeType: image.mimeType, size: image.size });
+      }
+
+      return Response.json({ success: true, images: saved, costUsd: result.costUsd, model: result.model, finalPrompt });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/generate-sprite — generate a sprite sheet from a Grok Imagine VIDEO.
+  // mode 'animation' = action loop (e.g. attack/idle); mode 'rotation' = turntable strip.
+  // Seed: provide a chroma-keyed seed image via seedImageId | seedSource | seedPrompt.
+  if (path === '/api/generate-sprite' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+
+    try {
+      const body = await req.json() as {
+        mode?: 'animation' | 'rotation'; name?: string; prompt?: string;
+        seedImageId?: string; seedSource?: string; seedPrompt?: string;
+        model?: string; frames?: number; fps?: number; columns?: number;
+        keyColor?: string; tolerance?: number; pixelHeight?: number;
+      };
+      const mode = body.mode === 'rotation' ? 'rotation' : 'animation';
+      if (!(await hasFfmpeg())) {
+        return Response.json({ error: 'ffmpeg not available on the server — required for video frame extraction. Install ffmpeg or bundle it with the sidecar.' }, { status: 501 });
+      }
+      if (mode === 'animation' && !body.prompt) {
+        return Response.json({ error: "prompt required for mode 'animation' (the action to animate)" }, { status: 400 });
+      }
+
+      const { imageManager } = await createManagers(params.project, params.session);
+
+      // 1. resolve the seed image bytes (must already be on a solid chroma background)
+      let seedBuf: Buffer; let seedMime: string;
+      if (body.seedImageId) {
+        const c = await imageManager.getContent(body.seedImageId);
+        if (!c) return Response.json({ error: `seedImageId not found: ${body.seedImageId}` }, { status: 404 });
+        seedBuf = c.buffer; seedMime = c.mimeType;
+      } else if (body.seedSource) {
+        const loaded = await loadImageSourceToBuffer(body.seedSource);
+        seedBuf = loaded.buffer; seedMime = loaded.mimeType;
+      } else if (body.seedPrompt) {
+        const gen = await xaiProvider.generate(applyTaskPreset(body.seedPrompt, 'sprite'), { n: 1, resolution: '2k', outDir: '', basename: '' });
+        const g0 = gen.images[0];
+        if (g0.bytes) { seedBuf = Buffer.from(g0.bytes); }
+        else { const dl = await fetch(g0.url!); seedBuf = Buffer.from(await dl.arrayBuffer()); }
+        seedMime = g0.mimeType;
+      } else {
+        return Response.json({ error: 'one of seedImageId | seedSource | seedPrompt is required' }, { status: 400 });
+      }
+      const seedImageUrl = `data:${seedMime};base64,${seedBuf.toString('base64')}`;
+
+      // 2. video prompt: turntable for rotation, the action for animation
+      const videoPrompt = mode === 'rotation'
+        ? `turntable character rotation: the camera smoothly orbits a full 360 degrees around the character while it stays completely frozen, ZERO body movement, only the camera rotates to reveal front/side/back/other side. plain solid background, no ground, consistent character.${body.prompt ? ' ' + body.prompt : ''}`
+        : body.prompt!;
+
+      const video = await generateVideo(videoPrompt, { model: body.model, seedImageUrl });
+
+      // 3. frames -> chroma key -> downscale
+      const frameCount = Math.max(2, Math.min(64, body.frames ?? (mode === 'rotation' ? 24 : 12)));
+      const rawFrames = await extractFrames(video.bytes, { count: frameCount });
+      const keyColor = body.keyColor ?? '#00b140';
+      const tolerance = body.tolerance ?? 100;
+      const pixelHeight = body.pixelHeight ?? 128;
+      const sprites: Buffer[] = [];
+      for (const f of rawFrames) {
+        const keyed = await removeBackground(f, { keyColor, tolerance });
+        sprites.push(await downscale(keyed, { pixelHeight }));
+      }
+
+      // 4. pack sheet (temp) -> read back -> save as a session image
+      const tmp = await fsMkdtemp(join(osTmpdir(), 'spritesheet-'));
+      let atlasBuf: Buffer; let manifest: any;
+      try {
+        const out = join(tmp, 'sheet.png');
+        const packed = await packSheet(sprites, { columns: body.columns, fps: body.fps ?? (mode === 'rotation' ? 0 : 12), outPath: out });
+        atlasBuf = await fsReadFile(packed.atlasPath);
+        manifest = packed.manifest;
+      } finally {
+        await fsRm(tmp, { recursive: true, force: true }).catch(() => {});
+      }
+
+      const baseName = (body.name || (mode === 'rotation' ? 'rotation' : (body.prompt || 'animation').slice(0, 40)))
+        .replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sprite';
+      const sheetName = `${baseName}-${mode === 'rotation' ? 'turntable' : 'anim'}-sheet.png`;
+      const image = await imageManager.create({ name: sheetName, buffer: atlasBuf, mimeType: 'image/png' });
+      wsHandler.broadcast({
+        type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType,
+        size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session,
+      });
+
+      return Response.json({
+        success: true, mode, sheet: { id: image.id, name: image.name, size: image.size },
+        manifest, frameCount: sprites.length, costUsd: video.costUsd, model: video.model,
+      });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/generate-sprite-sheet — spec-driven directional animation sheet.
+  // Pipeline (validated 2026-06-14): generate a grid of N frozen animation poses on
+  // per-figure marker pedestals → orbit it (one clip rotates every cell in place) →
+  // extract Y angle frames → multi-key (chroma + marker) → slice grid → autocrop+recenter
+  // → pack [angles × poses] sheet. ~1 image + 1 video regardless of N.
+  if (path === '/api/generate-sprite-sheet' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as {
+        character?: string; animation?: string; name?: string;
+        frames?: number; angles?: number; fps?: number;
+        cellWidth?: number; cellHeight?: number;
+        keyColor?: string; markerColor?: string; model?: string;
+      };
+      if (!body.character || !body.animation) {
+        return Response.json({ error: 'character and animation are required' }, { status: 400 });
+      }
+      if (!(await hasFfmpeg())) {
+        return Response.json({ error: 'ffmpeg not available on the server — required for video frame extraction.' }, { status: 501 });
+      }
+
+      const frames = Math.max(2, Math.min(8, body.frames ?? 6));      // poses; >8 clones poses
+      const angles = Math.max(2, Math.min(16, body.angles ?? 8));     // facings sampled from the orbit
+      const cols = Math.min(6, frames);                                // ≤6 per row keeps detail + gaps
+      const rows = Math.ceil(frames / cols);
+      const keyColor = body.keyColor ?? '#00b140';
+      const markerColor = body.markerColor ?? '#00ecf8';              // cyan pedestal, absent from most chars
+      const cellW = body.cellWidth ?? 96, cellH = body.cellHeight ?? 128;
+
+      // 1. seed grid image (structured prompt — the validated recipe)
+      const gridDesc = rows > 1 ? `${rows} rows and ${cols} columns` : `a single row of ${cols}`;
+      const seedPrompt = `a 2D game sprite sheet: ${gridDesc} of identical ${body.character} figures (${frames} total), evenly spaced with WIDE empty gaps between every figure, each figure standing on its OWN small round solid cyan turntable pedestal disc, each figure a different sequential frame of ${body.animation} (a seamless loop where the last frame leads back into the first), all identical size on a common baseline, NO text NO labels NO numbers NO grid lines, flat solid chroma green background #00b140, the only cyan is the pedestals and the only green is the background`;
+      const seedGen = await xaiProvider.generate(seedPrompt, { resolution: '2k', outDir: '', basename: '' });
+      const sImg = seedGen.images[0];
+      let seedBuf: Buffer;
+      if (sImg.bytes) seedBuf = Buffer.from(sImg.bytes);
+      else { const dl = await fetch(sImg.url!); seedBuf = Buffer.from(await dl.arrayBuffer()); }
+      const seedUrl = `data:${sImg.mimeType};base64,${seedBuf.toString('base64')}`;
+
+      // 2. orbit the grid (turntable framing — figures stay frozen + in place)
+      const orbitPrompt = `${frames} frozen plastic action figures of ${body.character}, arranged in ${gridDesc}, each standing on its OWN small round motorized turntable pedestal. Every pedestal spins slowly in place, rotating the figure on it around that pedestal's own center, so each figure pivots in its exact spot and never leaves its cell. All turntables turn together through one full 360 degree revolution showing each figure from front, side, back, other side. The figures are solid statues: poses NEVER change, nothing animates, only the pedestals rotate. Figures stay evenly spaced in fixed positions. Flat solid green background.`;
+      const video = await generateVideo(orbitPrompt, { model: body.model, seedImageUrl: seedUrl });
+
+      // 3. extract Y angle frames; 4. per angle → key → slice → recenter
+      const angleFrames = await extractFrames(video.bytes, { count: angles });
+      const cells: Buffer[] = [];
+      for (const af of angleFrames) {
+        const keyed = await removeBackground(af, { keyColor, keyColors: [markerColor, '#3cc6e6'], tolerance: 110 });
+        const sliced = await sliceGrid(keyed, rows, cols);
+        for (let p = 0; p < frames; p++) cells.push(await autocropRecenter(sliced[p] ?? sliced[sliced.length - 1], cellW, cellH));
+      }
+
+      // 5. pack [angles × poses] and save
+      const tmp = await fsMkdtemp(join(osTmpdir(), 'spritesheet-'));
+      let atlasBuf: Buffer; let manifest: any;
+      try {
+        const out = join(tmp, 'sheet.png');
+        const packed = await packSheet(cells, { columns: frames, fps: body.fps ?? 12, outPath: out });
+        atlasBuf = await fsReadFile(packed.atlasPath);
+        manifest = { ...packed.manifest, frames, angles, rows: angles, cols: frames };
+      } finally { await fsRm(tmp, { recursive: true, force: true }).catch(() => {}); }
+
+      const baseName = (body.name || body.character).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sprite';
+      const { imageManager } = await createManagers(params.project, params.session);
+      const image = await imageManager.create({ name: `${baseName}-sheet.png`, buffer: atlasBuf, mimeType: 'image/png' });
+      wsHandler.broadcast({
+        type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType,
+        size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session,
+      });
+
+      return Response.json({
+        success: true, sheet: { id: image.id, name: image.name, size: image.size },
+        manifest, frames, angles, cellCount: cells.length, costUsd: video.costUsd + seedGen.costUsd, model: video.model,
+      });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }

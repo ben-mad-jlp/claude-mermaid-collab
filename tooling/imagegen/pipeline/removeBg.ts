@@ -21,6 +21,9 @@ import sharp from 'sharp';
 export interface RemoveBgOptions {
   /** Key color as hex ('00b140' or '#00b140') or [r,g,b]. Default green #00b140. */
   keyColor?: string | [number, number, number];
+  /** Additional key colors — a pixel becomes transparent if it matches ANY of keyColor + keyColors
+   * (single pass; used to drop a marker/pedestal color alongside the chroma background). */
+  keyColors?: Array<string | [number, number, number]>;
   /** Chroma distance (0-441) under which a pixel becomes transparent. Default 100. */
   tolerance?: number;
   /** Despill strength 0..1 (how hard to pull the key hue off edges). Default 0.5. */
@@ -79,7 +82,8 @@ export async function removeBackground(
   input: Buffer | string,
   opts: RemoveBgOptions = {},
 ): Promise<Buffer> {
-  const key = parseKeyColor(opts.keyColor);
+  const keys: [number, number, number][] = [parseKeyColor(opts.keyColor), ...(opts.keyColors ?? []).map(parseKeyColor)];
+  const keyChans = keys.map(keyChannel);
   const tolerance = opts.tolerance ?? 100;
   const despill = opts.despill ?? 0.5;
   const edgeShrink = opts.edgeShrink ?? 1;
@@ -93,15 +97,20 @@ export async function removeBackground(
   const px = new Uint8Array(data); // RGBA
   const alpha = new Uint8Array(w * h);
 
-  const kc = keyChannel(key);
   // Soft ramp band: fully transparent at dist<=tolerance, fully opaque at dist>=tolerance+band.
   const band = Math.max(1, tolerance * 0.5);
 
   for (let i = 0; i < w * h; i++) {
     const o = i * channels;
     const r = px[o], g = px[o + 1], b = px[o + 2];
-    const dr = r - key[0], dg = g - key[1], db = b - key[2];
-    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+    // nearest key color across all keys
+    let dist = Infinity, nearest = 0;
+    for (let k = 0; k < keys.length; k++) {
+      const dr = r - keys[k][0], dg = g - keys[k][1], db = b - keys[k][2];
+      const d = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (d < dist) { dist = d; nearest = k; }
+    }
+    const kc = keyChans[nearest];
 
     let a: number;
     if (dist <= tolerance) a = 0;
