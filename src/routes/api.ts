@@ -59,10 +59,19 @@ import { applyTaskPreset } from '../../tooling/imagegen/prompts';
 import type { ImageTask } from '../../tooling/imagegen/providers/types';
 import { generateVideo } from '../../tooling/imagegen/providers/xai-video';
 import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames';
-import { removeBackground } from '../../tooling/imagegen/pipeline/removeBg';
-import { downscale } from '../../tooling/imagegen/pipeline/downscale';
-import { packSheet } from '../../tooling/imagegen/pipeline/packSheet';
-import { sliceGrid, autocropRecenter, pickMarkerColor } from '../../tooling/imagegen/pipeline/spriteSheet';
+// NOTE: the sharp-based pipeline (removeBg/downscale/packSheet/spriteSheet) is imported
+// LAZILY inside the sprite route handlers via loadSpritePipeline() — sharp's native module
+// cannot load inside a bun --compile sidecar, so a top-level import would crash startup.
+// Lazy import keeps the server booting; the sprite routes fail gracefully if sharp is absent.
+async function loadSpritePipeline() {
+  const [{ removeBackground }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }] = await Promise.all([
+    import('../../tooling/imagegen/pipeline/removeBg'),
+    import('../../tooling/imagegen/pipeline/downscale'),
+    import('../../tooling/imagegen/pipeline/packSheet'),
+    import('../../tooling/imagegen/pipeline/spriteSheet'),
+  ]);
+  return { removeBackground, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor };
+}
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
 
@@ -2484,6 +2493,7 @@ export async function handleAPI(
       if (mode === 'animation' && !body.prompt) {
         return Response.json({ error: "prompt required for mode 'animation' (the action to animate)" }, { status: 400 });
       }
+      const { removeBackground, downscale, packSheet } = await loadSpritePipeline();
 
       const { imageManager } = await createManagers(params.project, params.session);
 
@@ -2578,6 +2588,7 @@ export async function handleAPI(
       if (!(await hasFfmpeg())) {
         return Response.json({ error: 'ffmpeg not available on the server — required for video frame extraction.' }, { status: 501 });
       }
+      const { removeBackground, packSheet, sliceGrid, autocropRecenter, pickMarkerColor } = await loadSpritePipeline();
 
       const frames = Math.max(2, Math.min(8, body.frames ?? 6));      // poses; >8 clones poses
       const angles = Math.max(2, Math.min(16, body.angles ?? 8));     // facings sampled from the orbit
