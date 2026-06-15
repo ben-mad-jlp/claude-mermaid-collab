@@ -1,8 +1,15 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { makeCoordinatorWorkerDeps } from '../coordinator-bridge';
 import { _resetConfigCache } from '../../../services/config-service';
 
+beforeEach(() => {
+  // Empty config layer so a real configured ANTHROPIC_API_KEY can't leak into these tests.
+  process.env.MERMAID_CONFIG_PATH = '/tmp/__wc_test_empty_config__.json';
+  delete process.env.ANTHROPIC_API_KEY;
+  _resetConfigCache();
+});
 afterEach(() => {
+  delete process.env.MERMAID_CONFIG_PATH;
   delete process.env.ANTHROPIC_API_KEY;
   _resetConfigCache();
 });

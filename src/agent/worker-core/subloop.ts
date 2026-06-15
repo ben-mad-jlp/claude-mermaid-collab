@@ -18,6 +18,7 @@ import type { z } from 'zod';
 import { buildToolset } from './tools/registry';
 import type { SubloopRole } from './capabilities';
 import { EVENT_RESULT_CAP, type WorkerCoreEventSink } from './events';
+import { estimateCostUsd } from './cost';
 
 export interface SubloopCtx {
   /** The lane's worktree root (tools are scoped under it). */
@@ -73,7 +74,9 @@ export async function spawnSubloop<T = unknown>(
 ): Promise<SubloopResult<T>> {
   const tools: Record<string, Tool> = { ...buildToolset(role, { cwd: ctx.cwd }) }; // fresh, capability-gated
   const now = () => Date.now();
-  ctx.onEvent?.({ type: 'phase-start', role, ts: now() });
+  const modelId = (ctx.model as { modelId?: string }).modelId;
+  const phaseUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  ctx.onEvent?.({ type: 'phase-start', role, ts: now(), model: modelId });
 
   // FORCED structured output: a schema phase gets a submit_verdict tool whose input
   // IS the schema. Calling it captures the SDK-validated verdict and ends the phase.
@@ -101,10 +104,14 @@ export async function spawnSubloop<T = unknown>(
     abortSignal: ctx.abortSignal,
     onStepFinish: ctx.onEvent
       ? (step) => {
+          phaseUsage.inputTokens += step.usage?.inputTokens ?? 0;
+          phaseUsage.outputTokens += step.usage?.outputTokens ?? 0;
+          phaseUsage.totalTokens += step.usage?.totalTokens ?? 0;
           ctx.onEvent?.({
             type: 'step',
             role,
             ts: now(),
+            model: modelId,
             text: step.text || undefined,
             toolCalls: step.toolCalls?.map((c) => ({ name: c.toolName, args: c.input })),
             toolResults: step.toolResults?.map((r) => {
@@ -143,6 +150,16 @@ export async function spawnSubloop<T = unknown>(
       }
     }
   }
-  ctx.onEvent?.({ type: 'phase-end', role, ts: now(), steps: out.steps, text: out.text, parseError: out.parseError });
+  ctx.onEvent?.({
+    type: 'phase-end',
+    role,
+    ts: now(),
+    steps: out.steps,
+    text: out.text,
+    parseError: out.parseError,
+    model: modelId,
+    usage: phaseUsage,
+    costUsd: estimateCostUsd(modelId, phaseUsage),
+  });
   return out;
 }

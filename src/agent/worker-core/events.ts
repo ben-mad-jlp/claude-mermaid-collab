@@ -23,11 +23,12 @@ export interface ToolResultEvent {
 }
 
 export type WorkerCoreEvent =
-  | { type: 'phase-start'; role: SubloopRole; ts: number }
+  | { type: 'phase-start'; role: SubloopRole; ts: number; model?: string }
   | {
       type: 'step';
       role: SubloopRole;
       ts: number;
+      model?: string;
       text?: string;
       toolCalls?: ToolCallEvent[];
       toolResults?: ToolResultEvent[];
@@ -40,6 +41,12 @@ export type WorkerCoreEvent =
       steps: number;
       text: string;
       parseError?: string;
+      /** Which model ran this phase (for the cost ledger + routing visibility). */
+      model?: string;
+      /** Summed token usage across the phase's steps. */
+      usage?: PhaseUsage;
+      /** Estimated USD cost for this phase (0 if the model's price is unknown). */
+      costUsd?: number;
     };
 
 export type WorkerCoreEventSink = (e: WorkerCoreEvent) => void;

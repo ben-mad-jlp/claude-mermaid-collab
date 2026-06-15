@@ -296,6 +296,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     const todoId = invokeSkillTodoId(spec.invokeSkill);
     lane.phase = 'working';
     lane.lastPane = grokPaneWorking(0);
+    let runCostUsd = 0;
     try {
       const { runWorkerCore, makeCoordinatorWorkerDeps } = await import('../worker-core');
       const deps = makeCoordinatorWorkerDeps(spec.project, todoId, { provider: 'grok-build' });
@@ -312,7 +313,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
             if (e.type === 'phase-start') {
               lane.step += 1;
               lane.lastPane = grokPaneWorking(lane.step);
-              lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}` });
+              lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}${e.model ? ` (${e.model})` : ''}` });
             } else if (e.type === 'step') {
               lane.step += 1;
               lane.transcript.push({
@@ -322,11 +323,22 @@ class GrokOwnHarnessImpl implements WorkerAgent {
                 toolCalls: e.toolCalls,
                 toolResults: e.toolResults,
               });
+            } else if (e.type === 'phase-end') {
+              // Per-phase cost line → the live transcript + the run total (cost ledger).
+              runCostUsd += e.costUsd ?? 0;
+              const tok = e.usage ? `${e.usage.inputTokens ?? 0}/${e.usage.outputTokens ?? 0} tok` : '';
+              lane.step += 1;
+              lane.transcript.push({
+                step: lane.step,
+                ts: e.ts,
+                text: `◀ ${e.role} · ${e.model ?? '?'} · ${tok} · $${(e.costUsd ?? 0).toFixed(4)}`,
+              });
             }
           },
         },
         deps,
       );
+      lane.transcript.push({ step: ++lane.step, ts: Date.now(), text: `💲 run cost: $${runCostUsd.toFixed(4)}` });
       lane.phase = 'exited';
       lane.lastPane = GROK_PANE_EXITED;
     } catch (e) {

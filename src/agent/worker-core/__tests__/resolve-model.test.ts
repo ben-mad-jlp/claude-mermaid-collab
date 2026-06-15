@@ -1,8 +1,16 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { resolveModel, DEFAULT_MODEL_BY_PROVIDER, anthropicAvailable } from '../resolve-model';
 import { _resetConfigCache } from '../../../services/config-service';
 
+beforeEach(() => {
+  // Point the config layer at a nonexistent file so the real ~/.mermaid-collab/config.json
+  // (which may hold a live ANTHROPIC_API_KEY) doesn't make these env-driven tests flaky.
+  process.env.MERMAID_CONFIG_PATH = '/tmp/__wc_test_empty_config__.json';
+  delete process.env.ANTHROPIC_API_KEY;
+  _resetConfigCache();
+});
 afterEach(() => {
+  delete process.env.MERMAID_CONFIG_PATH;
   delete process.env.ANTHROPIC_API_KEY;
   _resetConfigCache();
 });
