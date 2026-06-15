@@ -37,7 +37,7 @@ import {
   existsSync,
   mkdirSync,
 } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DEFAULT_EVENT_POLL_MS } from '../worker-agent';
 import { getTodo } from '../../services/todo-store';
@@ -139,6 +139,23 @@ export function isRateLimitError(err: unknown): boolean {
   return /\b429\b|rate.?limit|too many requests/i.test(anyErr.message ?? '');
 }
 
+/** Per-project opt-in for the worker-core discipline engine. A project runs
+ *  worker-core ONLY if it is in the WORKER_CORE_PROJECTS config allowlist (comma-
+ *  separated absolute paths and/or basenames) — so enabling it for one project can
+ *  never silently change autonomous (drive-level) projects. WORKER_CORE=1 as an ENV
+ *  var (NOT config) is a global override for local dev only: the GUI sidecar has no
+ *  shell env, so there is no production footgun. */
+export function workerCoreEnabledFor(project: string): boolean {
+  if (process.env.WORKER_CORE === '1') return true; // dev/env-only global override
+  const list = getConfig('WORKER_CORE_PROJECTS', '') ?? '';
+  if (!list.trim()) return false;
+  return list
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .some((p) => project === p || basename(project) === p);
+}
+
 // ---------------------------------------------------------------------------
 // The adapter.
 // ---------------------------------------------------------------------------
@@ -228,15 +245,13 @@ class GrokOwnHarnessImpl implements WorkerAgent {
 
     // Fire the loop. We DO NOT await it here — the daemon observes liveness via
     // isAlive()/events() and completion via the in-process complete_todo funnel.
-    // PARALLEL-RUN: WORKER_CORE=1 opts this lane into the new shared worker-core
-    // discipline engine (host-owned recipe) instead of the flat loop; default is
-    // the flat loop, so this is additive + reversible until worker-core is verified.
-    // Read via getConfig (env-first → config.json) so the DEPLOYED GUI sidecar — which
-    // gets no shell env — can toggle it via ~/.mermaid-collab/config.json (Secrets UI).
-    const driver =
-      getConfig('WORKER_CORE') === '1'
-        ? this.runViaWorkerCore(spec, cwd, lane)
-        : this.runLoop(spec, cwd, lane);
+    // PARALLEL-RUN: opt a lane into the shared worker-core discipline engine instead
+    // of the flat loop. PER-PROJECT by design (workerCoreEnabledFor): only projects
+    // in the WORKER_CORE_PROJECTS allowlist run it, so enabling it for one project can
+    // never silently change autonomous (drive-level) projects. Default = flat loop.
+    const driver = workerCoreEnabledFor(spec.project)
+      ? this.runViaWorkerCore(spec, cwd, lane)
+      : this.runLoop(spec, cwd, lane);
     void driver.catch(() => {
       // the driver already records phase=failed; the hard catch here is the final
       // backstop so a rejected promise can never escape into the daemon tick.
