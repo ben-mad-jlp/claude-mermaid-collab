@@ -16,6 +16,7 @@ export * from './retry';
 export * from './resolve-model';
 export * from './subloop';
 export * from './orchestrator';
+export { makeCoordinatorWorkerDeps, type BridgeOpts } from './coordinator-bridge';
 export { buildToolset, WIRED_TOOLS, type ToolCtx } from './tools/registry';
 export { applyEdit } from './tools/apply-edit';
 export { formatRead, type ReadResult } from './tools/read-file';
