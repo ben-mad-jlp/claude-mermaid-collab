@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
-import { getOrchestratorLevel, levelRank } from './orchestrator-config';
+import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config';
 import { getStatus, recordSessionProvider } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
@@ -32,6 +32,7 @@ import {
   markIdle,
   removeSlot,
   reapDeadSlots,
+  restoreBusySlot,
 } from './worker-pool';
 // PAW P1: route the worker spawn + pane-scrape liveness through the WorkerAgent
 // registry (claude-only today). The pane detectors below are RE-EXPORTED from the
@@ -172,6 +173,59 @@ export async function tmuxPanePid(tmux: string): Promise<number | null> {
  *  (claudeProcessPresent, fleet-status, tmux-reaper) and tests are unchanged. */
 export function claudeAliveInSubtree(rootPid: number, snap: Map<number, { children: number[]; comm: string }>): boolean {
   return agentAliveInSubtree(rootPid, snap, CLAUDE_COMM_MATCHER);
+}
+
+// --- P3 (fe153cdd): restart-reconcile the worker-pool registry ------------------
+// The worker-pool registry (worker-pool.ts) is in-memory with no disk persistence,
+// so a sidecar restart wipes it — yet the workers' tmux sessions survive (detached)
+// and their claimed todos persist in SQLite (status=in_progress, sessionName=lane,
+// targetProject). Without reconciliation the daemon would see an empty pool, spawn
+// a DUPLICATE worker into an already-occupied lane, and never reap the orphaned
+// live session. This rebuilds the busy slots from GROUND TRUTH on startup:
+// mux.list() (the live sessions) ∩ the claimed in-progress todos. Also closes the
+// pre-existing mac persistence gap, not just the Windows one.
+
+/**
+ * Rebuild busy pool slots from the live tmux sessions matched to claimed
+ * in-progress todos. Idempotent and best-effort. Pass `projects` to scope it
+ * (defaults to every orchestrator-tracked project). Returns the restored tmux
+ * names. Run once at sidecar startup BEFORE the orchestrator's first build pass.
+ */
+export async function reconcileWorkerPoolFromLiveSessions(
+  projects?: string[],
+): Promise<{ restored: string[] }> {
+  let live: Set<string>;
+  try {
+    live = new Set((await mux.list()).map((s) => s.name));
+  } catch {
+    return { restored: [] };
+  }
+  if (live.size === 0) return { restored: [] };
+
+  const projectPaths = projects ?? listOrchestratorProjects().map((p) => p.project);
+  const restored: string[] = [];
+  for (const project of projectPaths) {
+    let todos: Todo[];
+    try {
+      todos = listTodos(project, { status: 'in_progress' });
+    } catch {
+      continue;
+    }
+    for (const t of todos) {
+      // Only lanes the daemon launched (a pool sessionName) map to a slot; an
+      // interactive/role session has no slot and its name won't parse.
+      if (!t.sessionName) continue;
+      const targetProject = t.targetProject ?? project;
+      const tmux = tmuxBaseName(targetProject, t.sessionName);
+      if (!live.has(tmux)) continue; // worker died across the restart → leave for the reaper
+      const slot = restoreBusySlot(targetProject, t.sessionName, t.id, tmux);
+      if (slot) restored.push(tmux);
+    }
+  }
+  if (restored.length > 0) {
+    console.log(`[pool-reconcile] restored ${restored.length} busy slot(s) from live sessions: ${restored.join(', ')}`);
+  }
+  return { restored };
 }
 
 /** Is a `claude` process alive in this tmux pane's process subtree? Returns

@@ -12,14 +12,19 @@
  * and a negative result is left uncached so a PATH fix (or install) is picked up
  * on the next attempt.
  */
-import { mux, argvVersion } from './session-mux/index.ts';
+// Import the argv builder from the LEAF module (no deps) — NOT the `mux`
+// singleton from ./session-mux/index — so we don't form the cycle
+// tmux-availability → index → TmuxSessionMux → tmux-availability (TmuxSessionMux's
+// `available()` delegates here). This is the NATIVE tmux probe; the WSL backend
+// overrides `available()` with its own `wsl tmux -V` probe (P2).
+import { argvVersion } from './session-mux/tmux-argv.ts';
 
 let cachedAvailable = false;
 
 export async function isTmuxAvailable(): Promise<boolean> {
   if (cachedAvailable) return true;
   try {
-    const proc = Bun.spawn(mux.cmd(argvVersion()), { stdout: 'ignore', stderr: 'ignore' });
+    const proc = Bun.spawn(argvVersion(), { stdout: 'ignore', stderr: 'ignore' });
     const ok = (await proc.exited) === 0;
     if (ok) cachedAvailable = true;
     return ok;

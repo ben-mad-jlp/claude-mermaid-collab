@@ -242,6 +242,50 @@ export function findIdleSessionForType(project: string, type: PoolType, provider
   return undefined;
 }
 
+/** Inverse of `poolSessionName`: parse `<type>-<provider>-<slot>` back into its
+ *  parts. `provider` may itself contain hyphens (e.g. `grok-build`), so the first
+ *  token is the type, the last is the 1-based slot index, and everything between
+ *  is the provider. Returns null when the name isn't a valid pool-lane name (a
+ *  recognized PoolType + numeric slot) — e.g. an interactive/role session. */
+export function parsePoolSessionName(
+  sessionName: string,
+): { type: PoolType; provider: ProviderId; slot: number } | null {
+  const parts = sessionName.split('-');
+  if (parts.length < 3) return null;
+  const type = parts[0] as PoolType;
+  if (!POOL_TYPES.includes(type)) return null;
+  const slot = Number(parts[parts.length - 1]);
+  if (!Number.isInteger(slot) || slot < 1) return null;
+  const provider = parts.slice(1, -1).join('-') as ProviderId;
+  if (!provider) return null;
+  return { type, provider, slot };
+}
+
+/** Rebuild a BUSY slot in the registry from ground truth (a live tmux session
+ *  matched to a claimed todo on sidecar restart — P3). Pure registry mutation, no
+ *  tmux/IO. Idempotent: overwrites any existing entry for the key. Returns the
+ *  restored slot, or null if `sessionName` isn't a parseable pool-lane name. */
+export function restoreBusySlot(
+  project: string,
+  sessionName: string,
+  todoId: string,
+  tmux: string,
+): PoolSlot | null {
+  const parsed = parsePoolSessionName(sessionName);
+  if (!parsed) return null;
+  const slot: PoolSlot = {
+    project,
+    type: parsed.type,
+    provider: parsed.provider,
+    slot: parsed.slot,
+    status: 'busy',
+    currentTodoId: todoId,
+    tmux,
+  };
+  registry.set(regKey(project, sessionName), slot);
+  return slot;
+}
+
 /** Mark a session busy on a todo. Pass `tmux` (the slot's tmux base name) so the
  *  slot can be reaped on its worker's death independent of todo status. */
 export function markBusy(project: string, sessionName: string, todoId: string, tmux?: string): PoolSlot | undefined {

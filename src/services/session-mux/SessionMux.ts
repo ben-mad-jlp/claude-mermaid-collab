@@ -21,6 +21,15 @@
  * refactor on the live worker spine while consolidating dispatch to one point.
  */
 
+/** A live worker session as reported by the backend's `list()`. */
+export interface SessionInfo {
+  /** The tmux base name — `mc-<repo>-<lane>` (tmuxBaseName). */
+  name: string;
+  /** Session creation time (epoch ms), or null when the backend can't report it.
+   *  Restart-robust clock: survives a sidecar restart unlike an in-memory timer. */
+  createdAt: number | null;
+}
+
 export interface SessionMux {
   /**
    * Map a tmux/ps command argv to the argv actually spawned for this platform.
@@ -33,4 +42,12 @@ export interface SessionMux {
    * `isTmuxAvailable()` so the platform-capability gate has one home.
    */
   available(): Promise<boolean>;
+
+  /**
+   * All live sessions the backend currently owns (tmux `list-sessions`). This is
+   * the persistence-query that replaces the lost-on-restart in-memory worker-pool
+   * registry: on sidecar startup we rebuild busy slots authoritatively from the
+   * live set (P3) instead of guessing. Returns `[]` when no server/sessions exist.
+   */
+  list(): Promise<SessionInfo[]>;
 }

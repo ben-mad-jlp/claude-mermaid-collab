@@ -11,8 +11,9 @@
  * to change, because everything downstream (capture/`ps`-subtree/naming) is the
  * same tmux running inside Linux.
  */
-import type { SessionMux } from './SessionMux.ts';
+import type { SessionMux, SessionInfo } from './SessionMux.ts';
 import { isTmuxAvailable } from '../tmux-availability.ts';
+import { argvListSessions } from './tmux-argv.ts';
 
 export class TmuxSessionMux implements SessionMux {
   /** Native backend: spawn the argv exactly as built. */
@@ -22,5 +23,29 @@ export class TmuxSessionMux implements SessionMux {
 
   available(): Promise<boolean> {
     return isTmuxAvailable();
+  }
+
+  /** `tmux list-sessions -F '#{session_name}\t#{session_created}'` → SessionInfo[].
+   *  Exits non-zero ("no server running") → []. tmux session_created is epoch
+   *  seconds; we normalize to ms. */
+  async list(): Promise<SessionInfo[]> {
+    try {
+      const proc = Bun.spawn(this.cmd(argvListSessions('#{session_name}\t#{session_created}')), {
+        stdout: 'pipe',
+        stderr: 'ignore',
+      });
+      const out = await new Response(proc.stdout).text();
+      if ((await proc.exited) !== 0) return [];
+      const sessions: SessionInfo[] = [];
+      for (const line of out.split('\n')) {
+        const [name, created] = line.split('\t');
+        if (!name) continue;
+        const sec = created ? Number(created) : NaN;
+        sessions.push({ name, createdAt: Number.isFinite(sec) ? sec * 1000 : null });
+      }
+      return sessions;
+    } catch {
+      return [];
+    }
   }
 }
