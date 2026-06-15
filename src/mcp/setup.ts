@@ -234,7 +234,7 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, generateTilesetSchema, generateBackgroundSchema, estimateCostSchema, assetBudgetSchema, replaceSheetCellSchema, generateVoiceoverSchema, applyAudioDspSchema, listAudioSchema, listDspPresetsSchema, generateSfxSchema, generateMusicSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp, handleGenerateTileset, handleGenerateBackground, handleEstimateCost, handleAssetBudget, handleReplaceSheetCell, handleGenerateVoiceover, handleApplyAudioDsp, handleListAudio, handleListDspPresets, handleGenerateSfx, handleGenerateMusic } from './tools/image.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, listAudioSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleListAudio } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2424,25 +2424,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'list_storybook_stories', description: 'List available Storybook stories by fetching index.json from the running Storybook dev server.', inputSchema: listStorybookStoriesSchema },
       { name: 'create_image', description: 'Create an image artifact from a file path, URL, or base64 data URI.', inputSchema: createImageSchema },
       { name: 'generate_image', description: 'Generate an image from a text prompt via Grok Imagine (xAI) and save it as a session image artifact. Returns the saved image id(s) + cost.', inputSchema: generateImageSchema },
-      { name: 'generate_sprite_animation', description: 'Generate an ANIMATED billboard sprite sheet: a Grok Imagine video of a seed character performing an action, chroma-keyed + packed into a transparent atlas (with a frame manifest). Needs ffmpeg on the server.', inputSchema: generateSpriteAnimationSchema },
-      { name: 'generate_sprite_rotation', description: 'Generate a turntable ROTATION sprite strip: a Grok Imagine camera-orbit video of a seed character, chroma-keyed + packed into a transparent atlas of angles (for billboard facing/rotation). Needs ffmpeg on the server.', inputSchema: generateSpriteRotationSchema },
-      { name: 'generate_vfx', description: 'Generate a VISUAL-EFFECT animation sheet (explosion/spark/smoke/ice-spray): Grok video → keyed (chroma or luminance for glow) → packed transparent atlas + manifest + engine exports. Single-facing. Needs ffmpeg.', inputSchema: generateVfxSchema },
-      { name: 'generate_prop', description: 'Generate a single transparent game asset (item/prop/icon): Grok image → chroma-key → optional downscale + project palette. Returns a session image.', inputSchema: generatePropSchema },
-      { name: 'generate_tileset', description: 'Generate seamlessly-tileable terrain/wall tiles (prompt or tiles[]) packed into a tilesheet + Tiled/Godot-friendly manifest. Offset-blend seam-heal + project palette.', inputSchema: generateTilesetSchema },
-      { name: 'generate_background', description: 'Generate a scene background; optional horizontally-seamless base (looping scroll) + optional transparent parallax layers. Returns one image per layer.', inputSchema: generateBackgroundSchema },
-      { name: 'generate_voiceover', description: 'Generate a voiceover via Grok TTS (voices eve/ara/rex/sal/leo) and save as an audio artifact. Optional shared DSP preset (epic-announcer/ice-demon/giant/robot-8bit…) to make it epic.', inputSchema: generateVoiceoverSchema },
-      { name: 'apply_audio_dsp', description: 'Apply a shared DSP/effect preset to an EXISTING audio artifact — the SAME adjustments work on voice, SFX, and music. Returns a new audio artifact.', inputSchema: applyAudioDspSchema },
-      { name: 'generate_sfx', description: 'Generate a retro sound effect: Grok-text picks sfxr synth params from a description (coin/laser/jump/explosion) → pure-JS synth → audio artifact. Optional shared DSP preset.', inputSchema: generateSfxSchema },
-      { name: 'generate_music', description: 'Generate a loopable chiptune track: Grok-text composes a NES-style pattern → pure-JS synth → audio artifact. Optional shared DSP/master preset.', inputSchema: generateMusicSchema },
       { name: 'list_audio', description: 'List audio artifacts in the session.', inputSchema: listAudioSchema },
-      { name: 'list_dsp_presets', description: 'List the shared audio DSP/effect presets.', inputSchema: listDspPresetsSchema },
-      { name: 'estimate_cost', description: 'Preview the USD cost of an asset-generation op before running it (+ current session spend/budget).', inputSchema: estimateCostSchema },
-      { name: 'asset_budget', description: 'Read the session asset-generation spend; or set/clear a spend cap (budgetUsd) that 402-blocks generations once exceeded.', inputSchema: assetBudgetSchema },
-      { name: 'replace_sheet_cell', description: 'Fix one cell of a sprite sheet / tileset: composite a replacement image into the cell (by manifest cellIndex or explicit rect) without re-rolling the whole sheet.', inputSchema: replaceSheetCellSchema },
-      { name: 'define_character', description: 'Define a reusable game CHARACTER (name + description → a locked reference image + optional palette/style). Generation tools reference it so every animation reads as the same character. Auto-generates a canonical reference image from the description if none given.', inputSchema: defineCharacterSchema },
-      { name: 'list_characters', description: 'List defined characters in the session.', inputSchema: listCharactersSchema },
-      { name: 'generate_character_animations', description: 'Batch a character\'s full animation SET: one directional sprite sheet per action, all locked to the character\'s reference for consistent identity. Actions = explicit list and/or a preset (fighter/platformer/topdown). Needs ffmpeg. ~ (1 image + 1 video) per action.', inputSchema: generateCharacterAnimationsSchema },
-      { name: 'generate_sprite_sheet', description: 'Spec-driven DIRECTIONAL ANIMATION sheet (recommended): character + animation + frames + angles → a packed [angles × frames] transparent sprite sheet + manifest. Optionally pass seedImageId to LOCK a specific character (img2img); the pedestal marker color is then auto-picked to be absent from it. Generates a grid of frozen poses on turntable pedestals, orbits it (one clip rotates every cell), then keys/slices/recenters. ~1 image + 1 video. Needs ffmpeg.', inputSchema: generateSpriteSheetSchema },
       { name: 'list_images', description: 'List all image artifacts in a session.', inputSchema: listImagesSchema },
       { name: 'get_image', description: 'Get image artifact metadata by ID. Returns an absolute disk path; use the Read tool on that path to view the image.', inputSchema: getImageSchema },
       { name: 'delete_image', description: 'Delete an image artifact by ID.', inputSchema: deleteImageSchema },
@@ -4361,117 +4343,10 @@ IMPORTANT - Common pitfalls to avoid:
             const result = await handleGenerateImage(project, session, { prompt, name, task, model, n, aspectRatio, resolution });
             return JSON.stringify(result, null, 2);
           }
-          case 'generate_sprite_animation': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
-            const result = await handleGenerateSprite(project, session, 'animation', rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_sprite_rotation': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleGenerateSprite(project, session, 'rotation', rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_sprite_sheet': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.character || !rest.animation) throw new Error('Missing required: project, session, character, animation');
-            const result = await handleGenerateSpriteSheet(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_vfx': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
-            const result = await handleGenerateVfx(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_prop': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
-            const result = await handleGenerateProp(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_voiceover': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.text) throw new Error('Missing required: project, session, text');
-            const result = await handleGenerateVoiceover(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'apply_audio_dsp': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.audioId || !rest.preset) throw new Error('Missing required: project, session, audioId, preset');
-            const result = await handleApplyAudioDsp(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_sfx': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.description) throw new Error('Missing required: project, session, description');
-            const result = await handleGenerateSfx(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_music': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.brief) throw new Error('Missing required: project, session, brief');
-            const result = await handleGenerateMusic(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
           case 'list_audio': {
             const { project, session } = args as any;
             if (!project || !session) throw new Error('Missing required: project, session');
             return JSON.stringify(await handleListAudio(project, session), null, 2);
-          }
-          case 'list_dsp_presets': {
-            const { project, session } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            return JSON.stringify(await handleListDspPresets(project, session), null, 2);
-          }
-          case 'estimate_cost': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.op) throw new Error('Missing required: project, session, op');
-            const result = await handleEstimateCost(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'asset_budget': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleAssetBudget(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'replace_sheet_cell': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.sheetImageId || !rest.replacementImageId) throw new Error('Missing required: project, session, sheetImageId, replacementImageId');
-            const result = await handleReplaceSheetCell(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_tileset': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleGenerateTileset(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_background': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
-            const result = await handleGenerateBackground(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'define_character': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.name) throw new Error('Missing required: project, session, name');
-            const result = await handleDefineCharacter(project, session, rest);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'list_characters': {
-            const { project, session } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleListCharacters(project, session);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_character_animations': {
-            const { project, session, ...rest } = args as any;
-            if (!project || !session || !rest.character) throw new Error('Missing required: project, session, character');
-            const result = await handleGenerateCharacterAnimations(project, session, rest);
-            return JSON.stringify(result, null, 2);
           }
           case 'list_images': {
             const { project, session } = args as any;
