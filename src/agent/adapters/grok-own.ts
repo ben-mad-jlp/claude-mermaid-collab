@@ -4,9 +4,10 @@
  *
  * Unlike ClaudeCodeAgent (which wraps a tmux + `claude` CLI and SCRAPES a pane),
  * this adapter OWNS the worker loop IN-PROCESS: a Vercel AI SDK `generateText`
- * agentic loop driving `xai('grok-build-0.1')` against our REAL MCP tools
- * (get_todo / complete_todo via @modelcontextprotocol/sdk over stdio) plus a set
- * of worktree-scoped file/bash tools. There is no tmux, no pane, no `claude`.
+ * agentic loop driving `xai('grok-build-0.1')` against our completion funnel
+ * (get_todo / complete_todo called IN-PROCESS — the harness already runs inside
+ * the sidecar, so there is no MCP subprocess to spawn) plus a set of
+ * worktree-scoped file/bash tools. There is no tmux, no pane, no `claude`.
  *
  * To satisfy the SAME WorkerAgent port (so the coordinator's watchdog / fleet
  * code never branches on provider), the harness SYNTHESIZES a "pane-equivalent"
@@ -21,8 +22,8 @@
  * provider pin resolves to 'grok-build'. It must also pass the conformance suite
  * (assertGrokConformant) BEFORE it is handed out by the registry.
  *
- * Completion is NEVER trusted from the model: the grok loop calls the REAL MCP
- * `complete_todo` verb (same funnel Claude workers use), which routes through
+ * Completion is NEVER trusted from the model: the grok loop calls the in-process
+ * `complete_todo` funnel (same funnel Claude workers use), which routes through
  * handleWorkerComplete → resolveCompletion (the mechanical gate + the
  * work-committed re-verify) server-side. The harness only INFERS the loop is done
  * — the authoritative accept/reject/pending verdict is the resolver's.
@@ -30,17 +31,16 @@
 import { generateText, stepCountIs, tool } from 'ai';
 import { xai } from '@ai-sdk/xai';
 import { z } from 'zod';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   writeFileSync,
   readFileSync,
   existsSync,
   mkdirSync,
 } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DEFAULT_EVENT_POLL_MS } from '../worker-agent';
+import { getTodo } from '../../services/todo-store';
 import type {
   WorkerAgent,
   WorkerEvent,
@@ -61,14 +61,6 @@ export const GROK_WORKER_DEADLINE_MS = 15 * 60 * 1000;
 
 /** Step cap for the agentic loop (the spike used 50). */
 export const GROK_STEP_CAP = 50;
-
-/** Where the repo root lives — the harness spawns the MCP server (src/mcp/server.ts)
- *  out of it, exactly like the spike. Resolved from THIS file's location so it works
- *  in a worktree (…/.collab/agent-sessions/worktrees/<x>/src/agent/adapters → repo). */
-function repoRoot(): string {
-  // src/agent/adapters/grok-own.ts → up 3 = repo root.
-  return resolve(import.meta.dirname, '..', '..', '..');
-}
 
 // ---------------------------------------------------------------------------
 // Synthetic "pane" lifecycle phases.
@@ -173,7 +165,6 @@ interface GrokLane {
   phase: GrokPhase;
   step: number;
   controller: AbortController;
-  mcp?: Client;
   done: boolean;
   lastPane: string;
   /** Live transcript captured per onStepFinish (NEW; alongside the pane contract). */
@@ -212,31 +203,14 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     };
     this.lanes.set(spec.session, lane);
 
-    // 1. Connect to our REAL MCP server over stdio (mirrors the spike). This
-    //    exposes get_todo / complete_todo so the loop reports through the SAME
-    //    server-authoritative completion funnel Claude workers use.
-    let mcp: Client;
-    try {
-      mcp = new Client({ name: 'grok-own-worker', version: '0.0.0' }, { capabilities: {} });
-      await mcp.connect(
-        new StdioClientTransport({
-          command: 'bun',
-          args: [join(repoRoot(), 'src/mcp/server.ts')],
-          env: { ...process.env, PORT: process.env.PORT ?? '9002', HOST: process.env.HOST ?? 'localhost' },
-        }),
-      );
-      lane.mcp = mcp;
-    } catch (e) {
-      lane.phase = 'failed';
-      lane.done = true;
-      this.lanes.delete(spec.session);
-      return { provider: this.id, ready: false, reason: `mcp-connect-failed: ${e instanceof Error ? e.message : String(e)}` };
-    }
-
-    // 2. Bind the tools (MCP verbs + worktree-scoped file/bash), then kick off the
-    //    loop. The loop runs to completion in the background; launch() returns as
-    //    soon as the session is "ready" (analogous to ensureSession returning on a
-    //    painted TUI). If no invokeSkill was passed, only the session is ensured.
+    // The completion funnel (get_todo / complete_todo) is called IN-PROCESS — the
+    // harness already runs inside the sidecar process, so there is NO MCP
+    // subprocess to spawn (the packaged sidecar has no repo / no `bun` on PATH).
+    // Bind the tools (in-process funnel verbs + worktree-scoped file/bash), then
+    // kick off the loop. The loop runs to completion in the background; launch()
+    // returns as soon as the session is "ready" (analogous to ensureSession
+    // returning on a painted TUI). If no invokeSkill was passed, only the session
+    // is ensured.
     lane.phase = 'ready';
     lane.lastPane = GROK_PANE_READY;
 
@@ -252,8 +226,8 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     }
 
     // Fire the loop. We DO NOT await it here — the daemon observes liveness via
-    // isAlive()/events() and completion via the MCP complete_todo verb.
-    void this.runLoop(spec, cwd, mcp, lane).catch(() => {
+    // isAlive()/events() and completion via the in-process complete_todo funnel.
+    void this.runLoop(spec, cwd, lane).catch(() => {
       // runLoop already records phase=failed; the hard catch here is the final
       // backstop so a rejected promise can never escape into the daemon tick.
       lane.phase = 'failed';
@@ -292,14 +266,8 @@ class GrokOwnHarnessImpl implements WorkerAgent {
   private async runLoop(
     spec: LaunchSpec,
     cwd: string,
-    mcp: Client,
     lane: GrokLane,
   ): Promise<void> {
-    const callMcp = async (name: string, args: Record<string, unknown>): Promise<string> => {
-      const r = (await mcp.callTool({ name, arguments: args })) as { content?: Array<{ text?: string }> };
-      return (r.content ?? []).map((c) => c.text ?? JSON.stringify(c)).join('\n');
-    };
-
     // Worktree-scoped path guard — reject any escape out of the lane's worktree.
     const safe = (p: string): string => {
       const abs = resolve(cwd, p);
@@ -311,12 +279,25 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       get_todo: tool({
         description: 'Read the work-graph todo you are assigned (the task spec).',
         inputSchema: z.object({ project: z.string(), todoId: z.string() }),
-        execute: async (a) => callMcp('get_todo', a),
+        // In-process funnel — no MCP subprocess (we already run in the sidecar).
+        execute: async ({ project, todoId }) => {
+          const todo = getTodo(project, todoId);
+          return todo ? JSON.stringify(todo) : '(todo not found)';
+        },
       }),
       complete_todo: tool({
         description: 'Report completion of your todo: accepted or rejected. The server runs the authoritative gate.',
         inputSchema: z.object({ project: z.string(), todoId: z.string(), acceptance: z.enum(['accepted', 'rejected']) }),
-        execute: async (a) => callMcp('complete_todo', a),
+        // In-process funnel — same server-authoritative resolver Claude workers
+        // hit (handleWorkerComplete → resolveCompletion). DYNAMIC imports here to
+        // break the import cycle: coordinator-live imports the adapter registry,
+        // which imports this file; a static import would close that loop.
+        execute: async ({ project, todoId, acceptance }) => {
+          const { makeCoordinatorDeps } = await import('../../services/coordinator-live');
+          const { handleWorkerComplete } = await import('../../services/coordinator-daemon');
+          const result = await handleWorkerComplete(makeCoordinatorDeps(), project, todoId, acceptance);
+          return JSON.stringify(result);
+        },
       }),
       write_file: tool({
         description: 'Write a file (relative to the worktree root). Do NOT use absolute paths.',
@@ -421,7 +402,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
         },
       });
       // Loop done. Grok completion is INFERRED — the server-authoritative resolver
-      // (run via the MCP complete_todo the loop already called) decides the gate +
+      // (run via the in-process complete_todo the loop already called) decides the gate +
       // epic-branch check. The terminal in-process signal is "no further work".
       lane.phase = 'exited';
       lane.lastPane = GROK_PANE_EXITED;
@@ -435,11 +416,6 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       }
     } finally {
       lane.done = true;
-      try {
-        await mcp.close();
-      } catch {
-        /* best-effort */
-      }
     }
   }
 
@@ -458,17 +434,12 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     return !!lane && !lane.done;
   }
 
-  /** Abort the loop and close the MCP client for a lane (idempotent). */
+  /** Abort the loop for a lane (idempotent). */
   async teardown(session: string): Promise<void> {
     const lane = this.lanes.get(session);
     if (!lane) return;
     try {
       lane.controller.abort();
-    } catch {
-      /* best-effort */
-    }
-    try {
-      await lane.mcp?.close();
     } catch {
       /* best-effort */
     }

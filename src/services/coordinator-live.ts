@@ -1349,7 +1349,39 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // (markBusy / recordDispatch / supervised) is shared; completion for BOTH lanes
       // funnels through the MCP complete_todo verb → handleWorkerComplete →
       // resolveCompletion (gate + work-committed re-verify) — never a model self-report.
-      const launchAgent = provider === 'grok-build' ? resolveGrokAgent() : workerAgent;
+      // NO SILENT GROK→CLAUDE FALLBACK (in-process-mcp fix): for a grok-pinned
+      // todo, resolveGrokAgent() throws unless the GrokOwnHarness passes
+      // conformance. We must NOT swallow that and fall through to the Claude
+      // default agent — a grok-pinned todo running on Claude is a silent
+      // provider swap. Resolve grok in its OWN guarded block; on failure release
+      // the claim and ESCALATE (blocker), then bail — never reassign to Claude.
+      let launchAgent: typeof workerAgent;
+      if (provider === 'grok-build') {
+        try {
+          launchAgent = resolveGrokAgent();
+        } catch (e) {
+          decColdStarts(poolProject);
+          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+          const reasonText = e instanceof Error ? e.message : String(e);
+          try {
+            createEscalation({
+              project,
+              session: poolName,
+              kind: 'blocker',
+              todoId: todo.id,
+              questionText:
+                `Grok worker launch FAILED for "${todo.title ?? todo.id}" — this todo is pinned to ` +
+                `the 'grok-build' provider but resolveGrokAgent() threw: ${reasonText}. The claim has ` +
+                `been released and the todo NOT reassigned to a Claude worker (no silent provider swap). ` +
+                `Resolve the grok harness issue and retry, re-pin the provider, or drop the pin.`,
+            });
+          } catch { /* escalation is best-effort; the released claim already parks the todo */ }
+          recordSupervisorAudit({ kind: 'escalate', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, reason: 'grok-resolve-failed', error: reasonText, released: true }) });
+          return false;
+        }
+      } else {
+        launchAgent = workerAgent;
+      }
       let handle: { ready: boolean; tmux?: string; sent?: boolean; reason?: string } = { ready: false };
       let started = false;
       let reason: string | undefined;
@@ -1361,6 +1393,29 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         decColdStarts(poolProject);
       }
       const ok = started && reason === undefined;
+
+      // NO SILENT GROK→CLAUDE FALLBACK (in-process-mcp fix): a grok-pinned launch
+      // that returns ready:false must ESCALATE rather than leave the claim to be
+      // re-claimed (where the same grok pin would loop) or, worse, run on Claude.
+      // Release the claim + file a blocker; the Claude path is unchanged.
+      if (!ok && provider === 'grok-build') {
+        try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+        try {
+          createEscalation({
+            project,
+            session: poolName,
+            kind: 'blocker',
+            todoId: todo.id,
+            questionText:
+              `Grok worker launch FAILED for "${todo.title ?? todo.id}" — this todo is pinned to the ` +
+              `'grok-build' provider but the harness returned not-ready (reason: ${reason ?? 'unknown'}). ` +
+              `The claim has been released and the todo NOT reassigned to a Claude worker (no silent ` +
+              `provider swap). Resolve the grok launch issue and retry, re-pin, or drop the pin.`,
+          });
+        } catch { /* escalation is best-effort; the released claim already parks the todo */ }
+        recordSupervisorAudit({ kind: 'escalate', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, reason: 'grok-launch-not-ready', launchReason: reason, released: true }) });
+        return false;
+      }
 
       if (ok) {
         // Record the backing tmux so reapDeadSlots can free this slot on the
