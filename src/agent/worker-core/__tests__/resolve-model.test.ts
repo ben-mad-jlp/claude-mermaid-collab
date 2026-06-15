@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { resolveModel, DEFAULT_MODEL_BY_PROVIDER } from '../resolve-model';
+import { describe, it, expect, afterEach } from 'vitest';
+import { resolveModel, DEFAULT_MODEL_BY_PROVIDER, anthropicAvailable } from '../resolve-model';
+import { _resetConfigCache } from '../../../services/config-service';
+
+afterEach(() => {
+  delete process.env.ANTHROPIC_API_KEY;
+  _resetConfigCache();
+});
 
 describe('resolveModel', () => {
   it('resolves grok-build to a LanguageModel with the default id', () => {
@@ -13,13 +19,25 @@ describe('resolveModel', () => {
     expect((m as { modelId?: string }).modelId).toBe('grok-3-mini');
   });
 
-  it('throws a clear not-wired error for claude and codex (SDKs not installed)', () => {
-    expect(() => resolveModel('claude')).toThrow(/not wired in-process yet/);
+  it('claude: throws when no ANTHROPIC_API_KEY, resolves when present', () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    _resetConfigCache();
+    expect(anthropicAvailable()).toBe(false);
+    expect(() => resolveModel('claude')).toThrow(/ANTHROPIC_API_KEY/);
+
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    _resetConfigCache();
+    expect(anthropicAvailable()).toBe(true);
+    const m = resolveModel('claude');
+    expect((m as { modelId?: string }).modelId).toBe('claude-sonnet-4-6');
+  });
+
+  it('codex stays an explicit not-wired stub', () => {
     expect(() => resolveModel('codex')).toThrow(/not wired in-process yet/);
   });
 
   it('exposes a sane default per provider', () => {
     expect(DEFAULT_MODEL_BY_PROVIDER['grok-build']).toBe('grok-build-0.1');
-    expect(DEFAULT_MODEL_BY_PROVIDER.claude).toBeTruthy();
+    expect(DEFAULT_MODEL_BY_PROVIDER.claude).toBe('claude-sonnet-4-6');
   });
 });

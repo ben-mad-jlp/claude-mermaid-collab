@@ -11,15 +11,21 @@
  * authoritative, todo-scoped gate).
  */
 import { getTodo as storeGetTodo } from '../../services/todo-store';
-import { resolveModel } from './resolve-model';
+import { resolveModel, anthropicAvailable } from './resolve-model';
 import type { WorkerCoreDeps, GateOutcome } from './orchestrator';
 import type { ProviderId } from '../worker-agent';
 import type { SubloopRole } from './capabilities';
 
+/** Tier matrix: JUDGMENT phases (blueprint/research, verify, review, sizegate) route
+ *  to Claude — the bakeoff showed grok-build drifts on judgment — while the high-volume
+ *  IMPLEMENT phase stays on the cheap provider. Falls back to the base provider when no
+ *  Anthropic key is configured, so the recipe never hard-fails on a missing key. */
+const JUDGMENT_PHASES = new Set<SubloopRole>(['sizegate', 'research', 'verify', 'review']);
+
 export interface BridgeOpts {
-  /** Provider for this run (grok-build today). */
+  /** Base provider for this run (grok-build) — used for implement + as the judgment fallback. */
   provider: ProviderId;
-  /** Optional per-phase model override (the tier matrix: Opus plan / Haiku impl / …). */
+  /** Optional per-phase model override (e.g. Opus for a hard blueprint). */
   modelByPhase?: (phase: SubloopRole) => string | undefined;
 }
 
@@ -32,7 +38,12 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
       return t ? { todoId: t.id, title: t.title, description: t.description ?? undefined } : null;
     },
 
-    resolveModel: (phase) => resolveModel(opts.provider, opts.modelByPhase?.(phase)),
+    resolveModel: (phase) => {
+      // Judgment phase + a key present → Claude; else the base provider (grok).
+      const useClaude = JUDGMENT_PHASES.has(phase) && anthropicAvailable();
+      const provider: ProviderId = useClaude ? 'claude' : opts.provider;
+      return resolveModel(provider, opts.modelByPhase?.(phase));
+    },
 
     runScopedGate: async (): Promise<GateOutcome> => {
       // The authoritative gate resolves the lane worktree from the todo itself, so the

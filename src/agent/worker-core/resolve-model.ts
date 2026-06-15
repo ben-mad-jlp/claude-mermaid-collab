@@ -12,8 +12,17 @@
  * drifting on model ids — see bakeoff-phase1-blueprints.)
  */
 import { xai } from '@ai-sdk/xai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import type { LanguageModel } from 'ai';
 import type { ProviderId } from '../worker-agent';
+import { getSecret } from '../../services/config-service';
+
+/** True when an Anthropic key is configured (Secrets UI / env) — judgment-phase
+ *  routing falls back to grok when this is false, so the recipe never hard-fails
+ *  on a missing key. */
+export function anthropicAvailable(): boolean {
+  return !!getSecret('ANTHROPIC_API_KEY');
+}
 
 /** Per-provider default model when a phase doesn't pin one. */
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
@@ -27,11 +36,22 @@ export function resolveModel(provider: ProviderId, modelId?: string): LanguageMo
   switch (provider) {
     case 'grok-build':
       return xai(id);
-    case 'claude':
+    case 'claude': {
+      // API key from the Secrets UI / config (NOT a subscription login — the in-process
+      // AI SDK needs a console.anthropic.com key). createAnthropic so we don't depend on
+      // ambient env in the GUI sidecar.
+      const apiKey = getSecret('ANTHROPIC_API_KEY');
+      if (!apiKey) {
+        throw new Error(
+          "worker-core resolveModel: provider 'claude' needs ANTHROPIC_API_KEY (add it in the Secrets UI)",
+        );
+      }
+      return createAnthropic({ apiKey })(id);
+    }
     case 'codex':
       throw new Error(
-        `worker-core resolveModel: provider '${provider}' is not wired in-process yet ` +
-          `(only 'grok-build' via @ai-sdk/xai is installed; add its @ai-sdk SDK + a case to enable)`,
+        `worker-core resolveModel: provider 'codex' is not wired in-process yet ` +
+          `(add its @ai-sdk SDK + a case to enable)`,
       );
     default: {
       // Exhaustiveness: a new ProviderId must add a case above or this fails to compile.
