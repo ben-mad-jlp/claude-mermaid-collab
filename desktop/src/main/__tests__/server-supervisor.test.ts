@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ServerSupervisor, resolveSecretsEnv, resolveFlagsEnv } from '../server-supervisor';
+import { ServerSupervisor, resolveSecretsEnv, resolveFlagsEnv, wrapSidecarForWsl } from '../server-supervisor';
 
 function fakeChild(pid = 12345) {
   const child: any = new EventEmitter();
@@ -341,5 +341,52 @@ describe('resolveFlagsEnv (durable worker-isolation enable — 828a89a9)', () =>
   it('injects nothing when the flag is absent / config missing', () => {
     expect(resolveFlagsEnv({ currentEnv: {}, ...withFile(JSON.stringify({ XAI_API_KEY: 'k' })) })).toEqual({});
     expect(resolveFlagsEnv({ currentEnv: {}, configPath: cfg, existsImpl: () => false, readFileImpl: () => { throw new Error('no'); } })).toEqual({});
+  });
+});
+
+describe('wrapSidecarForWsl (Windows port P6 — sidecar-in-WSL)', () => {
+  const origEnv = { ...process.env };
+  afterEach(() => {
+    for (const k of ['MC_WSL_DISTRO', 'MC_WSL_REPO', 'MC_WSL_SERVER_BIN']) delete process.env[k];
+    Object.assign(process.env, origEnv);
+  });
+
+  it('wraps bun launch in wsl.exe, crossing only sidecar env (not PATH)', () => {
+    process.env.MC_WSL_DISTRO = 'Ubuntu-24.04';
+    process.env.MC_WSL_REPO = '/home/ben/mermaid-collab';
+    const { cmd, args } = wrapSidecarForWsl(
+      'bun',
+      ['run', 'src/server.ts'],
+      { PORT: '9002', HOST: '127.0.0.1', PATH: 'C:\\Windows', MERMAID_PROJECT: '/p', MC_DESKTOP_CONTROL_TOKEN: 't', RANDOM: 'x' },
+      'C:\\repo',
+    );
+    expect(cmd).toBe('wsl.exe');
+    expect(args.slice(0, 5)).toEqual(['-d', 'Ubuntu-24.04', '--', 'bash', '-lc']);
+    const script = args[5];
+    expect(script).toContain("cd '/home/ben/mermaid-collab'");
+    expect(script).toContain('exec bun');
+    expect(script).toContain("export PORT='9002'");
+    expect(script).toContain("export MERMAID_PROJECT='/p'");
+    expect(script).toContain("export MC_DESKTOP_CONTROL_TOKEN='t'");
+    expect(script).not.toContain('PATH=');   // Windows PATH must NOT cross into WSL
+    expect(script).not.toContain('RANDOM=');  // non-sidecar vars excluded
+  });
+
+  it('defaults the WSL repo path to a /mnt/c translation of repoRoot', () => {
+    const { args } = wrapSidecarForWsl('bun', ['run', 'src/server.ts'], { PORT: '9002' }, 'C:\\Users\\ben\\repo');
+    expect(args[5]).toContain("cd '/mnt/c/Users/ben/repo'");
+  });
+
+  it('launches from source even if a Windows serverBinaryPath was chosen', () => {
+    // caller passes the Windows binary; under WSL mode we ignore it and use bun+source
+    const { args } = wrapSidecarForWsl('C:\\app\\mc-server.exe', [], { PORT: '9002' }, 'C:\\repo');
+    expect(args[5]).toContain('exec bun');
+    expect(args[5]).not.toContain('mc-server.exe');
+  });
+
+  it('honors MC_WSL_SERVER_BIN for a Linux-native sidecar binary', () => {
+    process.env.MC_WSL_SERVER_BIN = '/opt/mc/mc-server';
+    const { args } = wrapSidecarForWsl('bun', ['run', 'src/server.ts'], { PORT: '9002' }, 'C:\\repo');
+    expect(args[5]).toContain('exec /opt/mc/mc-server');
   });
 });

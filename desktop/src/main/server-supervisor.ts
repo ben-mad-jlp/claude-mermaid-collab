@@ -4,6 +4,43 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { performHandshake, serverOwner } from '../../../src/services/port-ownership';
+import { buildWslSidecarCommand } from '../../../src/services/wsl/sidecar-launch';
+import { winToWslPath } from '../../../src/services/session-mux/wsl-path';
+
+/**
+ * P6: transform a native sidecar launch into one that runs inside WSL. Crosses
+ * only the sidecar's own env vars (the MERMAID_, MC_ and XAI_ prefixes, plus PORT,
+ * HOST and CDP_PORT) — NOT the Windows PATH. The repo path inside WSL defaults to a /mnt/c translation
+ * of repoRoot (override with MC_WSL_REPO for an ext4 checkout). When a Windows
+ * `serverBinaryPath` was chosen it can't run in Linux, so under WSL mode we launch
+ * from source (`bun run src/server.ts`) unless MC_WSL_SERVER_BIN names a Linux binary.
+ */
+export function wrapSidecarForWsl(
+  cmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  repoRoot: string,
+): { cmd: string; args: string[] } {
+  const distro = process.env.MC_WSL_DISTRO || 'Ubuntu';
+  const repoWslPath = process.env.MC_WSL_REPO || winToWslPath(repoRoot);
+  const runtime = process.env.MC_WSL_SERVER_BIN
+    ? { cmd: process.env.MC_WSL_SERVER_BIN, args: [] as string[] }
+    : { cmd: 'bun', args: ['run', 'src/server.ts'] };
+  const crossEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (v == null || k === 'PATH') continue;
+    if (/^(MERMAID_|MC_|XAI_)/.test(k) || k === 'PORT' || k === 'HOST' || k === 'CDP_PORT') {
+      crossEnv[k] = v;
+    }
+  }
+  return buildWslSidecarCommand({
+    distro,
+    repoWslPath,
+    runtime,
+    env: crossEnv,
+    pathKeys: ['MERMAID_RESOURCES_PATH', 'MERMAID_CONFIG_PATH'],
+  });
+}
 
 export interface SupervisorOpts {
   repoRoot: string;
@@ -383,6 +420,18 @@ export class ServerSupervisor {
     } else {
       cmd = 'bun';
       args = ['run', 'src/server.ts'];
+    }
+
+    // Windows port P6 (sidecar-in-WSL, decision 588c6df1): OPT-IN via
+    // MC_SIDECAR_IN_WSL=1 — launch the sidecar INSIDE a WSL distro so it runs as a
+    // native Linux process (TmuxSessionMux drives tmux-in-WSL with no wrapping).
+    // Fully gated by win32 + the flag, so it never touches the proven mac/linux
+    // path. Boot-validation pending a WSL2-capable host (the dev VM's WSL2 is
+    // blocked by the Apple-Silicon/Parallels nested-virt wall).
+    if (process.platform === 'win32' && process.env.MC_SIDECAR_IN_WSL === '1') {
+      const wrapped = wrapSidecarForWsl(cmd, args, env, this.opts.repoRoot);
+      cmd = wrapped.cmd;
+      args = wrapped.args;
     }
 
     this.child = this.spawnImpl(cmd, args, {
