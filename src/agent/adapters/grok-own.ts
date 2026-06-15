@@ -227,8 +227,15 @@ class GrokOwnHarnessImpl implements WorkerAgent {
 
     // Fire the loop. We DO NOT await it here — the daemon observes liveness via
     // isAlive()/events() and completion via the in-process complete_todo funnel.
-    void this.runLoop(spec, cwd, lane).catch(() => {
-      // runLoop already records phase=failed; the hard catch here is the final
+    // PARALLEL-RUN: WORKER_CORE=1 opts this lane into the new shared worker-core
+    // discipline engine (host-owned recipe) instead of the flat loop; default is
+    // the flat loop, so this is additive + reversible until worker-core is verified.
+    const driver =
+      process.env.WORKER_CORE === '1'
+        ? this.runViaWorkerCore(spec, cwd, lane)
+        : this.runLoop(spec, cwd, lane);
+    void driver.catch(() => {
+      // the driver already records phase=failed; the hard catch here is the final
       // backstop so a rejected promise can never escape into the daemon tick.
       lane.phase = 'failed';
       lane.done = true;
@@ -263,6 +270,60 @@ class GrokOwnHarnessImpl implements WorkerAgent {
 
   /** The in-process agentic loop. Wrapped in a hard try/catch + a per-worker
    *  deadline so one bad loop can't wobble the daemon. */
+  /** PARALLEL-RUN driver: run this lane through the shared worker-core discipline
+   *  engine (the host-owned vibe-go recipe) instead of the flat loop. Selected by
+   *  WORKER_CORE=1. Dynamic import keeps the adapter↔worker-core↔coordinator graph
+   *  cycle-free. Completion is host-authoritative inside runWorkerCore. */
+  private async runViaWorkerCore(spec: LaunchSpec, cwd: string, lane: GrokLane): Promise<void> {
+    const todoId = invokeSkillTodoId(spec.invokeSkill);
+    lane.phase = 'working';
+    lane.lastPane = grokPaneWorking(0);
+    try {
+      const { runWorkerCore, makeCoordinatorWorkerDeps } = await import('../worker-core');
+      const deps = makeCoordinatorWorkerDeps(spec.project, todoId, { provider: 'grok-build' });
+      await runWorkerCore(
+        {
+          project: spec.project,
+          todoId,
+          cwd,
+          abortSignal: lane.controller.signal,
+          // Sink worker-core phase events into the SAME live transcript the Bridge
+          // console reads (/api/worker-transcript) — the worker-core path is observable
+          // in the existing UI, no black box (north-star §6).
+          onEvent: (e) => {
+            if (e.type === 'phase-start') {
+              lane.step += 1;
+              lane.lastPane = grokPaneWorking(lane.step);
+              lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}` });
+            } else if (e.type === 'step') {
+              lane.step += 1;
+              lane.transcript.push({
+                step: lane.step,
+                ts: e.ts,
+                text: e.text,
+                toolCalls: e.toolCalls,
+                toolResults: e.toolResults,
+              });
+            }
+          },
+        },
+        deps,
+      );
+      lane.phase = 'exited';
+      lane.lastPane = GROK_PANE_EXITED;
+    } catch (e) {
+      if (isRateLimitError(e)) {
+        lane.phase = 'rate-limited';
+        lane.lastPane = GROK_PANE_RATE_LIMITED;
+      } else {
+        lane.phase = 'failed';
+        lane.lastPane = GROK_PANE_EXITED;
+      }
+    } finally {
+      lane.done = true;
+    }
+  }
+
   private async runLoop(
     spec: LaunchSpec,
     cwd: string,
