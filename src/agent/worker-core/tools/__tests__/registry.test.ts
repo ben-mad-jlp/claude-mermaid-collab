@@ -13,9 +13,9 @@ afterEach(() => {
 });
 
 describe('buildToolset', () => {
-  it('implement gets the writer tools', () => {
+  it('implement gets the writer + search tools', () => {
     const ts = buildToolset('implement', { cwd });
-    expect(Object.keys(ts).sort()).toEqual(['edit', 'read_file', 'run_bash', 'write_file']);
+    expect(Object.keys(ts).sort()).toEqual(['edit', 'glob', 'grep', 'read_file', 'run_bash', 'write_file']);
   });
 
   it('verify (read-only) gets read tools but NO writer/mutating tools', () => {
@@ -39,7 +39,15 @@ describe('buildToolset', () => {
     expect(parsed.totalLines).toBe(2);
   });
 
-  it('only wired tools are exposed (grep/glob/diagrams pending)', () => {
-    expect(WIRED_TOOLS.sort()).toEqual(['edit', 'read_file', 'run_bash', 'run_bash_ro', 'write_file']);
+  it('exposes the wired tools (diagrams still pending the collab funnel)', () => {
+    expect(WIRED_TOOLS.sort()).toEqual([
+      'edit',
+      'glob',
+      'grep',
+      'read_file',
+      'run_bash',
+      'run_bash_ro',
+      'write_file',
+    ]);
   });
 });

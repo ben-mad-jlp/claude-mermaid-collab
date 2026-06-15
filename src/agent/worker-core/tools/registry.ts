@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { resolveRoleTools, type SubloopRole, type ToolName } from '../capabilities';
 import { readFileOp, writeFileOp, editFileOp } from './fs-ops';
 import { bashOp } from './bash-ops';
+import { grepOp, globOp } from './search';
 
 export interface ToolCtx {
   /** The lane's worktree root — every tool is scoped under it. */
@@ -60,6 +61,18 @@ const FACTORIES: Partial<Record<ToolName, Factory>> = {
       description: 'Run a READ-ONLY bash command in the worktree (obvious mutators are blocked).',
       inputSchema: z.object({ cmd: z.string() }),
       execute: async ({ cmd }) => JSON.stringify(bashOp(ctx.cwd, cmd, { readOnly: true })),
+    }),
+  grep: (ctx) =>
+    tool({
+      description: 'Search file contents in the worktree by regex (optionally restricted to a glob).',
+      inputSchema: z.object({ pattern: z.string(), glob: z.string().optional() }),
+      execute: async ({ pattern, glob }) => JSON.stringify(grepOp(ctx.cwd, pattern, { glob })),
+    }),
+  glob: (ctx) =>
+    tool({
+      description: 'List worktree files whose path matches a glob (** across dirs, * within a segment).',
+      inputSchema: z.object({ pattern: z.string() }),
+      execute: async ({ pattern }) => JSON.stringify(globOp(ctx.cwd, pattern)),
     }),
 };
 
