@@ -15,6 +15,7 @@
  * an in-memory pid→session map and a POST to `/api/claude-session/register`.
  */
 import * as fs from 'node:fs';
+import { mux, argvListPanesPanePid } from './session-mux/index.ts';
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -40,7 +41,7 @@ export interface LaneRegisterDeps {
 
 function defaultPanePid(tmux: string): number | null {
   try {
-    const p = Bun.spawnSync(['tmux', 'list-panes', '-t', tmux, '-F', '#{pane_pid}'], { stdout: 'pipe', stderr: 'ignore' });
+    const p = Bun.spawnSync(mux.cmd(argvListPanesPanePid(tmux)), { stdout: 'pipe', stderr: 'ignore' });
     const first = (p.stdout?.toString() ?? '').split('\n').map((l) => l.trim()).filter(Boolean)[0];
     const pid = Number(first);
     return Number.isInteger(pid) && pid > 0 ? pid : null;

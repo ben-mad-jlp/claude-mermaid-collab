@@ -13,6 +13,7 @@
  */
 import { listTodos } from './todo-store';
 import { tmuxBaseName } from './tmux-naming';
+import { mux, argvLs, argvHasSession, argvListPanesPanePid, argvCapturePane, argvPsUidComm } from './session-mux/index.ts';
 import { resolveWorkerAgent, getGrokHarnessForInspection } from '../agent/registry';
 import { getStatus } from './session-status-store';
 import type { ProviderId } from '../agent/worker-agent';
@@ -123,7 +124,7 @@ type ProcSnapshot = {
  *  headroom read costs no extra spawn (uid column added to the one ps call). */
 function procSnapshot(): ProcSnapshot | null {
   try {
-    const out = Bun.spawnSync(['ps', '-axo', 'pid=,ppid=,uid=,comm='], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
+    const out = Bun.spawnSync(mux.cmd(argvPsUidComm()), { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
     if (!out.trim()) return null;
     const myUid = typeof process.getuid === 'function' ? process.getuid() : null;
     let liveProcsForUid = myUid != null ? 0 : null;
@@ -167,7 +168,7 @@ function perUidProcCap(): number | null {
 /** Count live `mc-*` tmux sessions (the fleet's worker panes). null if tmux can't be queried. */
 function mcTmuxSessionCount(): number | null {
   try {
-    const p = Bun.spawnSync(['tmux', 'ls', '-F', '#{session_name}'], { stdout: 'pipe', stderr: 'ignore' });
+    const p = Bun.spawnSync(mux.cmd(argvLs('#{session_name}')), { stdout: 'pipe', stderr: 'ignore' });
     // No tmux server running ⇒ no sessions. tmux exits non-zero with "no server"
     // on stderr; treat a clean "nothing" as zero, an actual spawn failure as null.
     if (p.exitCode !== 0) return 0;
@@ -180,7 +181,7 @@ function mcTmuxSessionCount(): number | null {
 
 function tmuxAlive(tmux: string): boolean {
   try {
-    return Bun.spawnSync(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
+    return Bun.spawnSync(mux.cmd(argvHasSession(tmux)), { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
   } catch {
     return true; // uncertain → assume alive (don't mislabel as gone)
   }
@@ -188,7 +189,7 @@ function tmuxAlive(tmux: string): boolean {
 
 function tmuxPanePid(tmux: string): number | null {
   try {
-    const p = Bun.spawnSync(['tmux', 'list-panes', '-t', tmux, '-F', '#{pane_pid}'], { stdout: 'pipe', stderr: 'ignore' });
+    const p = Bun.spawnSync(mux.cmd(argvListPanesPanePid(tmux)), { stdout: 'pipe', stderr: 'ignore' });
     const first = (p.stdout?.toString() ?? '').split('\n').map((l) => l.trim()).filter(Boolean)[0];
     const n = Number(first);
     return Number.isInteger(n) && n > 0 ? n : null;
@@ -199,7 +200,7 @@ function tmuxPanePid(tmux: string): number | null {
 
 function capturePane(tmux: string): string {
   try {
-    return Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
+    return Bun.spawnSync(mux.cmd(argvCapturePane(tmux)), { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
   } catch {
     return '';
   }

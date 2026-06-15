@@ -5,6 +5,7 @@ import { tmuxBaseName } from '../services/tmux-naming.js';
 import { getSupervisedLaunchProject } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { launchAndBind } from '../services/claude-launch.ts';
+import { mux, argvNewSession, argvLs } from '../services/session-mux/index.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -88,7 +89,7 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
           // Resources dir) and `claude`/`git` would run against the wrong folder.
           // `-c` is ignored by tmux if the session already exists (desired no-op).
           const proc = Bun.spawn(
-            ['tmux', 'new-session', '-d', '-s', tmuxSession, '-c', launchProject],
+            mux.cmd(argvNewSession(tmuxSession, launchProject)),
             { stdout: 'ignore', stderr: 'ignore' }
           );
           await proc.exited; // ok if it fails (session already exists)
@@ -173,7 +174,7 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
 
   if (url.pathname === '/api/ide/tmux-sessions' && req.method === 'GET') {
     try {
-      const proc = Bun.spawn(['tmux', 'ls', '-F', '#{session_name}'], { stdout: 'pipe', stderr: 'ignore' });
+      const proc = Bun.spawn(mux.cmd(argvLs('#{session_name}')), { stdout: 'pipe', stderr: 'ignore' });
       const stdout = await new Response(proc.stdout).text();
       await proc.exited;
       const sessions = stdout.trim().split('\n').filter(Boolean);

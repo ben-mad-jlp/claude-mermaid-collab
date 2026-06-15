@@ -8,6 +8,7 @@ import { tmuxBaseName } from './tmux-naming.js';
 import { sendTmuxKeysRaw } from './tmux-send.ts';
 import { healStaleTmuxSession } from './tmux-session.ts';
 import { registerLaneClaudeSession } from './lane-session-register.ts';
+import { mux, argvCapturePane, argvKillSession, argvHasSession, argvNewSession } from './session-mux/index.ts';
 import { existsSync } from 'node:fs';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -26,7 +27,7 @@ function runtimeModeFlags(mode?: 'read-only' | 'edit' | 'bypass'): string {
 /** Capture the tmux pane text for `tmux`; '' on any failure. */
 function capturePane(tmux: string): string {
   try {
-    const p = Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' });
+    const p = Bun.spawnSync(mux.cmd(argvCapturePane(tmux)), { stdout: 'pipe', stderr: 'ignore' });
     return p.stdout?.toString() ?? '';
   } catch { return ''; }
 }
@@ -34,7 +35,7 @@ function capturePane(tmux: string): string {
 /** Kill a tmux session (best-effort). Used to tear down a bare-shell session that
  *  failed to bring up Claude, so a retry re-creates it cleanly. */
 function killTmux(tmux: string): void {
-  try { Bun.spawnSync(['tmux', 'kill-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' }); } catch { /* best-effort */ }
+  try { Bun.spawnSync(mux.cmd(argvKillSession(tmux)), { stdout: 'ignore', stderr: 'ignore' }); } catch { /* best-effort */ }
 }
 
 // The status bar (e.g. "🧠 0% ctx |" / "← for agents") only renders once the
@@ -91,10 +92,10 @@ export async function ensureSession(opts: {
     // already exists AND claude is interactive + collab-bound, reuse it.
     let alreadyExisted = false;
     try {
-      const check = Bun.spawn(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
+      const check = Bun.spawn(mux.cmd(argvHasSession(tmux)), { stdout: 'ignore', stderr: 'ignore' });
       alreadyExisted = (await check.exited) === 0;
       if (!alreadyExisted) {
-        const create = Bun.spawn(['tmux', 'new-session', '-d', '-s', tmux, '-c', launchCwd], { stdout: 'ignore', stderr: 'ignore' });
+        const create = Bun.spawn(mux.cmd(argvNewSession(tmux, launchCwd)), { stdout: 'ignore', stderr: 'ignore' });
         await create.exited;
       }
     } catch (e: any) {
@@ -187,7 +188,7 @@ export async function runTodoInSession(opts: {
 }): Promise<{ sent: boolean; reason?: string }> {
   try {
     const tmux = opts.tmux ?? opts.session;
-    const check = Bun.spawn(['tmux', 'has-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
+    const check = Bun.spawn(mux.cmd(argvHasSession(tmux)), { stdout: 'ignore', stderr: 'ignore' });
     if ((await check.exited) !== 0) return { sent: false, reason: 'no-tmux' };
 
     await sleep(12000);

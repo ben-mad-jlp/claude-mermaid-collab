@@ -10,6 +10,7 @@ import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
+import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
 import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
@@ -94,7 +95,7 @@ async function execAsync(
 /** True if a tmux session with this base name exists (worker still alive). */
 async function isTmuxAlive(tmux: string): Promise<boolean> {
   try {
-    return (await execAsync(['tmux', 'has-session', '-t', tmux])).code === 0;
+    return (await execAsync(mux.cmd(argvHasSession(tmux)))).code === 0;
   } catch {
     // can't check → assume alive (don't reclaim on uncertainty; the lease still backstops).
     return true;
@@ -106,7 +107,7 @@ async function isTmuxAlive(tmux: string): Promise<boolean> {
  *  removed on merge-back (drop keep-warm, decision c4a8bf40). */
 async function killTmuxSession(tmux: string): Promise<void> {
   try {
-    await execAsync(['tmux', 'kill-session', '-t', tmux]);
+    await execAsync(mux.cmd(argvKillSession(tmux)));
   } catch {
     /* best-effort */
   }
@@ -126,7 +127,7 @@ async function killTmuxSession(tmux: string): Promise<void> {
  *  Returns null if ps is unavailable (→ callers treat liveness as unknown). */
 export async function procSnapshot(): Promise<Map<number, { children: number[]; comm: string }> | null> {
   try {
-    const out = (await execAsync(['ps', '-axo', 'pid=,ppid=,comm='], { capture: true })).stdout;
+    const out = (await execAsync(mux.cmd(argvPsComm()), { capture: true })).stdout;
     if (!out.trim()) return null;
     const byPid = new Map<number, { children: number[]; comm: string }>();
     const rows: Array<{ pid: number; ppid: number; comm: string }> = [];
@@ -155,7 +156,7 @@ export async function procSnapshot(): Promise<Map<number, { children: number[]; 
 /** The shell PID running in a tmux session's (first) pane, or null. */
 export async function tmuxPanePid(tmux: string): Promise<number | null> {
   try {
-    const out = (await execAsync(['tmux', 'list-panes', '-t', tmux, '-F', '#{pane_pid}'], { capture: true })).stdout;
+    const out = (await execAsync(mux.cmd(argvListPanesPanePid(tmux)), { capture: true })).stdout;
     const first = out.split('\n').map((l) => l.trim()).filter(Boolean)[0];
     const n = Number(first);
     return Number.isInteger(n) && n > 0 ? n : null;
@@ -269,7 +270,7 @@ export function getMaxColdStarts(): number {
 /** Read a worker's rendered tmux pane (point-in-time). '' if unreadable. */
 async function capturePane(tmux: string): Promise<string> {
   try {
-    return (await execAsync(['tmux', 'capture-pane', '-t', tmux, '-p'], { capture: true })).stdout;
+    return (await execAsync(mux.cmd(argvCapturePane(tmux)), { capture: true })).stdout;
   } catch {
     return '';
   }

@@ -8,9 +8,10 @@
  * `new-session -c <project>` recreates it in the right place.
  */
 import { isTmuxAvailable } from './tmux-availability.ts';
+import { mux } from './session-mux/index.ts';
 
 async function tmuxOut(args: string[]): Promise<{ code: number; out: string }> {
-  const p = Bun.spawn(['tmux', ...args], { stdout: 'pipe', stderr: 'ignore' });
+  const p = Bun.spawn(mux.cmd(['tmux', ...args]), { stdout: 'pipe', stderr: 'ignore' });
   const out = (await new Response(p.stdout).text()).trim();
   return { code: await p.exited, out };
 }

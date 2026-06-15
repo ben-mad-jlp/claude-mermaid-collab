@@ -1,4 +1,5 @@
 import { tmuxBaseName } from './tmux-naming.js';
+import { mux, argvHasSession, argvSendKeysLiteral, argvSendKeysEnter } from './session-mux/index.ts';
 
 export interface TmuxSendResult {
   sent: boolean;
@@ -32,16 +33,16 @@ export async function sendTmuxKeysRaw(
 ): Promise<TmuxSendResult> {
   const submit = opts?.submit ?? true;
   try {
-    const check = Bun.spawn(['tmux', 'has-session', '-t', tmuxSession], { stdout: 'ignore', stderr: 'ignore' });
+    const check = Bun.spawn(mux.cmd(argvHasSession(tmuxSession)), { stdout: 'ignore', stderr: 'ignore' });
     if ((await check.exited) !== 0) return { sent: false, reason: 'no-session' };
     // Type the literal text (no key-name interpretation), then submit with a
     // standalone Enter after a beat so the TUI registers the input first.
-    const typed = Bun.spawn(['tmux', 'send-keys', '-t', tmuxSession, '-l', text], { stdout: 'ignore', stderr: 'ignore' });
+    const typed = Bun.spawn(mux.cmd(argvSendKeysLiteral(tmuxSession, text)), { stdout: 'ignore', stderr: 'ignore' });
     await typed.exited;
     // Compose / type-only: leave the text staged in the REPL, no submit.
     if (!submit) return { sent: true };
     await sleep(150);
-    const enter = Bun.spawn(['tmux', 'send-keys', '-t', tmuxSession, 'Enter'], { stdout: 'ignore', stderr: 'ignore' });
+    const enter = Bun.spawn(mux.cmd(argvSendKeysEnter(tmuxSession)), { stdout: 'ignore', stderr: 'ignore' });
     await enter.exited;
     return { sent: true };
   } catch (e: any) {

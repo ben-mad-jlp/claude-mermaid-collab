@@ -15,6 +15,7 @@
  * helpers so the "alive" test is identical.
  */
 import { procSnapshot, tmuxPanePid, claudeAliveInSubtree, isClaudeTuiPresent } from './coordinator-live.ts';
+import { mux, argvListSessions, argvCapturePane, argvKillSession } from './session-mux/index.ts';
 
 /** Only collab-owned sessions (tmuxBaseName prefixes every name with `mc-`). */
 const MC_PREFIX = 'mc-';
@@ -63,7 +64,7 @@ interface TmuxSessionInfo {
 /** List `mc-*` tmux sessions with their creation time (epoch ms). */
 async function listMcSessions(): Promise<TmuxSessionInfo[]> {
   try {
-    const proc = Bun.spawn(['tmux', 'list-sessions', '-F', '#{session_name}\t#{session_created}'], {
+    const proc = Bun.spawn(mux.cmd(argvListSessions('#{session_name}\t#{session_created}')), {
       stdout: 'pipe',
       stderr: 'ignore',
     });
@@ -84,7 +85,7 @@ async function listMcSessions(): Promise<TmuxSessionInfo[]> {
 
 function capturePane(tmux: string): string {
   try {
-    const p = Bun.spawnSync(['tmux', 'capture-pane', '-t', tmux, '-p'], { stdout: 'pipe', stderr: 'ignore' });
+    const p = Bun.spawnSync(mux.cmd(argvCapturePane(tmux)), { stdout: 'pipe', stderr: 'ignore' });
     return p.stdout?.toString() ?? '';
   } catch {
     return '';
@@ -93,7 +94,7 @@ function capturePane(tmux: string): string {
 
 async function killSession(tmux: string): Promise<void> {
   try {
-    const p = Bun.spawn(['tmux', 'kill-session', '-t', tmux], { stdout: 'ignore', stderr: 'ignore' });
+    const p = Bun.spawn(mux.cmd(argvKillSession(tmux)), { stdout: 'ignore', stderr: 'ignore' });
     await p.exited;
   } catch {
     /* best-effort */

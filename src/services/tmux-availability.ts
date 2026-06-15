@@ -12,12 +12,14 @@
  * and a negative result is left uncached so a PATH fix (or install) is picked up
  * on the next attempt.
  */
+import { mux, argvVersion } from './session-mux/index.ts';
+
 let cachedAvailable = false;
 
 export async function isTmuxAvailable(): Promise<boolean> {
   if (cachedAvailable) return true;
   try {
-    const proc = Bun.spawn(['tmux', '-V'], { stdout: 'ignore', stderr: 'ignore' });
+    const proc = Bun.spawn(mux.cmd(argvVersion()), { stdout: 'ignore', stderr: 'ignore' });
     const ok = (await proc.exited) === 0;
     if (ok) cachedAvailable = true;
     return ok;
