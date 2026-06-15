@@ -2797,6 +2797,35 @@ export async function handleAPI(
     return Response.json({ ok: true, queued: true });
   }
 
+  // POST /api/session/provider { project, session, provider }
+  // PAW P3 write-path: pin which worker provider a session's todos route to
+  // (resolveProvider reads this session-status pin). 'claude' / null clears the
+  // pin back to the default floor. The ProviderSelector UI calls this; it is also
+  // how a grok-build trial todo gets routed to the GrokOwnHarness.
+  if (path === '/api/session/provider' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      project?: string;
+      session?: string;
+      provider?: string | null;
+    };
+    if (!body.project || !body.session) {
+      return Response.json({ ok: false, reason: 'project-and-session-required' }, { status: 400 });
+    }
+    const allowed = ['claude', 'grok-build', 'codex'] as const;
+    const provider =
+      body.provider == null || body.provider === 'claude'
+        ? null
+        : (allowed.includes(body.provider as (typeof allowed)[number])
+            ? (body.provider as 'grok-build' | 'codex')
+            : undefined);
+    if (provider === undefined) {
+      return Response.json({ ok: false, reason: `unknown-provider: ${body.provider}` }, { status: 400 });
+    }
+    const { recordSessionProvider } = await import('../services/session-status-store');
+    recordSessionProvider(body.project, body.session, provider);
+    return Response.json({ ok: true, project: body.project, session: body.session, provider: provider ?? 'claude' });
+  }
+
   // GET /api/transcript/last-turn?claudeSessionId=  (peer-callable)
   if (path === '/api/transcript/last-turn' && req.method === 'GET') {
     const claudeSessionId = url.searchParams.get('claudeSessionId');
