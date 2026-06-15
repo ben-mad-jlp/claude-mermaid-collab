@@ -54,20 +54,23 @@ export type WorkerCoreOutcome =
   | { outcome: 'noop'; reason: string };
 
 const researchPrompt = (s: TodoSpec) =>
-  `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\nResearch the change. Read the relevant files, then OUTPUT a JSON object: ` +
-  `{ "filesToEdit": string[], "plan": string, "testCommand"?: string, "behavioral": boolean }. Output ONLY the JSON.`;
+  `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\n` +
+  `Do MINIMAL exploration — at most 1-2 read-only commands, ONLY inside the current worktree (NEVER explore the wider filesystem with paths like / or /app). ` +
+  `If the task is self-explanatory, do NOT explore at all. Then immediately reply with ONLY a JSON object (no prose, no markdown fence): ` +
+  `{ "filesToEdit": string[], "plan": string, "testCommand"?: string, "behavioral": boolean }`;
 
 const implementPrompt = (s: TodoSpec, plan: string, files: string[]) =>
   `TASK: ${s.title}\n\nIMPLEMENT this plan exactly (edit only these files: ${files.join(', ')}):\n${plan}\n\n` +
-  `Make the edits, run the tests, and commit. Do not report completion — stop when committed.`;
+  `Make the edits. If there are tests run them; if there are none, skip. Then run \`git add -A && git commit -m "<summary>"\` and STOP IMMEDIATELY — do not keep exploring or re-listing files. Do not report completion.`;
 
 const verifyPrompt = (s: TodoSpec, plan: string) =>
-  `SPEC: ${s.title}\nPLAN: ${plan}\n\nYou did NOT write this code. Independently verify the change-set satisfies the spec. ` +
-  `Run the tests. OUTPUT JSON: { "pass": boolean, "failingChecks": string[], "errorSignatures": string[] }. Output ONLY the JSON.`;
+  `SPEC: ${s.title}\nPLAN: ${plan}\n\nYou did NOT write this code. Briefly + independently verify the change-set satisfies the spec (read/check as needed, but be concise). ` +
+  `Your FINAL message MUST be ONLY this JSON object — no prose, no markdown fence, no commentary before or after: ` +
+  `{ "pass": boolean, "failingChecks": string[], "errorSignatures": string[] }`;
 
 const reviewPrompt = (s: TodoSpec) =>
-  `SPEC: ${s.title}\n${s.description ?? ''}\n\nRead-only completeness review of the change-set vs the spec — find missing cases / spec drift / stopped-early. ` +
-  `OUTPUT JSON: { "complete": boolean, "gaps": string[] }. Output ONLY the JSON.`;
+  `SPEC: ${s.title}\n${s.description ?? ''}\n\nRead-only completeness review of the change-set vs the spec — missing cases / spec drift / stopped-early. ` +
+  `Your FINAL message MUST be ONLY this JSON object — no prose, no fence: { "complete": boolean, "gaps": string[] }`;
 
 export async function runWorkerCore(
   ctx: { project: string; todoId: string; cwd: string; abortSignal?: AbortSignal; onEvent?: WorkerCoreEventSink },
@@ -82,7 +85,7 @@ export async function runWorkerCore(
     { cwd, model: deps.resolveModel('research'), abortSignal, onEvent },
     'research',
     researchPrompt(spec),
-    { schema: ResearchFindingsSchema },
+    { schema: ResearchFindingsSchema, stepCap: 4 },
   );
   if (!research.object) {
     const detail = `research produced no valid findings: ${research.parseError ?? 'unknown'}`;
@@ -99,13 +102,14 @@ export async function runWorkerCore(
       { cwd, model: deps.resolveModel('implement'), abortSignal, onEvent },
       'implement',
       implementPrompt(spec, plan, filesToEdit),
+      { stepCap: 12 },
     );
 
     const verify = await spawnSubloop(
       { cwd, model: deps.resolveModel('verify'), abortSignal, onEvent },
       'verify',
       verifyPrompt(spec, plan),
-      { schema: VerifyVerdictSchema },
+      { schema: VerifyVerdictSchema, stepCap: 6 },
     );
     const gate = await deps.runScopedGate(cwd);
 
@@ -114,7 +118,12 @@ export async function runWorkerCore(
       break;
     }
 
-    const sig = [...(verify.object?.errorSignatures ?? []), ...gate.errorSignatures];
+    // A verify that produced no parseable verdict is a DISTINCT failure (not an
+    // empty signature) — otherwise empty-vs-empty would falsely read as "stuck".
+    const verifySigs = verify.object
+      ? verify.object.errorSignatures
+      : [`verify-output-unparseable:${verify.parseError ?? 'unknown'}`];
+    const sig = [...verifySigs, ...gate.errorSignatures];
     if (lastSig && sameSignatures(sig, lastSig)) {
       const detail = `fix loop stuck — identical failures twice: ${sig.join('; ')}`;
       await deps.escalate(project, todoId, 'stuck', detail);
