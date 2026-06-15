@@ -25,6 +25,11 @@ export class TmuxSessionMux implements SessionMux {
     return isTmuxAvailable();
   }
 
+  /** Native backend: the command runs as-is (byte-parity). */
+  shellWrap(command: string): string {
+    return command;
+  }
+
   /** `tmux list-sessions -F '#{session_name}\t#{session_created}'` → SessionInfo[].
    *  Exits non-zero ("no server running") → []. tmux session_created is epoch
    *  seconds; we normalize to ms. */

@@ -32,6 +32,13 @@ export class WslTmuxSessionMux extends TmuxSessionMux {
     return ['wsl.exe', '-d', this.distro, '--', ...argv.map(winToWslPath)];
   }
 
+  /** Run the whole shell-string tmux command inside the distro. POSIX single-quote
+   *  the command for `bash -lc`. (Windows path args inside the string are the
+   *  caller's concern — terminal-manager/PTYManager translate cwd where needed.) */
+  override shellWrap(command: string): string {
+    return `wsl.exe -d ${this.distro} -- bash -lc '${command.replace(/'/g, "'\\''")}'`;
+  }
+
   /** Probe `wsl.exe -d <distro> -- tmux -V`. Cached negative-uncached like the
    *  native probe is out of scope here; a per-call probe is fine (rare path). */
   override async available(): Promise<boolean> {

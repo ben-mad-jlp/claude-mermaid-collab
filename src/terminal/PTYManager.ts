@@ -1,6 +1,7 @@
 import type { ServerWebSocket, Subprocess, Terminal } from 'bun';
 import { RingBuffer } from './RingBuffer';
 import { existsSync } from 'fs';
+import { mux } from '../services/session-mux/index';
 
 /** A tmux session a persistent PTY can be (re-)pointed at. `base` is the real
  *  session name; `grouped` is an optional shared/grouped view onto it. */
@@ -114,7 +115,7 @@ export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: str
     // Attach directly to the base session — no shared/grouped view. (The old
     // grouped 'vscode-collab-*' layer existed to share live terminals with the
     // VSCode extension, which no longer hosts terminals.)
-    return `${ensureBase} ; ${styleStatus(base)} ; tmux attach-session -d -t '${base}'`;
+    return mux.shellWrap(`${ensureBase} ; ${styleStatus(base)} ; tmux attach-session -d -t '${base}'`);
   }
   // Stale-group guard (the GROUPED analog of healStaleTmuxSession's base heal).
   // A grouped session is created ONCE and reused on every later click via
@@ -132,7 +133,7 @@ export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: str
   const ensureGrouped =
     `(tmux has-session -t '${grouped}' 2>/dev/null && [ ${groupOf(base)} = ${groupOf(grouped)} ] ` +
     `|| { tmux kill-session -t '${grouped}' 2>/dev/null ; tmux new-session -d -s '${grouped}' -t '${base}' ; })`;
-  return `${ensureBase} ; ${ensureGrouped} ; ${styleStatus(grouped)} ; tmux attach-session -d -t '${grouped}'`;
+  return mux.shellWrap(`${ensureBase} ; ${ensureGrouped} ; ${styleStatus(grouped)} ; tmux attach-session -d -t '${grouped}'`);
 }
 
 /** Detach sequence written to the persistent host shell before re-attaching to

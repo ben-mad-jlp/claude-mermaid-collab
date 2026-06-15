@@ -4,8 +4,14 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import type { TerminalSession, TerminalSessionsState } from '../types/terminal.js';
 import { sendTmuxKeysRaw } from './tmux-send.js';
+import { mux } from './session-mux/index.js';
 
-const execAsync = promisify(exec);
+const rawExec = promisify(exec);
+// Route every tmux shell-string through the SessionMux seam. Identity on the
+// native backend (byte-parity — terminal-manager.test guards this); the WSL
+// backend runs the command inside the distro. Every execAsync call here is a tmux
+// command, so wrapping centrally covers them all (Windows port P1b).
+const execAsync = (command: string) => rawExec(mux.shellWrap(command));
 
 export class TerminalManager {
   /**

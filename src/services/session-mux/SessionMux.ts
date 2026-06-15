@@ -50,4 +50,14 @@ export interface SessionMux {
    * live set (P3) instead of guessing. Returns `[]` when no server/sessions exist.
    */
   list(): Promise<SessionInfo[]>;
+
+  /**
+   * Wrap a SHELL-STRING tmux command so it runs against this backend. The argv
+   * call-sites use `cmd()`; the few that build a shell string instead — the legacy
+   * terminal-manager (`tmux new-session …`) and PTYManager's re-pointable attach
+   * (`has-session || new-session ; attach-session`) — route through this. Identity
+   * on native tmux (byte-parity, verified by those suites incl. the switch gate);
+   * the WSL backend runs the whole command inside the distro.
+   */
+  shellWrap(command: string): string;
 }

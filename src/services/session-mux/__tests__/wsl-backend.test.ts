@@ -56,4 +56,18 @@ describe('WslTmuxSessionMux.cmd', () => {
       'wsl.exe', '-d', 'Ubuntu-24.04', '--', 'ps', '-axo', 'pid=,ppid=,comm=',
     ]);
   });
+
+  it('shellWrap runs a shell-string tmux command inside the distro (P1b)', () => {
+    expect(mux.shellWrap("tmux has-session -t 'mc-x' || tmux new-session -d -s 'mc-x'")).toBe(
+      "wsl.exe -d Ubuntu-24.04 -- bash -lc 'tmux has-session -t '\\''mc-x'\\'' || tmux new-session -d -s '\\''mc-x'\\'''",
+    );
+  });
+});
+
+describe('TmuxSessionMux.shellWrap is the identity (byte-parity)', async () => {
+  const { TmuxSessionMux } = await import('../TmuxSessionMux.ts');
+  it('returns the command unchanged on the native backend', () => {
+    const cmd = "(tmux has-session -t 'mc-x' || tmux new-session -d -s 'mc-x') ; tmux attach-session -d -t 'mc-x'";
+    expect(new TmuxSessionMux().shellWrap(cmd)).toBe(cmd);
+  });
 });
