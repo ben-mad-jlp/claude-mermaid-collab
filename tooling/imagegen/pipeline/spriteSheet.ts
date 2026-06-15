@@ -55,6 +55,30 @@ export async function pickMarkerColor(
   return { name: best.name, hex: best.hex };
 }
 
+/**
+ * Replace one cell of an existing atlas: clear the target rect, then composite a
+ * replacement image (resized to fit, centered) into it. For per-cell fixups without
+ * re-rolling a whole sheet. Returns the new atlas PNG.
+ */
+export async function compositeCell(
+  atlas: Buffer | string,
+  replacement: Buffer | string,
+  rect: { x: number; y: number; w: number; h: number },
+): Promise<Buffer> {
+  const base = await Jimp.read(atlas as Buffer);
+  // clear the cell to transparent
+  for (let y = rect.y; y < rect.y + rect.h && y < base.bitmap.height; y++) {
+    for (let x = rect.x; x < rect.x + rect.w && x < base.bitmap.width; x++) {
+      const i = (y * base.bitmap.width + x) * 4;
+      base.bitmap.data[i] = 0; base.bitmap.data[i + 1] = 0; base.bitmap.data[i + 2] = 0; base.bitmap.data[i + 3] = 0;
+    }
+  }
+  const patch = await autocropRecenter(typeof replacement === 'string' ? await (await Jimp.read(replacement)).getBuffer('image/png') : replacement, rect.w, rect.h);
+  const patchImg = await Jimp.read(patch);
+  base.composite(patchImg, rect.x, rect.y);
+  return base.getBuffer('image/png');
+}
+
 /** Cut an image into rows×cols equal cells (even division). Returns row-major buffers. */
 export async function sliceGrid(input: Buffer | string, rows: number, cols: number): Promise<Buffer[]> {
   const img = await Jimp.read(input as Buffer);

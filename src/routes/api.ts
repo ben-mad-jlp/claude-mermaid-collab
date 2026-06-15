@@ -61,6 +61,7 @@ import { generateVideo } from '../../tooling/imagegen/providers/xai-video';
 import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames';
 import { loadProjectStyle, saveProjectStyle, applyStyleToPrompt, type ProjectStyle } from '../services/project-style';
 import { saveCharacter, loadCharacter, listCharacters, resolveActions, characterSlug, type CharacterDef } from '../services/character-store';
+import { loadSpend, setBudget, recordSpend, wouldExceedBudget, estimateCost } from '../services/asset-spend';
 // The image pipeline (removeBg/downscale/packSheet/spriteSheet) uses jimp (pure JS),
 // which embeds + runs inside the bun --compile sidecar (sharp's native module does NOT —
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
@@ -2646,6 +2647,11 @@ export async function handleAPI(
       }
       const { removeBackground, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer } = await loadSpritePipeline();
 
+      // T3: budget guard — block before spending if a cap would be exceeded.
+      const estSheet = estimateCost('sprite_sheet').usd;
+      const guard = await wouldExceedBudget(params.project, params.session, estSheet);
+      if (guard.blocked) return Response.json({ error: guard.reason, spend: guard.spend }, { status: 402 });
+
       // T1: project style — same palette + aesthetic across every generated asset.
       const style = await loadProjectStyle(params.project, params.session);
 
@@ -2734,9 +2740,12 @@ export async function handleAPI(
         size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session,
       });
 
+      const sheetCost = video.costUsd + seedGen.costUsd;
+      const spendAfter = await recordSpend(params.project, params.session, sheetCost, 'sprite_sheet').catch(() => null);
       return Response.json({
         success: true, sheet: { id: image.id, name: image.name, size: image.size },
-        manifest, exports, frames, angles, cellCount: cells.length, costUsd: video.costUsd + seedGen.costUsd, model: video.model,
+        manifest, exports, frames, angles, cellCount: cells.length, costUsd: sheetCost, model: video.model,
+        sessionSpendUsd: spendAfter?.totalUsd,
       });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -2879,7 +2888,9 @@ export async function handleAPI(
       const { imageManager } = await createManagers(params.project, params.session);
       const image = await imageManager.create({ name: `${baseName}-vfx-sheet.png`, buffer: atlasBuf, mimeType: 'image/png' });
       wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
-      return Response.json({ success: true, sheet: { id: image.id, name: image.name, size: image.size }, manifest, exports, frameCount: cells.length, keyMode, costUsd: (vid.costUsd ?? 0) + (seedGen.costUsd ?? 0), model: vid.model });
+      const vfxCost = (vid.costUsd ?? 0) + (seedGen.costUsd ?? 0);
+      const vfxSpend = await recordSpend(params.project, params.session, vfxCost, 'vfx').catch(() => null);
+      return Response.json({ success: true, sheet: { id: image.id, name: image.name, size: image.size }, manifest, exports, frameCount: cells.length, keyMode, costUsd: vfxCost, model: vid.model, sessionSpendUsd: vfxSpend?.totalUsd });
     } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 
@@ -2998,6 +3009,71 @@ export async function handleAPI(
         outs.push({ tag: spec.tag, id: image.id, name: image.name, transparent: spec.transparent });
       }
       return Response.json({ success: true, layers: outs, tileableX: !!body.tileableX, costUsd: cost });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // GET /api/asset-spend — running spend + budget for the session
+  if (path === '/api/asset-spend' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try { return Response.json(await loadSpend(params.project, params.session)); }
+    catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/asset-budget — set (or clear with null) the session spend cap
+  if (path === '/api/asset-budget' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as { budgetUsd?: number | null };
+      const s = await setBudget(params.project, params.session, body.budgetUsd ?? null);
+      return Response.json({ success: true, spend: s });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/estimate-cost — preview the $ of an operation before running it
+  if (path === '/api/estimate-cost' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as { op?: string; params?: Record<string, any> };
+      if (!body.op) return Response.json({ error: 'op required (image|sprite_sheet|character_animations|vfx|tileset|background|voiceover)' }, { status: 400 });
+      const est = estimateCost(body.op, body.params ?? {});
+      const spend = await loadSpend(params.project, params.session);
+      return Response.json({ op: body.op, estimateUsd: est.usd, breakdown: est.breakdown, spentUsd: spend.totalUsd, budgetUsd: spend.budgetUsd ?? null });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/replace-sheet-cell — composite a replacement image into one cell of a sheet
+  if (path === '/api/replace-sheet-cell' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as { sheetImageId?: string; replacementImageId?: string; cellIndex?: number; rect?: { x: number; y: number; w: number; h: number }; name?: string };
+      if (!body.sheetImageId || !body.replacementImageId) return Response.json({ error: 'sheetImageId and replacementImageId required' }, { status: 400 });
+      const { imageManager } = await createManagers(params.project, params.session);
+      const sheet = await imageManager.getContent(body.sheetImageId);
+      const repl = await imageManager.getContent(body.replacementImageId);
+      if (!sheet) return Response.json({ error: `sheetImageId not found: ${body.sheetImageId}` }, { status: 404 });
+      if (!repl) return Response.json({ error: `replacementImageId not found: ${body.replacementImageId}` }, { status: 404 });
+      // rect: explicit, or derived from the sheet's sidecar manifest by cellIndex
+      let rect = body.rect;
+      if (!rect && typeof body.cellIndex === 'number') {
+        try {
+          const meta = await imageManager.get(body.sheetImageId);
+          const manifestPath = meta?.path?.replace(/\.[^.]+$/, '') + '.json';
+          const m = JSON.parse(await fsReadFile(manifestPath!, 'utf-8'));
+          const fr = (m.frames || m.tiles || [])[body.cellIndex];
+          if (fr) rect = { x: fr.x, y: fr.y, w: fr.w, h: fr.h };
+        } catch { /* no sidecar manifest */ }
+      }
+      if (!rect) return Response.json({ error: 'provide rect {x,y,w,h} or a cellIndex resolvable from the sheet manifest' }, { status: 400 });
+      const { compositeCell } = await import('../../tooling/imagegen/pipeline/spriteSheet');
+      const out = await compositeCell(sheet.buffer, repl.buffer, rect);
+      const name = (body.name || `${body.sheetImageId}-patched`).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sheet-patched';
+      const image = await imageManager.create({ name: `${name}.png`, buffer: out, mimeType: 'image/png' });
+      wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
+      return Response.json({ success: true, image: { id: image.id, name: image.name, size: image.size }, rect });
     } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 

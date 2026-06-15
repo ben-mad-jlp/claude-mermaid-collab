@@ -228,6 +228,61 @@ export async function handleGenerateSprite(
   return await response.json() as GenerateSpriteResult;
 }
 
+export const estimateCostSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    op: { type: 'string', description: 'Operation: image | prop | sprite_sheet | sprite_animation | sprite_rotation | vfx | tileset | background | character_animations | voiceover.' },
+    params: { type: 'object', description: 'Op params for the estimate, e.g. {actions:5} or {tiles:8} or {layers:2} or {chars:120}.' },
+  },
+  required: ['project', 'session', 'op'],
+};
+
+export const assetBudgetSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    budgetUsd: { type: ['number', 'null'], description: 'Set a session spend cap in USD (generations 402 when it would be exceeded); null clears it. Omit to just read current spend.' },
+  },
+  required: ['project', 'session'],
+};
+
+export const replaceSheetCellSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    sheetImageId: { type: 'string', description: 'The sprite sheet / tileset image id to patch.' },
+    replacementImageId: { type: 'string', description: 'The image to composite into the cell (autocropped + centered to fit).' },
+    cellIndex: { type: 'number', description: 'Cell index from the sheet manifest (alternative to rect).' },
+    rect: { type: 'object', description: 'Explicit target rect {x,y,w,h} (alternative to cellIndex).' },
+    name: { type: 'string', description: 'Base filename for the patched sheet (optional).' },
+  },
+  required: ['project', 'session', 'sheetImageId', 'replacementImageId'],
+};
+
+export async function handleEstimateCost(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/estimate-cost', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to estimate cost: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
+export async function handleAssetBudget(project: string, session: string, args: { budgetUsd?: number | null }): Promise<any> {
+  if (Object.prototype.hasOwnProperty.call(args, 'budgetUsd')) {
+    const r = await fetch(buildUrl('/api/asset-budget', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+    if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to set budget: ${e.error || r.statusText}`); }
+    return r.json();
+  }
+  const r = await fetch(buildUrl('/api/asset-spend', project, session));
+  if (!r.ok) throw new Error(`Failed to read spend: ${r.statusText}`);
+  return r.json();
+}
+
+export async function handleReplaceSheetCell(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/replace-sheet-cell', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to replace cell: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
 export const generateTilesetSchema = {
   type: 'object',
   properties: {
