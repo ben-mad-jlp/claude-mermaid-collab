@@ -154,6 +154,20 @@ export function isRateLimitError(err: unknown): boolean {
  *  detectors observe. */
 export type GrokPhase = 'idle' | 'ready' | 'working' | 'rate-limited' | 'exited' | 'failed';
 
+/** One captured agentic step — the live transcript the UI console renders for a
+ *  grok-build lane. This is NEW state ALONGSIDE the synthetic-pane/WorkerEvent
+ *  contract the conformance suite pins; it never replaces lastPane/step. */
+export type GrokTranscriptEntry = {
+  step: number;
+  ts: number;
+  text?: string;
+  toolCalls?: { name: string; args: unknown }[];
+  toolResults?: { name: string; result: string }[];
+};
+
+/** Trim long tool-result strings so the transcript stays bounded. */
+const TRANSCRIPT_RESULT_CAP = 1500;
+
 /** In-process loop state for one lane (one per session). */
 interface GrokLane {
   phase: GrokPhase;
@@ -162,6 +176,10 @@ interface GrokLane {
   mcp?: Client;
   done: boolean;
   lastPane: string;
+  /** Live transcript captured per onStepFinish (NEW; alongside the pane contract). */
+  transcript: GrokTranscriptEntry[];
+  /** Human steer messages queued for injection at the NEXT step boundary. */
+  injectQueue: string[];
 }
 
 class GrokOwnHarnessImpl implements WorkerAgent {
@@ -183,7 +201,15 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     }
 
     const controller = new AbortController();
-    const lane: GrokLane = { phase: 'idle', step: 0, controller, done: false, lastPane: GROK_PANE_READY };
+    const lane: GrokLane = {
+      phase: 'idle',
+      step: 0,
+      controller,
+      done: false,
+      lastPane: GROK_PANE_READY,
+      transcript: [],
+      injectQueue: [],
+    };
     this.lanes.set(spec.session, lane);
 
     // 1. Connect to our REAL MCP server over stdio (mirrors the spike). This
@@ -216,7 +242,13 @@ class GrokOwnHarnessImpl implements WorkerAgent {
 
     if (!spec.invokeSkill) {
       // Session ensured, nothing dispatched (matches the Claude no-invokeSkill path).
-      return { provider: this.id, ready: true, tmux: spec.session, sent: undefined };
+      return {
+        provider: this.id,
+        ready: true,
+        tmux: spec.session,
+        sent: undefined,
+        injectFollowup: (text: string) => this.injectFollowup(spec.session, text),
+      };
     }
 
     // Fire the loop. We DO NOT await it here — the daemon observes liveness via
@@ -228,7 +260,31 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       lane.done = true;
     });
 
-    return { provider: this.id, ready: true, tmux: spec.session, sent: true };
+    return {
+      provider: this.id,
+      ready: true,
+      tmux: spec.session,
+      sent: true,
+      injectFollowup: (text: string) => this.injectFollowup(spec.session, text),
+    };
+  }
+
+  /** Live transcript for a lane (the human-readable agentic log the UI console
+   *  renders for a grok-build lane). Empty array for unknown sessions. */
+  getTranscript(session: string): GrokTranscriptEntry[] {
+    return this.lanes.get(session)?.transcript ?? [];
+  }
+
+  /** Queue a human steer follow-up. It is appended as a `user` turn at the NEXT
+   *  step boundary (via prepareStep) — NOT injected mid-step. Returns false when
+   *  there is no live lane to steer. */
+  injectFollowup(session: string, text: string): boolean {
+    const lane = this.lanes.get(session);
+    if (!lane || lane.done) return false;
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    lane.injectQueue.push(trimmed);
+    return true;
   }
 
   /** The in-process agentic loop. Wrapped in a hard try/catch + a per-worker
@@ -324,10 +380,44 @@ class GrokOwnHarnessImpl implements WorkerAgent {
         system: 'Autonomous coding worker. Use tools only. Be terse.',
         prompt,
         abortSignal,
-        onStepFinish: () => {
+        // prepareStep runs BEFORE each step. We drain any queued human steer and
+        // append it as user turn(s) so Grok sees the steer at the NEXT step
+        // boundary (never mid-step). Returning { messages } overrides the messages
+        // sent to the model for this step; returning {} leaves them unchanged.
+        prepareStep: ({ messages }) => {
+          if (lane.injectQueue.length === 0) return {};
+          const queued = lane.injectQueue.splice(0, lane.injectQueue.length);
+          const injected = queued.map((text) => ({ role: 'user' as const, content: text }));
+          return { messages: [...messages, ...injected] };
+        },
+        // onStepFinish receives the StepResult for the step that just finished.
+        // We capture its text + tool calls/results into the live transcript
+        // (NEW state) while keeping the existing step/phase/lastPane updates that
+        // drive the synthetic pane the conformance detectors pin.
+        onStepFinish: (stepResult) => {
           lane.step += 1;
           lane.phase = 'working';
           lane.lastPane = grokPaneWorking(lane.step);
+
+          const toolCalls = (stepResult.toolCalls ?? []).map((c) => ({
+            name: c.toolName,
+            args: c.input,
+          }));
+          const toolResults = (stepResult.toolResults ?? []).map((r) => {
+            const out = (r as { output?: unknown }).output;
+            const str = typeof out === 'string' ? out : JSON.stringify(out ?? null);
+            return {
+              name: r.toolName,
+              result: str.length > TRANSCRIPT_RESULT_CAP ? `${str.slice(0, TRANSCRIPT_RESULT_CAP)}…` : str,
+            };
+          });
+          lane.transcript.push({
+            step: lane.step,
+            ts: Date.now(),
+            text: stepResult.text || undefined,
+            toolCalls: toolCalls.length ? toolCalls : undefined,
+            toolResults: toolResults.length ? toolResults : undefined,
+          });
         },
       });
       // Loop done. Grok completion is INFERRED — the server-authoritative resolver
@@ -482,4 +572,6 @@ export const GrokOwnHarness: WorkerAgent & {
   teardown(session: string): Promise<void>;
   paneSource(session: string): PaneSource;
   completionSignal(session: string): { tier: 'none' };
+  getTranscript(session: string): GrokTranscriptEntry[];
+  injectFollowup(session: string, text: string): boolean;
 } = new GrokOwnHarnessImpl();

@@ -4,6 +4,7 @@ import { useServers } from '@/contexts/ServerContext';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
 import { TerminalConsole } from './TerminalPane';
+import { GrokTranscript } from './GrokTranscript';
 import { InputRail } from './InputRail';
 import { MessageComposer } from './MessageComposer';
 import { TerminalThemePicker } from './TerminalThemePicker';
@@ -74,6 +75,40 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
     () => tabs.find((t) => t.id === activeTabId) ?? null,
     [tabs, activeTabId],
   );
+
+  // DORMANT branch probe: the active lane's provider. Default 'claude' so the
+  // tmux console + send-keys path is byte-identical until the read-only
+  // /api/worker-transcript endpoint reports an in-process grok-build lane. A
+  // Claude lane (no grok lane) returns { provider: null } → stays 'claude'. This
+  // never engages unless a todo was pinned to provider 'grok-build'.
+  const [laneProvider, setLaneProvider] = useState<'claude' | 'grok-build'>('claude');
+  useEffect(() => {
+    setLaneProvider('claude');
+    if (!activeTab) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const probe = async () => {
+      const path = `/api/worker-transcript?project=${encodeURIComponent(activeTab.project)}&session=${encodeURIComponent(activeTab.session)}`;
+      const mc = (window as any).mc;
+      try {
+        const data = mc?.invokeOnServer
+          ? await mc.invokeOnServer(activeTab.serverId, { path, method: 'GET' })
+          : typeof fetch !== 'undefined'
+            ? await (await fetch(path)).json()
+            : null;
+        if (!cancelled) setLaneProvider(data?.provider === 'grok-build' ? 'grok-build' : 'claude');
+      } catch {
+        if (!cancelled) setLaneProvider('claude');
+      }
+      if (!cancelled) timer = setTimeout(probe, 2000);
+    };
+    void probe();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeTab]);
+  const isGrokLane = laneProvider === 'grok-build';
 
   // No auto-open: clicking a watched row is the explicit entry point for a
   // terminal. Auto-open would race with the watched-row open and steal focus by
@@ -228,10 +263,20 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
             </div>
           ) : (
             <div style={{ position: 'absolute', inset: 0, padding: 6 }}>
-              <TerminalConsole
-                serverId={activeTab.serverId}
-                tmuxBase={activeTab.tmuxName}
-              />
+              {isGrokLane ? (
+                // grok-build lane: no tmux pane — render the live in-process loop
+                // transcript instead of the xterm console.
+                <GrokTranscript
+                  project={activeTab.project}
+                  session={activeTab.session}
+                  serverId={activeTab.serverId}
+                />
+              ) : (
+                <TerminalConsole
+                  serverId={activeTab.serverId}
+                  tmuxBase={activeTab.tmuxName}
+                />
+              )}
             </div>
           )}
         </div>
@@ -244,7 +289,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         project={activeTab?.project ?? ''}
         session={activeTab?.session ?? ''}
         serverId={activeTab?.serverId ?? ''}
-        disabled={!activeTab}
+        disabled={!activeTab || isGrokLane}
       />
 
       {/* Multi-line composer — a real auto-growing textbox below the canned chips,
@@ -255,6 +300,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         session={activeTab?.session ?? ''}
         serverId={activeTab?.serverId ?? ''}
         disabled={!activeTab}
+        injectMode={isGrokLane}
       />
       </div>
   );

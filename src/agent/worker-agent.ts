@@ -59,6 +59,10 @@ export interface WorkerHandle {
   sent?: boolean;
   /** First failure cause (ensure or dispatch), or undefined on full success. */
   reason?: string;
+  /** Optional: queue a human steer follow-up into the worker loop (in-process
+   *  providers like grok-build). Returns false when no live lane is available.
+   *  Claude (tmux) handles do not implement this. */
+  injectFollowup?(text: string): boolean;
 }
 
 /** A normalized, point-in-time observation of a worker's pane — the provider's

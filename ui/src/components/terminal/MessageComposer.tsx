@@ -26,9 +26,13 @@ interface MessageComposerProps {
   serverId: string;
   /** No attached/live console → greyed + non-interactive (no POST). */
   disabled?: boolean;
+  /** When true, the lane is an in-process grok-build worker: submitting routes to
+   *  POST /api/worker-inject (queued as a user turn at the next step boundary)
+   *  INSTEAD of the tmux send-keys path. Claude lanes leave this false → unchanged. */
+  injectMode?: boolean;
 }
 
-export function MessageComposer({ project, session, serverId, disabled = false }: MessageComposerProps) {
+export function MessageComposer({ project, session, serverId, disabled = false, injectMode = false }: MessageComposerProps) {
   const sendOnEnter = useQuickReplyStore((s) => s.sendOnEnter);
   const setSendOnEnter = useQuickReplyStore((s) => s.setSendOnEnter);
   const p = useTerminalPalette();
@@ -187,10 +191,31 @@ export function MessageComposer({ project, session, serverId, disabled = false }
     if (disabled) return;
     const text = value;
     if (!text.trim()) return;
+    const mc = (window as any).mc;
+
+    // grok-build lane: there is no tmux pane. Route the steer to the in-process
+    // loop's inject queue (lands as a user turn at the next step boundary).
+    if (injectMode) {
+      const injectBody = { project, session, text };
+      if (mc?.invokeOnServer) {
+        void mc
+          .invokeOnServer(serverId, { path: '/api/worker-inject', method: 'POST', body: injectBody })
+          .catch(() => { /* ignore — inject into a just-ended lane no-ops */ });
+      } else if (typeof fetch !== 'undefined') {
+        void fetch('/api/worker-inject', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(injectBody),
+        }).catch(() => { /* ignore */ });
+      }
+      setValue('');
+      requestAnimationFrame(() => taRef.current?.focus());
+      return;
+    }
+
     // quiet:true — a user typing into their own session is not a supervisor nudge,
     // so suppress the nudge toast (the chips do the same).
     const body = { project, session, text, submit: true, quiet: true };
-    const mc = (window as any).mc;
     // Mirror InputRail.sendChip's dispatch: per-server invoke, fetch fallback.
     if (mc?.invokeOnServer) {
       void mc

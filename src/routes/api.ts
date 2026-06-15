@@ -2748,6 +2748,55 @@ export async function handleAPI(
     return Response.json(getFleetStatus(project));
   }
 
+  // GET /api/worker-transcript?project=&session=
+  // Read-only live transcript for an in-process grok-build lane. Returns the
+  // captured agentic steps so the UI console can render them in place of the tmux
+  // terminal. DORMANT for claude lanes: a session that is not a known live grok
+  // lane has no lane → { provider: null, entries: [] }, so this never changes the
+  // Claude path. Read-only (never mutates loop state).
+  if (path === '/api/worker-transcript' && req.method === 'GET') {
+    const session = url.searchParams.get('session');
+    if (!session) {
+      return Response.json({ error: 'session required' }, { status: 400 });
+    }
+    const { getGrokHarnessForInspection } = await import('../agent/registry');
+    const harness = getGrokHarnessForInspection();
+    const entries = harness.getTranscript(session);
+    const alive = harness.isAlive(session);
+    // No lane → not a grok-build lane (dormant for claude). entries is [] AND the
+    // lane was never live → report provider:null so the UI keeps the tmux path.
+    if (entries.length === 0 && !alive) {
+      return Response.json({ provider: null, entries: [] });
+    }
+    return Response.json({
+      provider: 'grok-build',
+      entries,
+      alive,
+      phase: alive ? 'working' : 'exited',
+    });
+  }
+
+  // POST /api/worker-inject { project, session, text }
+  // Steer an in-process grok-build lane: queues a human follow-up that lands as a
+  // user turn at the NEXT step boundary. Graceful no-op for claude/unknown lanes.
+  if (path === '/api/worker-inject' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      project?: string;
+      session?: string;
+      text?: string;
+    };
+    if (!body.session || !body.text) {
+      return Response.json({ ok: false, reason: 'session-and-text-required' }, { status: 400 });
+    }
+    const { getGrokHarnessForInspection } = await import('../agent/registry');
+    const harness = getGrokHarnessForInspection();
+    const queued = harness.injectFollowup(body.session, body.text);
+    if (!queued) {
+      return Response.json({ ok: false, reason: 'no-live-grok-lane' });
+    }
+    return Response.json({ ok: true, queued: true });
+  }
+
   // GET /api/transcript/last-turn?claudeSessionId=  (peer-callable)
   if (path === '/api/transcript/last-turn' && req.method === 'GET') {
     const claudeSessionId = url.searchParams.get('claudeSessionId');

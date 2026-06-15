@@ -97,3 +97,13 @@ export function resolveGrokAgent(): WorkerAgent {
   }
   return GrokOwnHarness;
 }
+
+/** Read-only accessor to the GrokOwnHarness singleton for inspection (live
+ *  transcript / injection routes). Unlike resolveGrokAgent() this is NOT gated on
+ *  conformance — it only exposes the harness's read/steer methods (getTranscript /
+ *  injectFollowup / isAlive), which are inert for sessions that are not live grok
+ *  lanes. The lane map is the single source of truth, so a claude session simply
+ *  has no lane and these calls return [] / false. */
+export function getGrokHarnessForInspection(): typeof GrokOwnHarness {
+  return GrokOwnHarness;
+}
