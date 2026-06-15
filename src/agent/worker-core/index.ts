@@ -14,5 +14,8 @@ export * from './capabilities';
 export * from './helpers';
 export * from './retry';
 export * from './resolve-model';
+export * from './subloop';
+export * from './orchestrator';
+export { buildToolset, WIRED_TOOLS, type ToolCtx } from './tools/registry';
 export { applyEdit } from './tools/apply-edit';
 export { formatRead, type ReadResult } from './tools/read-file';
