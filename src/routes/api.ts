@@ -66,7 +66,7 @@ import { saveCharacter, loadCharacter, listCharacters, resolveActions, character
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
 // lean and isolate any pipeline load error to the sprite routes.
 async function loadSpritePipeline() {
-  const [{ removeBackground }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }, { normalizeExportFormats }, { quantizeBuffer }] = await Promise.all([
+  const [{ removeBackground, alphaFromLuminance }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }, { normalizeExportFormats }, { quantizeBuffer }] = await Promise.all([
     import('../../tooling/imagegen/pipeline/removeBg'),
     import('../../tooling/imagegen/pipeline/downscale'),
     import('../../tooling/imagegen/pipeline/packSheet'),
@@ -74,7 +74,7 @@ async function loadSpritePipeline() {
     import('../../tooling/imagegen/pipeline/exporters'),
     import('../../tooling/imagegen/pipeline/quantize'),
   ]);
-  return { removeBackground, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer };
+  return { removeBackground, alphaFromLuminance, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer };
 }
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
@@ -2824,6 +2824,94 @@ export async function handleAPI(
         sheets.push({ action, sheet: j.sheet, frames: j.frames, angles: j.angles, costUsd: j.costUsd });
       }
       return Response.json({ success: true, character: char.name, referenceImageId: char.referenceImageId, actions, sheets, totalCostUsd: totalCost });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/generate-vfx — an effect animation sheet (sparks/explosion/smoke/ice-spray).
+  // Single-facing; keyed by chroma OR luminance (glow). prompt → video → frames → key → pack.
+  if (path === '/api/generate-vfx' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as {
+        prompt?: string; name?: string; frames?: number; fps?: number; columns?: number;
+        keyMode?: 'chroma' | 'luminance'; keyColor?: string; tolerance?: number;
+        pixelHeight?: number; model?: string; exportFormat?: string | string[]; loop?: boolean;
+      };
+      if (!body.prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
+      if (!(await hasFfmpeg())) return Response.json({ error: 'ffmpeg not available on the server' }, { status: 501 });
+      const { removeBackground, alphaFromLuminance, downscale, packSheet, normalizeExportFormats, quantizeBuffer } = await loadSpritePipeline();
+      const style = await loadProjectStyle(params.project, params.session);
+
+      const keyMode = body.keyMode === 'luminance' ? 'luminance' : 'chroma';
+      const bg = keyMode === 'luminance' ? 'pure flat solid black background #000000' : `flat solid chroma green background #00b140`;
+      const vfxPrompt = applyStyleToPrompt(`${body.prompt}, a ${body.loop === false ? 'one-shot' : 'seamlessly looping'} 2D game visual effect animation, the effect centered, ${bg}, no characters no scenery just the effect`, style);
+      // VFX is text-driven; generate a seed still first (the video model needs an image seed).
+      const seedGen = await xaiProvider.generate(vfxPrompt, { resolution: '2k', outDir: '', basename: '' });
+      const s0 = seedGen.images[0];
+      const seedBuf = s0.bytes ? Buffer.from(s0.bytes) : Buffer.from(await (await fetch(s0.url!)).arrayBuffer());
+      const seedUrl = `data:${s0.mimeType};base64,${seedBuf.toString('base64')}`;
+      const vid = await generateVideo(`${body.prompt}, the effect animates and ${body.loop === false ? 'plays once' : 'loops seamlessly'}, ${bg}, only the effect moves`, { model: body.model, seedImageUrl: seedUrl });
+
+      const frameCount = Math.max(2, Math.min(32, body.frames ?? 8));
+      const raw = await extractFrames(vid.bytes, { count: frameCount });
+      const pixelHeight = body.pixelHeight ?? 128;
+      const cells: Buffer[] = [];
+      for (const f of raw) {
+        let c = keyMode === 'luminance'
+          ? await alphaFromLuminance(f, {})
+          : await removeBackground(f, { keyColor: body.keyColor ?? '#00b140', tolerance: body.tolerance ?? 100 });
+        c = await downscale(c, { pixelHeight });
+        if (style?.palette?.length && keyMode !== 'luminance') c = await quantizeBuffer(c, style.palette);
+        cells.push(c);
+      }
+      const tmp = await fsMkdtemp(join(osTmpdir(), 'vfx-'));
+      let atlasBuf: Buffer; let manifest: any; let exports: any;
+      try {
+        const out = join(tmp, 'vfx.png');
+        const packed = await packSheet(cells, { columns: body.columns, fps: body.fps ?? 16, outPath: out, exportFormats: normalizeExportFormats(body.exportFormat), animations: [{ name: 'effect', from: 0, to: cells.length - 1, direction: 'forward', repeat: body.loop === false ? 1 : 0 }] });
+        atlasBuf = await fsReadFile(packed.atlasPath); manifest = packed.manifest;
+        exports = Object.fromEntries(Object.entries(packed.exports).map(([k, v]: any) => [k, v.content]));
+      } finally { await fsRm(tmp, { recursive: true, force: true }).catch(() => {}); }
+
+      const baseName = (body.name || body.prompt.slice(0, 40)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'vfx';
+      const { imageManager } = await createManagers(params.project, params.session);
+      const image = await imageManager.create({ name: `${baseName}-vfx-sheet.png`, buffer: atlasBuf, mimeType: 'image/png' });
+      wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
+      return Response.json({ success: true, sheet: { id: image.id, name: image.name, size: image.size }, manifest, exports, frameCount: cells.length, keyMode, costUsd: (vid.costUsd ?? 0) + (seedGen.costUsd ?? 0), model: vid.model });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/generate-prop — a single transparent asset (item/icon/prop), chroma-keyed + trimmed + palette.
+  if (path === '/api/generate-prop' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as {
+        prompt?: string; name?: string; task?: ImageTask; pixelHeight?: number;
+        keyColor?: string; tolerance?: number; transparent?: boolean; model?: string;
+      };
+      if (!body.prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
+      const { removeBackground, downscale, quantizeBuffer } = await loadSpritePipeline();
+      const style = await loadProjectStyle(params.project, params.session);
+      const keyColor = body.keyColor ?? '#00b140';
+      const wantTransparent = body.transparent !== false;
+      const finalPrompt = applyStyleToPrompt(
+        applyTaskPreset(`${body.prompt}, single game ${body.task ?? 'prop'}, centered${wantTransparent ? `, flat solid chroma ${keyColor} background, the only ${keyColor} is the background` : ''}`, body.task),
+        style,
+      );
+      const gen = await xaiProvider.generate(finalPrompt, { model: body.model, resolution: '2k', outDir: '', basename: '' });
+      const g0 = gen.images[0];
+      let buf: Buffer = g0.bytes ? Buffer.from(g0.bytes) : Buffer.from(await (await fetch(g0.url!)).arrayBuffer());
+      if (wantTransparent) buf = await removeBackground(buf, { keyColor, tolerance: body.tolerance ?? 100 });
+      if (body.pixelHeight) buf = await downscale(buf, { pixelHeight: body.pixelHeight });
+      if (style?.palette?.length) buf = await quantizeBuffer(buf, style.palette);
+
+      const baseName = (body.name || body.prompt.slice(0, 40)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'prop';
+      const { imageManager } = await createManagers(params.project, params.session);
+      const image = await imageManager.create({ name: `${baseName}.png`, buffer: buf, mimeType: 'image/png' });
+      wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
+      return Response.json({ success: true, image: { id: image.id, name: image.name, size: image.size }, transparent: wantTransparent, costUsd: gen.costUsd, model: gen.model });
     } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 

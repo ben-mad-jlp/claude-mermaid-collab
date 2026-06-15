@@ -224,7 +224,7 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations } from './tools/image.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2416,6 +2416,8 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'generate_image', description: 'Generate an image from a text prompt via Grok Imagine (xAI) and save it as a session image artifact. Returns the saved image id(s) + cost.', inputSchema: generateImageSchema },
       { name: 'generate_sprite_animation', description: 'Generate an ANIMATED billboard sprite sheet: a Grok Imagine video of a seed character performing an action, chroma-keyed + packed into a transparent atlas (with a frame manifest). Needs ffmpeg on the server.', inputSchema: generateSpriteAnimationSchema },
       { name: 'generate_sprite_rotation', description: 'Generate a turntable ROTATION sprite strip: a Grok Imagine camera-orbit video of a seed character, chroma-keyed + packed into a transparent atlas of angles (for billboard facing/rotation). Needs ffmpeg on the server.', inputSchema: generateSpriteRotationSchema },
+      { name: 'generate_vfx', description: 'Generate a VISUAL-EFFECT animation sheet (explosion/spark/smoke/ice-spray): Grok video → keyed (chroma or luminance for glow) → packed transparent atlas + manifest + engine exports. Single-facing. Needs ffmpeg.', inputSchema: generateVfxSchema },
+      { name: 'generate_prop', description: 'Generate a single transparent game asset (item/prop/icon): Grok image → chroma-key → optional downscale + project palette. Returns a session image.', inputSchema: generatePropSchema },
       { name: 'define_character', description: 'Define a reusable game CHARACTER (name + description → a locked reference image + optional palette/style). Generation tools reference it so every animation reads as the same character. Auto-generates a canonical reference image from the description if none given.', inputSchema: defineCharacterSchema },
       { name: 'list_characters', description: 'List defined characters in the session.', inputSchema: listCharactersSchema },
       { name: 'generate_character_animations', description: 'Batch a character\'s full animation SET: one directional sprite sheet per action, all locked to the character\'s reference for consistent identity. Actions = explicit list and/or a preset (fighter/platformer/topdown). Needs ffmpeg. ~ (1 image + 1 video) per action.', inputSchema: generateCharacterAnimationsSchema },
@@ -4354,6 +4356,18 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, ...rest } = args as any;
             if (!project || !session || !rest.character || !rest.animation) throw new Error('Missing required: project, session, character, animation');
             const result = await handleGenerateSpriteSheet(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_vfx': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
+            const result = await handleGenerateVfx(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_prop': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
+            const result = await handleGenerateProp(project, session, rest);
             return JSON.stringify(result, null, 2);
           }
           case 'define_character': {

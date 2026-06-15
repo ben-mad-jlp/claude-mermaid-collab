@@ -144,3 +144,28 @@ export async function removeBackground(
 
   return image.getBuffer('image/png');
 }
+
+/**
+ * Alpha-from-luminance keying for GLOWY / additive VFX (sparks, fire, explosions) that
+ * are generated on a BLACK background — chroma-key can't handle their soft, colored,
+ * semi-transparent edges. Sets alpha = perceived luminance (dark → transparent, bright →
+ * opaque), so the effect composites additively over any scene. `floor` clamps near-black
+ * to fully transparent; `gamma` shapes the falloff.
+ */
+export async function alphaFromLuminance(
+  input: Buffer | string,
+  opts: { floor?: number; gamma?: number } = {},
+): Promise<Buffer> {
+  const floor = opts.floor ?? 18;
+  const gamma = opts.gamma ?? 1;
+  const image = await Jimp.read(input as Buffer);
+  const px = image.bitmap.data;
+  const n = image.bitmap.width * image.bitmap.height;
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    const lum = 0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2];
+    let a = lum <= floor ? 0 : Math.min(255, Math.round(255 * Math.pow((lum - floor) / (255 - floor), gamma)));
+    px[o + 3] = a;
+  }
+  return image.getBuffer('image/png');
+}

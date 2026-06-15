@@ -228,6 +228,51 @@ export async function handleGenerateSprite(
   return await response.json() as GenerateSpriteResult;
 }
 
+export const generateVfxSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    prompt: { type: 'string', description: 'The effect (e.g. "an explosion", "ice spray burst", "blue hit spark").' },
+    name: { type: 'string', description: 'Base filename (optional).' },
+    frames: { type: 'number', description: 'Frames to extract (2-32). Default 8.' },
+    fps: { type: 'number', description: 'Animation fps. Default 16.' },
+    keyMode: { type: 'string', enum: ['chroma', 'luminance'], description: "'chroma' (solid bg key) or 'luminance' (alpha from brightness — for glowy/additive effects on black). Default chroma." },
+    keyColor: { type: 'string', description: "Chroma key color (default '#00b140')." },
+    pixelHeight: { type: 'number', description: 'Target pixel height. Default 128.' },
+    loop: { type: 'boolean', description: 'Seamless loop (default true) vs one-shot.' },
+    exportFormat: { type: 'string', description: 'Engine export sidecars: aseprite, phaser, godot (comma-separated).' },
+    model: { type: 'string', description: 'xAI video model (default grok-imagine-video).' },
+  },
+  required: ['project', 'session', 'prompt'],
+};
+
+export const generatePropSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    prompt: { type: 'string', description: 'The item/prop/icon (e.g. "a health potion", "a steel sword").' },
+    name: { type: 'string', description: 'Base filename (optional).' },
+    task: { type: 'string', enum: ['icon', 'sprite', 'prop'], description: 'Preset shaping the prompt (default prop).' },
+    transparent: { type: 'boolean', description: 'Chroma-key to a transparent PNG (default true).' },
+    pixelHeight: { type: 'number', description: 'Optional downscale target height.' },
+    keyColor: { type: 'string', description: "Chroma key color (default '#00b140')." },
+    model: { type: 'string', description: 'xAI image model (optional).' },
+  },
+  required: ['project', 'session', 'prompt'],
+};
+
+export async function handleGenerateVfx(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-vfx', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate vfx: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
+export async function handleGenerateProp(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-prop', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate prop: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
 export const defineCharacterSchema = {
   type: 'object',
   properties: {
