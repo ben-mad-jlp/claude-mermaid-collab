@@ -14,6 +14,7 @@ import { generateText, stepCountIs, type LanguageModel } from 'ai';
 import type { z } from 'zod';
 import { buildToolset } from './tools/registry';
 import type { SubloopRole } from './capabilities';
+import { EVENT_RESULT_CAP, type WorkerCoreEventSink } from './events';
 
 export interface SubloopCtx {
   /** The lane's worktree root (tools are scoped under it). */
@@ -21,6 +22,8 @@ export interface SubloopCtx {
   /** The model for this phase (from resolveModel — per-phase routing lives here). */
   model: LanguageModel;
   abortSignal?: AbortSignal;
+  /** Observability sink (north-star §6); per-step tool calls/results/usage flow here. */
+  onEvent?: WorkerCoreEventSink;
 }
 
 export interface SubloopOpts<T> {
@@ -66,6 +69,9 @@ export async function spawnSubloop<T = unknown>(
   opts: SubloopOpts<T> = {},
 ): Promise<SubloopResult<T>> {
   const tools = buildToolset(role, { cwd: ctx.cwd }); // fresh, capability-gated per phase
+  const now = () => Date.now();
+  ctx.onEvent?.({ type: 'phase-start', role, ts: now() });
+
   const res = await generateText({
     model: ctx.model,
     tools,
@@ -73,6 +79,27 @@ export async function spawnSubloop<T = unknown>(
     prompt, // no prior messages → fresh context (the verify-independence guarantee)
     stopWhen: stepCountIs(opts.stepCap ?? 8),
     abortSignal: ctx.abortSignal,
+    onStepFinish: ctx.onEvent
+      ? (step) => {
+          ctx.onEvent?.({
+            type: 'step',
+            role,
+            ts: now(),
+            text: step.text || undefined,
+            toolCalls: step.toolCalls?.map((c) => ({ name: c.toolName, args: c.input })),
+            toolResults: step.toolResults?.map((r) => {
+              const o = (r as { output?: unknown }).output;
+              const s = typeof o === 'string' ? o : JSON.stringify(o ?? null);
+              return { name: r.toolName, result: s.length > EVENT_RESULT_CAP ? `${s.slice(0, EVENT_RESULT_CAP)}…` : s };
+            }),
+            usage: {
+              inputTokens: step.usage?.inputTokens,
+              outputTokens: step.usage?.outputTokens,
+              totalTokens: step.usage?.totalTokens,
+            },
+          });
+        }
+      : undefined,
   });
 
   const out: SubloopResult<T> = {
@@ -85,14 +112,12 @@ export async function spawnSubloop<T = unknown>(
     const parsed = tolerantJsonParse(res.text);
     if (!parsed.ok) {
       out.parseError = parsed.error;
-      return out;
+    } else {
+      const validated = opts.schema.safeParse(parsed.value);
+      if (!validated.success) out.parseError = validated.error.message;
+      else out.object = validated.data;
     }
-    const validated = opts.schema.safeParse(parsed.value);
-    if (!validated.success) {
-      out.parseError = validated.error.message;
-      return out;
-    }
-    out.object = validated.data;
   }
+  ctx.onEvent?.({ type: 'phase-end', role, ts: now(), steps: out.steps, text: out.text, parseError: out.parseError });
   return out;
 }

@@ -57,6 +57,17 @@ describe('spawnSubloop', () => {
     expect(res.object).toEqual({ pass: true, failingChecks: [], errorSignatures: [] });
   });
 
+  it('emits observability events (phase-start + phase-end) tagged with the role', async () => {
+    const events: { type: string; role?: string }[] = [];
+    await spawnSubloop(
+      { cwd, model: mockModel('done'), onEvent: (e) => events.push(e) },
+      'implement',
+      'do it',
+    );
+    expect(events.find((e) => e.type === 'phase-start')?.role).toBe('implement');
+    expect(events.find((e) => e.type === 'phase-end')?.role).toBe('implement');
+  });
+
   it('FAIL-SAFE: a malformed verdict sets parseError and leaves object undefined', async () => {
     const res = await spawnSubloop(
       { cwd, model: mockModel('the tests passed, trust me') },

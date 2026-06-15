@@ -282,7 +282,31 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       const { runWorkerCore, makeCoordinatorWorkerDeps } = await import('../worker-core');
       const deps = makeCoordinatorWorkerDeps(spec.project, todoId, { provider: 'grok-build' });
       await runWorkerCore(
-        { project: spec.project, todoId, cwd, abortSignal: lane.controller.signal },
+        {
+          project: spec.project,
+          todoId,
+          cwd,
+          abortSignal: lane.controller.signal,
+          // Sink worker-core phase events into the SAME live transcript the Bridge
+          // console reads (/api/worker-transcript) — the worker-core path is observable
+          // in the existing UI, no black box (north-star §6).
+          onEvent: (e) => {
+            if (e.type === 'phase-start') {
+              lane.step += 1;
+              lane.lastPane = grokPaneWorking(lane.step);
+              lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}` });
+            } else if (e.type === 'step') {
+              lane.step += 1;
+              lane.transcript.push({
+                step: lane.step,
+                ts: e.ts,
+                text: e.text,
+                toolCalls: e.toolCalls,
+                toolResults: e.toolResults,
+              });
+            }
+          },
+        },
         deps,
       );
       lane.phase = 'exited';

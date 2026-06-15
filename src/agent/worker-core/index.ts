@@ -14,6 +14,7 @@ export * from './capabilities';
 export * from './helpers';
 export * from './retry';
 export * from './resolve-model';
+export * from './events';
 export * from './subloop';
 export * from './orchestrator';
 export { makeCoordinatorWorkerDeps, type BridgeOpts } from './coordinator-bridge';

@@ -17,6 +17,7 @@ import { spawnSubloop } from './subloop';
 import { ResearchFindingsSchema, VerifyVerdictSchema, ReviewVerdictSchema } from './schemas';
 import { sameSignatures } from './helpers';
 import type { SubloopRole } from './capabilities';
+import type { WorkerCoreEventSink } from './events';
 
 /** The minimal todo spec the recipe needs (title + description = the contract). */
 export interface TodoSpec {
@@ -69,16 +70,16 @@ const reviewPrompt = (s: TodoSpec) =>
   `OUTPUT JSON: { "complete": boolean, "gaps": string[] }. Output ONLY the JSON.`;
 
 export async function runWorkerCore(
-  ctx: { project: string; todoId: string; cwd: string; abortSignal?: AbortSignal },
+  ctx: { project: string; todoId: string; cwd: string; abortSignal?: AbortSignal; onEvent?: WorkerCoreEventSink },
   deps: WorkerCoreDeps,
 ): Promise<WorkerCoreOutcome> {
-  const { project, todoId, cwd, abortSignal } = ctx;
+  const { project, todoId, cwd, abortSignal, onEvent } = ctx;
   const spec = deps.getTodo(project, todoId);
   if (!spec) return { outcome: 'noop', reason: 'todo not found' };
 
   // 1. RESEARCH → typed findings (the per-todo blueprint).
   const research = await spawnSubloop(
-    { cwd, model: deps.resolveModel('research'), abortSignal },
+    { cwd, model: deps.resolveModel('research'), abortSignal, onEvent },
     'research',
     researchPrompt(spec),
     { schema: ResearchFindingsSchema },
@@ -95,13 +96,13 @@ export async function runWorkerCore(
   let converged = false;
   for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
     await spawnSubloop(
-      { cwd, model: deps.resolveModel('implement'), abortSignal },
+      { cwd, model: deps.resolveModel('implement'), abortSignal, onEvent },
       'implement',
       implementPrompt(spec, plan, filesToEdit),
     );
 
     const verify = await spawnSubloop(
-      { cwd, model: deps.resolveModel('verify'), abortSignal },
+      { cwd, model: deps.resolveModel('verify'), abortSignal, onEvent },
       'verify',
       verifyPrompt(spec, plan),
       { schema: VerifyVerdictSchema },
@@ -130,7 +131,7 @@ export async function runWorkerCore(
   // 4. COMPLETENESS REVIEW (behavioral leaves only).
   if (spec.behavioral || research.object.behavioral) {
     const review = await spawnSubloop(
-      { cwd, model: deps.resolveModel('review'), abortSignal },
+      { cwd, model: deps.resolveModel('review'), abortSignal, onEvent },
       'review',
       reviewPrompt(spec),
       { schema: ReviewVerdictSchema },

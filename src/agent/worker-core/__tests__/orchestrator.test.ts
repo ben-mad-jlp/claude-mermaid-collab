@@ -100,6 +100,19 @@ describe('runWorkerCore', () => {
     expect(deps.calls.complete).toBe(0);
   });
 
+  it('forwards observability events from every phase to the sink', async () => {
+    const events: { type: string; role?: string }[] = [];
+    const deps = makeDeps({
+      phaseText: { research: RESEARCH_OK, implement: 'done', verify: VERIFY_PASS },
+      gate: () => ({ pass: true, errorSignatures: [] }),
+    });
+    await runWorkerCore({ project: 'p', todoId: 't1', cwd, onEvent: (e) => events.push(e) }, deps);
+    const roles = new Set(events.filter((e) => e.type === 'phase-start').map((e) => e.role));
+    expect(roles).toContain('research');
+    expect(roles).toContain('implement');
+    expect(roles).toContain('verify');
+  });
+
   it('noop when the todo is missing', async () => {
     const deps = makeDeps({ spec: null, phaseText: {}, gate: () => ({ pass: true, errorSignatures: [] }) });
     const r = await runWorkerCore({ project: 'p', todoId: 'gone', cwd }, deps);
