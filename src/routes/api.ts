@@ -60,6 +60,7 @@ import type { ImageTask } from '../../tooling/imagegen/providers/types';
 import { generateVideo } from '../../tooling/imagegen/providers/xai-video';
 import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames';
 import { loadProjectStyle, saveProjectStyle, applyStyleToPrompt, type ProjectStyle } from '../services/project-style';
+import { saveCharacter, loadCharacter, listCharacters, resolveActions, characterSlug, type CharacterDef } from '../services/character-store';
 // The image pipeline (removeBg/downscale/packSheet/spriteSheet) uses jimp (pure JS),
 // which embeds + runs inside the bun --compile sidecar (sharp's native module does NOT —
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
@@ -2739,6 +2740,91 @@ export async function handleAPI(
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
+  }
+
+  // GET /api/characters — list defined characters
+  if (path === '/api/characters' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      return Response.json({ characters: await listCharacters(params.project, params.session) });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/character — define a reusable character. If no referenceImageId is given
+  // but a description is, generate a canonical reference image and lock it in.
+  if (path === '/api/character' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as CharacterDef & { generateReference?: boolean };
+      if (!body.name) return Response.json({ error: 'name required' }, { status: 400 });
+      const def: CharacterDef = {
+        name: body.name, description: body.description,
+        referenceImageId: body.referenceImageId, palette: body.palette,
+        stylePromptFragment: body.stylePromptFragment,
+      };
+      // Generate a canonical reference (front, neutral, chroma bg) when none provided.
+      if (!def.referenceImageId && def.description && body.generateReference !== false) {
+        const style = await loadProjectStyle(params.project, params.session);
+        const refPrompt = applyStyleToPrompt(
+          `${def.description}, full body, standing in a neutral T-pose facing forward, centered, character reference sheet, flat solid chroma green background #00b140, no ground no shadow`,
+          style,
+        );
+        const gen = await xaiProvider.generate(refPrompt, { resolution: '2k', outDir: '', basename: '' });
+        const g0 = gen.images[0];
+        let buf: Buffer;
+        if (g0.bytes) buf = Buffer.from(g0.bytes);
+        else { const dl = await fetch(g0.url!); buf = Buffer.from(await dl.arrayBuffer()); }
+        const { imageManager } = await createManagers(params.project, params.session);
+        const img = await imageManager.create({ name: `${characterSlug(def.name)}-reference.${g0.mimeType.includes('png') ? 'png' : 'jpg'}`, buffer: buf, mimeType: g0.mimeType });
+        wsHandler.broadcast({ type: 'image_created', id: img.id, name: img.name, mimeType: img.mimeType, size: img.size, uploadedAt: img.uploadedAt, project: params.project, session: params.session });
+        def.referenceImageId = img.id;
+      }
+      const saved = await saveCharacter(params.project, params.session, def);
+      return Response.json({ success: true, character: saved });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/generate-character-animations — batch a character's full animation SET.
+  // For each resolved action, generate a directional sprite sheet locked to the
+  // character's reference (consistent identity) via the /api/generate-sprite-sheet pipeline.
+  if (path === '/api/generate-character-animations' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as {
+        character?: string; actions?: string[]; preset?: string;
+        frames?: number; angles?: number; fps?: number; exportFormat?: string | string[]; model?: string;
+      };
+      if (!body.character) return Response.json({ error: 'character (name) required' }, { status: 400 });
+      const char = await loadCharacter(params.project, params.session, body.character);
+      if (!char) return Response.json({ error: `character not found: ${body.character}` }, { status: 404 });
+      const actions = resolveActions(body.actions, body.preset);
+      if (!actions.length) return Response.json({ error: 'no actions — pass actions[] and/or a known preset (fighter/platformer/topdown)' }, { status: 400 });
+
+      const port = process.env.PORT || '9002';
+      const host = process.env.HOST || 'localhost';
+      const base = `http://${host}:${port}/api/generate-sprite-sheet?project=${encodeURIComponent(params.project)}&session=${encodeURIComponent(params.session)}`;
+      const slug = characterSlug(char.name);
+      const sheets: any[] = []; let totalCost = 0;
+      for (const action of actions) {
+        const r = await fetch(base, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            character: char.description || char.name, animation: action,
+            seedImageId: char.referenceImageId, name: `${slug}-${action}`,
+            frames: body.frames, angles: body.angles, fps: body.fps,
+            exportFormat: body.exportFormat, model: body.model,
+          }),
+        });
+        const j = await r.json() as any;
+        if (!r.ok) { sheets.push({ action, error: j.error || r.statusText }); continue; }
+        totalCost += j.costUsd ?? 0;
+        sheets.push({ action, sheet: j.sheet, frames: j.frames, angles: j.angles, costUsd: j.costUsd });
+      }
+      return Response.json({ success: true, character: char.name, referenceImageId: char.referenceImageId, actions, sheets, totalCostUsd: totalCost });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 
   // GET /api/images — list

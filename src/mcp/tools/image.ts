@@ -228,6 +228,60 @@ export async function handleGenerateSprite(
   return await response.json() as GenerateSpriteResult;
 }
 
+export const defineCharacterSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    name: { type: 'string', description: 'Character name (also the id slug).' },
+    description: { type: 'string', description: 'What the character looks like. If no referenceImageId is given, a canonical reference image is generated from this and locked in.' },
+    referenceImageId: { type: 'string', description: 'Existing session image to use as the locked reference (optional; else one is generated from description).' },
+    palette: { type: 'array', items: { type: 'string' }, description: 'Optional fixed hex palette for this character.' },
+    stylePromptFragment: { type: 'string', description: 'Optional aesthetic phrase appended to this character\'s prompts.' },
+    generateReference: { type: 'boolean', description: 'Generate a canonical reference image from description (default true when no referenceImageId).' },
+  },
+  required: ['project', 'session', 'name'],
+};
+
+export const listCharactersSchema = {
+  type: 'object',
+  properties: { ...sessionParamsDesc },
+  required: ['project', 'session'],
+};
+
+export const generateCharacterAnimationsSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    character: { type: 'string', description: 'Name of a defined character (see define_character).' },
+    actions: { type: 'array', items: { type: 'string' }, description: 'Explicit list of animations (e.g. ["idle","skate","punch","KO"]).' },
+    preset: { type: 'string', description: 'Named action bundle: fighter / platformer / topdown. Merged with actions[].' },
+    frames: { type: 'number', description: 'Animation frames per sheet (2-8). Default 6.' },
+    angles: { type: 'number', description: 'Facing angles per sheet (2-16). Default 8.' },
+    fps: { type: 'number', description: 'Animation fps. Default 12.' },
+    exportFormat: { type: 'string', description: 'Engine export sidecars per sheet: aseprite, phaser, godot (comma-separated).' },
+    model: { type: 'string', description: 'xAI video model (default grok-imagine-video).' },
+  },
+  required: ['project', 'session', 'character'],
+};
+
+export async function handleDefineCharacter(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/character', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to define character: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
+export async function handleListCharacters(project: string, session: string): Promise<any> {
+  const r = await fetch(buildUrl('/api/characters', project, session));
+  if (!r.ok) throw new Error(`Failed to list characters: ${r.statusText}`);
+  return r.json();
+}
+
+export async function handleGenerateCharacterAnimations(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-character-animations', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate character animations: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
 export async function handleGenerateSpriteSheet(
   project: string,
   session: string,

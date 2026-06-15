@@ -224,7 +224,7 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet } from './tools/image.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2416,6 +2416,9 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'generate_image', description: 'Generate an image from a text prompt via Grok Imagine (xAI) and save it as a session image artifact. Returns the saved image id(s) + cost.', inputSchema: generateImageSchema },
       { name: 'generate_sprite_animation', description: 'Generate an ANIMATED billboard sprite sheet: a Grok Imagine video of a seed character performing an action, chroma-keyed + packed into a transparent atlas (with a frame manifest). Needs ffmpeg on the server.', inputSchema: generateSpriteAnimationSchema },
       { name: 'generate_sprite_rotation', description: 'Generate a turntable ROTATION sprite strip: a Grok Imagine camera-orbit video of a seed character, chroma-keyed + packed into a transparent atlas of angles (for billboard facing/rotation). Needs ffmpeg on the server.', inputSchema: generateSpriteRotationSchema },
+      { name: 'define_character', description: 'Define a reusable game CHARACTER (name + description → a locked reference image + optional palette/style). Generation tools reference it so every animation reads as the same character. Auto-generates a canonical reference image from the description if none given.', inputSchema: defineCharacterSchema },
+      { name: 'list_characters', description: 'List defined characters in the session.', inputSchema: listCharactersSchema },
+      { name: 'generate_character_animations', description: 'Batch a character\'s full animation SET: one directional sprite sheet per action, all locked to the character\'s reference for consistent identity. Actions = explicit list and/or a preset (fighter/platformer/topdown). Needs ffmpeg. ~ (1 image + 1 video) per action.', inputSchema: generateCharacterAnimationsSchema },
       { name: 'generate_sprite_sheet', description: 'Spec-driven DIRECTIONAL ANIMATION sheet (recommended): character + animation + frames + angles → a packed [angles × frames] transparent sprite sheet + manifest. Optionally pass seedImageId to LOCK a specific character (img2img); the pedestal marker color is then auto-picked to be absent from it. Generates a grid of frozen poses on turntable pedestals, orbits it (one clip rotates every cell), then keys/slices/recenters. ~1 image + 1 video. Needs ffmpeg.', inputSchema: generateSpriteSheetSchema },
       { name: 'list_images', description: 'List all image artifacts in a session.', inputSchema: listImagesSchema },
       { name: 'get_image', description: 'Get image artifact metadata by ID. Returns an absolute disk path; use the Read tool on that path to view the image.', inputSchema: getImageSchema },
@@ -4351,6 +4354,24 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, ...rest } = args as any;
             if (!project || !session || !rest.character || !rest.animation) throw new Error('Missing required: project, session, character, animation');
             const result = await handleGenerateSpriteSheet(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'define_character': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.name) throw new Error('Missing required: project, session, name');
+            const result = await handleDefineCharacter(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'list_characters': {
+            const { project, session } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleListCharacters(project, session);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_character_animations': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.character) throw new Error('Missing required: project, session, character');
+            const result = await handleGenerateCharacterAnimations(project, session, rest);
             return JSON.stringify(result, null, 2);
           }
           case 'list_images': {
