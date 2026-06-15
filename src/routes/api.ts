@@ -3187,6 +3187,19 @@ export async function handleAPI(
     } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 
+  // DELETE /api/audio/:id — remove an audio artifact
+  if (path.startsWith('/api/audio/') && !path.endsWith('/content') && req.method === 'DELETE') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const id = decodeURIComponent(path.slice('/api/audio/'.length));
+      const audio = new AudioManager(sessionRegistry.resolvePath(params.project, params.session, 'audio'));
+      await audio.initialize();
+      await audio.delete(id);
+      return Response.json({ success: true });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
   // GET /api/audio/:id/content — stream audio bytes
   if (path.startsWith('/api/audio/') && path.endsWith('/content') && req.method === 'GET') {
     const params = getSessionParams(url);

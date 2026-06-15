@@ -18,7 +18,8 @@ export type TabArtifactType =
   | 'design'
   | 'spreadsheet'
   | 'snippet'
-  | 'image';
+  | 'image'
+  | 'audio';
 
 export interface TabDescriptor {
   id: string;

@@ -15,6 +15,7 @@ export * from './artifacts';
 export * from './sessionTodo';
 export * from './embed';
 export * from './image';
+export * from './audio';
 
 // Re-export WebSocket types from websocket module
 export type { TaskGraphUpdatedDetail } from '../lib/websocket';

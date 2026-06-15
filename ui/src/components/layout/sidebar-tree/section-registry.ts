@@ -81,6 +81,14 @@ export const SECTION_DEFS: SectionDef[] = [
     filter: (n) => n.kind === 'artifact' && n.artifactType === 'image',
   },
   {
+    id: 'audio',
+    label: 'Audio',
+    renderer: 'flat',
+    multiselectable: true,
+    collapsible: true,
+    filter: (n) => n.kind === 'artifact' && n.artifactType === 'audio',
+  },
+  {
     id: 'embeds',
     label: 'Embeds',
     renderer: 'flat',

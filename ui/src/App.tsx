@@ -242,6 +242,7 @@ const App: React.FC = () => {
     images,
     addImage,
     removeImage,
+    addAudio,
     setPendingDiff,
     setCollabState,
   } = useSessionStore(
@@ -280,6 +281,7 @@ const App: React.FC = () => {
       images: state.images,
       addImage: state.addImage,
       removeImage: state.removeImage,
+      addAudio: state.addAudio,
       setPendingDiff: state.setPendingDiff,
       setCollabState: state.setCollabState,
     }))
@@ -826,6 +828,14 @@ const App: React.FC = () => {
           evictSessionItemsCache(project, session);
           break;
         }
+        case 'audio_created': {
+          const { id, name, mimeType, size, project, session } = message as any;
+          if (currentSession && project === currentSession.project && session === currentSession.name) {
+            addAudio({ id, name, mimeType, size, createdAt: new Date().toISOString() });
+          }
+          evictSessionItemsCache(project, session);
+          break;
+        }
 
         case 'design_export_request': {
           // Browser-side rendering for MCP export
@@ -1053,7 +1063,7 @@ const App: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [isConnected, currentSession, activeServerId, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
+  }, [isConnected, currentSession, activeServerId, updateDiagram, updateDocument, updateDesign, updateSpreadsheet, addDiagram, addDocument, addDesign, addSpreadsheet, removeDiagram, removeDocument, removeDesign, removeSpreadsheet, addSnippet, updateSnippet, removeSnippet, addEmbed, removeEmbed, addImage, removeImage, addAudio, setPendingDiff, setCollabState, receiveQuestion, restoreUIState]);
 
   // Compute selected item from diagrams/documents/designs
   const selectedItem: Item | null = useMemo(() => {
@@ -1697,7 +1707,7 @@ const App: React.FC = () => {
             showZoom={activeItemType !== 'document' && activeItemType !== 'spreadsheet' && activeItemType !== 'snippet' && activeItemType !== 'code'}
             onCenter={activeItemType === 'diagram' ? handleCenter : undefined}
             onFitToView={activeItemType === 'diagram' ? handleFitToView : activeItemType === 'design' ? handleDesignFitToView : undefined}
-            itemType={activeItemType && activeItemType !== 'image' && activeItemType !== 'code' ? activeItemType : undefined}
+            itemType={activeItemType && activeItemType !== 'image' && activeItemType !== 'audio' && activeItemType !== 'code' ? activeItemType : undefined}
             documentId={selectedItem?.type === 'document' ? selectedItem.id : undefined}
             documentContent={selectedItem?.type === 'document' ? effectiveContent : undefined}
             onHistoryVersionSelect={selectedItem?.type === 'document' ? handleHistoryVersionSelect : undefined}

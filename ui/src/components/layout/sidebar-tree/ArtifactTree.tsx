@@ -26,6 +26,7 @@ import { DesignsSection } from './sections/DesignsSection';
 import { SnippetsSection } from './sections/SnippetsSection';
 import { SpreadsheetSection } from './sections/SpreadsheetSection';
 import { ImagesSection } from './sections/ImagesSection';
+import { AudioSection } from './sections/AudioSection';
 import { EmbedsSection } from './sections/EmbedsSection';
 import { PinsSection } from './sections/PinsSection';
 import { RecentSection } from './sections/RecentSection';
@@ -139,6 +140,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
   const snippets = useSessionStore((s) => s.snippets);
   const embeds = useSessionStore((s) => s.embeds);
   const images = useSessionStore((s) => s.images);
+  const audio = useSessionStore((s) => s.audio);
 
   const selectedDiagramId = useSessionStore((s) => s.selectedDiagramId);
   const selectedDocumentId = useSessionStore((s) => s.selectedDocumentId);
@@ -202,6 +204,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
   const removeSpreadsheet = useSessionStore((s) => s.removeSpreadsheet);
   const removeSnippet = useSessionStore((s) => s.removeSnippet);
   const removeImage = useSessionStore((s) => s.removeImage);
+  const removeAudio = useSessionStore((s) => s.removeAudio);
   const removeEmbed = useSessionStore((s) => s.removeEmbed);
   const updateDiagram = useSessionStore((s) => s.updateDiagram);
   const updateDocument = useSessionStore((s) => s.updateDocument);
@@ -300,6 +303,11 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     [images],
   );
 
+  const audioNodes = useMemo<TreeNode[]>(
+    () => audio.map((a) => toArtifactNode({ ...(a as any), lastModified: Date.parse((a as any).createdAt) || undefined }, 'audio')),
+    [audio],
+  );
+
   const diagramNodes = useMemo<TreeNode[]>(
     () => diagrams.filter((d) => !d.name.startsWith('Implementing/')).map((d) => toArtifactNode(d, 'diagram')),
     [diagrams],
@@ -386,6 +394,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       },
       { id: 'embeds', leaves: embedNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'images', leaves: imageNodes.map((n) => ({ id: n.id, name: n.name })) },
+      { id: 'audio', leaves: audioNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'diagrams', leaves: diagramNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'documents', leaves: documentNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'designs', leaves: designNodes.map((n) => ({ id: n.id, name: n.name })) },
@@ -410,6 +419,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     specNodes,
     embedNodes,
     imageNodes,
+    audioNodes,
     diagramNodes,
     documentNodes,
     designNodes,
@@ -445,6 +455,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       { id: 'implementing', nodes: [...blueprintNodes, ...taskNodes, ...implementingRawNodes] },
       { id: 'embeds', nodes: embedNodes },
       { id: 'images', nodes: imageNodes },
+      { id: 'audio', nodes: audioNodes },
       { id: 'diagrams', nodes: diagramNodes },
       { id: 'documents', nodes: documentNodes },
       { id: 'designs', nodes: designNodes },
@@ -477,6 +488,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     specNodes,
     embedNodes,
     imageNodes,
+    audioNodes,
     diagramNodes,
     documentNodes,
     designNodes,
@@ -736,6 +748,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       ...implementingRawNodes,
       ...embedNodes,
       ...imageNodes,
+      ...audioNodes,
       ...diagramNodes,
       ...documentNodes,
       ...designNodes,
@@ -755,6 +768,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     specNodes,
     embedNodes,
     imageNodes,
+    audioNodes,
     diagramNodes,
     documentNodes,
     designNodes,
@@ -856,6 +870,10 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         case 'image':
           await api.deleteImage(project, session, node.id);
           removeImage(node.id);
+          break;
+        case 'audio':
+          await fetch(`/api/audio/${encodeURIComponent(node.id)}?project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`, { method: 'DELETE' }).catch(() => {});
+          removeAudio(node.id);
           break;
       }
     } catch (err) {
@@ -1205,6 +1223,24 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
           collapsed={collapsedSections.has('images')}
           forceExpanded={forceExpandedSections.has('images')}
           onToggle={() => toggleSection('images')}
+          showDeprecated={showDeprecated}
+          searchQuery={searchQuery}
+          visibleNodes={visibleNodes}
+          multiSelection={multiSelection}
+          isSelected={isSelected}
+          handleNodeClick={handleNodeClick}
+          openNode={openNode}
+          openPermanent={openPermanent}
+          openPreview={openPreview}
+          handleNodeContextMenu={handleNodeContextMenu}
+          setSelection={setSelection}
+          toTabDescriptor={toTabDescriptor}
+        />
+        <AudioSection
+          nodes={audioNodes}
+          collapsed={collapsedSections.has('audio')}
+          forceExpanded={forceExpandedSections.has('audio')}
+          onToggle={() => toggleSection('audio')}
           showDeprecated={showDeprecated}
           searchQuery={searchQuery}
           visibleNodes={visibleNodes}

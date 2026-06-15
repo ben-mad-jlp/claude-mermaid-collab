@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Session, Diagram, Document, CollabState, Snippet, Embed, SessionTodo, Image } from '../types';
+import { Session, Diagram, Document, CollabState, Snippet, Embed, SessionTodo, Image, Audio } from '../types';
 import { api } from '../lib/api';
 import { getSessionItemsCache } from '@/lib/sessionItemsCache';
 
@@ -78,6 +78,9 @@ export interface SessionState {
   // Images in current session
   images: Image[];
 
+  // Audio artifacts in current session
+  audio: Audio[];
+
   // Session todos state (per-session, not per-project)
   sessionTodos: SessionTodo[];
   sessionTodosShowCompleted: boolean;
@@ -148,6 +151,11 @@ export interface SessionState {
   updateImage: (id: string, image: Partial<Image>) => void;
   removeImage: (id: string) => void;
 
+  // Audio actions
+  setAudio: (audio: Audio[]) => void;
+  addAudio: (audio: Audio) => void;
+  removeAudio: (id: string) => void;
+
   // Collab state actions
   setCollabState: (state: CollabState | null) => void;
 
@@ -193,6 +201,7 @@ const initialState = {
   selectedSnippetId: null,
   embeds: [],
   images: [],
+  audio: [],
   sessionTodos: [],
   sessionTodosShowCompleted: false,
   sessionTodosFetchSeq: 0,
@@ -242,6 +251,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       snippets: snapshot?.snippets ?? [],
       embeds: snapshot?.embeds ?? [],
       images: snapshot?.images ?? [],
+      audio: (snapshot as any)?.audio ?? [],
       selectedDiagramId: null,
       selectedDocumentId: null,
       selectedDesignId: null,
@@ -522,6 +532,17 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
     });
   },
 
+  // Audio management
+  setAudio: (audio) => set({ audio }),
+  addAudio: (a) => {
+    const { audio } = get();
+    if (!audio.find((x) => x.id === a.id)) set({ audio: [...audio, a] });
+  },
+  removeAudio: (id) => {
+    const { audio } = get();
+    set({ audio: audio.filter((x) => x.id !== id) });
+  },
+
   // Collab state management
   setCollabState: (state: CollabState | null) => {
     set({ collabState: state });
@@ -577,6 +598,7 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
       snippets: [],
       embeds: [],
       images: [],
+      audio: [],
       selectedDiagramId: null,
       selectedDocumentId: null,
       selectedDesignId: null,

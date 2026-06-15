@@ -5,8 +5,8 @@ interface DspPreset { name: string }
 export interface AudioViewerProps {
   audioId: string;
   name: string;
-  project: string;
-  session: string;
+  project?: string;
+  session?: string;
 }
 
 /**
@@ -15,7 +15,7 @@ export interface AudioViewerProps {
  * Self-contained; talks to /api/audio + /api/dsp-presets + /api/apply-audio-dsp.
  */
 export const AudioViewer: React.FC<AudioViewerProps> = ({ audioId, name, project, session }) => {
-  const q = `project=${encodeURIComponent(project)}&session=${encodeURIComponent(session)}`;
+  const q = `project=${encodeURIComponent(project ?? '')}&session=${encodeURIComponent(session ?? '')}`;
   const [currentId, setCurrentId] = useState(audioId);
   const [presets, setPresets] = useState<string[]>([]);
   const [preset, setPreset] = useState('');

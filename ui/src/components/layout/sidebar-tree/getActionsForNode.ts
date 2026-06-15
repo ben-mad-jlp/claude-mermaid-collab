@@ -19,7 +19,8 @@ export type ArtifactType =
   | 'design'
   | 'spreadsheet'
   | 'snippet'
-  | 'image';
+  | 'image'
+  | 'audio';
 
 export interface TreeNode {
   kind: NodeKind;
@@ -51,7 +52,7 @@ export function getActionsForNode(
 ): MenuAction[] {
   switch (node.kind) {
     case 'artifact': {
-      if (node.artifactType === 'image') {
+      if (node.artifactType === 'image' || node.artifactType === 'audio') {
         return [
           {
             id: 'pin-artifact',

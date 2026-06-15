@@ -19,6 +19,7 @@ import DocumentView from '@/components/editors/DocumentView';
 import TodoDetailView from '@/components/editors/TodoDetailView';
 import { EmbedViewer } from '@/components/EmbedViewer';
 import { ImageViewer } from '@/components/ImageViewer';
+import { AudioViewer } from '@/components/AudioViewer';
 import { TaskGraphView } from '@/components/task-graph';
 import CodeFileView from '@/components/editors/CodeFileView';
 import { CodeEditor } from '@/components/editors/CodeEditor';
@@ -68,6 +69,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
     spreadsheets,
     snippets,
     images,
+    audio,
     embeds,
   } = useSessionStore(
     useShallow((s) => ({
@@ -77,6 +79,7 @@ export const PaneContent: React.FC<PaneContentProps> = ({
       spreadsheets: s.spreadsheets,
       snippets: s.snippets,
       images: s.images,
+      audio: s.audio,
       embeds: s.embeds,
     })),
   );
@@ -130,6 +133,18 @@ export const PaneContent: React.FC<PaneContentProps> = ({
           return (
             <ImageViewer
               imageId={tab.artifactId}
+              project={project}
+              session={session}
+            />
+          );
+        }
+        case 'audio': {
+          const au = audio.find((x) => x.id === tab.artifactId);
+          if (!au) return <NotFound message="Audio not found" />;
+          return (
+            <AudioViewer
+              audioId={tab.artifactId}
+              name={au.name}
               project={project}
               session={session}
             />
