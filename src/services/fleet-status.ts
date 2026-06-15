@@ -13,7 +13,7 @@
  */
 import { listTodos } from './todo-store';
 import { tmuxBaseName } from './tmux-naming';
-import { resolveWorkerAgent } from '../agent/registry';
+import { resolveWorkerAgent, getGrokHarnessForInspection } from '../agent/registry';
 import { getStatus } from './session-status-store';
 import type { ProviderId } from '../agent/worker-agent';
 import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
@@ -241,7 +241,15 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
 
     let state: WorkerState;
     let blockedOnTool: string | null | undefined;
-    if (!tmuxAlive(tmux)) {
+    if (provider === 'grok-build') {
+      // A grok lane runs IN-PROCESS with no tmux by design, so the tmux-absence
+      // branch below would mis-classify a live lane as 'no_tmux' (→ hidden/dead).
+      // Derive liveness from the GrokOwnHarness loop instead: the lane Map is keyed
+      // by the worker/pool session name (the same `worker` key here). No tmux, so
+      // never capturePane / dead_shell / no_tmux for grok.
+      const harness = getGrokHarnessForInspection();
+      state = harness.isAlive(worker) ? 'working' : 'idle';
+    } else if (!tmuxAlive(tmux)) {
       state = 'no_tmux';
     } else {
       const panePid = tmuxPanePid(tmux);

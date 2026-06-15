@@ -272,10 +272,31 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           contextPercent: s.contextPercent,
         };
       });
+    // THIRD source: daemon-spawned pool lanes (e.g. backend-grok-build-2,
+    // backend-claude-1) are in NEITHER the supervised set NOR the Watching feed and
+    // emit no subscription, so without this they never become a card even though
+    // /api/fleet HAS them. Source a row directly from each fleet entry whose session
+    // isn't already known and isn't an orchestrator. The fleet map is keyed by the
+    // worker session, so the KEY is the session.
+    for (const s of [...fromSupervised, ...extra]) known.add(s.session);
+    const fromFleet = Object.entries(fleet)
+      .filter(([session]) => !isOrchestratorSession(session) && !known.has(session))
+      .map(([session, entry]) => {
+        known.add(session);
+        return {
+          serverId: serverScope,
+          project,
+          session,
+          status: fleetToStatus(entry.state),
+          lastUpdate: entry.lastActivity as number | null,
+          taskClaimedAt: entry.claimedAt ?? null,
+          contextPercent: undefined as number | undefined,
+        };
+      });
     // Hide DEAD lanes (dead_shell/no_tmux) and GRAY lanes (status 'unknown' — stale
     // past the liveness window / never reported). A still-known status
     // (active/waiting/permission, even if dimmed) stays.
-    return [...fromSupervised, ...extra]
+    return [...fromSupervised, ...extra, ...fromFleet]
       .filter((s) => s.status !== 'unknown' && s.status !== 'dead')
       .map((s) => ({ ...s, status: s.status as 'active' | 'waiting' | 'permission' | 'unknown' }));
   }, [supervised, projectSubs, project, serverScope, sessionStatuses, fleet]);
