@@ -224,7 +224,7 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, generateTilesetSchema, generateBackgroundSchema, estimateCostSchema, assetBudgetSchema, replaceSheetCellSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp, handleGenerateTileset, handleGenerateBackground, handleEstimateCost, handleAssetBudget, handleReplaceSheetCell } from './tools/image.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, generateTilesetSchema, generateBackgroundSchema, estimateCostSchema, assetBudgetSchema, replaceSheetCellSchema, generateVoiceoverSchema, applyAudioDspSchema, listAudioSchema, listDspPresetsSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp, handleGenerateTileset, handleGenerateBackground, handleEstimateCost, handleAssetBudget, handleReplaceSheetCell, handleGenerateVoiceover, handleApplyAudioDsp, handleListAudio, handleListDspPresets } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2420,6 +2420,10 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'generate_prop', description: 'Generate a single transparent game asset (item/prop/icon): Grok image → chroma-key → optional downscale + project palette. Returns a session image.', inputSchema: generatePropSchema },
       { name: 'generate_tileset', description: 'Generate seamlessly-tileable terrain/wall tiles (prompt or tiles[]) packed into a tilesheet + Tiled/Godot-friendly manifest. Offset-blend seam-heal + project palette.', inputSchema: generateTilesetSchema },
       { name: 'generate_background', description: 'Generate a scene background; optional horizontally-seamless base (looping scroll) + optional transparent parallax layers. Returns one image per layer.', inputSchema: generateBackgroundSchema },
+      { name: 'generate_voiceover', description: 'Generate a voiceover via Grok TTS (voices eve/ara/rex/sal/leo) and save as an audio artifact. Optional shared DSP preset (epic-announcer/ice-demon/giant/robot-8bit…) to make it epic.', inputSchema: generateVoiceoverSchema },
+      { name: 'apply_audio_dsp', description: 'Apply a shared DSP/effect preset to an EXISTING audio artifact — the SAME adjustments work on voice, SFX, and music. Returns a new audio artifact.', inputSchema: applyAudioDspSchema },
+      { name: 'list_audio', description: 'List audio artifacts in the session.', inputSchema: listAudioSchema },
+      { name: 'list_dsp_presets', description: 'List the shared audio DSP/effect presets.', inputSchema: listDspPresetsSchema },
       { name: 'estimate_cost', description: 'Preview the USD cost of an asset-generation op before running it (+ current session spend/budget).', inputSchema: estimateCostSchema },
       { name: 'asset_budget', description: 'Read the session asset-generation spend; or set/clear a spend cap (budgetUsd) that 402-blocks generations once exceeded.', inputSchema: assetBudgetSchema },
       { name: 'replace_sheet_cell', description: 'Fix one cell of a sprite sheet / tileset: composite a replacement image into the cell (by manifest cellIndex or explicit rect) without re-rolling the whole sheet.', inputSchema: replaceSheetCellSchema },
@@ -4374,6 +4378,28 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
             const result = await handleGenerateProp(project, session, rest);
             return JSON.stringify(result, null, 2);
+          }
+          case 'generate_voiceover': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.text) throw new Error('Missing required: project, session, text');
+            const result = await handleGenerateVoiceover(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'apply_audio_dsp': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.audioId || !rest.preset) throw new Error('Missing required: project, session, audioId, preset');
+            const result = await handleApplyAudioDsp(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'list_audio': {
+            const { project, session } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            return JSON.stringify(await handleListAudio(project, session), null, 2);
+          }
+          case 'list_dsp_presets': {
+            const { project, session } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            return JSON.stringify(await handleListDspPresets(project, session), null, 2);
           }
           case 'estimate_cost': {
             const { project, session, ...rest } = args as any;

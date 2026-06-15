@@ -228,6 +228,56 @@ export async function handleGenerateSprite(
   return await response.json() as GenerateSpriteResult;
 }
 
+export const generateVoiceoverSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    text: { type: 'string', description: 'What to say (e.g. "Round one. Fight!").' },
+    voiceId: { type: 'string', enum: ['eve', 'ara', 'rex', 'sal', 'leo'], description: 'Grok voice (default eve).' },
+    language: { type: 'string', description: "BCP-47 or 'auto'. Default 'en'." },
+    speed: { type: 'number', description: '0.7–1.5. Default 1.0.' },
+    dspPreset: { type: 'string', description: 'Optional shared DSP preset to make it epic (epic-announcer, ice-demon, giant, robot-8bit, radio, ghost, hype…). See list_dsp_presets.' },
+    codec: { type: 'string', enum: ['mp3', 'wav'], description: 'Output codec (default mp3).' },
+    name: { type: 'string', description: 'Base filename (optional).' },
+  },
+  required: ['project', 'session', 'text'],
+};
+
+export const applyAudioDspSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    audioId: { type: 'string', description: 'Existing audio artifact id (voice, SFX, or music — the same presets apply to all).' },
+    preset: { type: 'string', description: 'DSP preset name (see list_dsp_presets) or a raw ffmpeg -af filterchain.' },
+    name: { type: 'string', description: 'Base filename for the processed audio (optional).' },
+  },
+  required: ['project', 'session', 'audioId', 'preset'],
+};
+
+export const listAudioSchema = { type: 'object', properties: { ...sessionParamsDesc }, required: ['project', 'session'] };
+export const listDspPresetsSchema = { type: 'object', properties: { ...sessionParamsDesc }, required: ['project', 'session'] };
+
+export async function handleGenerateVoiceover(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-voiceover', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate voiceover: ${e.error || r.statusText}`); }
+  return r.json();
+}
+export async function handleApplyAudioDsp(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/apply-audio-dsp', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to apply audio dsp: ${e.error || r.statusText}`); }
+  return r.json();
+}
+export async function handleListAudio(project: string, session: string): Promise<any> {
+  const r = await fetch(buildUrl('/api/audio', project, session));
+  if (!r.ok) throw new Error(`Failed to list audio: ${r.statusText}`);
+  return r.json();
+}
+export async function handleListDspPresets(project: string, session: string): Promise<any> {
+  const r = await fetch(buildUrl('/api/dsp-presets', project, session));
+  if (!r.ok) throw new Error(`Failed to list dsp presets: ${r.statusText}`);
+  return r.json();
+}
+
 export const estimateCostSchema = {
   type: 'object',
   properties: {

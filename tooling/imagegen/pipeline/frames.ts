@@ -41,6 +41,9 @@ function resolveBin(name: 'ffmpeg' | 'ffprobe'): string {
 const FFMPEG = resolveBin('ffmpeg');
 const FFPROBE = resolveBin('ffprobe');
 
+/** The resolved ffmpeg binary path (env → bundled resources → static pkg → PATH). */
+export function ffmpegPath(): string { return FFMPEG; }
+
 let ffmpegChecked: boolean | null = null;
 
 /** True if an `ffmpeg` binary is callable on this host. Cached after first check. */

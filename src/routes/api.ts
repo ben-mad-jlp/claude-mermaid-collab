@@ -62,6 +62,9 @@ import { extractFrames, hasFfmpeg } from '../../tooling/imagegen/pipeline/frames
 import { loadProjectStyle, saveProjectStyle, applyStyleToPrompt, type ProjectStyle } from '../services/project-style';
 import { saveCharacter, loadCharacter, listCharacters, resolveActions, characterSlug, type CharacterDef } from '../services/character-store';
 import { loadSpend, setBudget, recordSpend, wouldExceedBudget, estimateCost } from '../services/asset-spend';
+import { AudioManager } from '../services/audio-manager';
+import { synthesizeSpeech } from '../../tooling/audiogen/providers/xai-tts';
+import { applyChain, listPresets } from '../../tooling/audiogen/dsp';
 // The image pipeline (removeBg/downscale/packSheet/spriteSheet) uses jimp (pure JS),
 // which embeds + runs inside the bun --compile sidecar (sharp's native module does NOT —
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
@@ -3074,6 +3077,79 @@ export async function handleAPI(
       const image = await imageManager.create({ name: `${name}.png`, buffer: out, mimeType: 'image/png' });
       wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
       return Response.json({ success: true, image: { id: image.id, name: image.name, size: image.size }, rect });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // GET /api/dsp-presets — list the shared audio DSP presets (voice/sfx/music)
+  if (path === '/api/dsp-presets' && req.method === 'GET') {
+    return Response.json({ presets: listPresets() });
+  }
+
+  // POST /api/generate-voiceover — Grok TTS → optional shared DSP preset → audio artifact
+  if (path === '/api/generate-voiceover' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as { text?: string; voiceId?: string; language?: string; speed?: number; dspPreset?: string; codec?: 'mp3' | 'wav'; name?: string };
+      if (!body.text) return Response.json({ error: 'text required' }, { status: 400 });
+      const codec = body.codec ?? 'mp3';
+      const tts = await synthesizeSpeech(body.text, { voiceId: body.voiceId, language: body.language, speed: body.speed, codec });
+      let buf: Buffer = Buffer.from(tts.bytes);
+      let mime = tts.mimeType;
+      if (body.dspPreset) { buf = await applyChain(buf, { preset: body.dspPreset, codec }); mime = codec === 'wav' ? 'audio/wav' : 'audio/mpeg'; }
+      const audio = new AudioManager(sessionRegistry.resolvePath(params.project, params.session, 'audio'));
+      await audio.initialize();
+      const baseName = (body.name || body.text.slice(0, 32)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'voiceover';
+      const saved = await audio.create({ name: `${baseName}.${codec}`, buffer: buf, mimeType: mime });
+      wsHandler.broadcast({ type: 'audio_created' as any, id: saved.id, name: saved.name, mimeType: saved.mimeType, size: saved.size, project: params.project, session: params.session });
+      const spend = await recordSpend(params.project, params.session, tts.costUsd, 'voiceover').catch(() => null);
+      return Response.json({ success: true, audio: { id: saved.id, name: saved.name, size: saved.size }, voiceId: tts.voiceId, dspPreset: body.dspPreset ?? null, costUsd: tts.costUsd, sessionSpendUsd: spend?.totalUsd });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/apply-audio-dsp — apply a shared DSP preset to an EXISTING audio artifact
+  // (the same adjustments for voice, SFX, and music).
+  if (path === '/api/apply-audio-dsp' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as { audioId?: string; preset?: string; name?: string };
+      if (!body.audioId || !body.preset) return Response.json({ error: 'audioId and preset required' }, { status: 400 });
+      const audio = new AudioManager(sessionRegistry.resolvePath(params.project, params.session, 'audio'));
+      await audio.initialize();
+      const src = await audio.getContent(body.audioId);
+      if (!src) return Response.json({ error: `audioId not found: ${body.audioId}` }, { status: 404 });
+      const codec = src.mimeType.includes('wav') ? 'wav' : 'mp3';
+      const out = await applyChain(src.buffer, { preset: body.preset, codec });
+      const baseName = (body.name || `${body.audioId}-${body.preset}`).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'audio-dsp';
+      const saved = await audio.create({ name: `${baseName}.${codec}`, buffer: out, mimeType: codec === 'wav' ? 'audio/wav' : 'audio/mpeg' });
+      wsHandler.broadcast({ type: 'audio_created' as any, id: saved.id, name: saved.name, mimeType: saved.mimeType, size: saved.size, project: params.project, session: params.session });
+      return Response.json({ success: true, audio: { id: saved.id, name: saved.name, size: saved.size }, preset: body.preset });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // GET /api/audio — list audio artifacts
+  if (path === '/api/audio' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const audio = new AudioManager(sessionRegistry.resolvePath(params.project, params.session, 'audio'));
+      await audio.initialize();
+      return Response.json({ audio: await audio.list() });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // GET /api/audio/:id/content — stream audio bytes
+  if (path.startsWith('/api/audio/') && path.endsWith('/content') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const id = decodeURIComponent(path.slice('/api/audio/'.length, -'/content'.length));
+      const audio = new AudioManager(sessionRegistry.resolvePath(params.project, params.session, 'audio'));
+      await audio.initialize();
+      const c = await audio.getContent(id);
+      if (!c) return Response.json({ error: 'audio not found' }, { status: 404 });
+      return new Response(new Uint8Array(c.buffer), { headers: { 'Content-Type': c.mimeType } });
     } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 
