@@ -12,8 +12,20 @@
  */
 import type { SessionMux } from './SessionMux.ts';
 import { TmuxSessionMux } from './TmuxSessionMux.ts';
+import { WslTmuxSessionMux } from './WslTmuxSessionMux.ts';
 
-export const mux: SessionMux = new TmuxSessionMux();
+/**
+ * Backend selection at one site:
+ * - **Windows native sidecar** (`process.platform === 'win32'`): drive tmux inside
+ *   WSL via `WslTmuxSessionMux` (`MC_WSL_DISTRO`, default `Ubuntu`).
+ * - **mac/linux — AND the sidecar running INSIDE WSL** (`platform === 'linux'`):
+ *   the native `TmuxSessionMux`. This is the preferred Windows topology too
+ *   (sidecar-in-WSL), where the seam needs no wrapping at all.
+ */
+export const mux: SessionMux =
+  process.platform === 'win32'
+    ? new WslTmuxSessionMux(process.env.MC_WSL_DISTRO || 'Ubuntu')
+    : new TmuxSessionMux();
 
-export type { SessionMux } from './SessionMux.ts';
+export type { SessionMux, SessionInfo } from './SessionMux.ts';
 export * from './tmux-argv.ts';
