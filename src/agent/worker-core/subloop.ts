@@ -5,12 +5,15 @@
  * discipline §0). The host calls this once per phase; a subloop is NEVER a
  * model-facing tool, so it cannot recurse (depth ≤ 1 by construction).
  *
- * Typed outputs: rather than a version-sensitive structured-output API, the model
- * emits JSON which we tolerantly parse + Zod-validate. A malformed verdict fails
- * SAFE — `object` is undefined + `parseError` is set, so the host escalates rather
- * than trusting an unparseable "pass".
+ * Typed outputs: a schema phase gets a `submit_verdict` TOOL whose input IS the
+ * schema. Calling it captures the (SDK-validated) verdict and ENDS the phase
+ * (hasToolCall stop). This FORCES structure — proven necessary live: grok-build
+ * tool-loops and won't reliably terminate a phase with freeform JSON text. A
+ * text-JSON fallback remains for models that answer in prose. Either way a missing/
+ * malformed verdict fails SAFE (`object` undefined + `parseError`) so the host
+ * escalates rather than trusting an unparseable "pass".
  */
-import { generateText, stepCountIs, type LanguageModel } from 'ai';
+import { generateText, stepCountIs, hasToolCall, tool, type LanguageModel, type Tool } from 'ai';
 import type { z } from 'zod';
 import { buildToolset } from './tools/registry';
 import type { SubloopRole } from './capabilities';
@@ -68,16 +71,33 @@ export async function spawnSubloop<T = unknown>(
   prompt: string,
   opts: SubloopOpts<T> = {},
 ): Promise<SubloopResult<T>> {
-  const tools = buildToolset(role, { cwd: ctx.cwd }); // fresh, capability-gated per phase
+  const tools: Record<string, Tool> = { ...buildToolset(role, { cwd: ctx.cwd }) }; // fresh, capability-gated
   const now = () => Date.now();
   ctx.onEvent?.({ type: 'phase-start', role, ts: now() });
 
+  // FORCED structured output: a schema phase gets a submit_verdict tool whose input
+  // IS the schema. Calling it captures the SDK-validated verdict and ends the phase.
+  const SUBMIT = 'submit_verdict';
+  let captured: T | undefined;
+  if (opts.schema) {
+    tools[SUBMIT] = tool({
+      description:
+        'Submit your FINAL structured result for this phase. Call this EXACTLY ONCE when finished — it ENDS the phase and is the ONLY way to complete it. Do not answer in prose.',
+      inputSchema: opts.schema,
+      execute: async (args) => {
+        captured = args as T;
+        return 'verdict recorded — phase ending';
+      },
+    });
+  }
+
+  const stepCap = opts.stepCap ?? 8;
   const res = await generateText({
     model: ctx.model,
     tools,
     system: opts.system,
     prompt, // no prior messages → fresh context (the verify-independence guarantee)
-    stopWhen: stepCountIs(opts.stepCap ?? 8),
+    stopWhen: opts.schema ? [stepCountIs(stepCap), hasToolCall(SUBMIT)] : stepCountIs(stepCap),
     abortSignal: ctx.abortSignal,
     onStepFinish: ctx.onEvent
       ? (step) => {
@@ -109,13 +129,18 @@ export async function spawnSubloop<T = unknown>(
   };
 
   if (opts.schema) {
-    const parsed = tolerantJsonParse(res.text);
-    if (!parsed.ok) {
-      out.parseError = parsed.error;
+    if (captured !== undefined) {
+      out.object = captured; // already validated by the submit_verdict tool's schema
     } else {
-      const validated = opts.schema.safeParse(parsed.value);
-      if (!validated.success) out.parseError = validated.error.message;
-      else out.object = validated.data;
+      // Fallback: the model answered in prose/JSON instead of calling submit_verdict.
+      const parsed = tolerantJsonParse(res.text);
+      if (!parsed.ok) {
+        out.parseError = parsed.error;
+      } else {
+        const validated = opts.schema.safeParse(parsed.value);
+        if (!validated.success) out.parseError = validated.error.message;
+        else out.object = validated.data;
+      }
     }
   }
   ctx.onEvent?.({ type: 'phase-end', role, ts: now(), steps: out.steps, text: out.text, parseError: out.parseError });

@@ -56,21 +56,21 @@ export type WorkerCoreOutcome =
 const researchPrompt = (s: TodoSpec) =>
   `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\n` +
   `Do MINIMAL exploration — at most 1-2 read-only commands, ONLY inside the current worktree (NEVER explore the wider filesystem with paths like / or /app). ` +
-  `If the task is self-explanatory, do NOT explore at all. Then immediately reply with ONLY a JSON object (no prose, no markdown fence): ` +
-  `{ "filesToEdit": string[], "plan": string, "testCommand"?: string, "behavioral": boolean }`;
+  `If the task is self-explanatory, do NOT explore at all. Then call the submit_verdict tool with your findings: ` +
+  `{ "filesToEdit": string[], "plan": string, "testCommand"?: string, "behavioral": boolean }. Calling submit_verdict ENDS this phase.`;
 
 const implementPrompt = (s: TodoSpec, plan: string, files: string[]) =>
   `TASK: ${s.title}\n\nIMPLEMENT this plan exactly (edit only these files: ${files.join(', ')}):\n${plan}\n\n` +
   `Make the edits. If there are tests run them; if there are none, skip. Then run \`git add -A && git commit -m "<summary>"\` and STOP IMMEDIATELY — do not keep exploring or re-listing files. Do not report completion.`;
 
 const verifyPrompt = (s: TodoSpec, plan: string) =>
-  `SPEC: ${s.title}\nPLAN: ${plan}\n\nYou did NOT write this code. Briefly + independently verify the change-set satisfies the spec (read/check as needed, but be concise). ` +
-  `Your FINAL message MUST be ONLY this JSON object — no prose, no markdown fence, no commentary before or after: ` +
-  `{ "pass": boolean, "failingChecks": string[], "errorSignatures": string[] }`;
+  `SPEC: ${s.title}\nPLAN: ${plan}\n\nYou did NOT write this code. Briefly + independently verify the change-set satisfies the spec (read/check as needed, but be concise — a few checks at most). ` +
+  `Then call the submit_verdict tool with: { "pass": boolean, "failingChecks": string[], "errorSignatures": string[] }. ` +
+  `Calling submit_verdict is the ONLY way to finish this phase — do it as soon as you have a verdict, do not keep re-checking.`;
 
 const reviewPrompt = (s: TodoSpec) =>
   `SPEC: ${s.title}\n${s.description ?? ''}\n\nRead-only completeness review of the change-set vs the spec — missing cases / spec drift / stopped-early. ` +
-  `Your FINAL message MUST be ONLY this JSON object — no prose, no fence: { "complete": boolean, "gaps": string[] }`;
+  `Then call the submit_verdict tool with: { "complete": boolean, "gaps": string[] }. Calling it ENDS the phase.`;
 
 export async function runWorkerCore(
   ctx: { project: string; todoId: string; cwd: string; abortSignal?: AbortSignal; onEvent?: WorkerCoreEventSink },
