@@ -224,7 +224,7 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp } from './tools/image.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, generateTilesetSchema, generateBackgroundSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp, handleGenerateTileset, handleGenerateBackground } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2418,6 +2418,8 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'generate_sprite_rotation', description: 'Generate a turntable ROTATION sprite strip: a Grok Imagine camera-orbit video of a seed character, chroma-keyed + packed into a transparent atlas of angles (for billboard facing/rotation). Needs ffmpeg on the server.', inputSchema: generateSpriteRotationSchema },
       { name: 'generate_vfx', description: 'Generate a VISUAL-EFFECT animation sheet (explosion/spark/smoke/ice-spray): Grok video → keyed (chroma or luminance for glow) → packed transparent atlas + manifest + engine exports. Single-facing. Needs ffmpeg.', inputSchema: generateVfxSchema },
       { name: 'generate_prop', description: 'Generate a single transparent game asset (item/prop/icon): Grok image → chroma-key → optional downscale + project palette. Returns a session image.', inputSchema: generatePropSchema },
+      { name: 'generate_tileset', description: 'Generate seamlessly-tileable terrain/wall tiles (prompt or tiles[]) packed into a tilesheet + Tiled/Godot-friendly manifest. Offset-blend seam-heal + project palette.', inputSchema: generateTilesetSchema },
+      { name: 'generate_background', description: 'Generate a scene background; optional horizontally-seamless base (looping scroll) + optional transparent parallax layers. Returns one image per layer.', inputSchema: generateBackgroundSchema },
       { name: 'define_character', description: 'Define a reusable game CHARACTER (name + description → a locked reference image + optional palette/style). Generation tools reference it so every animation reads as the same character. Auto-generates a canonical reference image from the description if none given.', inputSchema: defineCharacterSchema },
       { name: 'list_characters', description: 'List defined characters in the session.', inputSchema: listCharactersSchema },
       { name: 'generate_character_animations', description: 'Batch a character\'s full animation SET: one directional sprite sheet per action, all locked to the character\'s reference for consistent identity. Actions = explicit list and/or a preset (fighter/platformer/topdown). Needs ffmpeg. ~ (1 image + 1 video) per action.', inputSchema: generateCharacterAnimationsSchema },
@@ -4368,6 +4370,18 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, ...rest } = args as any;
             if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
             const result = await handleGenerateProp(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_tileset': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const result = await handleGenerateTileset(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_background': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.prompt) throw new Error('Missing required: project, session, prompt');
+            const result = await handleGenerateBackground(project, session, rest);
             return JSON.stringify(result, null, 2);
           }
           case 'define_character': {

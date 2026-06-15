@@ -66,15 +66,16 @@ import { saveCharacter, loadCharacter, listCharacters, resolveActions, character
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
 // lean and isolate any pipeline load error to the sprite routes.
 async function loadSpritePipeline() {
-  const [{ removeBackground, alphaFromLuminance }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }, { normalizeExportFormats }, { quantizeBuffer }] = await Promise.all([
+  const [{ removeBackground, alphaFromLuminance }, { downscale }, { packSheet }, { sliceGrid, autocropRecenter, pickMarkerColor }, { normalizeExportFormats }, { quantizeBuffer }, { makeSeamless }] = await Promise.all([
     import('../../tooling/imagegen/pipeline/removeBg'),
     import('../../tooling/imagegen/pipeline/downscale'),
     import('../../tooling/imagegen/pipeline/packSheet'),
     import('../../tooling/imagegen/pipeline/spriteSheet'),
     import('../../tooling/imagegen/pipeline/exporters'),
     import('../../tooling/imagegen/pipeline/quantize'),
+    import('../../tooling/imagegen/pipeline/seamless'),
   ]);
-  return { removeBackground, alphaFromLuminance, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer };
+  return { removeBackground, alphaFromLuminance, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer, makeSeamless };
 }
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
@@ -2912,6 +2913,91 @@ export async function handleAPI(
       const image = await imageManager.create({ name: `${baseName}.png`, buffer: buf, mimeType: 'image/png' });
       wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
       return Response.json({ success: true, image: { id: image.id, name: image.name, size: image.size }, transparent: wantTransparent, costUsd: gen.costUsd, model: gen.model });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/generate-tileset — N seamlessly-tileable terrain/wall tiles packed into a tilesheet.
+  if (path === '/api/generate-tileset' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as {
+        prompt?: string; tiles?: string[]; tileSize?: number; columns?: number; name?: string;
+        heal?: boolean; model?: string;
+      };
+      const tileDescs = (body.tiles && body.tiles.length) ? body.tiles : (body.prompt ? [body.prompt] : []);
+      if (!tileDescs.length) return Response.json({ error: 'provide prompt or tiles[]' }, { status: 400 });
+      const { downscale, packSheet, quantizeBuffer, makeSeamless } = await loadSpritePipeline();
+      const style = await loadProjectStyle(params.project, params.session);
+      const tileSize = body.tileSize ?? 32;
+
+      const cells: Buffer[] = []; let cost = 0;
+      for (const desc of tileDescs) {
+        const p = applyStyleToPrompt(`${desc}, a seamless tileable game terrain texture tile, edges wrap continuously on all sides, top-down, no border, fills the frame, square`, style);
+        const gen = await xaiProvider.generate(p, { model: body.model, resolution: '2k', outDir: '', basename: '' });
+        cost += gen.costUsd ?? 0;
+        const g0 = gen.images[0];
+        let buf: Buffer = g0.bytes ? Buffer.from(g0.bytes) : Buffer.from(await (await fetch(g0.url!)).arrayBuffer());
+        if (body.heal !== false) buf = await makeSeamless(buf, { axis: 'both' });
+        buf = await downscale(buf, { pixelHeight: tileSize });
+        if (style?.palette?.length) buf = await quantizeBuffer(buf, style.palette);
+        cells.push(buf);
+      }
+      const tmp = await fsMkdtemp(join(osTmpdir(), 'tileset-'));
+      let atlasBuf: Buffer; let manifest: any;
+      try {
+        const out = join(tmp, 'tileset.png');
+        const packed = await packSheet(cells, { columns: body.columns ?? Math.min(8, cells.length), fps: 0, outPath: out });
+        atlasBuf = await fsReadFile(packed.atlasPath);
+        manifest = { tilewidth: packed.manifest.frameWidth, tileheight: packed.manifest.frameHeight, columns: packed.manifest.columns, tilecount: packed.manifest.count, atlasWidth: packed.manifest.atlasWidth, atlasHeight: packed.manifest.atlasHeight, image: packed.manifest.image, tiles: packed.manifest.frames };
+      } finally { await fsRm(tmp, { recursive: true, force: true }).catch(() => {}); }
+
+      const baseName = (body.name || tileDescs[0].slice(0, 32)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'tileset';
+      const { imageManager } = await createManagers(params.project, params.session);
+      const image = await imageManager.create({ name: `${baseName}-tileset.png`, buffer: atlasBuf, mimeType: 'image/png' });
+      wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
+      return Response.json({ success: true, tileset: { id: image.id, name: image.name, size: image.size }, manifest, tileCount: cells.length, costUsd: cost });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/generate-background — a scene background; optional horizontal-tileable (scroll)
+  // and optional parallax layers (each a transparent layer generated separately).
+  if (path === '/api/generate-background' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as {
+        prompt?: string; name?: string; aspectRatio?: string; tileableX?: boolean;
+        layers?: string[]; keyColor?: string; pixelHeight?: number; model?: string;
+      };
+      if (!body.prompt) return Response.json({ error: 'prompt required' }, { status: 400 });
+      const { removeBackground, downscale, quantizeBuffer, makeSeamless } = await loadSpritePipeline();
+      const style = await loadProjectStyle(params.project, params.session);
+      const { imageManager } = await createManagers(params.project, params.session);
+      const keyColor = body.keyColor ?? '#00b140';
+      const aspect = body.aspectRatio ?? '16:9';
+
+      const outs: any[] = []; let cost = 0;
+      // base scene (opaque) + optional transparent parallax layers
+      const layerSpecs: Array<{ desc: string; transparent: boolean; tag: string }> = [
+        { desc: `${body.prompt}, full game scene background, wide establishing shot`, transparent: false, tag: 'base' },
+        ...(body.layers ?? []).map((l, i) => ({ desc: `${body.prompt}, ${l}, parallax foreground layer, isolated elements only, flat solid chroma ${keyColor} background`, transparent: true, tag: `layer${i + 1}-${l.replace(/[^a-z0-9]+/gi, '-').slice(0, 16)}` })),
+      ];
+      for (const spec of layerSpecs) {
+        const gen = await xaiProvider.generate(applyStyleToPrompt(spec.desc, style), { model: body.model, aspectRatio: aspect, resolution: '2k', outDir: '', basename: '' });
+        cost += gen.costUsd ?? 0;
+        const g0 = gen.images[0];
+        let buf: Buffer = g0.bytes ? Buffer.from(g0.bytes) : Buffer.from(await (await fetch(g0.url!)).arrayBuffer());
+        if (spec.transparent) buf = await removeBackground(buf, { keyColor, tolerance: 100 });
+        else if (body.tileableX) buf = await makeSeamless(buf, { axis: 'x' });
+        if (body.pixelHeight) buf = await downscale(buf, { pixelHeight: body.pixelHeight });
+        if (style?.palette?.length) buf = await quantizeBuffer(buf, style.palette);
+        const baseName = (body.name || body.prompt.slice(0, 24)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'bg';
+        const image = await imageManager.create({ name: `${baseName}-${spec.tag}.png`, buffer: buf, mimeType: 'image/png' });
+        wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
+        outs.push({ tag: spec.tag, id: image.id, name: image.name, transparent: spec.transparent });
+      }
+      return Response.json({ success: true, layers: outs, tileableX: !!body.tileableX, costUsd: cost });
     } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 

@@ -228,6 +228,49 @@ export async function handleGenerateSprite(
   return await response.json() as GenerateSpriteResult;
 }
 
+export const generateTilesetSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    prompt: { type: 'string', description: 'Single tile description (e.g. "mossy stone floor"). Use tiles[] for a set.' },
+    tiles: { type: 'array', items: { type: 'string' }, description: 'Multiple tile descriptions → a packed tilesheet.' },
+    tileSize: { type: 'number', description: 'Tile pixel size (square). Default 32.' },
+    columns: { type: 'number', description: 'Tilesheet columns (default ~min(8,count)).' },
+    heal: { type: 'boolean', description: 'Offset-blend each tile to enforce seamlessness (default true).' },
+    name: { type: 'string', description: 'Base filename (optional).' },
+    model: { type: 'string', description: 'xAI image model (optional).' },
+  },
+  required: ['project', 'session'],
+};
+
+export const generateBackgroundSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    prompt: { type: 'string', description: 'The scene (e.g. "an ice hockey arena at night").' },
+    aspectRatio: { type: 'string', description: "Default '16:9'." },
+    tileableX: { type: 'boolean', description: 'Make the base horizontally seamless for looping scroll (default false).' },
+    layers: { type: 'array', items: { type: 'string' }, description: 'Optional parallax foreground layers (each generated transparent, e.g. ["foreground crowd","ice rink rail"]).' },
+    pixelHeight: { type: 'number', description: 'Optional downscale target height.' },
+    keyColor: { type: 'string', description: "Chroma key for transparent layers (default '#00b140')." },
+    name: { type: 'string', description: 'Base filename (optional).' },
+    model: { type: 'string', description: 'xAI image model (optional).' },
+  },
+  required: ['project', 'session', 'prompt'],
+};
+
+export async function handleGenerateTileset(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-tileset', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate tileset: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
+export async function handleGenerateBackground(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-background', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate background: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
 export const generateVfxSchema = {
   type: 'object',
   properties: {
