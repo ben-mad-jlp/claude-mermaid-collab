@@ -1812,7 +1812,18 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (!wtPath) return null; // no lane worktree → can't isolate work → preserve
         if (await wm.isDirty(todo.sessionName)) return true; // uncommitted edits present
         const epicId = resolveEpicId(todo, project);
-        return (await wm.laneCommitsAheadOfEpic(todo.sessionName, epicId)) > 0;
+        if ((await wm.laneCommitsAheadOfEpic(todo.sessionName, epicId)) > 0) return true;
+        // BUG 7b7d66d5(b): a clean lane with 0 commits-ahead is NOT proof of a
+        // hallucination — the work may have landed on the INTEGRATION branch directly
+        // (hand cherry-pick / steward reconcile / a prior accepted+landed run that tore
+        // the lane down). Before false-downgrading to 'pending', check whether the todo's
+        // commit (by its Collab-Todo trailer) is reachable from integration. Only a
+        // provable "nowhere" (clean lane AND provably not on integration) is a real
+        // hallucination; an indeterminate probe preserves prior trust (never downgrades).
+        const onInt = await wm.commitOnIntegration(epicId, todoId);
+        if (onInt === true) return true; // landed on master/integration → real work
+        if (onInt === null) return null; // indeterminate → preserve (never false-downgrade)
+        return false; // clean lane AND provably not on integration → hallucination
       } catch {
         return null; // probe error → indeterminate → preserve (never false-downgrade)
       }
