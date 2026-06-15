@@ -51,6 +51,11 @@ export function buildWslSidecarCommand(opts: WslSidecarLaunch): { cmd: string; a
   }
   const launch = [opts.runtime.cmd, ...opts.runtime.args.map(shq)].join(' ');
   const prologue = exports.length ? exports.join('; ') + '; ' : '';
-  const script = `${prologue}cd ${shq(opts.repoWslPath)}; exec ${launch}`;
+  // `bash -lc` is a NON-interactive login shell, so Ubuntu's ~/.bashrc (where the
+  // bun installer puts ~/.bun/bin on PATH) returns early and `bun` isn't found.
+  // Prepend the common user bin dirs so the runtime resolves without relying on
+  // rc-file PATH edits or a /usr/local/bin symlink.
+  const pathPrefix = 'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; ';
+  const script = `${pathPrefix}${prologue}cd ${shq(opts.repoWslPath)}; exec ${launch}`;
   return { cmd: 'wsl.exe', args: ['-d', opts.distro, '--', 'bash', '-lc', script] };
 }

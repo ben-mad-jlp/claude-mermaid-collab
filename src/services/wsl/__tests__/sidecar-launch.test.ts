@@ -15,7 +15,8 @@ describe('buildWslSidecarCommand', () => {
     expect(cmd).toBe('wsl.exe');
     expect(args.slice(0, 5)).toEqual(['-d', 'Ubuntu-24.04', '--', 'bash', '-lc']);
     expect(args[5]).toBe(
-      "export PORT='9002'; export HOST='127.0.0.1'; cd '/home/ben/mermaid-collab'; exec bun 'run' 'src/server.ts'",
+      'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; ' +
+        "export PORT='9002'; export HOST='127.0.0.1'; cd '/home/ben/mermaid-collab'; exec bun 'run' 'src/server.ts'",
     );
   });
 
@@ -38,7 +39,10 @@ describe('buildWslSidecarCommand', () => {
       runtime: { cmd: 'bun', args: [] },
       env: { A: 'x', B: undefined, TOKEN: "a'b" },
     });
-    expect(args[5]).toBe("export A='x'; export TOKEN='a'\\''b'; cd '/r'; exec bun");
+    expect(args[5]).toBe(
+      'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; ' +
+        "export A='x'; export TOKEN='a'\\''b'; cd '/r'; exec bun",
+    );
     expect(args[5]).not.toContain('B=');
   });
 
@@ -49,6 +53,8 @@ describe('buildWslSidecarCommand', () => {
       runtime: { cmd: 'mc-server', args: [] },
       env: {},
     });
-    expect(args[5]).toBe("cd '/r'; exec mc-server");
+    expect(args[5]).toBe(
+      'export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"; cd \'/r\'; exec mc-server',
+    );
   });
 });
