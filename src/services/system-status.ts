@@ -38,7 +38,7 @@ import { join } from 'node:path';
 import { getFleetStatus, type FleetStatus } from './fleet-status';
 import { checkInvariants, type InvariantViolation } from './invariant-check';
 import { instanceTopology, type InstanceTopology } from './instance-topology';
-import { getOrchestratorHealth } from './orchestrator-live';
+import { getOrchestratorHealth } from './orchestrator-live.js';
 import { getColdStartsInFlight } from './coordinator-live';
 import { listPool } from './worker-pool';
 import {

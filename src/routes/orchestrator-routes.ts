@@ -72,7 +72,11 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
     // Dynamically attempt to import it so this compiles today; if absent,
     // fall back gracefully to { running: false }.
     try {
-      const mod = await import('../services/orchestrator-live.ts' as string);
+      // BUG 7fb16985: use the SAME './services/orchestrator-live.js' specifier the
+      // daemon lifecycle (server.ts) and system_status use, so Bun resolves ONE
+      // module record (shared `timer`/level state) — not a second '.ts' instance
+      // that would report a stale running:false.
+      const mod = await import('../services/orchestrator-live.js' as string);
       if (typeof mod.getOrchestratorHealth === 'function') {
         return Response.json(mod.getOrchestratorHealth());
       }

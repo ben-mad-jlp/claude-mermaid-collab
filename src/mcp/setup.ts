@@ -69,6 +69,16 @@ import { checkInvariants } from '../services/invariant-check.js';
 import { gateStatus } from '../services/gate-status.js';
 import { instanceTopology } from '../services/instance-topology.js';
 import { systemStatus } from '../services/system-status.js';
+// BUG 7fb16985: orchestrator_status and system_status MUST derive running/level/
+// projects from ONE source of truth. system_status reaches getOrchestratorHealth
+// via system-status.js → './orchestrator-live.js'; the daemon lifecycle in
+// server.ts starts it via './services/orchestrator-live.js'. orchestrator_status
+// previously used a dynamic `await import(...'.js')` multi-path loop that, under
+// Bun, could resolve a SECOND module record with its own `timer`/`lastTickAt`
+// state — so the two tools disagreed (one saw running:false/[], the other
+// running:true/level). Import the IDENTICAL specifier statically so both read the
+// same module instance (same `timer`, same level rows).
+import { getOrchestratorHealth as getOrchestratorHealthSST } from '../services/orchestrator-live.js';
 import { getEpicBranchStatus } from '../services/epic-branch-status.js';
 import { frictionTrends } from '../services/friction-trends.js';
 import { roadmapRollup } from '../services/roadmap-rollup.js';
@@ -5091,20 +5101,12 @@ IMPORTANT - Common pitfalls to avoid:
             const { listPool } = await import('../services/worker-pool.js');
             const { getColdStartsInFlight } = await import('../services/coordinator-live.js');
 
-            // Health: prefer orchestrator-live; fall back to coordinator-live
-            // while the orchestrator/coordinator rename is in flight.
-            let health: { running: boolean; tickMs?: number; lastTickAt?: number | null; projects?: Array<{ project: string; level: string }> } = { running: false };
-            for (const modPath of ['../services/orchestrator-live.js', '../services/coordinator-live.js']) {
-              try {
-                const mod: any = await import(modPath as string);
-                if (typeof mod.getOrchestratorHealth === 'function') {
-                  health = mod.getOrchestratorHealth();
-                  break;
-                }
-              } catch {
-                // try the next module
-              }
-            }
+            // SINGLE SOURCE OF TRUTH (BUG 7fb16985): read the SAME statically-bound
+            // getOrchestratorHealth that system_status uses (via system-status.js).
+            // The previous dynamic-import loop could load a second module record
+            // with its own daemon `timer`/level state, making the two read-models
+            // disagree on running/level/projects. They now share one module.
+            const health: { running: boolean; tickMs?: number; lastTickAt?: number | null; projects?: Array<{ project: string; level: string }> } = getOrchestratorHealthSST();
 
             // One slot row per OCCUPIED lane (a registered slot is an occupied lane).
             // The registry is partitioned by project, so each row carries its project.

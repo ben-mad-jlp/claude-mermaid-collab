@@ -408,7 +408,15 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     // Reconcile status <-> completed.
     let status = patch.status ?? existing.status;
     if (patch.completed === true) status = 'done';
-    if (patch.completed === false && existing.status === 'done') status = 'todo';
+    // BUG c4f9f170: un-completing a `done` todo (completed:false) must NOT drop it
+    // to `todo`. The Orchestrator daemon only claims `ready`, so a `todo` landing
+    // STRANDS the worker's already-committed work forever (it never re-surfaces to
+    // a claimable state). An EXPLICIT patch.status always wins (e.g. a conflicted
+    // merge-back parks it `blocked` for a human); otherwise an un-done todo returns
+    // to `ready` so the daemon can re-claim and re-integrate the committed lane work.
+    if (patch.completed === false && existing.status === 'done' && patch.status === undefined) {
+      status = 'ready';
+    }
     const completedAt = status === 'done' ? (existing.completedAt ?? nowIso()) : null;
 
     const assigneeKind: AssigneeKind = patch.assigneeKind ?? existing.assigneeKind;

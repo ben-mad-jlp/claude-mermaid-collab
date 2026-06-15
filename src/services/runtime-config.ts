@@ -25,7 +25,7 @@ import {
   getDeadGraceMs,
 } from './coordinator-live';
 import { POOL_CONFIG, type PoolConfig } from './worker-pool';
-import { getOrchestratorHealth } from './orchestrator-live';
+import { getOrchestratorHealth } from './orchestrator-live.js';
 import { DEFAULT_WATCHDOG_CONFIG } from './context-watchdog';
 import {
   getWatchdogThreshold,
