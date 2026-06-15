@@ -85,7 +85,7 @@ async function loadSpritePipeline() {
   return { removeBackground, alphaFromLuminance, downscale, packSheet, sliceGrid, autocropRecenter, pickMarkerColor, normalizeExportFormats, quantizeBuffer, makeSeamless };
 }
 import { tmpdir as osTmpdir } from 'os';
-import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp } from 'fs/promises';
+import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile } from 'fs/promises';
 
 /**
  * Expand ~ to home directory in paths
@@ -2741,6 +2741,8 @@ export async function handleAPI(
 
       const baseName = (body.name || body.character).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sprite';
       const image = await imageManager.create({ name: `${baseName}-sheet.png`, buffer: atlasBuf, mimeType: 'image/png' });
+      // persist the manifest next to the atlas so the UI sprite player can animate it
+      await fsWriteFile(`${image.path}.manifest.json`, JSON.stringify(manifest), 'utf-8').catch(() => {});
       wsHandler.broadcast({
         type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType,
         size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session,
@@ -2893,6 +2895,7 @@ export async function handleAPI(
       const baseName = (body.name || body.prompt.slice(0, 40)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'vfx';
       const { imageManager } = await createManagers(params.project, params.session);
       const image = await imageManager.create({ name: `${baseName}-vfx-sheet.png`, buffer: atlasBuf, mimeType: 'image/png' });
+      await fsWriteFile(`${image.path}.manifest.json`, JSON.stringify(manifest), 'utf-8').catch(() => {});
       wsHandler.broadcast({ type: 'image_created', id: image.id, name: image.name, mimeType: image.mimeType, size: image.size, uploadedAt: image.uploadedAt, project: params.project, session: params.session });
       const vfxCost = (vid.costUsd ?? 0) + (seedGen.costUsd ?? 0);
       const vfxSpend = await recordSpend(params.project, params.session, vfxCost, 'vfx').catch(() => null);
@@ -3195,6 +3198,22 @@ export async function handleAPI(
       const c = await audio.getContent(id);
       if (!c) return Response.json({ error: 'audio not found' }, { status: 404 });
       return new Response(new Uint8Array(c.buffer), { headers: { 'Content-Type': c.mimeType } });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // GET /api/image/:id/manifest — the sprite-sheet manifest sidecar (for the UI player)
+  if (path.startsWith('/api/image/') && path.endsWith('/manifest') && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const id = decodeURIComponent(path.slice('/api/image/'.length, -'/manifest'.length));
+      const { imageManager } = await createManagers(params.project, params.session);
+      const img = await imageManager.get(id);
+      if (!img) return Response.json({ error: 'image not found' }, { status: 404 });
+      try {
+        const m = await fsReadFile(`${img.path}.manifest.json`, 'utf-8');
+        return new Response(m, { headers: { 'Content-Type': 'application/json' } });
+      } catch { return Response.json({ error: 'no manifest for this image' }, { status: 404 }); }
     } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 

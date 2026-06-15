@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSessionTabs } from '../stores/tabsStore';
+import { SpritePlayer } from './SpritePlayer';
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -50,6 +51,17 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
 
   const image = images.find((img) => img.id === effectiveImageId);
 
+  const [manifest, setManifest] = useState<any | null>(null);
+  const [animate, setAnimate] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setManifest(null); setAnimate(false);
+    if (!effectiveImageId || !effectiveProject || !effectiveSession) return;
+    const mUrl = `/api/image/${encodeURIComponent(effectiveImageId)}/manifest?project=${encodeURIComponent(effectiveProject)}&session=${encodeURIComponent(effectiveSession)}`;
+    fetch(mUrl).then((r) => (r.ok ? r.json() : null)).then((m) => { if (alive && m && m.frames) setManifest(m); }).catch(() => {});
+    return () => { alive = false; };
+  }, [effectiveImageId, effectiveProject, effectiveSession]);
+
   if (!image || !effectiveProject || !effectiveSession) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -61,6 +73,9 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
   const apiUrl = `/api/image/${encodeURIComponent(image.id)}/content?project=${encodeURIComponent(
     effectiveProject
   )}&session=${encodeURIComponent(effectiveSession)}`;
+  const manifestUrl = `/api/image/${encodeURIComponent(image.id)}/manifest?project=${encodeURIComponent(
+    effectiveProject
+  )}&session=${encodeURIComponent(effectiveSession)}`;
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
@@ -68,6 +83,15 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
         <h2 className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate flex-1 min-w-0">
           {image.name}
         </h2>
+        {manifest && (
+          <button
+            onClick={() => setAnimate((a) => !a)}
+            className="ml-2 px-3 py-1.5 text-xs font-medium text-info-600 dark:text-info-400 hover:bg-info-50 dark:hover:bg-info-900/20 rounded transition-colors"
+            title="Play sprite-sheet animation"
+          >
+            {animate ? '🖼 Sheet' : '▶ Animate'}
+          </button>
+        )}
         {!imageError && (
           <a
             href={apiUrl}
@@ -85,6 +109,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
           <div className="flex flex-col items-center justify-center text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">Failed to load image</p>
           </div>
+        ) : animate && manifest ? (
+          <SpritePlayer atlasUrl={apiUrl} manifest={manifest} />
         ) : (
           <img
             src={apiUrl}
