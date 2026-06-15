@@ -41,6 +41,7 @@ import { resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DEFAULT_EVENT_POLL_MS } from '../worker-agent';
 import { getTodo } from '../../services/todo-store';
+import { getConfig } from '../../services/config-service';
 import type {
   WorkerAgent,
   WorkerEvent,
@@ -230,8 +231,10 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     // PARALLEL-RUN: WORKER_CORE=1 opts this lane into the new shared worker-core
     // discipline engine (host-owned recipe) instead of the flat loop; default is
     // the flat loop, so this is additive + reversible until worker-core is verified.
+    // Read via getConfig (env-first → config.json) so the DEPLOYED GUI sidecar — which
+    // gets no shell env — can toggle it via ~/.mermaid-collab/config.json (Secrets UI).
     const driver =
-      process.env.WORKER_CORE === '1'
+      getConfig('WORKER_CORE') === '1'
         ? this.runViaWorkerCore(spec, cwd, lane)
         : this.runLoop(spec, cwd, lane);
     void driver.catch(() => {
