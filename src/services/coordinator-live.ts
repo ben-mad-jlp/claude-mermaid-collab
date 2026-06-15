@@ -535,7 +535,7 @@ async function reopenStrandedAccept(
 // is logged — uncertainty never hard-blocks. Returns true when the leaf is safe to
 // remain accepted, false when its acceptance was reversed. Best-effort; the caller
 // catches throws and treats them as fail-safe (accept).
-async function acceptTimeAncestorGate(
+export async function acceptTimeAncestorGate(
   project: string,
   todoId: string,
   epicId: string,
@@ -543,6 +543,19 @@ async function acceptTimeAncestorGate(
   title: string,
   session: string,
 ): Promise<boolean> {
+  // OI-1/BUILD MISMATCH FIX: the master-reachability gate (and its acceptance
+  // reversal) only makes sense where the daemon AUTO-LANDS the epic to master —
+  // i.e. at `drive`. At build/nudge there is NO auto-land, so accepted work
+  // legitimately lives on the epic/lane branch and never reaches origin/master;
+  // reversing acceptance for that re-surfaces the todo `ready` → it is re-claimed
+  // and re-built forever (the infinite re-claim loop behind escalation 0ca77927,
+  // reproduced live by the grok-build trial). Empty/hallucinated completions are
+  // STILL caught independently by resolveCompletion's work-committed re-verify, so
+  // skipping the master gate below `drive` never lets fake work through.
+  if (levelRank(getOrchestratorLevel(project)) < levelRank('drive')) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-below-drive-accept' }) });
+    return true;
+  }
   const targetProject = (getTodo(project, todoId)?.targetProject) ?? project;
   const wm = getWorktreeManager(targetProject);
   if (!(await wm.isGitRepoPublic())) {
