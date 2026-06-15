@@ -243,6 +243,42 @@ export const generateVoiceoverSchema = {
   required: ['project', 'session', 'text'],
 };
 
+export const generateSfxSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    description: { type: 'string', description: 'The sound effect (e.g. "coin pickup", "laser shot", "explosion", "jump").' },
+    dspPreset: { type: 'string', description: 'Optional shared DSP preset (see list_dsp_presets).' },
+    name: { type: 'string', description: 'Base filename (optional).' },
+    model: { type: 'string', description: 'xAI text model for param synthesis (optional).' },
+  },
+  required: ['project', 'session', 'description'],
+};
+
+export const generateMusicSchema = {
+  type: 'object',
+  properties: {
+    ...sessionParamsDesc,
+    brief: { type: 'string', description: 'Track brief (e.g. "tense fighter theme, driving, minor key").' },
+    bars: { type: 'number', description: 'Length in bars (1-16). Default 4. Loopable.' },
+    dspPreset: { type: 'string', description: 'Optional shared DSP/master preset (e.g. master-8bit).' },
+    name: { type: 'string', description: 'Base filename (optional).' },
+    model: { type: 'string', description: 'xAI text model for composition (optional).' },
+  },
+  required: ['project', 'session', 'brief'],
+};
+
+export async function handleGenerateSfx(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-sfx', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate sfx: ${e.error || r.statusText}`); }
+  return r.json();
+}
+export async function handleGenerateMusic(project: string, session: string, args: Record<string, unknown>): Promise<any> {
+  const r = await fetch(buildUrl('/api/generate-music', project, session), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) });
+  if (!r.ok) { const e = await r.json().catch(() => ({ error: r.statusText })) as any; throw new Error(`Failed to generate music: ${e.error || r.statusText}`); }
+  return r.json();
+}
+
 export const applyAudioDspSchema = {
   type: 'object',
   properties: {

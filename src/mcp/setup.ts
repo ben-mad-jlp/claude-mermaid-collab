@@ -224,7 +224,7 @@ import {
   handleExportSnippet,
 } from './tools/snippet.js';
 import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, generateTilesetSchema, generateBackgroundSchema, estimateCostSchema, assetBudgetSchema, replaceSheetCellSchema, generateVoiceoverSchema, applyAudioDspSchema, listAudioSchema, listDspPresetsSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp, handleGenerateTileset, handleGenerateBackground, handleEstimateCost, handleAssetBudget, handleReplaceSheetCell, handleGenerateVoiceover, handleApplyAudioDsp, handleListAudio, handleListDspPresets } from './tools/image.js';
+import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, generateSpriteAnimationSchema, generateSpriteRotationSchema, generateSpriteSheetSchema, defineCharacterSchema, listCharactersSchema, generateCharacterAnimationsSchema, generateVfxSchema, generatePropSchema, generateTilesetSchema, generateBackgroundSchema, estimateCostSchema, assetBudgetSchema, replaceSheetCellSchema, generateVoiceoverSchema, applyAudioDspSchema, listAudioSchema, listDspPresetsSchema, generateSfxSchema, generateMusicSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleGenerateSprite, handleGenerateSpriteSheet, handleDefineCharacter, handleListCharacters, handleGenerateCharacterAnimations, handleGenerateVfx, handleGenerateProp, handleGenerateTileset, handleGenerateBackground, handleEstimateCost, handleAssetBudget, handleReplaceSheetCell, handleGenerateVoiceover, handleApplyAudioDsp, handleListAudio, handleListDspPresets, handleGenerateSfx, handleGenerateMusic } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2422,6 +2422,8 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'generate_background', description: 'Generate a scene background; optional horizontally-seamless base (looping scroll) + optional transparent parallax layers. Returns one image per layer.', inputSchema: generateBackgroundSchema },
       { name: 'generate_voiceover', description: 'Generate a voiceover via Grok TTS (voices eve/ara/rex/sal/leo) and save as an audio artifact. Optional shared DSP preset (epic-announcer/ice-demon/giant/robot-8bit…) to make it epic.', inputSchema: generateVoiceoverSchema },
       { name: 'apply_audio_dsp', description: 'Apply a shared DSP/effect preset to an EXISTING audio artifact — the SAME adjustments work on voice, SFX, and music. Returns a new audio artifact.', inputSchema: applyAudioDspSchema },
+      { name: 'generate_sfx', description: 'Generate a retro sound effect: Grok-text picks sfxr synth params from a description (coin/laser/jump/explosion) → pure-JS synth → audio artifact. Optional shared DSP preset.', inputSchema: generateSfxSchema },
+      { name: 'generate_music', description: 'Generate a loopable chiptune track: Grok-text composes a NES-style pattern → pure-JS synth → audio artifact. Optional shared DSP/master preset.', inputSchema: generateMusicSchema },
       { name: 'list_audio', description: 'List audio artifacts in the session.', inputSchema: listAudioSchema },
       { name: 'list_dsp_presets', description: 'List the shared audio DSP/effect presets.', inputSchema: listDspPresetsSchema },
       { name: 'estimate_cost', description: 'Preview the USD cost of an asset-generation op before running it (+ current session spend/budget).', inputSchema: estimateCostSchema },
@@ -4389,6 +4391,18 @@ IMPORTANT - Common pitfalls to avoid:
             const { project, session, ...rest } = args as any;
             if (!project || !session || !rest.audioId || !rest.preset) throw new Error('Missing required: project, session, audioId, preset');
             const result = await handleApplyAudioDsp(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_sfx': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.description) throw new Error('Missing required: project, session, description');
+            const result = await handleGenerateSfx(project, session, rest);
+            return JSON.stringify(result, null, 2);
+          }
+          case 'generate_music': {
+            const { project, session, ...rest } = args as any;
+            if (!project || !session || !rest.brief) throw new Error('Missing required: project, session, brief');
+            const result = await handleGenerateMusic(project, session, rest);
             return JSON.stringify(result, null, 2);
           }
           case 'list_audio': {

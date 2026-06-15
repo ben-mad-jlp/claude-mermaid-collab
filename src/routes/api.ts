@@ -65,6 +65,9 @@ import { loadSpend, setBudget, recordSpend, wouldExceedBudget, estimateCost } fr
 import { AudioManager } from '../services/audio-manager';
 import { synthesizeSpeech } from '../../tooling/audiogen/providers/xai-tts';
 import { applyChain, listPresets } from '../../tooling/audiogen/dsp';
+import { completeJson } from '../../tooling/audiogen/providers/xai-text';
+import { renderSfxr } from '../../tooling/audiogen/sfx/sfxr';
+import { renderChiptune } from '../../tooling/audiogen/music/chiptune';
 // The image pipeline (removeBg/downscale/packSheet/spriteSheet) uses jimp (pure JS),
 // which embeds + runs inside the bun --compile sidecar (sharp's native module does NOT —
 // it was ported off sharp for exactly this reason). Imported lazily anyway to keep startup
@@ -3083,6 +3086,48 @@ export async function handleAPI(
   // GET /api/dsp-presets — list the shared audio DSP presets (voice/sfx/music)
   if (path === '/api/dsp-presets' && req.method === 'GET') {
     return Response.json({ presets: listPresets() });
+  }
+
+  // POST /api/generate-sfx — Grok-text → sfxr params → pure-JS synth → audio artifact
+  if (path === '/api/generate-sfx' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as { description?: string; dspPreset?: string; name?: string; model?: string };
+      if (!body.description) return Response.json({ error: 'description required' }, { status: 400 });
+      const sys = `You are a retro game sound designer. Given an effect description, output JSON sfxr synth params. Fields (all 0..1 unless noted): wave ('square'|'saw'|'sine'|'triangle'|'noise'), attack, sustain, punch, decay, freq, freqMin, slide (-1..1), deltaSlide (-1..1), vibratoDepth, vibratoSpeed, arpMod (-1..1), arpSpeed, duty, dutySweep (-1..1), lowpass, repeat, volume. Pick values that sound like the described effect (e.g. coin=square+upward arp; laser=saw+downward slide; explosion=noise+long decay; jump=square+upward slide). Output ONLY the JSON object.`;
+      const sfxr = await completeJson<any>(sys, body.description, { model: body.model });
+      let buf: Buffer = renderSfxr(sfxr);
+      if (body.dspPreset) buf = await applyChain(buf, { preset: body.dspPreset, codec: 'wav' });
+      const audio = new AudioManager(sessionRegistry.resolvePath(params.project, params.session, 'audio'));
+      await audio.initialize();
+      const baseName = (body.name || body.description.slice(0, 32)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sfx';
+      const saved = await audio.create({ name: `${baseName}.wav`, buffer: buf, mimeType: 'audio/wav' });
+      wsHandler.broadcast({ type: 'audio_created' as any, id: saved.id, name: saved.name, mimeType: saved.mimeType, size: saved.size, project: params.project, session: params.session });
+      return Response.json({ success: true, audio: { id: saved.id, name: saved.name, size: saved.size }, params: sfxr, dspPreset: body.dspPreset ?? null });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
+  }
+
+  // POST /api/generate-music — Grok-text → chiptune pattern → pure-JS synth → audio artifact
+  if (path === '/api/generate-music' && req.method === 'POST') {
+    const params = getSessionParams(url);
+    if (!params) return Response.json({ error: 'project and session query params required' }, { status: 400 });
+    try {
+      const body = await req.json() as { brief?: string; bars?: number; dspPreset?: string; name?: string; model?: string };
+      if (!body.brief) return Response.json({ error: 'brief required' }, { status: 400 });
+      const bars = Math.max(1, Math.min(16, body.bars ?? 4));
+      const sys = `You are a chiptune composer. Output JSON: { bpm:number, beats:number, masterVol:0..1, channels:[ { wave:'square'|'triangle'|'saw'|'noise', duty?:0..1, notes:[ { note:'C4'|midiNumber, start:beatFloat, dur:beatFloat, vol?:0..1 } ] } ] }. Compose a ${bars}-bar (= ${bars * 4} beats) LOOPABLE NES-style track for the brief. Use 2-3 channels: a lead (square), bass (triangle), and optional percussion (noise). Make it musical (a clear melody + bassline) and end so it loops back to the start cleanly. Output ONLY the JSON.`;
+      const pattern = await completeJson<any>(sys, body.brief, { model: body.model });
+      pattern.beats = pattern.beats ?? bars * 4;
+      let buf: Buffer = renderChiptune(pattern);
+      if (body.dspPreset) buf = await applyChain(buf, { preset: body.dspPreset, codec: 'wav' });
+      const audio = new AudioManager(sessionRegistry.resolvePath(params.project, params.session, 'audio'));
+      await audio.initialize();
+      const baseName = (body.name || body.brief.slice(0, 32)).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'music';
+      const saved = await audio.create({ name: `${baseName}.wav`, buffer: buf, mimeType: 'audio/wav' });
+      wsHandler.broadcast({ type: 'audio_created' as any, id: saved.id, name: saved.name, mimeType: saved.mimeType, size: saved.size, project: params.project, session: params.session });
+      return Response.json({ success: true, audio: { id: saved.id, name: saved.name, size: saved.size }, bpm: pattern.bpm, channels: (pattern.channels || []).length, dspPreset: body.dspPreset ?? null });
+    } catch (error: any) { return Response.json({ error: error.message }, { status: 400 }); }
   }
 
   // POST /api/generate-voiceover — Grok TTS → optional shared DSP preset → audio artifact
