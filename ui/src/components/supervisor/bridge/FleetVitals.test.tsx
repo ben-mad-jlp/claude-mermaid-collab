@@ -1,8 +1,9 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { FleetVitals } from './FleetVitals';
 import type { SessionTodo } from '@/types/sessionTodo';
+import type { UnlandedEpic } from '@/stores/supervisorStore';
 
 function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
   return {
@@ -33,23 +34,23 @@ const TODOS = [
   todo({ id: 'c', status: 'done' }),
 ];
 
-describe('FleetVitals funnel colors', () => {
-  it('colors the in-flight and done segments from the funnel palette', () => {
-    render(<FleetVitals running todos={TODOS} readyCount={0} onToggle={vi.fn()} />);
-    expect(screen.getByTestId('fleet-funnel-inflight').className).toContain('info');
-    expect(screen.getByTestId('fleet-funnel-done').className).toContain('success');
+describe('FleetVitals', () => {
+  it('no longer renders the progress funnel (moved to the Plan view)', () => {
+    render(<FleetVitals todos={TODOS} />);
+    expect(screen.queryByTestId('fleet-funnel')).toBeNull();
+    expect(screen.queryByTestId('fleet-funnel-done')).toBeNull();
   });
 
-  it('renders the loud blocked segment in amber (warning), not red (danger)', () => {
-    render(<FleetVitals running todos={TODOS} readyCount={0} onToggle={vi.fn()} />);
-    const blocked = screen.getByTestId('fleet-funnel-blocked');
-    expect(blocked.className).toContain('bg-warning-500');
-    expect(blocked.className).not.toContain('danger');
+  it('still surfaces unlanded epics (the non-redundant safety line kept on the Bridge)', () => {
+    const unlanded: UnlandedEpic[] = [
+      { id: 'e1', title: 'Epic one', ahead: 3 } as UnlandedEpic,
+    ];
+    render(<FleetVitals todos={TODOS} unlandedEpics={unlanded} />);
+    expect(screen.getByTestId('unlanded-epics')).toBeTruthy();
   });
 
-  it('an empty blocked segment is not loud (no amber fill)', () => {
-    render(<FleetVitals running todos={[todo({ id: 'a', status: 'in_progress' })]} readyCount={0} onToggle={vi.fn()} />);
-    const blocked = screen.getByTestId('fleet-funnel-blocked');
-    expect(blocked.className).not.toContain('bg-warning-500');
+  it('self-hides the unlanded surface when everything is landed', () => {
+    render(<FleetVitals todos={TODOS} unlandedEpics={[]} />);
+    expect(screen.queryByTestId('unlanded-epics')).toBeNull();
   });
 });

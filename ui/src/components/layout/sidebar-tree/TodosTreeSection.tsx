@@ -190,12 +190,16 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
       () => [...assignedTodos].sort((a, b) => a.order - b.order),
       [assignedTodos],
     );
-    // Sidebar shows active todos only; completed ones drop out of the list
-    // (they're still in the store — set via the detail pane's status dropdown,
-    // removed via Clear).
+    // Sidebar shows active todos by default; the "Show completed" toggle (mirrors
+    // the main Plan view's done filter) reveals completed/done ones. They're always
+    // in the store — set via the detail pane's status dropdown, removed via Clear.
+    const [showCompleted, setShowCompleted] = useState(false);
     const visibleTodos = useMemo(
-      () => orderedTodos.filter((t) => !t.completed && t.status !== 'done'),
-      [orderedTodos],
+      () =>
+        orderedTodos.filter(
+          (t) => showCompleted || (!t.completed && t.status !== 'done'),
+        ),
+      [orderedTodos, showCompleted],
     );
 
     const completedCount = useMemo(
@@ -253,6 +257,23 @@ const TodosTreeSection = forwardRef<SessionTodosSectionHandle, SessionTodosSecti
                   aria-label="Add a new todo"
                 />
               </div>
+            )}
+
+            {completedCount > 0 && (
+              <label
+                style={{ paddingLeft: '16px' }}
+                className="flex items-center gap-1 px-2 py-1 text-3xs text-gray-500 dark:text-gray-400 cursor-pointer select-none"
+                title="Show completed and done todos"
+              >
+                <input
+                  type="checkbox"
+                  data-testid="sidebar-todos-show-completed"
+                  checked={showCompleted}
+                  onChange={(e) => setShowCompleted(e.target.checked)}
+                  className="h-3 w-3"
+                />
+                Show completed ({completedCount})
+              </label>
             )}
 
             {visibleTodos.length === 0 ? (

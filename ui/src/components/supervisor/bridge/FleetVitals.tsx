@@ -8,7 +8,6 @@
 import React, { useMemo } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { CoverageRollup, UnlandedEpic } from '@/stores/supervisorStore';
-import { FUNNEL_SEGMENTS, funnelCounts, withRecentDoneOnly, excludeEpics } from './funnel';
 import { SpecCoverageCard } from './SpecCoverageCard';
 
 export interface FleetVitalsProps {
@@ -20,48 +19,15 @@ export interface FleetVitalsProps {
   unlandedEpics?: UnlandedEpic[];
 }
 
-export const FleetVitals: React.FC<FleetVitalsProps> = ({ todos, coverage, unlandedEpics }) => {
+export const FleetVitals: React.FC<FleetVitalsProps> = ({ coverage, unlandedEpics }) => {
   const unlanded = unlandedEpics ?? [];
   const unlandedCommits = unlanded.reduce((n, e) => n + e.ahead, 0);
-  // Count only WORK todos (drop epic/container parents) and age out done todos
-  // older than ~1 day so the progress bar shows RECENT throughput of real work,
-  // not epics nor all-time done history.
-  const funnelTodos = useMemo(() => withRecentDoneOnly(excludeEpics(todos)), [todos]);
-  const counts = useMemo(() => funnelCounts(funnelTodos), [funnelTodos]);
-  const total = funnelTodos.length;
 
   return (
     <div data-testid="fleet-vitals" className="space-y-3">
-      {/* Segmented funnel */}
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <span className="font-semibold uppercase tracking-wide">Progress</span>
-          <span>{total} total</span>
-        </div>
-        <div data-testid="fleet-funnel" className="flex items-stretch gap-0.5 h-7 rounded overflow-hidden">
-          {FUNNEL_SEGMENTS.map((seg) => {
-            const n = counts[seg.key];
-            const loud = seg.loud && n > 0;
-            const flex = Math.max(n, 0.4);
-            return (
-              <div
-                key={seg.key}
-                style={{ flexGrow: flex, flexBasis: 0 }}
-                title={`${seg.label}: ${n}`}
-                data-testid={`fleet-funnel-${seg.key}`}
-                className={`min-w-[3.5rem] flex flex-col items-center justify-center px-1 text-xs font-semibold ${
-                  loud
-                    ? 'bg-warning-500 text-white'
-                    : seg.bg
-                }`}
-              >
-                <span className="tabular-nums leading-none">{n}</span>
-                <span className="leading-none mt-0.5 whitespace-nowrap text-center text-[0.625rem]">{seg.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* Progress funnel removed from the Bridge — it's redundant with the Plan
+          view's progress. Only the non-redundant safety surfaces remain here:
+          the unlanded-epic warning + the spec-coverage glance. */}
 
       {/* Unlanded-epic surface (design-epic-landing P1): accepted work stranded on
           collab/epic/* and not yet on master. Amber, NOT red (one-red: red is for
