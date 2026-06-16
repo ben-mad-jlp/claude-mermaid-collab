@@ -119,6 +119,26 @@ async function isTmuxAlive(tmux: string): Promise<boolean> {
   }
 }
 
+/**
+ * In-process lane liveness (worker-fabric bootstrap, design-worker-fabric-ui §6.7).
+ * The grok-own / anthropic-core harnesses run the worker IN-PROCESS — there is NO
+ * tmux session — so the tmux-based reapers (isTmuxAlive / laneConfirmedDead) read a
+ * HEALTHY in-process worker as dead and reclaim its claim mid-recipe (the respawn-
+ * backoff churn). Ask the harnesses directly: a session either harness reports alive
+ * is a live in-process lane and must NOT be reaped on tmux absence. Dynamic import
+ * keeps the coordinator↔registry↔adapter graph cycle-free (same pattern as the
+ * worker-transcript route). Best-effort: any failure → false (fall back to the tmux
+ * path), never throw into a reaper tick.
+ */
+async function inProcessLaneAlive(session: string): Promise<boolean> {
+  try {
+    const { getGrokHarnessForInspection, getAnthropicCoreHarnessForInspection } = await import('../agent/registry');
+    return getGrokHarnessForInspection().isAlive(session) || getAnthropicCoreHarnessForInspection().isAlive(session);
+  } catch {
+    return false;
+  }
+}
+
 /** Kill a tmux session by base name. Best-effort (no-op if absent). Used by the
  *  worker-isolation lifecycle to tear down a warm session whose worktree cwd was
  *  removed on merge-back (drop keep-warm, decision c4a8bf40). */
@@ -1568,6 +1588,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // spawned under a lane (or its persist raced); treat as dead and reclaim,
         // rather than fabricating a `worker-<id8>` name that points at no real tmux.
         const session = t.sessionName;
+        // In-process lanes have no tmux — ask the harness before the tmux probe, or a
+        // healthy in-process worker reads as dead (§6.7 bootstrap).
+        if (session && await inProcessLaneAlive(session)) continue; // live in-process lane
         if (session && await isTmuxAlive(tmuxBaseName(project, session))) continue; // worker still running (incl. warm idle pool sessions)
         const next = await reclaimClaim(project, t.id);
         // The session is gone — release the pool slot it held (no-op if it wasn't a pool session).
@@ -1608,6 +1631,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (!session) continue;           // never-spawned leaf → grace sweep handles it
         const pulseAt = lanePulseAt(project, session);
         if (pulseAt == null || nowMs - pulseAt <= PULSE_STALE_MS) continue; // fresh/absent → fall back
+        if (await inProcessLaneAlive(session)) continue; // live in-process lane — no tmux to probe (§6.7)
         const tmux = tmuxBaseName(project, session);
         const dead = await laneConfirmedDead(tmux, snap);
         if (!shouldPulseReap(pulseAt, nowMs, PULSE_STALE_MS, dead)) continue;
@@ -1630,6 +1654,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const candidates = planOrphanReap(inProgress, now, DEFAULT_ORPHAN_GRACE_MS);
       for (const c of candidates) {
         if (fastReaped.has(c.id)) continue; // already reclaimed via the durable pulse
+        // Live in-process lane (no tmux) → never reap on tmux absence (§6.7 bootstrap).
+        if (c.sessionName && await inProcessLaneAlive(c.sessionName)) continue;
         // Case B (claim past lease): only reap once the worker's tmux is confirmed
         // gone — a still-live worker on an over-long task must not be yanked. Case A
         // (claimedBy NULL → needsTmuxProbe false) has no live claim by definition.
