@@ -23,7 +23,7 @@ describe('cost ledger', () => {
     expect(l.byModel['claude-sonnet-4-6'].usd).toBeCloseTo((5000 * 3 + 1000 * 15) / 1e6, 9);
     expect(l.byModel['mystery'].unknownPrice).toBe(true);
     expect(l.totalUsd).toBeCloseTo(
-      (10_000 * 0.2 + 2_000 * 0.5) / 1e6 + (5_000 * 3 + 1_000 * 15) / 1e6,
+      (10_000 * 1 + 2_000 * 2) / 1e6 + (5_000 * 3 + 1_000 * 15) / 1e6, // grok-build $1/$2 + sonnet $3/$15
       9,
     );
   });

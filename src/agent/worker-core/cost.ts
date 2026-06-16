@@ -1,10 +1,10 @@
 /**
  * Model-call cost ledger (north-star §6, Tier-2) — turns token usage into USD.
  *
- * Prices are USD per 1,000,000 tokens. Anthropic prices are the published list
- * rates; grok-build is a PLACEHOLDER pending the real xAI rate. Treat unknown
- * models as cost 0 + `knownPricing=false` so a missing entry is visible, never a
- * silent $0. Update MODEL_PRICING when rates change (or load it from config later).
+ * Prices are USD per 1,000,000 tokens — Anthropic published list rates + xAI rates
+ * from docs.x.ai/developers/pricing. Treat unknown models as cost 0 +
+ * `knownPricing=false` so a missing entry is visible, never a silent $0. Update
+ * MODEL_PRICING when rates change (or load it from config later).
  */
 export interface ModelPrice {
   inputPerMTok: number;
@@ -12,8 +12,9 @@ export interface ModelPrice {
 }
 
 export const MODEL_PRICING: Record<string, ModelPrice> = {
-  // ⚠️ PLACEHOLDER — verify against current xAI pricing before trusting grok costs.
-  'grok-build-0.1': { inputPerMTok: 0.2, outputPerMTok: 0.5 },
+  // xAI — docs.x.ai/developers/pricing.
+  'grok-build-0.1': { inputPerMTok: 1, outputPerMTok: 2 },
+  'grok-4.3': { inputPerMTok: 1.25, outputPerMTok: 2.5 },
   // Anthropic published list rates (USD / 1M tokens).
   'claude-sonnet-4-6': { inputPerMTok: 3, outputPerMTok: 15 },
   'claude-opus-4-8': { inputPerMTok: 15, outputPerMTok: 75 },
