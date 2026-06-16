@@ -1243,6 +1243,11 @@ export async function setupMCPServer(): Promise<Server> {
         inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path to filter sessions by (optional).' } } },
       },
       {
+        name: 'recommend_session_cleanup',
+        description: 'Recommend stale collab sessions + orphan tmuxes for cleanup (read-only). Returns sessions idle longer than `days` (default 30) — excluding any that are live-bound to a running Claude PID or hold in-progress work — plus tmux sessions with no attached client whose last activity is older than the window. Each item carries an age + reason. Clean up a recommended session with archive_session (it copies artifacts to docs/designs/ then optionally deletes), and a tmux with the /api/maintenance/kill-tmux route. This NEVER deletes anything itself.',
+        inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'Staleness window in days (default 30).' } } },
+      },
+      {
         name: 'list_projects',
         description: 'List all registered projects',
         inputSchema: listProjectsSchema,
@@ -2496,6 +2501,13 @@ IMPORTANT - Common pitfalls to avoid:
 
           case 'list_sessions':
             return await listSessions((args as { project?: string })?.project);
+
+          case 'recommend_session_cleanup': {
+            const days = (args as { days?: number })?.days ?? 30;
+            const res = await fetch(`${API_BASE_URL}/api/maintenance/stale-scan?days=${encodeURIComponent(String(days))}`);
+            if (!res.ok) throw new Error(`stale-scan failed: ${res.statusText}`);
+            return JSON.stringify(await asJson(res), null, 2);
+          }
 
           case 'list_projects': {
             const result = await handleListProjects();

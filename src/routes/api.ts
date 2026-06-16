@@ -344,6 +344,39 @@ export async function handleAPI(
   }
 
   // ============================================
+  // Maintenance — recommend + clean up stale sessions / orphan tmuxes
+  // ============================================
+
+  // GET /api/maintenance/stale-scan?days=30 — recommend cleanup candidates. Read-only;
+  // never recommends a live-bound session, one with in-progress work, or a recent one.
+  if (path === '/api/maintenance/stale-scan' && req.method === 'GET') {
+    try {
+      const { scanStale } = await import('../services/maintenance-scan');
+      const daysRaw = url.searchParams.get('days');
+      const days = daysRaw ? Number(daysRaw) : 30;
+      const scan = await scanStale(Number.isFinite(days) ? days : 30);
+      return Response.json(scan, { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/maintenance/kill-tmux { name } — kill one orphan tmux session.
+  if (path === '/api/maintenance/kill-tmux' && req.method === 'POST') {
+    try {
+      const { name } = (await req.json()) as { name?: string };
+      if (!name) return Response.json({ error: 'name required' }, { status: 400 });
+      const { isSafeTmuxName } = await import('../services/maintenance-scan');
+      if (!isSafeTmuxName(name)) return Response.json({ error: 'unsafe tmux name' }, { status: 400 });
+      const { terminalManager } = await import('../services/terminal-manager');
+      await terminalManager.killTmuxSession(name);
+      return Response.json({ ok: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // ============================================
   // Project Registry Routes
   // ============================================
 

@@ -29,6 +29,7 @@ import { useFleetShortcuts } from '@/components/layout/useFleetShortcuts';
 import { useBridgeOrderStore, applyBridgeOrder } from '@/stores/bridgeOrderStore';
 import { isOrchestratorSession } from '@/lib/liveness';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
+import { SessionCleanup } from '@/components/supervisor/SessionCleanup';
 import { useUIStore } from '@/stores/uiStore';
 import { selectOpenEscalationCount } from '@/lib/statusSelectors';
 import { AddProjectDialog } from '@/components/dialogs';
@@ -170,6 +171,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const { servers } = useServers();
   const [collapsed, setCollapsed] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
 
   // Escalations + worker liveness are no longer refreshed here — escalations flow
   // through the app-root useStatusSync (WS ingest + bootstrap hydrate) and liveness
@@ -415,6 +417,13 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
           </svg>
         </button>
+        <button
+          onClick={() => setCleanupOpen(true)}
+          className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          title="Clean up stale sessions & orphan tmuxes"
+        >
+          🧹
+        </button>
         {onOpenSupervisorView && (
           <button
             onClick={onOpenSupervisorView}
@@ -569,6 +578,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           onClose={() => setAddOpen(false)}
         />
       )}
+      {cleanupOpen && <SessionCleanup onClose={() => setCleanupOpen(false)} />}
     </div>
   );
 };
