@@ -8,11 +8,13 @@
  */
 import React from 'react';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
+import { useSupervisorStore } from '@/stores/supervisorStore';
 import { PhasePipelineStrip, RECIPE_PHASES, PHASE_LABEL } from './fleet/PhasePipelineStrip';
 import type { RecipePhase } from './fleet/PhasePipelineStrip';
 import { GrokTranscript } from '@/components/terminal/GrokTranscript';
 import { TieringEditor } from '@/components/settings/TieringEditor';
 import { WorkerRunSummary } from './WorkerRunSummary';
+import { WorkerRunStrip } from './WorkerRunStrip';
 
 /**
  * TodoWorkerPanel — the always-on worker section for a selected todo. Shows the LIVE
@@ -30,10 +32,22 @@ export const TodoWorkerPanel: React.FC<{
     const l = s.lanes[todoId];
     return !!l && l.alive && l.lifecycle !== 'end';
   });
-  return live ? (
-    <LaneCallout todoId={todoId} project={project} serverId={serverId} />
-  ) : (
-    <WorkerRunSummary todoId={todoId} project={project} />
+  // Read the selected todo's status from the store (keeps the BridgeDashboard call site
+  // unchanged) so the headless run strip can gate its poll on in_progress.
+  const isActive = useSupervisorStore(
+    (s) => (s.todosByProject[project] ?? []).find((t) => t.id === todoId)?.status === 'in_progress',
+  );
+  return (
+    <>
+      {live ? (
+        <LaneCallout todoId={todoId} project={project} serverId={serverId} />
+      ) : (
+        <WorkerRunSummary todoId={todoId} project={project} />
+      )}
+      {/* Headless leaf-executor run (no lane / no session) — orthogonal source, always
+          rendered (self-suppresses to a quiet placeholder when the todo never ran headless). */}
+      <WorkerRunStrip leafId={todoId} isActive={isActive} />
+    </>
   );
 };
 
