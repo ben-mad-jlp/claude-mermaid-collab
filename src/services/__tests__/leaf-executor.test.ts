@@ -262,22 +262,30 @@ describe('runLeaf state machine', () => {
     expect(implSpecs[1].prompt).toContain('REVIEW FINDINGS');
   });
 
-  it('(iii) node budget: BLOCKED once nodesSpent exceeds the budget, regardless of verdict', async () => {
-    // Default backstop is 20; the floor structurally spends ≤6 nodes (3/attempt × cap
-    // 2). To exercise the budget CEILING deterministically (a runaway node), inject a
-    // budget of 2: even a PASS-able run trips the budget mid-attempt (after the 3rd
-    // node, nodesSpent=3 > 2) and parks BLOCKED 'node-budget-exhausted' — proving the
-    // budget check fires before acceptance, independent of the attempt cap.
+  it('(iii) node budget: BLOCKED when budget exhausts and the review FAILED (more work needed)', async () => {
+    // Budget gates doing MORE work. A FAILED review at budget would need another
+    // implement+review cycle — there's no budget for it → parkBlocked. (budget=2: after
+    // blueprint(1)→implement(2)→review(3)=FAIL, checkBudget 3>2 → blocked.)
     expect(NODE_BUDGET).toBe(20);
-    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: FAIL — needs work'] });
     deps.nodeBudget = 2;
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('node-budget-exhausted');
-    expect(res.nodesSpent).toBe(3); // tripped right after the budget was exceeded
-    expect(res.attempts).toBe(1); // mid first attempt — never reached a 2nd
-    expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]); // blocked-path reject only
+    expect(res.attempts).toBe(1);
+    expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]);
     expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
+  });
+
+  it('(iii-b) a PASS review is ACCEPTED even when it lands on the budget-tripping node (L6 regression)', async () => {
+    // L6: a passing review landed on the node that tripped the budget and was wrongly
+    // discarded as node-budget-exhausted, losing complete+compiling work. A PASS = done;
+    // budget must not throw it away.
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    deps.nodeBudget = 2; // blueprint(1)+implement(2)+review(3) — review trips budget but PASSes
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
   });
 
   it('(iv) every attempt uses a FRESH worktree off the epic branch', async () => {

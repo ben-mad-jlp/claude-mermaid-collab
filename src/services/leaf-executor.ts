@@ -162,9 +162,10 @@ export const NODE_BUDGET = 20;
 /** Hard cap on the size-aware WAVES budget — a true runaway is still bounded. */
 export const WAVES_BUDGET_MAX = 45;
 /** Size-aware node budget for the waves path: blueprint(1) + research(per task) +
- *  implement/verify/fix(~3 per file) + gate/review margin(5), capped. */
+ *  implement/verify/fix per file (~4 — wimplement + verify + a fix + the re-verify the
+ *  per-file fix loop adds) + gate/review margin(6), capped. */
 export function wavesBudget(taskCount: number, fileCount: number): number {
-  return Math.min(WAVES_BUDGET_MAX, 1 + taskCount + fileCount * 3 + 5);
+  return Math.min(WAVES_BUDGET_MAX, 1 + taskCount + fileCount * 4 + 6);
 }
 /** P6 surgical reuse: max in-place re-implement passes per attempt on a missing-logic
  *  review FAIL (a NEW finding) before discarding the worktree for a fresh attempt. */
@@ -817,10 +818,15 @@ export async function runLeaf(
     for (;;) {
       const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
       if (review.rateLimited) return pausedResult('review', review);
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
       reviewVerdict = parseVerdict(review.text);
       const findings = (review.text ?? '').trim();
+      // A PASS means the work is COMPLETE — accept it regardless of budget. The budget is a
+      // runaway guard on doing MORE work, not a reason to DISCARD a finished, passing leaf.
+      // (L6: a PASS landed on the node that tripped the budget and was wrongly thrown away
+      // as node-budget-exhausted, losing complete+compiling work.)
       if (reviewVerdict === 'pass') break;
+      // FAILED → we'd spend MORE nodes remediating. NOW gate on the budget.
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
       const isRepeat = findings !== '' && findings === prevFindings;
       if (reuses >= REVISE_REUSE_CAP || isRepeat) break; // exhausted / stuck → fresh attempt
       reuses += 1;
