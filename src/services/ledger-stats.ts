@@ -35,6 +35,9 @@ export interface LeafNodeStat {
   rateLimited: boolean | null;
   ts: number;
   verdict?: string | null;
+  inputTokens?: number | null; // context size in (a tiny value flags a starved node)
+  outputTokens?: number | null;
+  outputText?: string | null; // the node's final message — drillable in the UI
 }
 
 export interface LeafRunStats {
@@ -49,8 +52,21 @@ export interface LeafRunStats {
   wallClockMs: number; // last.ts − first.ts (fallback Σ durationMs)
   rateLimitedCount: number; // nodes where rateLimited===true
   authModes: Record<string, number>; // count by authMode (the per-leaf audit)
-  finalOutcome: 'accepted' | 'rejected' | 'blocked' | 'paused' | null;
+  finalOutcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | null;
   reviewVerdict: 'pass' | 'fail' | null;
+  /** The atomic terminal record (parsed from the outcome marker's `outcomeDetail` JSON):
+   *  the single-source acceptance decision. Null when the run has no terminal marker yet
+   *  (in-flight) or predates the field. */
+  terminal?: {
+    effectiveOutcome?: string;
+    reviewVerdict?: 'pass' | 'fail' | null;
+    pathTaken?: 'floor' | 'waves' | null;
+    reason?: string;
+    pendingReason?: string;
+    gateReasons?: string[];
+    attempts?: number;
+    nodesSpent?: number;
+  } | null;
 }
 
 export interface FleetStats {
@@ -89,6 +105,9 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     rateLimited: r.rateLimited ?? null,
     ts: r.ts,
     verdict: r.verdict ?? null,
+    inputTokens: r.inputTokens ?? null,
+    outputTokens: r.outputTokens ?? null,
+    outputText: r.outputText ?? null,
   }));
 
   const attempts = Math.max(
@@ -123,6 +142,12 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
   const finalOutcome =
     (lastMarker?.leafOutcome as LeafRunStats['finalOutcome']) ?? null;
 
+  // Atomic terminal record: parse the marker's outcomeDetail JSON (fail-safe → null).
+  let terminal: LeafRunStats['terminal'] = null;
+  if (lastMarker?.outcomeDetail) {
+    try { terminal = JSON.parse(lastMarker.outcomeDetail); } catch { terminal = null; }
+  }
+
   return {
     leafId,
     epicId: rows[0].epicId ?? null,
@@ -137,6 +162,7 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     authModes,
     finalOutcome,
     reviewVerdict,
+    terminal,
   };
 }
 

@@ -71,7 +71,14 @@ export interface LeafExecutorDeps {
     project: string,
     todoId: string,
     acceptance: 'accepted' | 'rejected',
-  ) => Promise<{ effective?: 'accepted' | 'rejected' | 'pending' }>;
+  ) => Promise<{
+    effective?: 'accepted' | 'rejected' | 'pending';
+    /** Why the gate downgraded 'accepted'→'pending' (work-committed re-verify). Carried
+     *  through so the terminal record can explain a pending, instead of dropping it. */
+    pendingReason?: string;
+    /** When the gate overrode 'accepted'→'rejected', the failing-gate reasons. */
+    gateReasons?: string[];
+  }>;
   /** Commit the leaf worktree + merge it back onto the epic branch (so the gate's
    *  work-committed re-verify sees it). Called on PASS, BEFORE `complete`. */
   mergeToEpic: (
@@ -122,7 +129,10 @@ export interface LeafExecutorDeps {
 }
 
 export interface LeafRunResult {
-  outcome: 'accepted' | 'rejected' | 'blocked' | 'paused';
+  // 'pending' is a FIRST-CLASS outcome (no longer collapsed into 'rejected'): the
+  // review PASSed and the work merged, but the completion gate's work-committed
+  // re-verify deferred. Distinct from 'rejected' (gate/review actually failed).
+  outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused';
   attempts: number;
   nodesSpent: number;
   /** Set on a 'blocked' outcome (the cap/budget reason). */
@@ -162,7 +172,7 @@ const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string }
   implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' },
   review: { model: 'opus', allowedTools: 'Read Grep Glob Bash' },
   // P5 waves:
-  research: { model: 'opus', allowedTools: 'Read Grep Glob Bash' }, // read-only
+  research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash' }, // read-only (spec §12: sonnet for non-blueprint/review)
   wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
   verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash' }, // read + bash-tsc
   fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
@@ -260,6 +270,7 @@ export function buildWavePrompt(
   kind: 'research' | 'wimplement' | 'verify' | 'fix',
   leaf: Todo,
   target: WaveTarget,
+  ctx?: { blueprintText?: string; researchText?: string },
 ): string {
   const bp = blueprintPath(leaf);
   const files = target.files.join(', ') || '(none listed)';
@@ -270,15 +281,29 @@ export function buildWavePrompt(
         `Files in scope: ${files}.`,
         'Read the relevant code (Read/Grep/Glob and Bash for inspection ONLY — no edits).',
         `Read the blueprint at \`${bp}\`. Investigate the exact change shape for this task`,
-        `and WRITE your findings to \`.collab/leaf-blueprints/${leaf.id}.research.${target.ref}.md\``,
-        'so the IMPLEMENT node can read them. Do NOT modify any source file.',
+        `and WRITE your findings to \`.collab/leaf-blueprints/${leaf.id}.research.${target.ref}.md\`.`,
+        'ALSO output your COMPLETE findings as your FINAL reply message (verbatim) — the',
+        'executor inlines that text into the IMPLEMENT node, so it must stand alone even if',
+        'the file write fails. Do NOT modify any source file.',
       ].join('\n');
-    case 'wimplement':
+    case 'wimplement': {
+      // INLINE the blueprint + research text (mirrors buildNodePrompt's implement case,
+      // fix 89f7f6e/b77dd104): a separate `claude -p` runs in a FRESH worktree off the
+      // epic tip and the per-leaf blueprint/research files are NOT guaranteed present
+      // there — relying on a disk read silently starves the node of context (the
+      // waves-file-stuck regression). The executor passes the captured text directly.
+      const blueprintBlock = ctx?.blueprintText
+        ? `This leaf's blueprint is inlined below — do NOT search for, glob, or read ANY blueprint file (other leaves' blueprints may be present in shared dirs — ignore them entirely).\n\n=== BLUEPRINT (${leaf.id}) START ===\n${ctx.blueprintText}\n=== BLUEPRINT END ===`
+        : `Read the blueprint at \`${bp}\` and THIS leaf's research notes (\`.collab/leaf-blueprints/${leaf.id}.research.*.md\`) — ONLY those exact files; ignore any other blueprint in the directory.`;
+      const researchBlock = ctx?.researchText
+        ? `\n\n=== RESEARCH NOTES (inlined) START ===\n${ctx.researchText}\n=== RESEARCH NOTES END ===`
+        : '';
       return [
         `You are the IMPLEMENT node for ONE file: \`${target.ref}\` (Read/Edit only).`,
-        `Read the blueprint at \`${bp}\` and THIS leaf's research notes (\`.collab/leaf-blueprints/${leaf.id}.research.*.md\`) — ONLY those exact files; ignore any other blueprint in the directory,`,
-        'then implement this file FULLY. Do not stub or leave TODOs. Do NOT run the gate.',
+        blueprintBlock + researchBlock,
+        'Implement this file FULLY against the working tree. Do not stub or leave TODOs. Do NOT run the gate.',
       ].join('\n');
+    }
     case 'verify':
       return [
         `You are the VERIFY node for file \`${target.ref}\` (READ + Bash for tsc ONLY; no edits).`,
@@ -287,12 +312,18 @@ export function buildWavePrompt(
         `Report the FIRST tsc error touching \`${target.ref}\`, or if there is none output`,
         'EXACTLY one line: `TSC: CLEAN`',
       ].join('\n');
-    case 'fix':
+    case 'fix': {
+      // Inline the blueprint so the fix has the same intent context as wimplement —
+      // a fresh `claude -p` can't be assumed to read it off disk.
+      const blueprintBlock = ctx?.blueprintText
+        ? `\n\n=== BLUEPRINT (${leaf.id}, inlined — do NOT read other blueprint files) START ===\n${ctx.blueprintText}\n=== BLUEPRINT END ===`
+        : '';
       return [
         `You are a FIX node for file \`${target.ref}\` (Read/Edit only).`,
         `Fix these tsc errors:\n${target.detail}`,
-        'After editing, do NOT re-run tsc — the executor re-verifies. Read/Edit only.',
+        'After editing, do NOT re-run tsc — the executor re-verifies. Read/Edit only.' + blueprintBlock,
       ].join('\n');
+    }
   }
 }
 
@@ -396,6 +427,9 @@ export async function runLeaf(
   // nodesSpent is SEEDED from startNodesSpent (P3 resume) so the master budget is
   // global across pause/resume cycles, not reset per re-dispatch.
   const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0 };
+  // Which execution path the last attempt took — recorded on the terminal record so a
+  // run's shape (and which path a failure came from) is legible without re-deriving.
+  let pathTaken: 'floor' | 'waves' | null = null;
 
   const budget = deps.nodeBudget ?? NODE_BUDGET;
   /** TRUE while still within the master node budget. */
@@ -435,6 +469,9 @@ export async function runLeaf(
         parseError: res.parseError ?? null,
         verdict: extra?.verdict ?? null,
         leafOutcome: extra?.leafOutcome ?? null,
+        // Persist the node's final message so a stuck/rejected leaf is diagnosable
+        // (and UI-surfaceable) after the fact — the tsc error, review reason, etc.
+        outputText: res.text ?? null,
       });
     } catch {
       /* ledger is telemetry — never break the run */
@@ -450,6 +487,7 @@ export async function runLeaf(
   const recordOutcome = (
     outcome: LeafRunResult['outcome'],
     verdict: 'pass' | 'fail' | null = null,
+    detail?: { reason?: string; pendingReason?: string; gateReasons?: string[] },
   ): void => {
     try {
       deps.recordNode({
@@ -463,6 +501,18 @@ export async function runLeaf(
         nodesSpent: 0,
         verdict,
         leafOutcome: outcome,
+        // ATOMIC terminal record (§4a): one JSON blob, written once, the single source
+        // for the acceptance decision — never re-derived downstream.
+        outcomeDetail: JSON.stringify({
+          effectiveOutcome: outcome,
+          reviewVerdict: verdict,
+          pathTaken,
+          attempts: state.attempt,
+          nodesSpent: state.nodesSpent,
+          ...(detail?.reason ? { reason: detail.reason } : {}),
+          ...(detail?.pendingReason ? { pendingReason: detail.pendingReason } : {}),
+          ...(detail?.gateReasons?.length ? { gateReasons: detail.gateReasons } : {}),
+        }),
       });
     } catch {
       /* telemetry — never break the run */
@@ -475,7 +525,7 @@ export async function runLeaf(
     reason: string,
     verdict: 'pass' | 'fail' | null = null,
   ): Promise<LeafRunResult> => {
-    recordOutcome('blocked', verdict);
+    recordOutcome('blocked', verdict, { reason });
     try {
       await deps.complete(project, leaf.id, 'rejected');
     } catch {
@@ -534,8 +584,9 @@ export async function runLeaf(
     kind: 'research' | 'wimplement' | 'verify' | 'fix',
     cwd: string,
     target: WaveTarget,
+    ctx?: { blueprintText?: string; researchText?: string },
   ): NodeSpec => ({
-    prompt: buildWavePrompt(kind, leaf, target),
+    prompt: buildWavePrompt(kind, leaf, target, ctx),
     model: NODE_PROFILE[kind].model,
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
@@ -557,6 +608,7 @@ export async function runLeaf(
   const runWaves = async (
     manifest: LeafSizeManifest,
     cwd: string,
+    blueprintBody?: string,
   ): Promise<LeafRunResult | null> => {
     // Per-file work set: tasks[].files ∪ filesToCreate ∪ filesToEdit, de-duped.
     const fileSet: string[] = [];
@@ -567,19 +619,26 @@ export async function runLeaf(
 
     // 1. RESEARCH wave — one node per task. v1: sequential (deterministic budget
     //    accounting; parallelism is an additive follow-up).
+    const researchNotes: string[] = [];
     for (const t of manifest.tasks) {
       const res = await runNode('research', buildWaveSpec('research', cwd, {
         ref: t.id, files: t.files, detail: t.description,
       }));
       if (res.rateLimited) return pausedResult('research', res);
+      // Capture the research node's findings to INLINE into wimplement (the node runs
+      // in a fresh worktree and can't be assumed to read the .research.*.md off disk).
+      if (res.text && res.text.trim()) {
+        researchNotes.push(`## Task ${t.id}: ${t.description}\n${res.text.trim()}`);
+      }
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
+    const researchText = researchNotes.length ? researchNotes.join('\n\n---\n\n') : undefined;
 
     // 2+3+4+5. Per file: IMPLEMENT → VERIFY → per-file FIX loop.
     for (const file of fileSet) {
       const impl = await runNode('wimplement', buildWaveSpec('wimplement', cwd, {
         ref: file, files: [file], detail: '',
-      }));
+      }, { blueprintText: blueprintBody, researchText }));
       if (impl.rateLimited) return pausedResult('wimplement', impl);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
@@ -602,7 +661,7 @@ export async function runLeaf(
 
         const fix = await runNode('fix', buildWaveSpec('fix', cwd, {
           ref: file, files: [file], detail: errText,
-        }));
+        }, { blueprintText: blueprintBody }));
         if (fix.rateLimited) return pausedResult('fix', fix);
         if (!checkBudget()) return parkBlocked('node-budget-exhausted');
       }
@@ -683,11 +742,13 @@ export async function runLeaf(
     }
 
     if (!shouldUseFloor(manifest)) {
+      pathTaken = 'waves';
       // WAVES — research/wimplement/verify/fix; budget/pause/stuck short-circuit here.
-      const wavesResult = await runWaves(manifest!, cwd);
+      const wavesResult = await runWaves(manifest!, cwd, blueprintBody);
       if (wavesResult) return wavesResult;
       // waves completed all files clean → FALL THROUGH to the REVIEW node below.
     } else {
+      pathTaken = 'floor';
       // FLOOR — UNCHANGED implement node (byte-identical to P2):
       // IMPLEMENT
       const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
@@ -742,13 +803,24 @@ export async function runLeaf(
       }
       const gate = await deps.complete(project, leaf.id, 'accepted');
       const effective = gate.effective ?? 'accepted';
-      const outcome: LeafRunResult['outcome'] = effective === 'accepted' ? 'accepted' : 'rejected';
-      recordOutcome(outcome, reviewVerdict);
+      // RECORD THE TRUTH (§4a): the effective outcome IS the outcome — no longer
+      // collapse 'pending' into 'rejected'. 'pending' = review PASSed + work merged but
+      // the gate's work-committed re-verify deferred; 'rejected' = the gate failed.
+      const outcome: LeafRunResult['outcome'] = effective;
+      const reason =
+        effective === 'pending' ? 'gate-pending'
+        : effective === 'rejected' ? 'gate-rejected'
+        : undefined;
+      recordOutcome(outcome, reviewVerdict, {
+        reason,
+        pendingReason: gate.pendingReason,
+        gateReasons: gate.gateReasons,
+      });
       return {
         outcome,
         attempts: state.attempt,
         nodesSpent: state.nodesSpent,
-        ...(effective === 'pending' ? { reason: 'gate-pending' } : {}),
+        ...(reason ? { reason } : {}),
       };
     }
 
@@ -783,7 +855,12 @@ export async function makeLeafExecutorDeps(
     epicId,
     epicBranch,
     assertAuth: assertSubscriptionAuth,
-    complete: (p, t, a) => handleWorkerComplete(makeCoordinatorDeps(), p, t, a),
+    complete: async (p, t, a) => {
+      // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
+      // leaf-executor's terminal record needs them (they were silently dropped before).
+      const r = await handleWorkerComplete(makeCoordinatorDeps(), p, t, a);
+      return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons };
+    },
     mergeToEpic: (sessionKey, eId, message, todoId) =>
       wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
     escalate: createEscalation,

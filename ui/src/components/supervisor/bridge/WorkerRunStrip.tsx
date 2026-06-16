@@ -24,6 +24,9 @@ interface LeafNode {
   rateLimited: boolean | null;
   ts: number;
   verdict?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  outputText?: string | null; // the node's final message — shown when the chip is expanded
 }
 
 interface LeafRunResponse {
@@ -49,6 +52,10 @@ const NODE_LABEL: Record<string, string> = {
   blueprint: 'Blueprint',
   implement: 'Implement',
   review: 'Review',
+  research: 'Research',
+  wimplement: 'Implement',
+  verify: 'Verify',
+  fix: 'Fix',
 };
 
 function fmtDuration(ms: number | null | undefined): string {
@@ -97,6 +104,7 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = (
   const [data, setData] = useState<LeafRunResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refetchNonce, setRefetchNonce] = useState(0);
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   // Fetch (mirrors WorkerRunSummary's cancelled-flag shape). Re-runs on leafId change and
   // on any nonce bump (ws nudge or gated poll).
@@ -187,11 +195,21 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = (
             {nodes.map((node, i) => {
               const isLast = i === nodes.length - 1;
               const label = node.nodeKind ? NODE_LABEL[node.nodeKind] ?? node.nodeKind : 'node';
+              const hasOutput = Boolean(node.outputText && node.outputText.trim());
+              const isOpen = expanded === i;
               return (
-                <div
+                <button
                   key={`${node.ts}-${i}`}
+                  type="button"
                   data-testid="run-node-chip"
-                  className="flex items-center gap-1.5 rounded border border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-gray-800/40 px-2 py-1"
+                  onClick={() => setExpanded(isOpen ? null : hasOutput ? i : null)}
+                  disabled={!hasOutput}
+                  title={hasOutput ? 'Show node output' : 'No output captured'}
+                  className={`flex items-center gap-1.5 rounded border px-2 py-1 ${
+                    isOpen
+                      ? 'border-blue-400 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                      : 'border-gray-200 dark:border-gray-700 bg-white/60 dark:bg-gray-800/40'
+                  } ${hasOutput ? 'cursor-pointer hover:border-gray-300 dark:hover:border-gray-600' : 'cursor-default'}`}
                 >
                   <span
                     data-testid="run-node-dot"
@@ -208,10 +226,30 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = (
                       {fmtDuration(node.durationMs)}
                     </span>
                   )}
-                </div>
+                  {/* a near-zero input flags a context-starved node (the waves bug) */}
+                  {node.inputTokens != null && node.inputTokens < 50 && (
+                    <span className="text-3xs text-amber-600 dark:text-amber-400" title="very small input — node may be missing context">
+                      ⚠ {node.inputTokens}tok in
+                    </span>
+                  )}
+                </button>
               );
             })}
           </div>
+          {expanded != null && nodes[expanded]?.outputText && (
+            <div data-testid="run-node-output" className="mt-2 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+              <div className="flex items-center gap-2 px-2 py-1 border-b border-gray-200 dark:border-gray-700">
+                <span className="text-3xs font-medium text-gray-600 dark:text-gray-300">
+                  {(nodes[expanded].nodeKind && NODE_LABEL[nodes[expanded].nodeKind!]) ?? 'node'} output
+                </span>
+                <span className="text-3xs tabular-nums text-gray-400 dark:text-gray-500">
+                  {nodes[expanded].inputTokens ?? 0} in / {nodes[expanded].outputTokens ?? 0} out
+                </span>
+                <button type="button" onClick={() => setExpanded(null)} className="ml-auto text-3xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">close ✕</button>
+              </div>
+              <pre className="max-h-64 overflow-auto px-2 py-1.5 text-3xs whitespace-pre-wrap break-words text-gray-700 dark:text-gray-200">{nodes[expanded].outputText}</pre>
+            </div>
+          )}
         </div>
       ) : (
         data &&

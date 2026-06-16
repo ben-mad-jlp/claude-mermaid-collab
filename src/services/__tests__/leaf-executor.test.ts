@@ -288,10 +288,13 @@ describe('runLeaf state machine', () => {
     expect(res.reason).toBe('attempt-cap-exhausted');
   });
 
-  it('gate downgrade: PASS but gate returns pending ⇒ outcome rejected (not accepted)', async () => {
+  it('gate downgrade: PASS but gate returns pending ⇒ outcome PENDING (first-class, not rejected)', async () => {
+    // Regression for the real-daemon dogfood finding: a 'pending' gate result must NOT
+    // be collapsed into 'rejected' — pending (review PASSed + work merged, gate deferred)
+    // is a distinct, first-class outcome from rejected (gate/review actually failed).
     const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'pending' });
     const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('rejected');
+    expect(res.outcome).toBe('pending');
     expect(res.reason).toBe('gate-pending');
   });
 });
@@ -577,6 +580,51 @@ describe('runLeaf P5 size gate', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('waves-file-stuck');
+  });
+
+  it('(g) wave wimplement/fix INLINE the blueprint + research (waves-file-stuck regression)', async () => {
+    // The live L3 run got `waves-file-stuck` because wimplement was told to READ the
+    // blueprint/research off disk, but they were not present in the fresh worktree → the
+    // node implemented blind. The wave prompts must INLINE that context (mirrors the P2
+    // b77dd104 fix). Capture the wimplement + fix prompts and assert the text is inlined.
+    const BP_MARKER = 'BLUEPRINT-BODY-MARKER-7f3a';
+    const RESEARCH_MARKER = 'RESEARCH-FINDING-MARKER-9b2c';
+    const prompts: Record<string, string> = {};
+    let verifyIdx = 0;
+    const deps: LeafExecutorDeps = {
+      invoker: {
+        async invoke(spec: NodeSpec): Promise<NodeResult> {
+          const kind = waveKindOf(spec);
+          if (kind === 'wimplement' && !prompts.wimplement) prompts.wimplement = spec.prompt;
+          if (kind === 'fix' && !prompts.fix) prompts.fix = spec.prompt;
+          if (kind === 'research') return okResult(RESEARCH_MARKER);
+          if (kind === 'review') return okResult('VERDICT: PASS');
+          if (kind === 'verify') { const t = verifyIdx === 0 ? 'error TS1: boom' : 'TSC: CLEAN'; verifyIdx += 1; return okResult(t); }
+          return okResult('done');
+        },
+      },
+      wm: { async ensure() { return { isGit: true, path: '/tmp/wt/1', branch: 'b', baseBranch: 'm' } as never; } } as never,
+      epicId: EPIC_ID,
+      epicBranch: EPIC_BRANCH,
+      assertAuth: () => 'subscription',
+      async complete(_p, _t, a) { return { effective: a }; },
+      async mergeToEpic() { return {}; },
+      escalate() {},
+      recordNode: () => null,
+      nodeBudget: 100,
+      // The blueprint artifact text the readBlueprint seam returns — carries the marker
+      // AND the size manifest that routes to waves.
+      readBlueprint: async () => `# bp ${BP_MARKER}\n\n\`\`\`json\n${JSON.stringify({ schemaVersion: 1, estimatedFiles: 8, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: ['a.ts'], filesToEdit: [], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] })}\n\`\`\`\n`,
+    };
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // wimplement inlines BOTH the blueprint body and the research findings, and does NOT
+    // fall back to the disk-read instruction.
+    expect(prompts.wimplement).toContain(BP_MARKER);
+    expect(prompts.wimplement).toContain(RESEARCH_MARKER);
+    expect(prompts.wimplement).not.toContain('Read the blueprint at');
+    // the fix node (it ran — verify errored once) inlines the blueprint too.
+    expect(prompts.fix).toContain(BP_MARKER);
   });
 });
 

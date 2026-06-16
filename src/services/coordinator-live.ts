@@ -2130,17 +2130,25 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (await wm.isDirty(todo.sessionName)) return true; // uncommitted edits present
         const epicId = resolveEpicId(todo, project);
         if ((await wm.laneCommitsAheadOfEpic(todo.sessionName, epicId)) > 0) return true;
-        // BUG 7b7d66d5(b): a clean lane with 0 commits-ahead is NOT proof of a
+        // LEAF-EXECUTOR (the real-daemon dogfood finding): the leaf-executor MERGES the
+        // lane onto the epic accumulation branch (collab/epic/<id8>) BEFORE proposing
+        // acceptance — so a clean lane, 0-ahead, is the NORMAL success shape, not a
+        // hallucination. Work on the epic branch IS real, committable work (it ships when
+        // the epic lands). Recognize it FIRST, before the stricter integration probe (the
+        // epic branch is the accumulation tier; master is only reached at epic-land).
+        // Without this, EVERY leaf-executor PASS false-downgrades to 'pending'.
+        if (await wm.todoOnEpicBranch(epicId, todoId)) return true;
+        // BUG 7b7d66d5(b): a clean lane NOT on its epic branch is still not proof of a
         // hallucination — the work may have landed on the INTEGRATION branch directly
         // (hand cherry-pick / steward reconcile / a prior accepted+landed run that tore
         // the lane down). Before false-downgrading to 'pending', check whether the todo's
         // commit (by its Collab-Todo trailer) is reachable from integration. Only a
-        // provable "nowhere" (clean lane AND provably not on integration) is a real
-        // hallucination; an indeterminate probe preserves prior trust (never downgrades).
+        // provable "nowhere" (clean lane, not on epic, provably not on integration) is a
+        // real hallucination; an indeterminate probe preserves prior trust (never downgrades).
         const onInt = await wm.commitOnIntegration(epicId, todoId);
         if (onInt === true) return true; // landed on master/integration → real work
         if (onInt === null) return null; // indeterminate → preserve (never false-downgrade)
-        return false; // clean lane AND provably not on integration → hallucination
+        return false; // clean lane, not on epic branch, not on integration → hallucination
       } catch {
         return null; // probe error → indeterminate → preserve (never false-downgrade)
       }

@@ -57,7 +57,22 @@ export interface LedgerEntry {
   /** Terminal leaf outcome ('accepted'|'blocked'|'rejected'|'paused'|null),
    *  stamped by the leaf-executor on the row of the node it returned from. */
   leafOutcome?: string | null;
+  /** The node's final output text (the model's last message — the verify tsc error,
+   *  the review verdict+reason, the research findings, the implement summary). The
+   *  durable record of WHAT each node actually said, so a stuck/rejected leaf can be
+   *  diagnosed (and surfaced in the UI) without re-running it. Capped on write. */
+  outputText?: string | null;
+  /** ATOMIC TERMINAL RECORD (only on the leaf's `outcome` marker row): a JSON blob
+   *  capturing the full, single-source acceptance decision — effectiveOutcome,
+   *  reviewVerdict, pathTaken (floor/waves), reason, pendingReason, gateReasons,
+   *  attempts, nodesSpent. Written ONCE so the outcome is never re-derived from
+   *  scattered sources (the bug that made 'pending' read as 'rejected'). */
+  outcomeDetail?: string | null;
 }
+
+/** Defensive cap on persisted node output — a node's final message is normally small,
+ *  but never let a pathological one bloat the ledger row. */
+const MAX_OUTPUT_CHARS = 200_000;
 
 interface LedgerRow extends LedgerEntry {
   id: number;
@@ -113,6 +128,8 @@ function openDb(): Database {
   // Additive migration: P4a R1 verdict/outcome write-back (idempotent, nullable).
   add('verdict', 'TEXT'); // 'pass'|'fail'|null (review node)
   add('leafOutcome', 'TEXT'); // 'accepted'|'blocked'|'rejected'|'paused'|null (terminal)
+  add('outputText', 'TEXT'); // node's final output text (diagnostic + UI source)
+  add('outcomeDetail', 'TEXT'); // atomic terminal record (JSON) on the outcome marker row
   return db;
 }
 
@@ -134,8 +151,8 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
       .prepare(
         `INSERT INTO worker_ledger
           (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, costUsd, knownPrice, steps, parseError,
-           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, ts)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?, ?)`,
+           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outputText, outcomeDetail, ts)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?)`,
       )
       .run(
         entry.project, entry.todoId, entry.epicId ?? null, entry.session, entry.phase, entry.provider, entry.model, entry.source,
@@ -144,6 +161,8 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
         entry.nodeKind ?? null, entry.nodesSpent ?? null, entry.authMode ?? null, entry.exitCode ?? null,
         entry.durationMs ?? null, entry.rateLimited == null ? null : entry.rateLimited ? 1 : 0, entry.leafId ?? null,
         entry.verdict ?? null, entry.leafOutcome ?? null,
+        entry.outputText == null ? null : entry.outputText.slice(0, MAX_OUTPUT_CHARS),
+        entry.outcomeDetail ?? null,
         now,
       );
     return Number(res.lastInsertRowid);
@@ -217,6 +236,8 @@ export function recordNode(
       leafId: entry.leafId ?? null,
       verdict: entry.verdict ?? null,
       leafOutcome: entry.leafOutcome ?? null,
+      outputText: entry.outputText ?? null,
+      outcomeDetail: entry.outcomeDetail ?? null,
     },
     now,
   );
