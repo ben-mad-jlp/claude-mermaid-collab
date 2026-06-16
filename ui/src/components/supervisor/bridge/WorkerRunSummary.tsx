@@ -72,12 +72,7 @@ export const WorkerRunSummary: React.FC<{ todoId: string; project: string }> = (
       <div className="px-3 py-2 border-b border-gray-200/70 dark:border-gray-700/70 flex items-center gap-2">
         <span className="text-[10px] uppercase tracking-wide text-gray-400">worker run</span>
         {data?.ran ? (
-          <>
-            <span className="text-2xs text-gray-500 dark:text-gray-400">ended · {fmtWhen(data.lastTs)}</span>
-            <span className="ml-auto text-2xs tabular-nums font-semibold text-gray-700 dark:text-gray-200" title="total run cost">
-              ${data.totalUsd.toFixed(4)}
-            </span>
-          </>
+          <span className="ml-auto text-2xs text-gray-500 dark:text-gray-400">ended · {fmtWhen(data.lastTs)}</span>
         ) : (
           <span className="ml-auto text-2xs text-gray-400 dark:text-gray-500 italic">
             {loading ? 'loading…' : 'not run yet'}
@@ -98,10 +93,15 @@ export const WorkerRunSummary: React.FC<{ todoId: string; project: string }> = (
                   <span className="text-gray-400 dark:text-gray-500 truncate flex-1" title={`${r.provider}/${r.model} · ${r.source}`}>
                     {r.provider}/{r.model}
                   </span>
-                  <span className="tabular-nums text-gray-600 dark:text-gray-300 shrink-0">${r.usd.toFixed(3)}</span>
+                  <span className="tabular-nums text-gray-600 dark:text-gray-300 shrink-0">${r.usd.toFixed(2)}</span>
                 </div>
               );
             })}
+            {/* Total — sums the run, below the per-phase breakdown. */}
+            <div className="flex items-center gap-2 text-2xs pt-1 mt-0.5 border-t border-gray-200 dark:border-gray-700">
+              <span className="font-semibold text-gray-600 dark:text-gray-300 flex-1">Total</span>
+              <span className="tabular-nums font-semibold text-gray-700 dark:text-gray-200 shrink-0">${data.totalUsd.toFixed(2)}</span>
+            </div>
           </div>
           {models.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 pt-0.5">
