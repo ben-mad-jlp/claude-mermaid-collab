@@ -1,6 +1,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withCDPSession, activateTab, CDP_PORT, ensureTab, registerTab } from '../../services/cdp-session.js';
+import { pressKey, typeText, mouseMove, drag } from '../../services/cdp-input.js';
 
 
 export async function browserOpen(url: string, session: string): Promise<string> {
@@ -160,8 +161,7 @@ export async function browserSelect(selector: string, value: string, session: st
 
 export async function browserPressKey(key: string, session: string): Promise<string> {
   return withCDPSession(session, CDP_PORT, async (client) => {
-    await client.Input.dispatchKeyEvent({ type: 'keyDown', key });
-    await client.Input.dispatchKeyEvent({ type: 'keyUp', key });
+    await pressKey(client, key);
     return JSON.stringify({ success: true, key }, null, 2);
   });
 }
@@ -174,7 +174,7 @@ export async function browserHover(selector: string, session: string): Promise<s
     if (!nodeResult.nodeId) throw new Error(`Element not found: ${selector}`);
     const boxResult = await client.DOM.getBoxModel({ nodeId: nodeResult.nodeId });
     const [x, y] = [boxResult.model.content[0], boxResult.model.content[1]];
-    await client.Input.dispatchMouseEvent({ type: 'mouseMoved', x, y });
+    await mouseMove(client, x, y);
     return JSON.stringify({ success: true, selector }, null, 2);
   });
 }
@@ -234,19 +234,14 @@ export async function browserDrag(sourceSelector: string, targetSelector: string
     const tgtBox = await client.DOM.getBoxModel({ nodeId: tgtNode.nodeId });
     const [sx, sy] = [srcBox.model.content[0], srcBox.model.content[1]];
     const [tx, ty] = [tgtBox.model.content[0], tgtBox.model.content[1]];
-    await client.Input.dispatchMouseEvent({ type: 'mousePressed', x: sx, y: sy, button: 'left', clickCount: 1 });
-    await client.Input.dispatchMouseEvent({ type: 'mouseMoved', x: tx, y: ty, button: 'left' });
-    await client.Input.dispatchMouseEvent({ type: 'mouseReleased', x: tx, y: ty, button: 'left', clickCount: 1 });
+    await drag(client, sx, sy, tx, ty);
     return JSON.stringify({ success: true, from: sourceSelector, to: targetSelector }, null, 2);
   });
 }
 
 export async function browserTypeText(text: string, session: string): Promise<string> {
   return withCDPSession(session, CDP_PORT, async (client) => {
-    for (const char of text) {
-      await client.Input.dispatchKeyEvent({ type: 'keyDown', text: char, key: char });
-      await client.Input.dispatchKeyEvent({ type: 'keyUp', text: char, key: char });
-    }
+    await typeText(client, text);
     return JSON.stringify({ success: true, typed: text }, null, 2);
   });
 }
