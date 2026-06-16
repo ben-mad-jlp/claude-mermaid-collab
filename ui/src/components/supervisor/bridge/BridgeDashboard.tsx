@@ -38,6 +38,7 @@ import { EpicHistoryView } from './EpicHistoryView';
 import { funnelCounts, excludeEpics } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
+import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
 
@@ -160,9 +161,19 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
       if (msg?.type === 'escalation_created') {
         void loadEscalations(serverScope, 'open');
       }
+      // Worker-fabric spine (design-worker-fabric-ui §6.4): fold each phase event into
+      // the fabric store so the work-graph nodes can decorate live.
+      if (msg?.type === 'worker_phase' && typeof msg.todoId === 'string') {
+        useWorkerFabricStore.getState().applyPhase(msg);
+      }
     });
+    // Hydrate live lanes for every watched project on connect/reconnect (the WS stream
+    // keeps them fresh after; ledger is authoritative for cost on hydration).
+    for (const p of new Set<string>(watchedProjects.map((w) => w.project).filter(Boolean))) {
+      void useWorkerFabricStore.getState().hydrateFromServer(p);
+    }
     return () => { sub.unsubscribe(); msgSub.unsubscribe(); };
-  }, [resyncBridge, serverScope, loadProjectTodos, loadEscalations]);
+  }, [resyncBridge, serverScope, loadProjectTodos, loadEscalations, watchedProjects]);
 
   // The broadcast above only reaches clients on the SAME server process that
   // handled escalation_create. A CROSS-PROJECT worker can be served by a different

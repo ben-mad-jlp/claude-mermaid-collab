@@ -2803,6 +2803,37 @@ export async function handleAPI(
     return Response.json({ rows: queryLedger(q) });
   }
 
+  // GET /api/worker-lanes?project=
+  // Worker-fabric hydration (design-worker-fabric-ui §6.5): the live in-process worker
+  // lanes for a project — one entry per in-progress todo with a lane, carrying the lane
+  // liveness + accumulated run cost. The browser hydrates workerFabricStore from this on
+  // mount/reconnect, then keeps it live via the `worker_phase` WS event.
+  if (path === '/api/worker-lanes' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return Response.json({ error: 'project required' }, { status: 400 });
+    const { listTodos } = await import('../services/todo-store');
+    const { summarize } = await import('../services/worker-ledger');
+    const { getGrokHarnessForInspection, getAnthropicCoreHarnessForInspection } = await import('../agent/registry');
+    const grok = getGrokHarnessForInspection();
+    const claude = getAnthropicCoreHarnessForInspection();
+    const lanes = listTodos(project, { status: 'in_progress' })
+      .filter((t) => t.sessionName)
+      .map((t) => {
+        const session = t.sessionName as string;
+        const alive = grok.isAlive(session) || claude.isAlive(session);
+        const cost = summarize({ project, todoId: t.id });
+        return {
+          todoId: t.id,
+          session,
+          title: t.title,
+          alive,
+          runCostUsd: cost.totalUsd,
+          byPhase: cost.byPhase,
+        };
+      });
+    return Response.json({ lanes });
+  }
+
   // POST /api/worker-inject { project, session, text }
   // Steer an in-process grok-build lane: queues a human follow-up that lands as a
   // user turn at the NEXT step boundary. Graceful no-op for claude/unknown lanes.

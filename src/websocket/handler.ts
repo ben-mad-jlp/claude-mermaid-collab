@@ -120,6 +120,13 @@ export type WSMessage =
   // escalation table stays the source of truth; the panel feed just narrates.
   | { type: 'steward_action'; project: string; id: string; action: string; proof?: string }
   | { type: 'steward_handback'; project: string; id: string; reason?: string }
+  // Worker-fabric spine (design-worker-fabric-ui §6.4): structural per-phase event so
+  // the live work-graph can decorate a todo's node with phase/route/cost. Additive,
+  // best-effort; `step` events stay in the transcript poll (not WS) to keep node churn low.
+  | { type: 'worker_phase'; project: string; session: string; todoId: string; epicId?: string;
+      lifecycle: 'start' | 'end'; role: string; provider?: string; model?: string;
+      source?: string; winningScope?: string;
+      usage?: { inputTokens?: number; outputTokens?: number }; costUsd?: number; steps?: number; ts: number }
   | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string }> };
 
 export class WebSocketHandler {

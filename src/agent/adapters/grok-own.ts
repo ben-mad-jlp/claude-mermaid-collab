@@ -44,6 +44,7 @@ import { getTodo } from '../../services/todo-store';
 import { getConfig } from '../../services/config-service';
 import { recordPhase } from '../../services/worker-ledger';
 import { knownPricing } from '../worker-core/cost';
+import { getWebSocketHandler } from '../../services/ws-handler-manager';
 import type {
   WorkerAgent,
   WorkerEvent,
@@ -157,6 +158,46 @@ export function workerCoreEnabledFor(project: string): boolean {
     .map((s) => s.trim())
     .filter(Boolean)
     .some((p) => project === p || basename(project) === p);
+}
+
+/** Worker-fabric spine (design-worker-fabric-ui §6.4): broadcast a structural
+ *  `worker_phase` event so the live work-graph can decorate the todo's node with its
+ *  phase/route/cost. Additive + best-effort (a telemetry broadcast must NEVER break a
+ *  run); the per-step events stay in the transcript poll, not WS, to keep node churn low. */
+function broadcastWorkerPhase(
+  spec: LaunchSpec,
+  todoId: string,
+  lifecycle: 'start' | 'end',
+  e: {
+    role: string;
+    ts: number;
+    model?: string;
+    route?: { provider: string; model: string; source: string; winningScope?: string };
+    usage?: { inputTokens?: number; outputTokens?: number };
+    costUsd?: number;
+    steps?: number;
+  },
+): void {
+  try {
+    getWebSocketHandler()?.broadcast({
+      type: 'worker_phase',
+      project: spec.project,
+      session: spec.session,
+      todoId,
+      lifecycle,
+      role: e.role,
+      provider: e.route?.provider,
+      model: e.route?.model ?? e.model,
+      source: e.route?.source,
+      winningScope: e.route?.winningScope,
+      usage: lifecycle === 'end' ? e.usage : undefined,
+      costUsd: lifecycle === 'end' ? e.costUsd : undefined,
+      steps: lifecycle === 'end' ? e.steps : undefined,
+      ts: e.ts,
+    });
+  } catch {
+    /* a telemetry broadcast must never break the run */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +373,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
                 ? ` → ${e.route.provider}/${e.route.model} (${e.route.source})`
                 : e.model ? ` (${e.model})` : '';
               lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}${route}` });
+              broadcastWorkerPhase(spec, todoId, 'start', e);
             } else if (e.type === 'step') {
               lane.step += 1;
               lane.transcript.push({
@@ -360,6 +402,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
                 steps: e.steps,
                 parseError: e.parseError ?? null,
               });
+              broadcastWorkerPhase(spec, todoId, 'end', e);
               const tok = e.usage ? `${e.usage.inputTokens ?? 0}/${e.usage.outputTokens ?? 0} tok` : '';
               lane.step += 1;
               lane.transcript.push({
