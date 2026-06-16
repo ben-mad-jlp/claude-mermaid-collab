@@ -12,6 +12,8 @@ import { FUNNEL_LABELS, STATUS_STYLE } from '../../funnel';
 import type { TodoNodeData } from '../types';
 import { useLod } from '../useLod';
 import { useDeckStore } from '@/stores/deckStore';
+import { useWorkerFabricStore } from '@/stores/workerFabricStore';
+import { PhasePipelineStrip } from '../PhasePipelineStrip';
 
 const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
   const d = data as TodoNodeData;
@@ -21,6 +23,12 @@ const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
   const selected = selectedNodeId === id;
   const focused = focusNodeId === id;
   const style = STATUS_STYLE[d.bucket];
+  // Live worker-fabric decoration for THIS todo's lane (per-node subscription → only
+  // this node re-renders on its own phase events; design-worker-fabric-ui §2/§5).
+  const lane = useWorkerFabricStore((s) => s.lanes[id]);
+  const live = lane?.alive ? lane : undefined;
+  const cost = lane && lane.runCostUsd > 0 ? `$${lane.runCostUsd.toFixed(2)}` : null;
+  const isOverride = live?.route?.source === 'override';
 
   const ring = d.danger
     ? `ring-2 ring-danger-500${focused ? ' animate-pulse' : ''}`
@@ -35,7 +43,7 @@ const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
     >
       <Handle type="target" position={Position.Left} className="!bg-gray-400" />
       {lod === 0 ? (
-        <div className={`h-4 w-4 rounded-full ${style.dot}`} title={d.title} />
+        <div className={`h-4 w-4 rounded-full ${style.dot}${live ? ' animate-pulse ring-1 ring-accent-400' : ''}`} title={live ? `${d.title} · ${live.phase}` : d.title} />
       ) : (
         <div className="px-2 py-1.5">
           <div className="flex items-center gap-1.5">
@@ -45,8 +53,27 @@ const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
                 ↺{d.retryCount}
               </span>
             )}
+            {cost && (
+              <span className="ml-auto px-1 rounded text-[10px] font-semibold tabular-nums bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" title="run cost">
+                {cost}
+              </span>
+            )}
             {d.danger && <span className="text-danger-500 text-xs" aria-hidden="true">⚠</span>}
           </div>
+          {/* Live phase pipeline (only while a worker lane is active on this todo). */}
+          {live && (
+            <div className="mt-1">
+              <PhasePipelineStrip current={live.phase} lifecycle={live.lifecycle} compact={lod !== 2} />
+            </div>
+          )}
+          {/* Routing decision: which provider/model ran the current phase, and why. */}
+          {lod === 2 && live?.route?.model && (
+            <div className="mt-1 flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${isOverride ? 'ring-1 ring-accent-500' : ''} bg-accent-400`} />
+              <span className="truncate">{live.route.provider}/{live.route.model}</span>
+              <span className="text-gray-400">({live.route.source}{live.route.winningScope ? `:${live.route.winningScope}` : ''})</span>
+            </div>
+          )}
           {lod === 2 && (
             <div className="mt-1 text-xs text-gray-800 dark:text-gray-200 line-clamp-2">{d.title}</div>
           )}

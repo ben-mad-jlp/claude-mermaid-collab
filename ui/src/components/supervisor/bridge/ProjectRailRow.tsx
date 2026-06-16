@@ -7,6 +7,7 @@
  * is red iff it has open escalations; amber only shows when NOT red.
  */
 import React from 'react';
+import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 
 export interface ProjectRailRowData {
   project: string;
@@ -25,6 +26,17 @@ const ProjectRailRowImpl: React.FC<{
 }> = ({ data, active, onSelect, onRemove, onReorder }) => {
   const red = data.escalationCount > 0;
   const dot = red ? 'bg-danger-500' : data.idleWithWork ? 'bg-warning-500' : 'border border-gray-400 dark:border-gray-500';
+  // Live worker-fabric summary for this project (reframed card: Nλ running · $run).
+  const lanes = useWorkerFabricStore((s) => s.lanes);
+  const { live, cost } = React.useMemo(() => {
+    let live = 0, cost = 0;
+    for (const l of Object.values(lanes)) {
+      if (l.project !== data.project) continue;
+      if (l.alive) live += 1;
+      cost += l.runCostUsd;
+    }
+    return { live, cost };
+  }, [lanes, data.project]);
   return (
     <div
       data-testid="project-rail-row"
@@ -49,6 +61,16 @@ const ProjectRailRowImpl: React.FC<{
         title={red ? `${data.escalationCount} need you` : data.idleWithWork ? 'coordinator off with ready work' : 'quiet'}
       />
       <span className="flex-1 min-w-0 truncate">{data.name}</span>
+      {live > 0 && (
+        <span className="shrink-0 text-3xs font-semibold text-accent-600 dark:text-accent-400 tabular-nums" title={`${live} worker lane(s) running`}>
+          {live}λ
+        </span>
+      )}
+      {cost > 0 && (
+        <span className="shrink-0 text-3xs tabular-nums text-gray-500 dark:text-gray-400" title="run cost (this session)">
+          ${cost.toFixed(2)}
+        </span>
+      )}
       {red && (
         <span
           data-testid="project-rail-badge"

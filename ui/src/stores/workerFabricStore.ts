@@ -21,6 +21,7 @@ export interface PhaseRoute {
 
 export interface LaneState {
   todoId: string;
+  project?: string;
   session?: string;
   /** The phase currently running (or last seen): sizegate|research|authortests|implement|verify|review. */
   phase?: string;
@@ -66,7 +67,7 @@ interface WorkerFabricState {
   /** Live lanes keyed by todoId. */
   lanes: Record<string, LaneState>;
   applyPhase: (e: WorkerPhaseEvent) => void;
-  hydrate: (lanes: HydratedLane[]) => void;
+  hydrate: (lanes: HydratedLane[], project?: string) => void;
   /** Fetch the live-lanes snapshot for a project and fold it in (mount/reconnect). */
   hydrateFromServer: (project: string) => Promise<void>;
   reset: () => void;
@@ -89,6 +90,7 @@ export const useWorkerFabricStore = create<WorkerFabricState>((set, get) => ({
           ...s.lanes,
           [e.todoId]: {
             todoId: e.todoId,
+            project: e.project,
             session: e.session,
             phase: e.role,
             lifecycle: e.lifecycle,
@@ -102,7 +104,7 @@ export const useWorkerFabricStore = create<WorkerFabricState>((set, get) => ({
       };
     }),
 
-  hydrate: (lanes) =>
+  hydrate: (lanes, project) =>
     set((s) => {
       const next = { ...s.lanes };
       const seen = new Set<string>();
@@ -111,6 +113,7 @@ export const useWorkerFabricStore = create<WorkerFabricState>((set, get) => ({
         const prev = next[l.todoId];
         next[l.todoId] = {
           todoId: l.todoId,
+          project: project ?? prev?.project,
           session: l.session ?? prev?.session,
           phase: prev?.phase,
           lifecycle: prev?.lifecycle,
@@ -122,9 +125,12 @@ export const useWorkerFabricStore = create<WorkerFabricState>((set, get) => ({
           lastTs: prev?.lastTs ?? 0,
         };
       }
-      // A lane no longer reported by the server is no longer live.
+      // A lane no longer reported is no longer live — but only retire lanes for the
+      // project we just hydrated (a per-project snapshot must not retire other projects).
       for (const id of Object.keys(next)) {
-        if (!seen.has(id) && next[id].alive) next[id] = { ...next[id], alive: false };
+        if (seen.has(id) || !next[id].alive) continue;
+        if (project && next[id].project && next[id].project !== project) continue;
+        next[id] = { ...next[id], alive: false };
       }
       return { lanes: next };
     }),
@@ -134,7 +140,7 @@ export const useWorkerFabricStore = create<WorkerFabricState>((set, get) => ({
       const res = await fetch(`/api/worker-lanes?project=${encodeURIComponent(project)}`);
       if (!res.ok) return;
       const data = (await res.json()) as { lanes?: HydratedLane[] };
-      if (data.lanes) get().hydrate(data.lanes);
+      if (data.lanes) get().hydrate(data.lanes, project);
     } catch {
       /* hydration is best-effort; the WS stream keeps the store fresh */
     }
