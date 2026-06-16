@@ -20,6 +20,7 @@ import { validateStewardProof } from './steward-proof';
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
+import { runLeaf, makeLeafExecutorDeps } from './leaf-executor';
 import { resolveProfile, resolveProvider, type AgentProfile } from '../config/agent-profiles';
 import type { ProviderId } from '../agent/worker-agent';
 import { resolveManifestPacks } from '../config/tech-packs';
@@ -524,6 +525,25 @@ function mergeToolTokens(...parts: Array<string | undefined>): string {
 export function workerIsolationEnabled(): boolean {
   const v = process.env.MERMAID_WORKER_ISOLATION;
   return v === '1' || v === 'true';
+}
+
+/** True when the headless P2 leaf-executor is enabled via env flag. Default OFF
+ *  ⇒ production behaviour is byte-identical (the legacy tmux launch path runs).
+ *  Mirrors the workerIsolationEnabled / registry env-flag idiom. */
+export function leafExecutorEnabled(): boolean {
+  const v = (process.env.LEAF_EXECUTOR ?? 'off').trim().toLowerCase();
+  return v === '1' || v === 'on' || v === 'true';
+}
+
+/** A leaf the headless executor may drive: a work todo with NO children (a leaf in
+ *  the work-graph) that is not human-owned. Keeps gates/epics/human todos out of
+ *  the executor (those go the legacy path). `project` is the tracking project. */
+export function isHeadlessLeaf(todo: Todo, project: string): boolean {
+  if (todo.assigneeKind === 'human') return false;
+  if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return false;
+  // Leaf = no child todos parented to it in the tracking work-graph.
+  const hasChildren = listTodos(project, {}).some((t) => t.parentId === todo.id);
+  return !hasChildren;
 }
 
 // One WorktreeManager per target-repo root (memoised). Records + worktrees live
@@ -1397,6 +1417,25 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // from claimedBy=coordinator). Set alongside sessionName here at launch.
         try { await updateTodo(project, todo.id, { sessionName: poolName, executedBySession: poolName }); }
         catch (e) { recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, sessionNamePersist: 'failed', reason: e instanceof Error ? e.message : String(e) }) }); }
+      }
+
+      // LEAF_EXECUTOR (P2): headless deterministic blueprint→implement→review
+      // executor, default OFF. The lane identity is already persisted above (so the
+      // executor lane still shows in the fleet with a real sessionName); this runs
+      // BEFORE the legacy provider-resolution / tmux machinery below. On any auth-halt
+      // or hard error we release + escalate rather than silently fall through to tmux.
+      if (leafExecutorEnabled() && isHeadlessLeaf(todo, project)) {
+        try {
+          const ledProject = todo.targetProject ?? project;
+          const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo));
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
+          return res.outcome === 'accepted';
+        } catch (e) {
+          try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
+          createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
+            questionText: `Leaf-executor failed for "${todo.title ?? todo.id}": ${e instanceof Error ? e.message : String(e)}` });
+          return false;
+        }
       }
 
       // CROSS-PROJECT (SEAM·collab): the todo lives in `project` (the tracking
