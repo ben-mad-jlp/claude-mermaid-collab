@@ -15,6 +15,7 @@ import { GrokTranscript } from '@/components/terminal/GrokTranscript';
 import { TieringEditor } from '@/components/settings/TieringEditor';
 import { WorkerRunSummary } from './WorkerRunSummary';
 import { WorkerRunStrip } from './WorkerRunStrip';
+import { ProposedChangesCard } from './ProposedChangesCard';
 
 /**
  * TodoWorkerPanel — the always-on worker section for a selected todo. Shows the LIVE
@@ -47,6 +48,9 @@ export const TodoWorkerPanel: React.FC<{
       {/* Headless leaf-executor run (no lane / no session) — orthogonal source, always
           rendered (self-suppresses to a quiet placeholder when the todo never ran headless). */}
       <WorkerRunStrip leafId={todoId} isActive={isActive} />
+      {/* Durable per-attempt blueprint manifest — the files the leaf proposes to create/edit.
+          Sibling of WorkerRunStrip (compose, 00c8adb9); self-suppresses when no blueprint. */}
+      <ProposedChangesCard leafId={todoId} project={project} />
     </>
   );
 };

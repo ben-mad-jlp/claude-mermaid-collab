@@ -103,6 +103,17 @@ export interface LeafExecutorDeps {
    *  Optional `?.` keeps the floor working even if unwired (→ undefined → null
    *  manifest → FLOOR, the fail-safe default). */
   readBlueprint?: (cwd: string, leaf: Todo) => Promise<string | undefined>;
+  /** Persist the just-written blueprint as a durable collab document and link it to
+   *  the leaf todo (per ATTEMPT, so failed attempts survive). Best-effort: a throw
+   *  must NEVER break the run. Returns the created doc id (telemetry only). Optional
+   *  `?.` keeps the floor running if unwired. */
+  persistBlueprint?: (input: {
+    project: string;          // TRACKING project (where the todo lives) — NOT the worktree
+    leaf: Todo;
+    attempt: number;          // 1-based; included in doc name + body so attempts are distinct
+    manifest: LeafSizeManifest;
+    blueprintMd: string;      // the full .md text (prose + trailing json fence)
+  }) => Promise<string | undefined>;
   /** Resume seam (P3): seed `state.nodesSpent` so total spawns across all
    *  pause/resume cycles stay bounded by the master {@link NODE_BUDGET}. The daemon
    *  (headless-breaker) carries the paused leaf's prior `nodesSpent` in here on
@@ -607,6 +618,24 @@ export async function runLeaf(
     // manifest. Unparseable ⇒ null ⇒ shouldUseFloor true ⇒ the proven FLOOR path.
     const manifestText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
     const manifest = parseSizeManifest(manifestText, bp.text);
+
+    // Persist the just-written blueprint per ATTEMPT (durable telemetry + UI source).
+    // Best-effort: a throw must NEVER break the run. Only when we actually have the
+    // .md text AND a parsed manifest (else there's nothing meaningful to surface).
+    if (manifestText && manifest) {
+      try {
+        await deps.persistBlueprint?.({
+          project,
+          leaf,
+          attempt: state.attempt,
+          manifest,
+          blueprintMd: manifestText,
+        });
+      } catch {
+        /* persistence is durable-telemetry — never break the run */
+      }
+    }
+
     if (!shouldUseFloor(manifest)) {
       // WAVES — research/wimplement/verify/fix; budget/pause/stuck short-circuit here.
       const wavesResult = await runWaves(manifest!, cwd);
@@ -706,5 +735,35 @@ export async function makeLeafExecutorDeps(
       }
     },
     startNodesSpent,
+    // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at
+    // the call site). Writes a collab document scoped to a fixed `leaf-blueprints`
+    // session under the TRACKING `project`, then points the leaf todo's
+    // `link.blueprintId` at the LATEST attempt's doc (prior attempts persist as their
+    // own docs, discoverable but not the primary link). Preserves any existing taskId.
+    persistBlueprint: async ({ project: trackingProject, leaf: lf, attempt, blueprintMd }) => {
+      const { sessionRegistry } = await import('./session-registry');
+      const { DocumentManager } = await import('./document-manager');
+      const { updateTodo } = await import('./todo-store');
+      const BLUEPRINT_SESSION = 'leaf-blueprints';
+      await sessionRegistry.registerIfAbsent(trackingProject, BLUEPRINT_SESSION);
+      const dir = sessionRegistry.resolvePath(trackingProject, BLUEPRINT_SESSION, 'documents');
+      const dm = new DocumentManager(dir);
+      await dm.initialize();
+      const name = `Leaf blueprint — ${lf.id.slice(0, 8)} attempt ${attempt}`;
+      // createDocument throws if the sanitized id already exists (e.g. a resumed attempt);
+      // fall back to saving over the existing doc so re-runs are idempotent.
+      const sanitizedId = name.replace(/[^a-zA-Z0-9-_]/g, '-');
+      let id: string;
+      try {
+        id = await dm.createDocument(name, blueprintMd);
+      } catch {
+        await dm.saveDocument(sanitizedId, blueprintMd);
+        id = sanitizedId;
+      }
+      await updateTodo(trackingProject, lf.id, {
+        link: { blueprintId: id, ...(lf.link?.taskId ? { taskId: lf.link.taskId } : {}) },
+      });
+      return id;
+    },
   };
 }
