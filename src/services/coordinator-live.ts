@@ -6,6 +6,7 @@ import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orc
 import { getStatus, recordSessionProvider } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
+import { summarize as summarizeLedger } from './worker-ledger';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
@@ -110,6 +111,39 @@ async function execAsync(
 }
 
 /** True if a tmux session with this base name exists (worker still alive). */
+/** Daily worker-spend cap (design-worker-fabric-ui §7). WORKER_BUDGET_DAILY (USD) caps
+ *  EACH project's spend since local midnight; 0/unset = no cap. Over budget → the
+ *  project's claimable set is emptied for the rest of the day (workers already running
+ *  finish) and ONE escalation is raised. In-memory idempotency keyed by project+date. */
+const budgetEscalated = new Set<string>();
+function startOfTodayMs(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+function overDailyBudget(project: string): boolean {
+  const cap = Number(getConfig('WORKER_BUDGET_DAILY', '') || 0);
+  if (!cap || cap <= 0) return false;
+  let spent = 0;
+  try { spent = summarizeLedger({ project, since: startOfTodayMs() }).totalUsd; } catch { return false; }
+  if (spent < cap) return false;
+  const key = `${project}:${new Date().toDateString()}`;
+  if (!budgetEscalated.has(key)) {
+    budgetEscalated.add(key);
+    try {
+      createEscalation({
+        project,
+        session: '',
+        kind: 'blocker',
+        todoId: '',
+        questionText: `Daily worker budget reached for ${project}: spent $${spent.toFixed(2)} ≥ cap $${cap.toFixed(2)} since midnight. ` +
+          `The coordinator has STOPPED claiming new work for this project today (running lanes finish). Raise WORKER_BUDGET_DAILY or wait for the daily reset.`,
+      });
+    } catch { /* escalation best-effort */ }
+  }
+  return true;
+}
+
 async function isTmuxAlive(tmux: string): Promise<boolean> {
   try {
     return (await execAsync(mux.cmd(argvHasSession(tmux)))).code === 0;
@@ -1110,7 +1144,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // (hold a claimProbe todo while its env is down), then (2) BP1 — drop a
     // dependent whose foundation is accepted-but-stranded off integration. Neither
     // writes status; a held-back todo is just not claimed this tick.
-    claimGuard: async (project, todos) => bp1FilterStrandedFoundations(project, await filterClaimable(todos)),
+    claimGuard: async (project, todos) =>
+      // Budget gate first: over the daily cap → claim nothing for this project today.
+      overDailyBudget(project) ? [] : bp1FilterStrandedFoundations(project, await filterClaimable(todos)),
     // Wrapped to record coordinator lifecycle events into the supervisor audit
     // log → it doubles as the unified orchestration trace (open-problem #10/obs).
     claimTodo: async (project, id, claimedBy, leaseMs) => {

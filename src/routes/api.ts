@@ -2835,6 +2835,22 @@ export async function handleAPI(
     return Response.json({ lanes });
   }
 
+  // POST /api/worker-lane/abort { session }
+  // Stop a live in-process worker lane (design-worker-fabric-ui §7) — aborts the lane's
+  // AbortController via the harness teardown. The host marks the todo on the next reap;
+  // this just halts the burn. Idempotent / graceful no-op for an unknown session.
+  if (path === '/api/worker-lane/abort' && req.method === 'POST') {
+    const b = (await req.json().catch(() => ({}))) as { session?: string };
+    if (!b.session) return Response.json({ ok: false, reason: 'session required' }, { status: 400 });
+    const { getGrokHarnessForInspection, getAnthropicCoreHarnessForInspection } = await import('../agent/registry');
+    const grok = getGrokHarnessForInspection();
+    const claude = getAnthropicCoreHarnessForInspection();
+    const target = grok.isAlive(b.session) ? grok : claude.isAlive(b.session) ? claude : null;
+    if (!target) return Response.json({ ok: false, reason: 'no-live-in-process-lane' });
+    await target.teardown(b.session);
+    return Response.json({ ok: true, aborted: true });
+  }
+
   // GET /api/tiering?scope=&scopeId=  ·  POST /api/tiering { scope, scopeId, phase, provider, model }
   // The scoped per-phase provider/model overrides (design-worker-fabric-ui §3). GET lists
   // a scope's overrides for the matrix; POST sets one (empty provider clears it).

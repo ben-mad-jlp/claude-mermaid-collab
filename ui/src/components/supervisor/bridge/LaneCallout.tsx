@@ -37,6 +37,22 @@ export const LaneCallout: React.FC<{
         <span className="ml-auto text-2xs tabular-nums text-gray-600 dark:text-gray-300" title="run cost">
           ${lane.runCostUsd.toFixed(4)}
         </span>
+        {lane.alive && lane.session && (
+          <button
+            type="button"
+            title="Stop this worker lane (aborts the run)"
+            onClick={async () => {
+              await fetch('/api/worker-lane/abort', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session: lane.session }),
+              }).catch(() => {});
+            }}
+            className="text-2xs px-1.5 py-0.5 rounded bg-danger-50 text-danger-600 hover:bg-danger-100 dark:bg-danger-900/30 dark:text-danger-300"
+          >
+            ⏹ stop
+          </button>
+        )}
       </div>
 
       <div className="px-3 py-2 space-y-1.5">
