@@ -395,11 +395,25 @@ export function shouldUseFloor(m: LeafSizeManifest | null): boolean {
   );
 }
 
-/** Parse a REVIEW node's text for the verdict line. Fail-closed: a missing or
- *  unparseable verdict is treated as FAIL. */
+/** Strip the markdown wrapping a model often adds around a sentinel line — the prompts
+ *  SHOW the sentinels in backticks, so the model echoes the backticks (and sometimes
+ *  bold or quotes). A line-anchored regex then misses the sentinel and a clean/pass
+ *  result reads as a failure (the L4 waves-file-stuck false-stuck). Normalize first;
+ *  newlines are kept so line-anchored matching still works. */
+function stripSentinelFmt(text: string): string {
+  return text.replace(/[`*_"']/g, '');
+}
+
 export function parseVerdict(text: string | undefined): 'pass' | 'fail' {
   if (!text) return 'fail';
-  return /^VERDICT:\s*PASS\b/im.test(text) ? 'pass' : 'fail';
+  return /^\s*VERDICT:\s*PASS\b/im.test(stripSentinelFmt(text)) ? 'pass' : 'fail';
+}
+
+/** True when a verify node reported a clean tsc result. Tolerant of markdown wrapping
+ *  (`TSC: CLEAN` in backticks) and empty output (nothing to report = clean). */
+export function isTscClean(text: string | undefined): boolean {
+  const t = stripSentinelFmt((text ?? '').trim()).trim();
+  return t === '' || /^TSC:\s*CLEAN\b/im.test(t);
 }
 
 /** Stable per-leaf lane name. WorktreeManager keys records on this; `fresh:true`
@@ -665,7 +679,7 @@ export async function runLeaf(
         if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
         const errText = (ver.text ?? '').trim();
-        if (/^TSC:\s*CLEAN\b/im.test(errText) || errText === '') break; // file clean
+        if (isTscClean(ver.text)) break; // file clean (tolerant of `TSC: CLEAN` markdown wrapping)
 
         if (previousError !== null && errText === previousError) {
           return parkBlocked('waves-file-stuck'); // same error twice ⇒ stuck
@@ -686,8 +700,7 @@ export async function runLeaf(
     }));
     if (gate.rateLimited) return pausedResult('verify', gate);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    const gateText = (gate.text ?? '').trim();
-    if (!(/^TSC:\s*CLEAN\b/im.test(gateText) || gateText === '')) {
+    if (!isTscClean(gate.text)) {
       return parkBlocked('waves-tsc-gate-failed');
     }
 

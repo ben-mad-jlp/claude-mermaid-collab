@@ -9,6 +9,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   runLeaf,
   parseVerdict,
+  isTscClean,
   buildNodePrompt,
   parseSizeManifest,
   shouldUseFloor,
@@ -165,6 +166,23 @@ describe('parseVerdict (fail-closed)', () => {
     expect(parseVerdict('no verdict line at all')).toBe('fail');
     expect(parseVerdict(undefined)).toBe('fail');
     expect(parseVerdict('')).toBe('fail');
+  });
+  it('tolerates markdown wrapping the model echoes from the prompt (backticks/bold)', () => {
+    // The L4 false-stuck class: the prompt SHOWS `VERDICT: PASS` in backticks, so the
+    // model echoes them — a line-anchored regex must not be defeated by the wrapper.
+    expect(parseVerdict('`VERDICT: PASS`')).toBe('pass');
+    expect(parseVerdict('**VERDICT: PASS**')).toBe('pass');
+  });
+});
+
+describe('isTscClean (tolerant of markdown wrapping — L4 waves-file-stuck root cause)', () => {
+  it('treats backtick/bold-wrapped + empty as clean, real errors as not-clean', () => {
+    expect(isTscClean('`TSC: CLEAN`')).toBe(true);   // the exact L4 case
+    expect(isTscClean('TSC: CLEAN')).toBe(true);
+    expect(isTscClean('**TSC: CLEAN**')).toBe(true);
+    expect(isTscClean('')).toBe(true);               // nothing to report = clean
+    expect(isTscClean(undefined)).toBe(true);
+    expect(isTscClean('error TS2339: Property x does not exist')).toBe(false);
   });
 });
 
