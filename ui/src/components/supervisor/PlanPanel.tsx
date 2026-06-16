@@ -5,6 +5,7 @@ import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
 import { PlanKanban } from './PlanKanban';
 import { PlanTotalsBar } from './PlanTotals';
+import { isBucketEpic } from './bucketEpic';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
 import { bucketTodo, STATUS_STYLE } from './bridge/funnel';
 
@@ -118,6 +119,7 @@ function PlanRow({
 export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelectTodo, onSelectEpic }) => {
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
+  const deleteTodo = useSupervisorStore((s) => s.deleteTodo);
 
   const todos: SessionTodo[] = todosByProject[project] ?? [];
   const [mode, setMode] = useState<Mode>('kanban');
@@ -162,12 +164,15 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
       const allKids = childrenByParent.get(top.id) ?? [];
       if (allKids.length > 0) {
         // An epic: a fully-completed one (every child terminal) is gated by Show
-        // completed; an ACTIVE epic always shows ALL its children, completed ones
-        // included (progress).
+        // completed; a cohesive ACTIVE epic always shows ALL its children, completed
+        // ones included (progress). A catch-all BUCKET epic (Inbox) instead trims its
+        // completed children unless Show completed is on (history, not an arc).
         const epicCompleted = allKids.every((k) => TERMINAL.has(k.status));
         if (epicCompleted && !showCompleted) continue;
+        const bucket = isBucketEpic(top.title);
+        const kids = bucket && !showCompleted ? allKids.filter(keep) : allKids;
         rows.push({ todo: top, depth: 0 });
-        for (const k of [...allKids].sort(sort)) rows.push({ todo: k, depth: 1 });
+        for (const k of [...kids].sort(sort)) rows.push({ todo: k, depth: 1 });
       } else if (keep(top)) {
         // An orphan top-level leaf — gated by Show completed.
         rows.push({ todo: top, depth: 0 });
@@ -207,15 +212,33 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
       .sort(sort)
       .map((epic) => {
         const desc = descendants(epic.id);
-        // Always graph the epic's FULL subtree — completed todos inside an epic stay
-        // visible (progress). "Show completed" only gates whether a fully-completed
-        // epic gets a tab at all.
+        // Cohesive epic: graph the FULL subtree (completed children stay = progress).
+        // Catch-all BUCKET epic (Inbox): trim completed descendants unless Show
+        // completed is on (history, not an arc).
+        const visibleDesc = isBucketEpic(epic.title) && !showCompleted ? desc.filter((t) => !TERMINAL.has(t.status)) : desc;
         const completed = desc.length > 0 && desc.every((t) => TERMINAL.has(t.status));
-        return { epic, todos: [epic, ...desc], completed };
+        return { epic, todos: [epic, ...visibleDesc], completed };
       })
       .filter((g) => g.todos.length > 1)
       .filter((g) => showCompleted || !g.completed);
   }, [todos, waveMap, showCompleted]);
+
+  // Housekeeping (#3): hard-delete a bucket epic's completed children so the Inbox
+  // doesn't accumulate forever. Confirmed (destructive); batch-delete then reload once.
+  const handleClearCompleted = async (epicId: string) => {
+    const TERM = new Set(['done', 'dropped']);
+    const done = todos.filter((t) => t.parentId === epicId && TERM.has(t.status));
+    if (done.length === 0) return;
+    const epicTitle = todos.find((t) => t.id === epicId)?.title ?? 'this epic';
+    if (
+      !window.confirm(
+        `Permanently delete ${done.length} completed item${done.length === 1 ? '' : 's'} from "${epicTitle}"?\n\nThis removes them from the plan and cannot be undone.`,
+      )
+    )
+      return;
+    for (const t of done) await deleteTodo(serverId, project, t.id);
+    await loadProjectTodos(serverId, project);
+  };
 
   const modeButton = (m: Mode, label: string) => (
     <button
@@ -365,7 +388,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </div>
         ) : (
           <div className="h-full p-2">
-            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} />
+            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} />
           </div>
         )}
       </div>

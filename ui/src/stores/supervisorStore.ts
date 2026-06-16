@@ -384,6 +384,9 @@ interface SupervisorState {
   loadRoadmap: (serverId: string, project: string) => Promise<void>;
   loadProjectTodos: (serverId: string, project: string) => Promise<void>;
   promoteTodo: (serverId: string, project: string, id: string, status: string) => Promise<void>;
+  /** Hard-delete a work-graph todo (DELETE /api/supervisor/roadmap). Does NOT
+   *  reload the plan — callers batch-deleting should reload once at the end. */
+  deleteTodo: (serverId: string, project: string, id: string) => Promise<boolean>;
   /** Start a global LLM role (steward/supervisor) via /api/ide/launch-session —
    *  the ON half of the Bridge role switch. `remoteControl` launches with Claude
    *  Code Remote Control so the session is drivable from the Claude app. */
@@ -649,6 +652,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     if (!res?.ok) return;
     // Re-fetch the project plan so the change is reflected everywhere.
     await get().loadProjectTodos(serverId, project);
+  },
+
+  deleteTodo: async (serverId, project, id) => {
+    const res = await invoke(serverId, '/api/supervisor/roadmap', 'DELETE', { project, id });
+    return !!res?.ok;
   },
 
   startRole: async (serverId, role, project, session, remoteControl) => {

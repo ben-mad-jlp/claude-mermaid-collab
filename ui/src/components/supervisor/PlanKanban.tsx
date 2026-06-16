@@ -20,12 +20,15 @@ import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
 import { bucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
+import { isBucketEpic } from './bucketEpic';
 
 export interface PlanKanbanProps {
   todos: SessionTodo[];
   onSelectTodo?: (todo: SessionTodo) => void;
   /** Controlled by the parent (PlanPanel) so Kanban/List/Graph share one toggle. */
   showCompleted: boolean;
+  /** Clear (hard-delete) a bucket epic's completed children — Inbox housekeeping. */
+  onClearCompleted?: (epicId: string) => void;
 }
 
 /**
@@ -128,7 +131,7 @@ interface Lane {
   rank: number; // min child wave, for lane ordering
 }
 
-export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted }) => {
+export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted, onClearCompleted }) => {
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
   const unblocks = useMemo(() => unblocksCount(todos), [todos]);
@@ -206,9 +209,10 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
         // orphan group when all terminal).
         .filter((l) => showCompleted || !l.completed)
         .map((l) => {
-          // An ACTIVE epic always shows its completed children (progress) — never
-          // trimmed. Only the orphan ("No epic") group obeys Show completed.
-          if (l.epic && !l.completed) return l;
+          // A cohesive ACTIVE epic always shows its completed children (progress) —
+          // never trimmed. The orphan ("No epic") group AND catch-all BUCKET epics
+          // (Inbox) instead obey Show completed: their done items are just history.
+          if (l.epic && !l.completed && !isBucketEpic(l.epic.title)) return l;
           if (showCompleted) return l;
           return { ...l, items: l.items.filter((t) => !TERMINAL.has(t.status)) };
         })
@@ -273,6 +277,19 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   <span className="text-success-600 dark:text-success-400 font-medium">✓ complete</span>
                 )}
               </span>
+              {/* Bucket-epic housekeeping (#3): clear out finished ad-hoc items so the
+                  Inbox doesn't accumulate forever. Only on bucket epics with done kids. */}
+              {onClearCompleted && lane.epic && isBucketEpic(lane.epic.title) && lane.counts.done > 0 && (
+                <button
+                  type="button"
+                  data-testid="clear-completed-bucket"
+                  onClick={() => onClearCompleted(lane.epic!.id)}
+                  title={`Permanently delete the ${lane.counts.done} completed item(s) in this bucket`}
+                  className="shrink-0 px-1.5 py-0.5 text-3xs rounded text-gray-500 dark:text-gray-400 hover:bg-danger-50 hover:text-danger-600 dark:hover:bg-danger-900/30 dark:hover:text-danger-300 transition-colors"
+                >
+                  Clear completed ({lane.counts.done})
+                </button>
+              )}
             </header>
             <div className="overflow-x-auto p-1.5">
               <div className="flex gap-2 items-start">
