@@ -39,7 +39,23 @@ import {
 // Claude adapter — they were MOVED there (regexes byte-for-byte unchanged), and
 // coordinator-live keeps re-exporting them so existing importers (fleet-status,
 // tmux-reaper) and tests resolve them from here exactly as before.
-import { resolveWorkerAgent, resolveGrokAgent } from '../agent/registry';
+import { resolveWorkerAgent, resolveGrokAgent, resolveAnthropicCoreAgent } from '../agent/registry';
+import { getConfig } from './config-service';
+
+/** Per-project opt-in for the in-process Claude worker (worker-core) vs the legacy
+ *  `claude` CLI. Allowlist via CLAUDE_CORE_PROJECTS (comma-sep paths/basenames); the
+ *  CLAUDE_IN_PROCESS=1 ENV var is a dev-only global override. Default off → CLI. */
+function claudeInProcessEnabledFor(project: string): boolean {
+  if (process.env.CLAUDE_IN_PROCESS === '1') return true;
+  const list = getConfig('CLAUDE_CORE_PROJECTS', '') ?? '';
+  if (!list.trim()) return false;
+  const base = project.split('/').pop();
+  return list
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .some((p) => p === project || p === base);
+}
 import {
   agentAliveInSubtree,
   CLAUDE_COMM_MATCHER,
@@ -1446,6 +1462,16 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           } catch { /* escalation is best-effort; the released claim already parks the todo */ }
           recordSupervisorAudit({ kind: 'escalate', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, reason: 'grok-resolve-failed', error: reasonText, released: true }) });
           return false;
+        }
+      } else if (provider === 'claude' && claudeInProcessEnabledFor(project)) {
+        // PARALLEL-RUN: route claude todos to the in-process worker-core harness instead
+        // of the legacy CLI. On any resolve issue, FALL BACK to the CLI claude worker —
+        // same provider, proven runtime — so this is never a hard fail, never a swap.
+        try {
+          launchAgent = resolveAnthropicCoreAgent();
+        } catch (e) {
+          launchAgent = workerAgent;
+          recordSupervisorAudit({ kind: 'escalate', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, reason: 'anthropic-core-resolve-failed-fell-back-to-cli', error: e instanceof Error ? e.message : String(e) }) });
         }
       } else {
         launchAgent = workerAgent;

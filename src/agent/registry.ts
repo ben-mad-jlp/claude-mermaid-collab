@@ -14,7 +14,7 @@
  * adding a provider means registering it here behind its own flag.
  */
 import { ClaudeCodeAgent } from './adapters/claude-code';
-import { GrokOwnHarness } from './adapters/grok-own';
+import { GrokOwnHarness, AnthropicOwnHarness } from './adapters/grok-own';
 import { runConformance, GROK_PANE_FIXTURES, GROK_LIVENESS_FIXTURES } from './__tests__/conformance';
 import type { ProviderId, WorkerAgent } from './worker-agent';
 
@@ -106,4 +106,39 @@ export function resolveGrokAgent(): WorkerAgent {
  *  has no lane and these calls return [] / false. */
 export function getGrokHarnessForInspection(): typeof GrokOwnHarness {
   return GrokOwnHarness;
+}
+
+// ---------------------------------------------------------------------------
+// In-process Claude worker (AnthropicOwnHarness) — the daemon-native replacement
+// for the legacy `claude` CLI (ClaudeCodeAgent). Reached ONLY via the claude-in-
+// process flag in launchWorker (parallel-run vs the CLI), conformance-gated like
+// grok. Reuses the grok fixtures since it shares the exact detector machinery.
+// ---------------------------------------------------------------------------
+
+let anthropicCoreConformanceChecked = false;
+
+/** Run conformance against AnthropicOwnHarness (same detectors as grok). */
+export function checkAnthropicCoreConformance(): ReturnType<typeof runConformance> {
+  return runConformance(AnthropicOwnHarness, GROK_PANE_FIXTURES, GROK_LIVENESS_FIXTURES);
+}
+
+/** Resolve the in-process Claude worker, GATED on conformance (fail-closed). */
+export function resolveAnthropicCoreAgent(): WorkerAgent {
+  if (!anthropicCoreConformanceChecked) {
+    const failures = checkAnthropicCoreConformance();
+    if (failures.length > 0) {
+      throw new Error(
+        `AnthropicOwnHarness failed conformance (${failures.length} mismatch(es)) — refusing in-process claude: ` +
+          JSON.stringify(failures),
+      );
+    }
+    anthropicCoreConformanceChecked = true;
+  }
+  return AnthropicOwnHarness;
+}
+
+/** Read-only accessor to the AnthropicOwnHarness singleton for inspection
+ *  (transcript / inject routes) — not conformance-gated, inert for non-claude-core lanes. */
+export function getAnthropicCoreHarnessForInspection(): typeof AnthropicOwnHarness {
+  return AnthropicOwnHarness;
 }

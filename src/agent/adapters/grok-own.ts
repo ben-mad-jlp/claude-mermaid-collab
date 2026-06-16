@@ -49,6 +49,7 @@ import type {
   WorkerHandle,
   PaneSource,
   EventStreamOpts,
+  ProviderId,
 } from '../worker-agent';
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -192,7 +193,14 @@ interface GrokLane {
 }
 
 class GrokOwnHarnessImpl implements WorkerAgent {
-  readonly id = 'grok-build' as const;
+  /** Provider this instance serves. Default 'grok-build' (the original harness,
+   *  byte-identical). A non-grok instance (e.g. 'claude') reuses the SAME in-process
+   *  worker-core machinery — only the base provider passed to the bridge differs, and
+   *  it ALWAYS takes the worker-core path (no grok flat-loop fallback). */
+  readonly id: ProviderId;
+  constructor(id: ProviderId = 'grok-build') {
+    this.id = id;
+  }
 
   /** In-process loop state, keyed by session. Liveness is loop-promise-based (NOT a
    *  ps subtree): a lane is alive while its loop promise is unsettled. */
@@ -249,7 +257,10 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     // of the flat loop. PER-PROJECT by design (workerCoreEnabledFor): only projects
     // in the WORKER_CORE_PROJECTS allowlist run it, so enabling it for one project can
     // never silently change autonomous (drive-level) projects. Default = flat loop.
-    const driver = workerCoreEnabledFor(spec.project)
+    // A non-grok instance (e.g. claude in-process) has NO grok flat loop — it always
+    // runs worker-core. grok-build keeps the per-project flag (parallel-run vs flat loop).
+    const useWorkerCore = this.id !== 'grok-build' || workerCoreEnabledFor(spec.project);
+    const driver = useWorkerCore
       ? this.runViaWorkerCore(spec, cwd, lane)
       : this.runLoop(spec, cwd, lane);
     void driver.catch(() => {
@@ -299,7 +310,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
     let runCostUsd = 0;
     try {
       const { runWorkerCore, makeCoordinatorWorkerDeps } = await import('../worker-core');
-      const deps = makeCoordinatorWorkerDeps(spec.project, todoId, { provider: 'grok-build' });
+      const deps = makeCoordinatorWorkerDeps(spec.project, todoId, { provider: this.id });
       await runWorkerCore(
         {
           project: spec.project,
@@ -629,11 +640,19 @@ function anyAbort(...signals: AbortSignal[]): AbortSignal {
 
 /** The single GrokOwnHarness instance (stateful — it tracks in-process lanes — so
  *  one shared instance is the lane registry). */
-export const GrokOwnHarness: WorkerAgent & {
+type InProcessHarness = WorkerAgent & {
   isAlive(session: string): boolean;
   teardown(session: string): Promise<void>;
   paneSource(session: string): PaneSource;
   completionSignal(session: string): { tier: 'none' };
   getTranscript(session: string): GrokTranscriptEntry[];
   injectFollowup(session: string, text: string): boolean;
-} = new GrokOwnHarnessImpl();
+};
+
+export const GrokOwnHarness: InProcessHarness = new GrokOwnHarnessImpl();
+
+/** In-process Claude worker — the SAME worker-core harness with 'claude' as the base
+ *  provider (daemon-native, NOT the legacy `claude` CLI). Reached only via
+ *  resolveAnthropicCoreAgent behind the claude-in-process flag (parallel-run vs
+ *  ClaudeCodeAgent), so it never changes default claude behavior. */
+export const AnthropicOwnHarness: InProcessHarness = new GrokOwnHarnessImpl('claude');
