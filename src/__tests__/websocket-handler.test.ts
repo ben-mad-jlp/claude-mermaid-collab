@@ -585,4 +585,41 @@ describe('WebSocketHandler', () => {
       expect(sent.meta.deviceWidth).toBe(1280);
     });
   });
+
+  describe('browser_input routing', () => {
+    it('should route browser_input messages to the registered onBrowserInput callback', () => {
+      const ws = createMockWS();
+      handler.handleConnection(ws);
+
+      const received: any[] = [];
+      handler.setOnBrowserInput((msg) => received.push(msg));
+
+      const msg = {
+        type: 'browser_input',
+        session: 'my-session',
+        action: 'mouse',
+        xFrac: 0.5,
+        yFrac: 0.25,
+        event: 'click',
+        button: 'left',
+      };
+
+      handler.handleMessage(ws, JSON.stringify(msg));
+
+      expect(received).toHaveLength(1);
+      expect(received[0].type).toBe('browser_input');
+      expect(received[0].session).toBe('my-session');
+      expect(received[0].action).toBe('mouse');
+      expect(received[0].xFrac).toBe(0.5);
+      expect(received[0].event).toBe('click');
+    });
+
+    it('should not invoke onBrowserInput when no callback is registered', () => {
+      const ws = createMockWS();
+      handler.handleConnection(ws);
+
+      const msg = { type: 'browser_input', session: 's', action: 'key', key: 'Enter' };
+      expect(() => handler.handleMessage(ws, JSON.stringify(msg))).not.toThrow();
+    });
+  });
 });
