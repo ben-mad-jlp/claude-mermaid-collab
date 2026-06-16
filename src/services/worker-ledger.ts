@@ -35,6 +35,22 @@ export interface LedgerEntry {
   steps: number;
   /** Set when the phase's structured verdict failed to parse (a quality signal). */
   parseError?: string | null;
+  // --- node-level fields (PAW P1 headless node primitive; all optional → existing
+  //     callers compile + insert unchanged, backfilling NULL) ---
+  /** Node kind discriminator for a headless `claude -p` node row (else undefined). */
+  nodeKind?: string | null;
+  /** How many nodes this row's work spent (node-cost rollup). */
+  nodesSpent?: number | null;
+  /** Auth mode in effect ('subscription' | 'api' | 'unknown'). */
+  authMode?: string | null;
+  /** Process exit code of the node. */
+  exitCode?: number | null;
+  /** Wall-clock duration of the node (ms). */
+  durationMs?: number | null;
+  /** Whether the node was rate-limited (stored 0/1 like knownPrice). */
+  rateLimited?: boolean | null;
+  /** Leaf correlation id (the executor leaf this node ran for). */
+  leafId?: string | null;
 }
 
 interface LedgerRow extends LedgerEntry {
@@ -77,6 +93,17 @@ function openDb(): Database {
   // Additive migration: epicId column for per-epic cost rollup (idempotent).
   const cols = db.query('PRAGMA table_info(worker_ledger)').all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === 'epicId')) db.exec('ALTER TABLE worker_ledger ADD COLUMN epicId TEXT');
+  // Additive migration: node-level columns (PAW P1). Same idempotent ALTER idiom.
+  const add = (name: string, decl: string) => {
+    if (!cols.some((c) => c.name === name)) db!.exec(`ALTER TABLE worker_ledger ADD COLUMN ${name} ${decl}`);
+  };
+  add('nodeKind', 'TEXT');
+  add('nodesSpent', 'INTEGER');
+  add('authMode', 'TEXT');
+  add('exitCode', 'INTEGER');
+  add('durationMs', 'INTEGER');
+  add('rateLimited', 'INTEGER'); // 0/1 like knownPrice
+  add('leafId', 'TEXT');
   return db;
 }
 
@@ -97,13 +124,17 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
     const res = d
       .prepare(
         `INSERT INTO worker_ledger
-          (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, costUsd, knownPrice, steps, parseError, ts)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, costUsd, knownPrice, steps, parseError,
+           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, ts)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?)`,
       )
       .run(
         entry.project, entry.todoId, entry.epicId ?? null, entry.session, entry.phase, entry.provider, entry.model, entry.source,
         entry.inputTokens, entry.outputTokens, entry.costUsd, entry.knownPrice ? 1 : 0, entry.steps,
-        entry.parseError ?? null, now,
+        entry.parseError ?? null,
+        entry.nodeKind ?? null, entry.nodesSpent ?? null, entry.authMode ?? null, entry.exitCode ?? null,
+        entry.durationMs ?? null, entry.rateLimited == null ? null : entry.rateLimited ? 1 : 0, entry.leafId ?? null,
+        now,
       );
     return Number(res.lastInsertRowid);
   } catch {
@@ -123,7 +154,57 @@ export interface LedgerQuery {
 }
 
 function rowToEntry(r: LedgerRow): LedgerRow {
-  return { ...r, knownPrice: Boolean(r.knownPrice) };
+  return {
+    ...r,
+    knownPrice: Boolean(r.knownPrice),
+    // Coerce the 0/1 column to a Boolean like knownPrice — but preserve NULL
+    // (no node info) as null so non-node rows aren't misreported as `false`.
+    rateLimited: r.rateLimited == null ? null : Boolean(r.rateLimited),
+  };
+}
+
+/**
+ * Record one headless-node row (PAW P1). Thin wrapper over `recordPhase` that
+ * fills the node-shaped defaults (phase='node', provider='claude', source='node')
+ * so a node executor only supplies the correlation + node telemetry. Best-effort
+ * like recordPhase. Returns the inserted row id, or null on failure.
+ */
+export function recordNode(
+  entry: Pick<LedgerEntry, 'project' | 'todoId' | 'session'> &
+    Partial<LedgerEntry> & {
+      authMode?: string | null;
+      exitCode?: number | null;
+      durationMs?: number | null;
+      rateLimited?: boolean | null;
+    },
+  now: number = Date.now(),
+): number | null {
+  return recordPhase(
+    {
+      project: entry.project,
+      todoId: entry.todoId,
+      epicId: entry.epicId ?? null,
+      session: entry.session,
+      phase: entry.phase ?? 'node',
+      provider: entry.provider ?? 'claude',
+      model: entry.model ?? '',
+      source: entry.source ?? 'node',
+      inputTokens: entry.inputTokens ?? 0,
+      outputTokens: entry.outputTokens ?? 0,
+      costUsd: entry.costUsd ?? 0,
+      knownPrice: entry.knownPrice ?? false,
+      steps: entry.steps ?? 0,
+      parseError: entry.parseError ?? null,
+      nodeKind: entry.nodeKind ?? 'node',
+      nodesSpent: entry.nodesSpent ?? 1,
+      authMode: entry.authMode ?? null,
+      exitCode: entry.exitCode ?? null,
+      durationMs: entry.durationMs ?? null,
+      rateLimited: entry.rateLimited ?? null,
+      leafId: entry.leafId ?? null,
+    },
+    now,
+  );
 }
 
 /** Query raw ledger rows (newest first), filtered by project/todo/time. */
