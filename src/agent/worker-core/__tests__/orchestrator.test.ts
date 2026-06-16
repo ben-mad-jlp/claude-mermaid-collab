@@ -113,6 +113,21 @@ describe('runWorkerCore', () => {
     expect(roles).toContain('verify');
   });
 
+  it('size-gate: an oversized leaf files a split-proposal and STOPS (no implement/gate)', async () => {
+    const deps = makeDeps({
+      phaseText: {
+        sizegate:
+          '{"oversized":true,"reason":"5 independent files","subtasks":[{"title":"part A","files":["a.ts"]},{"title":"part B","files":["b.ts"]}]}',
+      },
+      gate: () => ({ pass: true, errorSignatures: [] }),
+    });
+    const r = await runWorkerCore({ project: 'p', todoId: 't1', cwd }, deps);
+    expect(r).toMatchObject({ outcome: 'escalated', kind: 'split-proposal' });
+    expect(deps.calls.escalate).toContain('split-proposal');
+    expect(deps.calls.gate).toBe(0); // never reached implement/verify
+    expect(deps.calls.complete).toBe(0);
+  });
+
   it('noop when the todo is missing', async () => {
     const deps = makeDeps({ spec: null, phaseText: {}, gate: () => ({ pass: true, errorSignatures: [] }) });
     const r = await runWorkerCore({ project: 'p', todoId: 'gone', cwd }, deps);

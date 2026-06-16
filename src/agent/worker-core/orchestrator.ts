@@ -14,7 +14,7 @@
  */
 import type { LanguageModel } from 'ai';
 import { spawnSubloop } from './subloop';
-import { ResearchFindingsSchema, VerifyVerdictSchema, ReviewVerdictSchema } from './schemas';
+import { SplitProposalSchema, ResearchFindingsSchema, VerifyVerdictSchema, ReviewVerdictSchema } from './schemas';
 import { sameSignatures } from './helpers';
 import type { SubloopRole } from './capabilities';
 import type { WorkerCoreEventSink } from './events';
@@ -53,6 +53,12 @@ export type WorkerCoreOutcome =
   | { outcome: 'escalated'; kind: string; detail: string }
   | { outcome: 'noop'; reason: string };
 
+const sizegatePrompt = (s: TodoSpec) =>
+  `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\n` +
+  `Assess SIZE ONLY — is this leaf too big for ONE worker pass? Too big = ~4+ edit-INDEPENDENT files, OR it spans different work types (e.g. backend + ui), OR a wide many-site migration. Do MINIMAL read-only exploration. ` +
+  `Then call submit_verdict with { "oversized": boolean, "reason"?: string, "subtasks": [{ "title": string, "files": string[], "type"?: string }] }. ` +
+  `If it is a coherent single change, return oversized:false with an empty subtasks list. Only propose a split when the parallelism is REAL (file-disjoint siblings).`;
+
 const researchPrompt = (s: TodoSpec) =>
   `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\n` +
   `Do MINIMAL exploration — at most 1-2 read-only commands, ONLY inside the current worktree (NEVER explore the wider filesystem with paths like / or /app). ` +
@@ -79,6 +85,24 @@ export async function runWorkerCore(
   const { project, todoId, cwd, abortSignal, onEvent } = ctx;
   const spec = deps.getTodo(project, todoId);
   if (!spec) return { outcome: 'noop', reason: 'todo not found' };
+
+  // 0. SIZE GATE → an oversized leaf files a SPLIT-PROPOSAL escalation (the planner
+  //    promotes the drafted siblings) and the worker STOPS — it never grinds a whole
+  //    epic or fans out writers itself (the worker-skill Step 1.5/4d discipline).
+  const sizegate = await spawnSubloop(
+    { cwd, model: deps.resolveModel('sizegate'), abortSignal, onEvent },
+    'sizegate',
+    sizegatePrompt(spec),
+    { schema: SplitProposalSchema, stepCap: 4 },
+  );
+  if (sizegate.object?.oversized) {
+    const subs = sizegate.object.subtasks ?? [];
+    const detail =
+      `leaf is oversized${sizegate.object.reason ? ` (${sizegate.object.reason})` : ''} — proposed split into ${subs.length} sub-tasks:\n` +
+      subs.map((t) => `- ${t.title} [${t.files.join(', ')}]${t.type ? ` :${t.type}` : ''}`).join('\n');
+    await deps.escalate(project, todoId, 'split-proposal', detail);
+    return { outcome: 'escalated', kind: 'split-proposal', detail };
+  }
 
   // 1. RESEARCH → typed findings (the per-todo blueprint).
   const research = await spawnSubloop(
