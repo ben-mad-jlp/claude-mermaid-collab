@@ -144,6 +144,9 @@ export interface LeafRunResult {
 
 export const ATTEMPT_CAP = 2;
 export const NODE_BUDGET = 20;
+/** P6 surgical reuse: max in-place re-implement passes per attempt on a missing-logic
+ *  review FAIL (a NEW finding) before discarding the worktree for a fresh attempt. */
+export const REVISE_REUSE_CAP = 1;
 
 /** P5 size-gate thresholds (tunable). A leaf is FLOOR-eligible iff it touches
  *  `<= FILE_THRESHOLD` files AND `<= TASK_THRESHOLD` tasks AND has no
@@ -173,7 +176,12 @@ function blueprintPath(leaf: Todo): string {
 /** Build the inline prompt for a node kind (clones the LOGIC of vibe-blueprint /
  *  vibe-go worker / vibe-review as a self-contained string — references NOTHING
  *  in skills/). */
-export function buildNodePrompt(kind: LeafNodeKind, leaf: Todo, blueprintText?: string): string {
+export function buildNodePrompt(
+  kind: LeafNodeKind,
+  leaf: Todo,
+  blueprintText?: string,
+  reviewFindings?: string,
+): string {
   const title = leaf.title ?? leaf.id;
   const description = leaf.description ?? '(no description)';
   const bp = blueprintPath(leaf);
@@ -199,16 +207,23 @@ export function buildNodePrompt(kind: LeafNodeKind, leaf: Todo, blueprintText?: 
         'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
         'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
         'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+        '',
+        `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your`,
+        `FINAL reply message — verbatim — so the executor has the blueprint even if the file`,
+        `read fails. (Write the file AND emit the full text as your final message.)`,
       ].join('\n');
     case 'implement':
       return [
         'You are the IMPLEMENT node. Make REAL, compiling code edits (Read/Edit only).',
+        reviewFindings
+          ? `A PRIOR review of the EXISTING working tree FAILED. KEEP the correct work already present and make the SMALLEST changes that address ONLY these findings — do not rewrite from scratch:\n--- REVIEW FINDINGS ---\n${reviewFindings}\n--- END FINDINGS ---`
+          : '',
         blueprintText
           ? `This leaf's blueprint is inlined below — implement it FULLY against the working tree. Do NOT search for, glob, or read ANY other blueprint file (other leaves' blueprints may be present in shared dirs — ignore them entirely).\n\n=== BLUEPRINT (${leaf.id}) START ===\n${blueprintText}\n=== BLUEPRINT END ===`
           : `Read the blueprint at \`${bp}\` — ONLY that exact file (ignore any other blueprint in the directory) — and the files it references, then implement it FULLY.`,
         'Do not stub or leave TODOs. Do NOT run the acceptance gate or report completion —',
         'the executor drives the gate. Just make the edits the blueprint specifies.',
-      ].join('\n');
+      ].filter(Boolean).join('\n');
     case 'review':
       return [
         'You are the REVIEW node, READ-ONLY (Read/Grep/Glob and Bash for inspection ONLY; no edits).',
@@ -499,8 +514,13 @@ export async function runLeaf(
     };
   };
 
-  const buildSpec = (kind: LeafNodeKind, cwd: string, blueprintText?: string): NodeSpec => ({
-    prompt: buildNodePrompt(kind, leaf, blueprintText),
+  const buildSpec = (
+    kind: LeafNodeKind,
+    cwd: string,
+    blueprintText?: string,
+    reviewFindings?: string,
+  ): NodeSpec => ({
+    prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
     model: NODE_PROFILE[kind].model,
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
@@ -638,6 +658,12 @@ export async function runLeaf(
     // manifest. Unparseable ⇒ null ⇒ shouldUseFloor true ⇒ the proven FLOOR path.
     const manifestText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
     const manifest = parseSizeManifest(manifestText, bp.text);
+    // Unconditional inline source (b77dd104): prefer the read-back .md, else the
+    // blueprint node's own final-message text — so implement/review NEVER fall back to
+    // globbing the shared blueprint dir (which leaked OTHER leaves' blueprints and made
+    // the executor build the wrong feature). The blueprint node is instructed to emit
+    // its full text as its final message, so bp.text is a reliable fallback.
+    const blueprintBody = manifestText && manifestText.trim() ? manifestText : bp.text;
 
     // Persist the just-written blueprint per ATTEMPT (durable telemetry + UI source).
     // Best-effort: a throw must NEVER break the run. Only when we actually have the
@@ -664,19 +690,37 @@ export async function runLeaf(
     } else {
       // FLOOR — UNCHANGED implement node (byte-identical to P2):
       // IMPLEMENT
-      const impl = await runNode('implement', buildSpec('implement', cwd, manifestText));
+      const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
       if (impl.rateLimited) return pausedResult('implement', impl);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
 
-    // REVIEW (parse PASS/FAIL — fail-closed).
-    const review = await runNode('review', buildSpec('review', cwd, manifestText));
-    if (review.rateLimited) return pausedResult('review', review);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    // P4a R1: the verdict is known the instant the review node returns. It is
-    // carried into the terminal marker row (recordOutcome) so the read-side can
-    // surface reviewVerdict alongside the final outcome.
-    const reviewVerdict = parseVerdict(review.text);
+    // REVIEW + P6 SURGICAL REUSE. Review the tree; on a missing-logic FAIL (a NEW
+    // finding) re-run the IMPLEMENT node IN PLACE — same worktree, keeping the correct
+    // work — with the findings, up to REVISE_REUSE_CAP times, then re-review. A REPEATED
+    // finding ⇒ stuck ⇒ stop reusing and fall through to a fresh attempt. Every node
+    // still increments the budget; rate-limit pauses short-circuit as elsewhere.
+    // (Evidence: live L2 attempt-1 was correct but missing one required test — fresh-
+    // every-attempt discarded that near-complete work; reuse adds the gap in place.)
+    let reviewVerdict: 'pass' | 'fail';
+    let reuses = 0;
+    let prevFindings = '';
+    for (;;) {
+      const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
+      if (review.rateLimited) return pausedResult('review', review);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+      reviewVerdict = parseVerdict(review.text);
+      const findings = (review.text ?? '').trim();
+      if (reviewVerdict === 'pass') break;
+      const isRepeat = findings !== '' && findings === prevFindings;
+      if (reuses >= REVISE_REUSE_CAP || isRepeat) break; // exhausted / stuck → fresh attempt
+      reuses += 1;
+      prevFindings = findings;
+      const fix = await runNode('implement', buildSpec('implement', cwd, blueprintBody, findings));
+      if (fix.rateLimited) return pausedResult('implement', fix);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+      // loop → re-review the surgically-fixed tree
+    }
 
     if (reviewVerdict === 'pass') {
       // RISK (blueprint §"RISKS"): commit+merge the leaf worktree onto the epic

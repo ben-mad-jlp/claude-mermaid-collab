@@ -218,24 +218,30 @@ describe('runLeaf state machine', () => {
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('attempt-cap-exhausted');
     expect(res.attempts).toBe(2);
-    expect(res.nodesSpent).toBe(6);
-    // 2 fresh worktrees, one per attempt
+    // P6: each attempt spends 5 nodes (blueprint + implement + review + reuse-implement
+    // + reuse-review) before the in-place reuse is exhausted and a fresh attempt starts.
+    expect(res.nodesSpent).toBe(10);
+    // 2 fresh worktrees, one per attempt (the in-place reuse stays in the same worktree)
     expect(spies.ensureCalls.length).toBe(2);
     // no 'accepted' completion ever; only the final blocked-path reject
     expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]);
     expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
   });
 
-  it('retry then pass → 2 attempts, 6 nodes, accepted, two fresh worktrees', async () => {
+  it('P6: fail then SURGICAL REUSE → PASS in ONE attempt, same worktree (no fresh discard)', async () => {
     const { deps, spies } = makeDeps({
       reviewVerdicts: ['VERDICT: FAIL — first', 'VERDICT: PASS'],
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
-    expect(res.attempts).toBe(2);
-    expect(res.nodesSpent).toBe(6);
-    expect(spies.ensureCalls.length).toBe(2);
+    expect(res.attempts).toBe(1);            // the reuse handled it IN PLACE — no fresh attempt
+    expect(res.nodesSpent).toBe(5);          // blueprint, implement, review(fail), implement(reuse), review(pass)
+    expect(spies.ensureCalls.length).toBe(1); // ONE worktree — the near-complete work was NOT discarded
     expect(spies.mergeCalls).toBe(1);
+    // the reuse re-ran implement with the prior review's findings inlined
+    const implSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implSpecs.length).toBe(2);
+    expect(implSpecs[1].prompt).toContain('REVIEW FINDINGS');
   });
 
   it('(iii) node budget: BLOCKED once nodesSpent exceeds the budget, regardless of verdict', async () => {
@@ -598,11 +604,13 @@ describe('runLeaf 86b persistBlueprint (durable per-attempt)', () => {
     expect(persistCalls[0].blueprintMd).toContain('```json');
   });
 
-  it('(b) invoked PER attempt — fail attempt 1 then pass attempt 2 → two persists', async () => {
+  it('(b) invoked PER attempt — two FRESH attempts (reuse exhausted) → two persists', async () => {
     const persistCalls: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }> = [];
+    // Two DISTINCT fails exhaust the in-place reuse on attempt 1 → a fresh attempt 2
+    // (each fresh attempt re-blueprints → one persist per attempt).
     const { deps } = makeWaveDeps({
       manifest: smallManifest,
-      reviewVerdicts: ['VERDICT: FAIL — retry', 'VERDICT: PASS'],
+      reviewVerdicts: ['VERDICT: FAIL — a', 'VERDICT: FAIL — b', 'VERDICT: PASS'],
       persistCalls,
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
