@@ -200,6 +200,17 @@ initializeWebSocketHandler(wsHandler);
 // starts on first subscriber and stops on last unsubscribe — so this ensures no capture
 // runs when nobody is watching.
 const screencastUnsubscribers = new Map<string, () => void>();
+
+interface FrameMeta {
+  offsetTop: number;
+  pageScaleFactor: number;
+  deviceWidth: number;
+  deviceHeight: number;
+}
+// Latest frame metadata per session — used by browser_input to translate
+// canvas-relative normalized fractions → page coords.
+const lastFrameMeta = new Map<string, FrameMeta>();
+
 if (screencastService) {
   wsHandler.setOnChannelSubscriptionChange((channel, count) => {
     const prefix = 'browser:';
@@ -209,6 +220,12 @@ if (screencastService) {
       // First viewer — attach sink (mark pending so a rapid second subscribe doesn't double-attach)
       screencastUnsubscribers.set(session, () => {});
       const sink = (frame: { data: string; metadata: any; sessionName: string }) => {
+        lastFrameMeta.set(frame.sessionName, {
+          offsetTop: frame.metadata.offsetTop,
+          pageScaleFactor: frame.metadata.pageScaleFactor,
+          deviceWidth: frame.metadata.deviceWidth,
+          deviceHeight: frame.metadata.deviceHeight,
+        });
         wsHandler.broadcastBrowserFrame(frame.sessionName, {
           data: frame.data,
           meta: {
@@ -227,9 +244,49 @@ if (screencastService) {
         console.error(`mermaid-collab: screencast subscribe failed for ${session} —`, err);
       });
     } else if (count === 0) {
-      // Last viewer left — detach sink
+      // Last viewer left — detach sink and drop cached frame meta
       const unsub = screencastUnsubscribers.get(session);
       if (unsub) { unsub(); screencastUnsubscribers.delete(session); }
+      lastFrameMeta.delete(session);
+    }
+  });
+
+  // Inbound panel → server → CDP input dispatch via normalized frame fractions.
+  // pageX = xFrac * deviceWidth; pageY = offsetTop + yFrac * deviceHeight.
+  // (If pageScaleFactor ≠ 1 in a future pinch-zoom scenario, divide mapped coords by it.)
+  wsHandler.setOnBrowserInput(async (msg) => {
+    const { withCDPSession: wcs, CDP_PORT: cdpPort } = await import('./services/cdp-session.js');
+    const cdpInput = await import('./services/cdp-input.js');
+    const meta = lastFrameMeta.get(msg.session);
+    try {
+      await wcs(msg.session, cdpPort, async (client: any) => {
+        if (msg.action === 'key') {
+          await cdpInput.key(client, {
+            key: msg.key!,
+            text: msg.text,
+            code: msg.code,
+            modifiers: msg.modifiers,
+            type: msg.keyType,
+          });
+          return;
+        }
+        // mouse/scroll need page coords from latest frame meta — drop if none yet
+        if (!meta) return;
+        const x = (msg.xFrac ?? 0) * meta.deviceWidth;
+        const y = meta.offsetTop + (msg.yFrac ?? 0) * meta.deviceHeight;
+        if (msg.action === 'scroll') {
+          await cdpInput.scroll(client, x, y, msg.deltaX ?? 0, msg.deltaY ?? 0);
+        } else if (msg.event === 'click') {
+          await cdpInput.click(client, x, y, msg.button ?? 'left');
+        } else if (msg.event === 'move') {
+          await cdpInput.mouseMove(client, x, y);
+        } else {
+          // down/up — single press/release at the point
+          await cdpInput.mousePress(client, x, y, msg.event as 'down' | 'up', msg.button ?? 'left');
+        }
+      });
+    } catch (err) {
+      console.error(`mermaid-collab: browser_input dispatch failed for ${msg.session} —`, err);
     }
   });
 }
@@ -605,6 +662,7 @@ process.on('SIGINT', () => {
   sweeper.stop();
   for (const unsub of screencastUnsubscribers.values()) { try { unsub(); } catch {} }
   screencastUnsubscribers.clear();
+  lastFrameMeta.clear();
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
@@ -621,6 +679,7 @@ process.on('SIGTERM', () => {
   sweeper.stop();
   for (const unsub of screencastUnsubscribers.values()) { try { unsub(); } catch {} }
   screencastUnsubscribers.clear();
+  lastFrameMeta.clear();
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}

@@ -130,12 +130,28 @@ export type WSMessage =
   | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string }> }
   | { type: 'browser_frame'; session: string; data: string; meta: {
       offsetTop: number; pageScaleFactor: number; deviceWidth: number;
-      deviceHeight: number; timestamp?: number } };
+      deviceHeight: number; timestamp?: number } }
+  /**
+   * Inbound panel → server → CDP input event.
+   * Mouse/scroll coords are normalized frame fractions [0,1] relative to the
+   * rendered frame box; the server maps them to page coords using the latest
+   * FrameMeta for the session. Key events do not need coords.
+   */
+  | { type: 'browser_input'; session: string;
+      action: 'mouse' | 'key' | 'scroll';
+      xFrac?: number; yFrac?: number;
+      event?: 'down' | 'up' | 'move' | 'click'; button?: 'left' | 'middle' | 'right';
+      deltaX?: number; deltaY?: number;
+      key?: string; text?: string; code?: string; modifiers?: number;
+      keyType?: 'keyDown' | 'keyUp' | 'char' };
+
+export type BrowserInputMsg = Extract<WSMessage, { type: 'browser_input' }>;
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
   private onConnectionsChanged: ((n: number) => void) | null = null;
   private onChannelSubscriptionChange: ((channel: string, count: number) => void) | null = null;
+  private onBrowserInput: ((msg: BrowserInputMsg) => void) | null = null;
   private agentDispatcher: AgentDispatcherLike | null = null;
 
   setOnConnectionsChanged(cb: (n: number) => void): void {
@@ -152,6 +168,10 @@ export class WebSocketHandler {
 
   setOnChannelSubscriptionChange(cb: (channel: string, count: number) => void): void {
     this.onChannelSubscriptionChange = cb;
+  }
+
+  setOnBrowserInput(cb: (msg: BrowserInputMsg) => void): void {
+    this.onBrowserInput = cb;
   }
 
   private countChannelSubscribers(channel: string): number {
@@ -255,6 +275,8 @@ export class WebSocketHandler {
         } else {
           console.warn('[ws] rejected peer_registry from non-loopback remote:', ws.remoteAddress);
         }
+      } else if (data.type === 'browser_input') {
+        this.onBrowserInput?.(data);
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
