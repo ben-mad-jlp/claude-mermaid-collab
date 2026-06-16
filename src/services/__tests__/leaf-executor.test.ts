@@ -114,7 +114,7 @@ function makeDeps(opts: {
         // The review node is the opus read-only one (no Write/Edit in allowedTools).
         const isReview = spec.allowedTools === 'Read Grep Glob Bash';
         // The blueprint node is the one allowed to Write (implement uses Edit).
-        const isBlueprint = spec.allowedTools.includes('Write');
+        const isBlueprint = (spec.allowedTools ?? '').includes('Write');
         if (isBlueprint && bpFailsLeft > 0) {
           bpFailsLeft -= 1;
           return failResult();
@@ -637,7 +637,7 @@ describe('blueprint-node failure short-circuit (ce02d796 — live L1 finding)', 
     expect(spies.ensureCalls.length).toBe(1);  // single worktree → single attempt
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
     // implement node DID run (the in-place retry produced a usable blueprint)
-    expect(spies.invokeSpecs.some((s) => s.allowedTools.includes('Edit'))).toBe(true);
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Edit'))).toBe(true);
   });
 
   it('blueprint fails every time → BLOCKED + escalation, implement never runs', async () => {
@@ -648,7 +648,7 @@ describe('blueprint-node failure short-circuit (ce02d796 — live L1 finding)', 
     expect(spies.completeCalls.some((c) => c.acceptance === 'accepted')).toBe(false);
     expect(spies.escalations.length).toBeGreaterThan(0);
     // we NEVER ran implement (Edit) or review against a missing blueprint
-    expect(spies.invokeSpecs.some((s) => s.allowedTools.includes('Edit'))).toBe(false);
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Edit'))).toBe(false);
     expect(spies.invokeSpecs.some((s) => s.allowedTools === 'Read Grep Glob Bash')).toBe(false);
   });
 });

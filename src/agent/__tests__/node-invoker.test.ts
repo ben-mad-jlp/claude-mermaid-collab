@@ -92,6 +92,12 @@ describe('parseNodeJson', () => {
     expect(p.parseError).toBeDefined();
     expect(p.text).toBe('not json');
   });
+  it('surfaces api_error_status (429 vs 500 vs null) — feeds rate-limit detection (4ec5a13c)', () => {
+    expect(parseNodeJson(JSON.stringify({ is_error: true, api_error_status: 429 })).apiErrorStatus).toBe(429);
+    expect(parseNodeJson(JSON.stringify({ is_error: true, api_error_status: 500 })).apiErrorStatus).toBe(500);
+    // success: api_error_status null → undefined (NOT a rate limit)
+    expect(parseNodeJson(JSON.stringify({ result: 'OK', is_error: false, api_error_status: null })).apiErrorStatus).toBeUndefined();
+  });
 });
 
 describe('RATE_LIMIT_RE', () => {

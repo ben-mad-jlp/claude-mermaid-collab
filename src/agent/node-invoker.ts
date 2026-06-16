@@ -214,6 +214,8 @@ interface ClaudeJsonResult {
   subtype?: string;
   num_turns?: number;
   total_cost_usd?: number;
+  /** HTTP status of an API error (null/absent on success; 429 = rate limit, 5xx = transient). */
+  api_error_status?: number | null;
   usage?: { input_tokens?: number; output_tokens?: number };
 }
 
@@ -223,6 +225,7 @@ export function parseNodeJson(stdout: string): {
   usage?: NodeUsage;
   isError: boolean;
   subtype?: string;
+  apiErrorStatus?: number;
   parseError?: string;
 } {
   try {
@@ -238,6 +241,7 @@ export function parseNodeJson(stdout: string): {
       usage,
       isError: j.is_error === true,
       subtype: j.subtype,
+      apiErrorStatus: typeof j.api_error_status === 'number' ? j.api_error_status : undefined,
     };
   } catch (e) {
     return {
@@ -349,11 +353,21 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
 
   const parsed = parseNodeJson(stdout);
 
-  // Heuristic rate-limit detection across stdout+stderr and the json subtype.
+  // Rate-limit detection — POSITIVE evidence only (todo 4ec5a13c). A genuine rate
+  // limit is the API returning 429, surfaced as `api_error_status` on the json
+  // result. TRANSIENT 5xx (500/502/503/529 — e.g. the Anthropic blips that paused
+  // real L1 runs) and every other failure are NOT rate limits: they return ok=false
+  // with rateLimited=false, so the executor's in-place-retry / fresh-attempt path
+  // (ce02d796) recovers them instead of spuriously PAUSING for a cap that isn't
+  // there. The old broad RATE_LIMIT_RE over result text false-positived on those
+  // transient 5xx (and on any node that merely mentioned "quota"/"overloaded").
   const rateLimited =
-    RATE_LIMIT_RE.test(stdout) ||
-    RATE_LIMIT_RE.test(stderr) ||
-    (parsed.subtype ? RATE_LIMIT_RE.test(parsed.subtype) : false);
+    parsed.apiErrorStatus === 429 ||
+    // Fallback ONLY when there's no structured status (hard failure, unparseable
+    // result): a NARROW explicit 429 on stderr — never the broad text heuristic.
+    (parsed.apiErrorStatus === undefined &&
+      exitCode !== 0 &&
+      /\b429\b|rate limit (?:exceeded|reached)|too many requests/i.test(stderr));
 
   const ok = exitCode === 0 && !rateLimited && !parsed.isError;
 
