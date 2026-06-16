@@ -1,4 +1,5 @@
 import Database from 'bun:sqlite';
+import { fireOrchestratorKick } from './orchestrator-kick';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
@@ -396,6 +397,8 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       // off any worktree path) so it's never written NULL. null === "same project".
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null
     );
+    // EVENT-DRIVEN: a directly-created claimable todo → kick the orchestrator now.
+    if (status === 'ready') fireOrchestratorKick(`todo-created-ready:${id.slice(0, 8)}`);
     return getTodo(project, id)!;
   });
 }
@@ -471,6 +474,11 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
       completedAt, completedBy, nowIso(), id
     );
+    // EVENT-DRIVEN: a todo just became claimable → ask the orchestrator to tick now
+    // (instead of waiting up to a full interval). Only on the transition INTO ready.
+    if (status === 'ready' && existing.status !== 'ready') {
+      fireOrchestratorKick(`todo-ready:${id.slice(0, 8)}`);
+    }
     return getTodo(project, id)!;
   });
 }
@@ -856,6 +864,10 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       rolledUp.push(parentId);
       parentId = parent.parentId;
     }
+    // EVENT-DRIVEN: a completing dep just unblocked dependents to `ready` (these
+    // promotions go through direct SQL, not updateTodo, so they bypass the kick
+    // there) → ask the orchestrator to tick now instead of waiting an interval.
+    if (promoted.length > 0) fireOrchestratorKick(`deps-unblocked:${id.slice(0, 8)}`);
     return { completed: getTodo(project, id)!, promoted, rolledUp };
   });
 }
@@ -998,6 +1010,9 @@ export function resetTodo(
     );
     if (targetProject !== undefined) stmt.run(status, targetProject, nowIso(), id);
     else stmt.run(status, nowIso(), id);
+    // EVENT-DRIVEN: a steward reset back to `ready` should be claimed now, not on
+    // the next interval (direct SQL above bypasses the updateTodo kick).
+    if (status === 'ready') fireOrchestratorKick(`todo-reset:${id.slice(0, 8)}`);
     return getTodo(project, id)!;
   });
 }

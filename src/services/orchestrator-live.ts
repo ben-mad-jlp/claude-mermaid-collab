@@ -22,6 +22,7 @@ import { runReconcilePass } from './reconcile-pass.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
+import { registerOrchestratorKick } from './orchestrator-kick.js';
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -29,8 +30,59 @@ import { getWebSocketHandler } from './ws-handler-manager.js';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let tickRunning = false;
+let rerunRequested = false;
+let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
+
+/** Coalesce a burst of state changes (e.g. a planner promoting several leaves) into
+ *  one kicked tick. */
+const KICK_DEBOUNCE_MS = 250;
+
+/** Run one tick under the overlap guard, coalescing any kick that arrives mid-tick
+ *  (so a todo that becomes ready WHILE a tick runs still gets serviced immediately
+ *  after, not 30s later). Shared by the interval and kickOrchestrator(). */
+async function runTickGuarded(): Promise<void> {
+  if (tickRunning) {
+    rerunRequested = true; // a tick is in flight — ask it to run once more when done
+    return;
+  }
+  tickRunning = true;
+  try {
+    getWebSocketHandler()?.broadcast({ type: 'orchestrator_tick', at: Date.now() });
+  } catch {
+    /* heartbeat is best-effort */
+  }
+  try {
+    do {
+      rerunRequested = false;
+      await runOrchestratorTick();
+    } while (rerunRequested); // drain kicks that landed during the pass
+  } catch (err) {
+    console.warn('[orchestrator] Unhandled tick error:', err);
+  } finally {
+    lastTickAt = Date.now();
+    tickRunning = false;
+  }
+}
+
+/**
+ * EVENT-DRIVEN kick: a todo just became `ready` (or another state worth acting on),
+ * so run a build tick NOW instead of waiting up to a full interval. Debounced
+ * (coalesces a burst into one tick) and overlap-safe (coalesces with an in-flight
+ * tick via runTickGuarded). The interval remains the TIME-BASED safety net — lease
+ * expiry, stall sweeps, and any missed kick still get serviced on the slow cadence.
+ * No-op if the daemon isn't running.
+ */
+export function kickOrchestrator(_reason?: string): void {
+  if (timer === null) return; // daemon not started → nothing to kick
+  if (kickTimer !== null) return; // already scheduled within the debounce window
+  kickTimer = setTimeout(() => {
+    kickTimer = null;
+    void runTickGuarded();
+  }, KICK_DEBOUNCE_MS);
+  (kickTimer as { unref?: () => void }).unref?.();
+}
 
 // ---------------------------------------------------------------------------
 // Pure helper (also exported for unit tests)
@@ -136,24 +188,20 @@ export function startOrchestrator(intervalMs = 30_000): void {
   if (timer !== null) return;
   configuredTickMs = intervalMs;
 
-  const t = setInterval(async () => {
-    if (tickRunning) return; // skip overlapping tick
-    tickRunning = true;
-    // Heartbeat: tell the UI the daemon woke to poll (flashes the header live dot).
-    try { getWebSocketHandler()?.broadcast({ type: 'orchestrator_tick', at: Date.now() }); } catch { /* best-effort */ }
-    try {
-      await runOrchestratorTick();
-    } catch (err) {
-      console.warn('[orchestrator] Unhandled tick error:', err);
-    } finally {
-      lastTickAt = Date.now();
-      tickRunning = false;
-    }
+  // The interval is now the TIME-BASED safety net; the latency-sensitive claim path
+  // is driven by kickOrchestrator() on ready-todo events. Both funnel through the
+  // same overlap-guarded runner.
+  const t = setInterval(() => {
+    void runTickGuarded();
   }, intervalMs);
 
   // Don't block process exit
   (t as { unref?: () => void }).unref?.();
   timer = t;
+
+  // Event-driven claim path: the todo-store fires this when a todo becomes ready, so
+  // we tick within KICK_DEBOUNCE_MS instead of waiting for the interval.
+  registerOrchestratorKick((reason) => kickOrchestrator(reason));
 }
 
 /** Stop the orchestrator interval. */
@@ -161,6 +209,12 @@ export function stopOrchestrator(): void {
   if (timer === null) return;
   clearInterval(timer);
   timer = null;
+  // Drop any kick scheduled within the debounce window so it can't tick after stop
+  // (kickOrchestrator already no-ops new kicks once timer is null).
+  if (kickTimer !== null) {
+    clearTimeout(kickTimer);
+    kickTimer = null;
+  }
 }
 
 /** Whether the daemon interval is currently active. */
