@@ -158,9 +158,12 @@ export const MERMAID_AUTH_TOKEN = process.env.MERMAID_AUTH_TOKEN ?? '';
 
 /**
  * How the browser_* tools obtain a Chrome:
- * - 'electron-view' — drive the Electron app's embedded WebContentsView (set by the app supervisor)
- * - 'owned-chrome'  — the server spawns + owns a Chrome on this machine (remote/headless boxes)
- * - '' (default)    — expect an external Chrome already listening on CDP_PORT (SSH tunnel / VSCodium)
+ * - 'electron-view'  — drive the Electron app's embedded WebContentsView (set by the app supervisor)
+ * - 'owned-chrome'   — the server spawns + owns a Chrome on this machine (remote/headless boxes)
+ * - 'streamed-panel' — like owned-chrome (server spawns its own co-located Chrome) PLUS a CDP
+ *                      screencast service that streams frames to the web UI over the WS and accepts
+ *                      input back. No Electron, no native overlay, no WSL boundary crossing.
+ * - '' (default)     — expect an external Chrome already listening on CDP_PORT (SSH tunnel / VSCodium)
  */
 export const MC_BROWSER_TARGET = process.env.MC_BROWSER_TARGET ?? '';
 

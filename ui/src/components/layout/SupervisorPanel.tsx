@@ -411,7 +411,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           onClick={() => setCollapsed((c) => !c)}
           className="flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
-          <span>Bridge</span>
+          <span>Projects</span>
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{byProject.length}</span>
           <svg className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
