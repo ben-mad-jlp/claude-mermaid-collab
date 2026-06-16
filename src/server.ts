@@ -64,8 +64,12 @@ try {
 // Owned-chrome mode (Phase 7): on remote/headless boxes the server spawns and
 // owns its own Chrome on CDP_PORT so the browser_* tools work without any
 // cross-network CDP. Non-fatal on failure — tools just error until it's up.
+// streamed-panel reuses the exact same ChromeManager spawn, then additionally
+// arms a ScreencastService (L2 will subscribe a WS-broadcasting sink).
 let chromeManager: import('./services/chrome-manager').ChromeManager | null = null;
-if (MC_BROWSER_TARGET === 'owned-chrome') {
+let screencastService: import('./services/screencast').ScreencastService | null = null;
+const ownsChrome = MC_BROWSER_TARGET === 'owned-chrome' || MC_BROWSER_TARGET === 'streamed-panel';
+if (ownsChrome) {
   try {
     const { ChromeManager } = await import('./services/chrome-manager.js');
     const { CDP_PORT } = await import('./config.js');
@@ -77,9 +81,16 @@ if (MC_BROWSER_TARGET === 'owned-chrome') {
     });
     await chromeManager.start();
     console.log(`🌐 owned Chrome ready on CDP ${CDP_PORT}${headless ? ' (headless)' : ''}`);
+    if (MC_BROWSER_TARGET === 'streamed-panel') {
+      const { ScreencastService } = await import('./services/screencast.js');
+      screencastService = new ScreencastService({ cdpPort: CDP_PORT });
+      console.log(`🎥 streamed-panel ScreencastService armed (no subscribers yet)`);
+      // L2 will subscribe a WS-broadcasting sink; L1 leaves it idle/lazy.
+    }
   } catch (err) {
-    console.error(`mermaid-collab: owned-chrome start failed — ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`mermaid-collab: ${MC_BROWSER_TARGET} start failed — ${err instanceof Error ? err.message : String(err)}`);
     chromeManager = null;
+    screencastService = null;
   }
 }
 
@@ -552,6 +563,7 @@ process.on('SIGINT', () => {
   cancelSupervisorHeartbeat();
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
+  screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
   removeInstance(sessionId).catch(() => {}).finally(() => {
@@ -565,6 +577,7 @@ process.on('SIGTERM', () => {
   cancelSupervisorHeartbeat();
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
+  screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
   removeInstance(sessionId).catch(() => {}).finally(() => {

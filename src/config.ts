@@ -158,9 +158,11 @@ export const MERMAID_AUTH_TOKEN = process.env.MERMAID_AUTH_TOKEN ?? '';
 
 /**
  * How the browser_* tools obtain a Chrome:
- * - 'electron-view' — drive the Electron app's embedded WebContentsView (set by the app supervisor)
- * - 'owned-chrome'  — the server spawns + owns a Chrome on this machine (remote/headless boxes)
- * - '' (default)    — expect an external Chrome already listening on CDP_PORT (SSH tunnel / VSCodium)
+ * - 'electron-view'   — drive the Electron app's embedded WebContentsView (set by the app supervisor)
+ * - 'owned-chrome'    — the server spawns + owns a Chrome on this machine (remote/headless boxes)
+ * - 'streamed-panel'  — like 'owned-chrome' (server spawns+owns Chrome on CDP_PORT),
+ *   plus a ScreencastService that streams JPEG frames per session (WS wiring lands in L2)
+ * - '' (default)      — expect an external Chrome already listening on CDP_PORT (SSH tunnel / VSCodium)
  */
 export const MC_BROWSER_TARGET = process.env.MC_BROWSER_TARGET ?? '';
 
@@ -175,4 +177,28 @@ export const MERMAID_BROWSER_HEADLESS = process.env.MERMAID_BROWSER_HEADLESS ===
 export const MERMAID_IDLE_SHUTDOWN_MS = (() => {
   const v = Number(process.env.MERMAID_IDLE_SHUTDOWN_MS ?? '600000');
   return Number.isNaN(v) ? 600000 : v;
+})();
+
+/** Screencast JPEG quality (0-100) for streamed-panel mode. Default 60. */
+export const MC_SCREENCAST_QUALITY = (() => {
+  const v = Number(process.env.MC_SCREENCAST_QUALITY ?? '60');
+  return Number.isNaN(v) ? 60 : v;
+})();
+
+/** Screencast max frame width (px). Default 1280. */
+export const MC_SCREENCAST_MAX_WIDTH = (() => {
+  const v = Number(process.env.MC_SCREENCAST_MAX_WIDTH ?? '1280');
+  return Number.isNaN(v) ? 1280 : v;
+})();
+
+/** Screencast max frame height (px). Default 800. */
+export const MC_SCREENCAST_MAX_HEIGHT = (() => {
+  const v = Number(process.env.MC_SCREENCAST_MAX_HEIGHT ?? '800');
+  return Number.isNaN(v) ? 800 : v;
+})();
+
+/** Send every Nth frame (CDP everyNthFrame). Default 1 (every frame). */
+export const MC_SCREENCAST_EVERY_NTH_FRAME = (() => {
+  const v = Number(process.env.MC_SCREENCAST_EVERY_NTH_FRAME ?? '1');
+  return Number.isNaN(v) || v < 1 ? 1 : v;
 })();
