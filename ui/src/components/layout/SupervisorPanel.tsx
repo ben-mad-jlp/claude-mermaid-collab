@@ -91,6 +91,39 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
  * every lane's heartbeat in lockstep (the bug this fixes). Non-worker lanes (no
  * fleet claim) keep the generic last-activity behaviour.
  */
+/** At-a-glance plan stats for a project's work-graph todos (open work only). */
+const TERMINAL_TODO = new Set(['done', 'dropped']);
+export function projectPlanStats(todos: Array<{ status: string }>): {
+  open: number;
+  inProgress: number;
+  blocked: number;
+  ready: number;
+  idleWithWork: boolean;
+} {
+  let open = 0, inProgress = 0, blocked = 0, ready = 0;
+  for (const t of todos) {
+    if (TERMINAL_TODO.has(t.status)) continue;
+    open += 1;
+    if (t.status === 'in_progress') inProgress += 1;
+    else if (t.status === 'blocked') blocked += 1;
+    else if (t.status === 'ready') ready += 1;
+  }
+  // Ready work queued but nothing actively running it → "parked".
+  return { open, inProgress, blocked, ready, idleWithWork: ready > 0 && inProgress === 0 };
+}
+
+/** Compact relative age, e.g. 45s / 12m / 3h / 6d. Empty for unknown. */
+export function relAge(ms: number, now: number = Date.now()): string {
+  if (!ms || !Number.isFinite(ms)) return '';
+  const s = Math.max(0, Math.floor((now - ms) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
 export interface SupervisorPanelProps {
   currentProject?: string;
   currentSession?: string;
@@ -164,6 +197,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const setActiveProject = useUIStore((s) => s.setActiveProject);
   const setMode = useUIStore((s) => s.setMode);
 
+  const todosByProject = useSupervisorStore((s) => s.todosByProject);
+  const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const sessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
@@ -213,6 +248,15 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const serverIconById = useMemo(() => buildServerIconMap(servers), [servers]);
   const serverLabelById = useMemo(() => buildServerLabelMap(servers), [servers]);
   const activeServerIcon = (activeId ? serverIconById.get(activeId) : undefined) ?? serverIconById.get('local');
+
+  // Lazily load each watched project's work-graph todos so the rows can show plan
+  // stats (open/in-progress/blocked + idle-with-work). One fetch per project on the
+  // watched-set changing — cached in todosByProject; this index isn't live-critical.
+  useEffect(() => {
+    for (const w of watchedProjects) {
+      if (w.project) void loadProjectTodos(serverScope, w.project);
+    }
+  }, [watchedProjects, serverScope, loadProjectTodos]);
 
   // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are not
   // user projects — never list them in the Bridge tree.
@@ -472,6 +516,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const isVisibleSession = (s: SupervisedSession, idx: number) =>
                 isOrchestratorSession(s.session) || cards[idx].status !== 'unknown';
               const visibleCount = projSessions.filter(isVisibleSession).length;
+              // Plan stats (open work) + most-recent session activity for the sub-line.
+              const stats = projectPlanStats(todosByProject[project] ?? []);
+              const lastActive = cards.reduce(
+                (m, c) => Math.max(m, (c as { lastUpdate?: number }).lastUpdate ?? 0),
+                0,
+              );
               const projName = projectLabels[project] ?? (project.split('/').filter(Boolean).pop() ?? project);
               const isActive = activeProject === project;
               return (
@@ -512,7 +562,11 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                           ▲{escalationCount > 99 ? '99+' : escalationCount}
                         </span>
                       )}
-                      <span className="text-gray-500 dark:text-gray-400 font-normal">{visibleCount}</span>
+                      {visibleCount > 0 && (
+                        <span className="shrink-0 text-3xs text-accent-600 dark:text-accent-400 font-semibold" title={`${visibleCount} live session(s)`}>
+                          {visibleCount}λ
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"
@@ -531,10 +585,28 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       </svg>
                     </button>
                   </div>
-                  {/* Per-project session cards removed (option 2): the Bridge tree is now
-                      a pure project index. Live sessions are read in the Watching panel and
-                      the Bridge Workers tab; the count badge on the row remains the at-a-
-                      glance "N sessions" read. */}
+                  {/* At-a-glance sub-line: plan progress (open / in-progress / blocked),
+                      an idle-with-work pip (ready work queued, nothing running it), and the
+                      most-recent session activity. Hidden when there's nothing to show. */}
+                  {(stats.open > 0 || lastActive > 0) && (
+                    <div className="flex items-center gap-2 pl-7 pr-2 pt-0.5 text-3xs text-gray-400 dark:text-gray-500">
+                      {stats.open > 0 && <span title="open todos">{stats.open} open</span>}
+                      {stats.inProgress > 0 && (
+                        <span className="text-info-600 dark:text-info-400" title="in progress">{stats.inProgress}▶</span>
+                      )}
+                      {stats.blocked > 0 && (
+                        <span className="text-warning-600 dark:text-warning-400" title="blocked">{stats.blocked}⊘</span>
+                      )}
+                      {stats.idleWithWork && (
+                        <span className="text-warning-600 dark:text-warning-400" title="ready work queued, nothing running it">⚠ ready</span>
+                      )}
+                      {lastActive > 0 && (
+                        <span className="ml-auto tabular-nums" title={`last active ${new Date(lastActive).toLocaleString()}`}>
+                          {relAge(lastActive)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })
