@@ -42,7 +42,16 @@ interface LeafRunResponse {
   wallClockMs?: number;
   rateLimitedCount?: number;
   authModes?: Record<string, number>;
-  finalOutcome?: 'accepted' | 'rejected' | 'blocked' | 'paused' | null;
+  finalOutcome?: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | null;
+  /** Atomic terminal record (from the outcome marker's outcomeDetail). */
+  terminal?: {
+    effectiveOutcome?: string;
+    reviewVerdict?: 'pass' | 'fail' | null;
+    pathTaken?: 'floor' | 'waves' | null;
+    reason?: string;
+    pendingReason?: string;
+    gateReasons?: string[];
+  } | null;
   reviewVerdict?: 'pass' | 'fail' | null;
 }
 
@@ -71,6 +80,9 @@ function outcomeBadge(outcome: LeafRunResponse['finalOutcome']): { text: string;
     case 'rejected':
     case 'blocked':
       return { text: outcome, cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' };
+    case 'pending':
+      // DISTINCT from rejected: review PASSed + work merged, the gate deferred. Not a failure.
+      return { text: 'pending', cls: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300' };
     case 'paused':
       return { text: 'paused', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' };
     default:
@@ -191,6 +203,20 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = (
 
       {data?.ran ? (
         <div className="px-3 py-2.5">
+          {(data.terminal?.pathTaken || data.terminal?.reason || data.terminal?.pendingReason) && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-3xs text-gray-500 dark:text-gray-400">
+              {data.terminal?.pathTaken && (
+                <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5" title="execution path">
+                  {data.terminal.pathTaken === 'waves' ? '🌊 waves' : '▏floor'}
+                </span>
+              )}
+              {(data.terminal?.pendingReason ?? data.terminal?.reason) && (
+                <span className="italic" title="terminal reason">
+                  {data.terminal.pendingReason ?? data.terminal.reason}
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {nodes.map((node, i) => {
               const isLast = i === nodes.length - 1;
@@ -224,12 +250,6 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = (
                   {node.durationMs != null && (
                     <span className="text-3xs tabular-nums text-gray-400 dark:text-gray-500">
                       {fmtDuration(node.durationMs)}
-                    </span>
-                  )}
-                  {/* a near-zero input flags a context-starved node (the waves bug) */}
-                  {node.inputTokens != null && node.inputTokens < 50 && (
-                    <span className="text-3xs text-amber-600 dark:text-amber-400" title="very small input — node may be missing context">
-                      ⚠ {node.inputTokens}tok in
                     </span>
                   )}
                 </button>
