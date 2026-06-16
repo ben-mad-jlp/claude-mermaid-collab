@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 import { StreamedViewport } from './StreamedViewport.js';
+import { canvasPointToFrac, cdpModifiers } from './streamedInput.js';
 
 // Mock getFrameClient so we control the WS client in tests
 const mockSubscribe = vi.fn();
@@ -9,10 +10,13 @@ const mockOnMessage = vi.fn();
 const mockConnect = vi.fn().mockResolvedValue(undefined);
 let messageHandler: ((msg: unknown) => void) | null = null;
 
+const mockSend = vi.fn();
+
 const mockClient = {
   connect: mockConnect,
   subscribe: mockSubscribe,
   unsubscribe: mockUnsubscribe,
+  send: mockSend,
   onMessage: vi.fn((handler: (msg: unknown) => void) => {
     messageHandler = handler;
     return { unsubscribe: mockOnMessage };
@@ -130,5 +134,82 @@ describe('StreamedViewport', () => {
     });
 
     expect(metaRef.current).toBeNull();
+  });
+});
+
+describe('canvasPointToFrac', () => {
+  function makeCanvas(width: number, height: number, rectOverride?: Partial<DOMRect>): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const defaultRect = { left: 0, top: 0, width: 400, height: 400, right: 400, bottom: 400, x: 0, y: 0, toJSON: () => ({}) };
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ ...defaultRect, ...rectOverride } as DOMRect);
+    return canvas;
+  }
+
+  it('maps center of a square frame in a square element to {0.5, 0.5}', () => {
+    // canvas 100x100 in a 400x400 element: scale=4, dispW=400, dispH=400, offX=0, offY=0
+    const canvas = makeCanvas(100, 100, { left: 0, top: 0, width: 400, height: 400 });
+    const { xFrac, yFrac } = canvasPointToFrac(canvas, 200, 200);
+    expect(xFrac).toBeCloseTo(0.5);
+    expect(yFrac).toBeCloseTo(0.5);
+  });
+
+  it('clamps out-of-image points to [0,1] with letterbox bands', () => {
+    // canvas 200x200 in a 400x200 element (wide): scale=1, dispW=200, dispH=200, offX=100, offY=0
+    const canvas = makeCanvas(200, 200, { left: 0, top: 0, width: 400, height: 200 });
+    // click at x=0 (left letterbox band) → clamped to 0
+    const left = canvasPointToFrac(canvas, 0, 100);
+    expect(left.xFrac).toBe(0);
+    // click at x=399 (right letterbox band) → clamped to 1
+    const right = canvasPointToFrac(canvas, 399, 100);
+    expect(right.xFrac).toBe(1);
+  });
+
+  it('returns {0,0} when canvas dims are zero', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 0;
+    canvas.height = 0;
+    expect(canvasPointToFrac(canvas, 100, 100)).toEqual({ xFrac: 0, yFrac: 0 });
+  });
+});
+
+describe('cdpModifiers', () => {
+  it('packs Ctrl+Shift to 10', () => {
+    expect(cdpModifiers({ altKey: false, ctrlKey: true, metaKey: false, shiftKey: true })).toBe(10);
+  });
+
+  it('packs Alt to 1', () => {
+    expect(cdpModifiers({ altKey: true, ctrlKey: false, metaKey: false, shiftKey: false })).toBe(1);
+  });
+
+  it('packs no modifiers to 0', () => {
+    expect(cdpModifiers({ altKey: false, ctrlKey: false, metaKey: false, shiftKey: false })).toBe(0);
+  });
+});
+
+describe('StreamedViewport input forwarding', () => {
+  it('sends browser_input mouse down on pointerdown', async () => {
+    const { container } = render(<StreamedViewport session="sess-input" />);
+    await act(async () => { await Promise.resolve(); });
+
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement;
+    // Give the canvas non-zero dims so fractions are non-degenerate
+    Object.defineProperty(canvas, 'width', { value: 100, configurable: true });
+    Object.defineProperty(canvas, 'height', { value: 100, configurable: true });
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 100, height: 100,
+      right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+
+    act(() => {
+      canvas.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true, clientX: 50, clientY: 50, button: 0,
+      }));
+    });
+
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'browser_input', action: 'mouse', event: 'down' })
+    );
   });
 });
