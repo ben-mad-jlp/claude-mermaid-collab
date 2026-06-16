@@ -87,6 +87,7 @@ const implementPrompt = (s: TodoSpec, plan: string, files: string[], specTestFil
     ? `These test files are the SPEC — make them PASS, and do NOT modify them (changing a spec test is drift and will be rejected): ${specTestFiles.join(', ')}\n\n`
     : '') +
   `CRITICAL — you have a LIMITED step budget; spend it EDITING, not surveying the repo. The research plan above is authoritative: do NOT explore the wider codebase for "patterns". Read ONLY the exact files you are about to edit (those listed above + the spec tests), then WRITE the edits with write_file/edit immediately. ` +
+  `Work file-by-file and write INCREMENTALLY: as soon as you understand one file, edit it (make your FIRST write_file/edit call within your first few steps) — do NOT read everything before writing anything, or you will run out of budget with nothing written. ` +
   `You MUST produce file writes — a run that only reads and never edits is a FAILURE. After editing, run the test(s) if any, then \`git add -A && git commit -m "<summary>"\` and STOP. Do not report completion.`;
 
 const verifyPrompt = (s: TodoSpec, plan: string, specDiagramId?: string) =>
@@ -160,7 +161,7 @@ export async function runWorkerCore(
   let lastSig: string[] | null = null;
   let converged = false;
   for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
-    await runPhase('implement', implementPrompt(spec, plan, filesToEdit, specTestFiles), { stepCap: 28 });
+    await runPhase('implement', implementPrompt(spec, plan, filesToEdit, specTestFiles), { stepCap: 45 });
 
     // Anti-tamper: the authored spec tests must be byte-identical after implement —
     // an implementer that edits a spec test to make it pass is gaming the gate (the
