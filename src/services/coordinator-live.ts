@@ -1227,7 +1227,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // Walk the parent chain in the TRACKING project (where the work-graph lives).
           const epicId = resolveEpicId(r.completed, project);
           const message = `collab(${id.slice(0, 8)}): ${r.completed.title}`.slice(0, 200);
-          const merge = await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
+          // IDEMPOTENT merge-back: the LEAF-EXECUTOR self-merges its lane onto the epic
+          // branch in runLeaf (before proposing acceptance), so by accept-time the work is
+          // ALREADY integrated. Re-running commitAndMergeToEpic on that already-merged lane
+          // can report a spurious conflict and wrongly park the (correctly-accepted) todo
+          // BLOCKED. If the todo's commit is already on the epic branch, the merge is done —
+          // synthesize a clean integrated result and skip the re-merge. The legacy tmux lane
+          // is NOT yet on the branch at accept-time, so it still merges here as before.
+          const alreadyOnEpic = await wm.todoOnEpicBranch(epicId, id).catch(() => false);
+          const merge = alreadyOnEpic
+            ? { merged: true, conflict: false, committed: false, integrated: true, workerBranch: '', epicBranch: wm.epicBranchName(epicId) }
+            : await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
           recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
           if (merge.conflict) {
             // DEFECT 2 — a conflicted merge-back must NOT leave the todo accepted.
