@@ -119,6 +119,53 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     expect(await exists(path.join(repo, '.git', 'MERGE_HEAD'))).toBe(false);
   });
 
+  it('auto-resolves a lockfile-ONLY conflict (takes the epic side) and lands', async () => {
+    // base carries a lockfile both sides will diverge on.
+    await fs.writeFile(path.join(repo, 'bun.lock'), 'base-lock\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base lock']);
+    // epic edits the lockfile AND adds a clean source file.
+    const epic = await mgr.ensureEpic(EPIC, undefined, 'master');
+    await fs.writeFile(path.join(epic!.path, 'bun.lock'), 'epic-lock\n');
+    await fs.writeFile(path.join(epic!.path, 'feat.txt'), 'feat\n');
+    await runGit(epic!.path, ['add', '-A']);
+    await runGit(epic!.path, ['commit', '-q', '-m', 'epic: lock + feat']);
+    // master diverges on the SAME lockfile → a raw merge would conflict.
+    await fs.writeFile(path.join(repo, 'bun.lock'), 'master-lock\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'master: lock']);
+
+    const res = await mgr.landEpicToMaster(EPIC);
+    expect(res.conflict).toBe(false);
+    expect(res.landed).toBe(true);
+    // lockfile resolved to the EPIC side; the clean source change landed too.
+    expect((await runGit(repo, ['show', 'master:bun.lock'])).stdout).toBe('epic-lock\n');
+    expect((await runGit(repo, ['show', 'master:feat.txt'])).stdout).toBe('feat\n');
+    expect(await exists(path.join(persistDir, 'worktrees', '__land-master__'))).toBe(false);
+  });
+
+  it('does NOT auto-resolve when a NON-lockfile also conflicts — aborts, master untouched', async () => {
+    await fs.writeFile(path.join(repo, 'bun.lock'), 'base-lock\n');
+    await fs.writeFile(path.join(repo, 'src.txt'), 'base\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'base']);
+    const epic = await mgr.ensureEpic(EPIC, undefined, 'master');
+    await fs.writeFile(path.join(epic!.path, 'bun.lock'), 'epic-lock\n');
+    await fs.writeFile(path.join(epic!.path, 'src.txt'), 'epic-src\n');
+    await runGit(epic!.path, ['add', '-A']);
+    await runGit(epic!.path, ['commit', '-q', '-m', 'epic']);
+    await fs.writeFile(path.join(repo, 'bun.lock'), 'master-lock\n');
+    await fs.writeFile(path.join(repo, 'src.txt'), 'master-src\n');
+    await runGit(repo, ['add', '-A']);
+    await runGit(repo, ['commit', '-q', '-m', 'master']);
+    const before = (await runGit(repo, ['rev-parse', 'refs/heads/master'])).stdout.trim();
+
+    const res = await mgr.landEpicToMaster(EPIC);
+    expect(res.landed).toBe(false);
+    expect(res.conflict).toBe(true);
+    expect((await runGit(repo, ['rev-parse', 'refs/heads/master'])).stdout.trim()).toBe(before);
+  });
+
   it('removeEpic deletes the epic branch + worktree (idempotent)', async () => {
     const epic = await epicWith('x.txt', 'x\n');
     await mgr.landEpicToMaster(EPIC);

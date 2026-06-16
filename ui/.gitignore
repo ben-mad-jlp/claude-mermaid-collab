@@ -1,2 +1,4 @@
 .collab/
 .collab/
+# redundant npm lockfile — ui is Bun-managed
+package-lock.json

@@ -10,3 +10,5 @@ resources/ffprobe.exe
 spike-result.json
 spike-extended-result.json
 spike-emulation-result.json
+# redundant bun lockfile — desktop installs with npm (see CI build-windows)
+bun.lock
