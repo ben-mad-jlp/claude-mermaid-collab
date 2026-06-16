@@ -11,7 +11,8 @@
  * authoritative, todo-scoped gate).
  */
 import { getTodo as storeGetTodo } from '../../services/todo-store';
-import { resolveModel, anthropicAvailable, grokAvailable } from './resolve-model';
+import { resolveModel, anthropicAvailable, grokAvailable, providerAvailable, PROVIDER_IDS } from './resolve-model';
+import { getConfig } from '../../services/config-service';
 import type { WorkerCoreDeps, GateOutcome } from './orchestrator';
 import type { ProviderId } from '../worker-agent';
 import type { SubloopRole } from './capabilities';
@@ -22,7 +23,8 @@ import type { SubloopRole } from './capabilities';
  *  to the cheap grok-build EVEN when the todo is pinned to claude (the whole point of
  *  phase-routing: don't burn the expensive model on bulk implementation). Each tier
  *  falls back to the run's base provider when its preferred provider has no key, so the
- *  recipe never hard-fails on a missing key. */
+ *  recipe never hard-fails on a missing key. This is the DEFAULT; per-phase config
+ *  keys (resolveTierRoute) override it. */
 const JUDGMENT_PHASES = new Set<SubloopRole>(['sizegate', 'research', 'verify', 'review']);
 
 export interface BridgeOpts {
@@ -33,12 +35,45 @@ export interface BridgeOpts {
   modelByPhase?: (phase: SubloopRole) => string | undefined;
 }
 
-/** The provider for a phase under the tier matrix. Judgment → claude (or base if no
- *  key); implement → grok-build (or base if no key) regardless of the run's pin. */
+/** The provider for a phase under the DEFAULT tier matrix. Judgment → claude (or base
+ *  if no key); implement → grok-build (or base if no key) regardless of the run's pin. */
 export function providerForPhase(phase: SubloopRole, base: ProviderId): ProviderId {
   if (JUDGMENT_PHASES.has(phase)) return anthropicAvailable() ? 'claude' : base;
   // implement (the high-volume phase): the cheap grok-build always wins over the pin.
   return grokAvailable() ? 'grok-build' : base;
+}
+
+/** Per-phase config keys that OVERRIDE the default tier matrix (flat string keys,
+ *  mirroring the JUDGMENT_PROVIDER precedent — Secrets-UI editable, no JSON parsing).
+ *  `WORKER_PROVIDER_<PHASE>` picks the provider; optional `WORKER_MODEL_<PHASE>` pins
+ *  the model. Unset → the default providerForPhase tier (byte-identical to today).
+ *  DEFERRED (no evidence yet): per-autonomy-level routing — add a level dimension when
+ *  a concrete case appears, not before. */
+const PHASE_CONFIG_SUFFIX: Record<SubloopRole, string> = {
+  sizegate: 'SIZEGATE',
+  research: 'RESEARCH',
+  implement: 'IMPLEMENT',
+  verify: 'VERIFY',
+  review: 'REVIEW',
+};
+
+function parseProviderId(raw: string | undefined): ProviderId | null {
+  return raw && (PROVIDER_IDS as string[]).includes(raw) ? (raw as ProviderId) : null;
+}
+
+/** Resolve the (provider, model?) for a phase: a configured, AVAILABLE per-phase
+ *  override wins; otherwise the default tier (providerForPhase). A configured override
+ *  whose provider can't run (missing key / unwired, e.g. codex) is ignored and the
+ *  default tier is used — strictly smarter than falling to the raw base, and it never
+ *  hard-fails. NOTE: removing a provider's key later silently re-routes that phase to
+ *  the default tier on the next run (intended — never block on a missing key). */
+export function resolveTierRoute(phase: SubloopRole, base: ProviderId): { provider: ProviderId; model?: string } {
+  const suffix = PHASE_CONFIG_SUFFIX[phase];
+  const override = parseProviderId(getConfig(`WORKER_PROVIDER_${suffix}`));
+  if (override && providerAvailable(override)) {
+    return { provider: override, model: getConfig(`WORKER_MODEL_${suffix}`) || undefined };
+  }
+  return { provider: providerForPhase(phase, base) };
 }
 
 /** WorkerCoreDeps wired to the real coordinator for one todo. */
@@ -51,10 +86,13 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
     },
 
     resolveModel: (phase) => {
-      // Explicit tier matrix: judgment → claude, implement → grok-build (regardless
-      // of the run's pin), each falling back to the base provider when keyless.
-      const provider = providerForPhase(phase, opts.provider);
-      return resolveModel(provider, opts.modelByPhase?.(phase));
+      // Config-driven tier matrix: a per-phase WORKER_PROVIDER_<PHASE> override (if set
+      // and available) wins; else the default tier (judgment → claude, implement →
+      // grok-build regardless of pin), each keyless-safe. A WORKER_MODEL_<PHASE> or an
+      // explicit modelByPhase pins the model; otherwise the provider default applies.
+      const route = resolveTierRoute(phase, opts.provider);
+      const model = route.model ?? opts.modelByPhase?.(phase);
+      return resolveModel(route.provider, model);
     },
 
     runScopedGate: async (): Promise<GateOutcome> => {

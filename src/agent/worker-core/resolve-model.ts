@@ -38,6 +38,28 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
   codex: 'gpt-5-codex',
 };
 
+/** The known provider ids (runtime list derived from the model map). */
+export const PROVIDER_IDS = Object.keys(DEFAULT_MODEL_BY_PROVIDER) as ProviderId[];
+
+/** Whether a provider can actually run in-process right now (its key is configured
+ *  AND its SDK is wired). The tier router uses this to fall back when a configured
+ *  override can't run, so a missing key never hard-fails. codex is not wired
+ *  in-process yet (resolveModel throws), so it is always unavailable. */
+export function providerAvailable(provider: ProviderId): boolean {
+  switch (provider) {
+    case 'claude':
+      return anthropicAvailable();
+    case 'grok-build':
+      return grokAvailable();
+    case 'codex':
+      return false;
+    default: {
+      const _exhaustive: never = provider;
+      return Boolean(_exhaustive);
+    }
+  }
+}
+
 export function resolveModel(provider: ProviderId, modelId?: string): LanguageModel {
   const id = modelId ?? DEFAULT_MODEL_BY_PROVIDER[provider];
   switch (provider) {
