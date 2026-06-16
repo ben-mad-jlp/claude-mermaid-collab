@@ -361,6 +361,25 @@ export async function handleAPI(
     }
   }
 
+  // POST /api/maintenance/delete-session { project, session } — DELETE the session
+  // without archiving (no docs/designs copy). Removes the .collab/sessions/<session>
+  // folder and unregisters it. Destructive (no recovery copy) — the UI confirms.
+  if (path === '/api/maintenance/delete-session' && req.method === 'POST') {
+    try {
+      const { project: rawProject, session } = (await req.json()) as { project?: string; session?: string };
+      if (!rawProject || !session) return Response.json({ error: 'project and session required' }, { status: 400 });
+      const project = expandPath(rawProject);
+      const sessionDir = sessionRegistry.resolvePath(project, session, '.');
+      const { rm } = await import('node:fs/promises');
+      await rm(sessionDir, { recursive: true, force: true });
+      await sessionRegistry.unregister(project, session);
+      wsHandler.broadcast({ type: 'session_deleted', project, session });
+      return Response.json({ ok: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // POST /api/maintenance/kill-tmux { name } — kill one orphan tmux session.
   if (path === '/api/maintenance/kill-tmux' && req.method === 'POST') {
     try {

@@ -40,10 +40,6 @@ export const SessionCleanup: React.FC<{ onClose: () => void }> = ({ onClose }) =
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Archive options (the choices archiveSession exposes), applied to session archives.
-  const [deleteAfter, setDeleteAfter] = useState(true);
-  const [timestamp, setTimestamp] = useState(false);
-
   const rescan = useCallback(async (d: number) => {
     setLoading(true);
     setError(null);
@@ -62,13 +58,31 @@ export const SessionCleanup: React.FC<{ onClose: () => void }> = ({ onClose }) =
     void rescan(days);
   }, [days, rescan]);
 
-  const archive = async (s: StaleSession) => {
+  // "Delete" — archive the session's artifacts to docs/designs/ (auto-timestamped on
+  // a name collision) THEN delete it. Recoverable.
+  const archiveAndDelete = async (s: StaleSession) => {
     setBusy(`s:${s.project}/${s.session}`);
     try {
       await fetch('/api/sessions/archive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project: s.project, session: s.session, deleteSession: deleteAfter, timestamp }),
+        body: JSON.stringify({ project: s.project, session: s.session, deleteSession: true }),
+      });
+      await rescan(days);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // "Delete without archiving" — hard delete, no recovery copy. Confirmed.
+  const deleteNoArchive = async (s: StaleSession) => {
+    if (!window.confirm(`Delete "${s.session}" WITHOUT archiving?\n\nNo copy is kept — this is permanent.`)) return;
+    setBusy(`s:${s.project}/${s.session}`);
+    try {
+      await fetch('/api/maintenance/delete-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: s.project, session: s.session }),
       });
       await rescan(days);
     } finally {
@@ -122,19 +136,6 @@ export const SessionCleanup: React.FC<{ onClose: () => void }> = ({ onClose }) =
           <button type="button" onClick={onClose} className="text-2xs px-1.5 py-0.5 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">✕</button>
         </div>
 
-        {/* Archive options */}
-        <div className="shrink-0 flex flex-wrap items-center gap-4 px-4 py-2 border-b border-gray-200 dark:border-gray-700 text-2xs text-gray-600 dark:text-gray-300">
-          <span className="uppercase tracking-wide text-gray-400 dark:text-gray-500">Archive options</span>
-          <label className="flex items-center gap-1 cursor-pointer" title="Copy artifacts to docs/designs/ then delete the session folder. Off = keep the session too.">
-            <input type="checkbox" checked={deleteAfter} onChange={(e) => setDeleteAfter(e.target.checked)} className="h-3 w-3" />
-            Delete session after archiving
-          </label>
-          <label className="flex items-center gap-1 cursor-pointer" title="Append a timestamp to the archive folder name (avoids collisions / keeps versions).">
-            <input type="checkbox" checked={timestamp} onChange={(e) => setTimestamp(e.target.checked)} className="h-3 w-3" />
-            Timestamp archive folder
-          </label>
-        </div>
-
         {/* Body */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           {loading && <p className="text-xs text-gray-400 dark:text-gray-500 italic">Scanning…</p>}
@@ -161,11 +162,20 @@ export const SessionCleanup: React.FC<{ onClose: () => void }> = ({ onClose }) =
                         <button
                           type="button"
                           disabled={busy === `s:${s.project}/${s.session}`}
-                          onClick={() => void archive(s)}
+                          onClick={() => void archiveAndDelete(s)}
                           className="shrink-0 text-3xs px-1.5 py-0.5 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
-                          title={deleteAfter ? 'Archive artifacts to docs/designs/ then delete the session' : 'Archive artifacts (keep the session)'}
+                          title="Archive artifacts to docs/designs/ (auto-timestamped on a name clash) then delete the session"
                         >
-                          {deleteAfter ? 'Archive + delete' : 'Archive'}
+                          Delete
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === `s:${s.project}/${s.session}`}
+                          onClick={() => void deleteNoArchive(s)}
+                          className="shrink-0 text-3xs px-1.5 py-0.5 rounded bg-danger-50 text-danger-600 hover:bg-danger-100 dark:bg-danger-900/30 dark:text-danger-300 disabled:opacity-50"
+                          title="Delete the session WITHOUT archiving (permanent, no copy)"
+                        >
+                          Delete w/o archiving
                         </button>
                       </div>
                     ))}

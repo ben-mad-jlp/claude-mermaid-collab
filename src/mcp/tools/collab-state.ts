@@ -303,23 +303,25 @@ export async function archiveSession(
   const spreadsheetsDir = join(sessionDir, 'spreadsheets');
   const snippetsDir = join(sessionDir, 'snippets');
 
-  // Build archive folder name with optional timestamp
-  let archiveFolderName = session;
-  if (timestamp) {
-    const now = new Date();
-    const ts = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
-    archiveFolderName = `${session}-${ts}`;
-  }
-  const archiveDir = join(project, 'docs', 'designs', archiveFolderName);
-
   // Check if session exists
   if (!(await fileExists(sessionDir))) {
     throw new Error(`Session not found: ${session}`);
   }
 
-  // Check if archive already exists
+  // Build archive folder name. A timestamp is added when the caller forces it OR —
+  // automatically — when a folder with the session's name already exists, so
+  // re-archiving an already-archived name never collides (prior archive preserved).
+  const tsSuffix = () => new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+  let archiveFolderName = timestamp ? `${session}-${tsSuffix()}` : session;
+  let archiveDir = join(project, 'docs', 'designs', archiveFolderName);
   if (await fileExists(archiveDir)) {
-    throw new Error(`Archive already exists: ${archiveDir}`);
+    archiveFolderName = `${session}-${tsSuffix()}`;
+    archiveDir = join(project, 'docs', 'designs', archiveFolderName);
+    // Same-minute re-archive → disambiguate further.
+    if (await fileExists(archiveDir)) {
+      archiveFolderName = `${session}-${tsSuffix()}-${Date.now() % 1000}`;
+      archiveDir = join(project, 'docs', 'designs', archiveFolderName);
+    }
   }
 
   // Create archive directory
