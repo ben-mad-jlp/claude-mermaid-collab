@@ -18,6 +18,8 @@ import { homedir } from 'node:os';
 export interface LedgerEntry {
   project: string;
   todoId: string;
+  /** The epic this todo rolls up to (for per-epic cost rollup / budget bars). Null = none. */
+  epicId?: string | null;
   /** Worker session/lane that ran the phase (the executor). */
   session: string;
   phase: string;
@@ -72,6 +74,9 @@ function openDb(): Database {
   db = new Database(join(dir, 'worker-ledger.db'));
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  // Additive migration: epicId column for per-epic cost rollup (idempotent).
+  const cols = db.query('PRAGMA table_info(worker_ledger)').all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'epicId')) db.exec('ALTER TABLE worker_ledger ADD COLUMN epicId TEXT');
   return db;
 }
 
@@ -92,11 +97,11 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
     const res = d
       .prepare(
         `INSERT INTO worker_ledger
-          (project, todoId, session, phase, provider, model, source, inputTokens, outputTokens, costUsd, knownPrice, steps, parseError, ts)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, costUsd, knownPrice, steps, parseError, ts)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
-        entry.project, entry.todoId, entry.session, entry.phase, entry.provider, entry.model, entry.source,
+        entry.project, entry.todoId, entry.epicId ?? null, entry.session, entry.phase, entry.provider, entry.model, entry.source,
         entry.inputTokens, entry.outputTokens, entry.costUsd, entry.knownPrice ? 1 : 0, entry.steps,
         entry.parseError ?? null, now,
       );
@@ -109,6 +114,8 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
 export interface LedgerQuery {
   project?: string;
   todoId?: string;
+  /** Roll up only rows for this epic (per-epic cost / budget bar). */
+  epicId?: string;
   /** Only rows at/after this epoch-ms. */
   since?: number;
   /** Cap rows returned (default 200, max 2000), newest first. */
@@ -126,6 +133,7 @@ export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
   const params: unknown[] = [];
   if (q.project) { where.push('project = ?'); params.push(q.project); }
   if (q.todoId) { where.push('todoId = ?'); params.push(q.todoId); }
+  if (q.epicId) { where.push('epicId = ?'); params.push(q.epicId); }
   if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
   const limit = Math.min(Math.max(1, q.limit ?? 200), 2000);
   const sql = `SELECT * FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ts DESC, id DESC LIMIT ${limit}`;

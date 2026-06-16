@@ -2824,6 +2824,7 @@ export async function handleAPI(
         const cost = summarize({ project, todoId: t.id });
         return {
           todoId: t.id,
+          epicId: t.parentId ?? undefined,
           session,
           title: t.title,
           alive,

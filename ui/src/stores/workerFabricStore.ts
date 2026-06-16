@@ -22,6 +22,7 @@ export interface PhaseRoute {
 export interface LaneState {
   todoId: string;
   project?: string;
+  epicId?: string;
   session?: string;
   /** The phase currently running (or last seen): sizegate|research|authortests|implement|verify|review. */
   phase?: string;
@@ -56,6 +57,7 @@ export interface WorkerPhaseEvent {
 
 export interface HydratedLane {
   todoId: string;
+  epicId?: string;
   session?: string;
   title?: string;
   alive: boolean;
@@ -91,6 +93,7 @@ export const useWorkerFabricStore = create<WorkerFabricState>((set, get) => ({
           [e.todoId]: {
             todoId: e.todoId,
             project: e.project,
+            epicId: e.epicId ?? prev?.epicId,
             session: e.session,
             phase: e.role,
             lifecycle: e.lifecycle,
@@ -114,6 +117,7 @@ export const useWorkerFabricStore = create<WorkerFabricState>((set, get) => ({
         next[l.todoId] = {
           todoId: l.todoId,
           project: project ?? prev?.project,
+          epicId: l.epicId ?? prev?.epicId,
           session: l.session ?? prev?.session,
           phase: prev?.phase,
           lifecycle: prev?.lifecycle,

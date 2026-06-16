@@ -64,6 +64,15 @@ describe('worker-ledger', () => {
     expect(s.byModel['mystery-model'].unknownPrice).toBe(true);
   });
 
+  test('epicId filter rolls up cost per epic', () => {
+    recordPhase(entry({ todoId: 't1', epicId: 'E1', costUsd: 0.1 }));
+    recordPhase(entry({ todoId: 't2', epicId: 'E1', costUsd: 0.2 }));
+    recordPhase(entry({ todoId: 't3', epicId: 'E2', costUsd: 0.5 }));
+    expect(queryLedger({ epicId: 'E1' }).length).toBe(2);
+    expect(summarize({ epicId: 'E1' }).totalUsd).toBeCloseTo(0.3, 6);
+    expect(summarize({ epicId: 'E2' }).totalUsd).toBeCloseTo(0.5, 6);
+  });
+
   test('limit caps rows', () => {
     for (let i = 0; i < 5; i++) recordPhase(entry(), 1000 + i);
     expect(queryLedger({ limit: 3 }).length).toBe(3);

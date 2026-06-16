@@ -10,8 +10,30 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { STATUS_STYLE, type FunnelKey } from '../../funnel';
 import type { EpicNodeData } from '../types';
 import { useDeckStore } from '@/stores/deckStore';
+import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 
 const ORDER: FunnelKey[] = ['backlog', 'ready', 'inflight', 'blocked', 'done'];
+
+/** Live run-cost rolled up across this epic's worker lanes (design-worker-fabric-ui §6.6). */
+const EpicCost: React.FC<{ epicId: string }> = ({ epicId }) => {
+  const cost = useWorkerFabricStore((s) => {
+    let c = 0;
+    for (const l of Object.values(s.lanes)) if (l.epicId === epicId) c += l.runCostUsd;
+    return c;
+  });
+  const live = useWorkerFabricStore((s) => {
+    let n = 0;
+    for (const l of Object.values(s.lanes)) if (l.epicId === epicId && l.alive) n += 1;
+    return n;
+  });
+  if (cost <= 0 && live <= 0) return null;
+  return (
+    <span className="ml-1 flex items-center gap-1 text-3xs tabular-nums" title="epic run cost / live lanes">
+      {live > 0 && <span className="font-semibold text-accent-600 dark:text-accent-400">{live}λ</span>}
+      {cost > 0 && <span className="text-gray-500 dark:text-gray-400">${cost.toFixed(2)}</span>}
+    </span>
+  );
+};
 
 const StatusBar: React.FC<{ counts: EpicNodeData['counts'] }> = ({ counts }) => (
   <div className="mt-1.5 flex h-2 rounded overflow-hidden bg-gray-100 dark:bg-gray-800">
@@ -48,6 +70,7 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
             <span className="text-[10px] uppercase tracking-wide text-gray-400">epic</span>
             <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{d.label}</span>
             <span className="ml-auto text-xs text-gray-400">{d.total}</span>
+            <EpicCost epicId={id} />
           </div>
           <StatusBar counts={d.counts} />
         </div>
@@ -65,6 +88,7 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{d.label}</span>
         <span className="ml-auto text-xs text-gray-400">{d.total}</span>
+        <EpicCost epicId={id} />
       </div>
       <StatusBar counts={d.counts} />
       <Handle type="source" position={Position.Right} className="!bg-gray-400" />

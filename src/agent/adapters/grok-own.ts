@@ -167,6 +167,7 @@ export function workerCoreEnabledFor(project: string): boolean {
 function broadcastWorkerPhase(
   spec: LaunchSpec,
   todoId: string,
+  epicId: string | undefined,
   lifecycle: 'start' | 'end',
   e: {
     role: string;
@@ -184,6 +185,7 @@ function broadcastWorkerPhase(
       project: spec.project,
       session: spec.session,
       todoId,
+      epicId,
       lifecycle,
       role: e.role,
       provider: e.route?.provider,
@@ -348,6 +350,8 @@ class GrokOwnHarnessImpl implements WorkerAgent {
    *  cycle-free. Completion is host-authoritative inside runWorkerCore. */
   private async runViaWorkerCore(spec: LaunchSpec, cwd: string, lane: GrokLane): Promise<void> {
     const todoId = invokeSkillTodoId(spec.invokeSkill);
+    // Resolve the todo's epic once at lane start (for per-epic cost rollup / budget bars).
+    const epicId = getTodo(spec.project, todoId)?.parentId ?? undefined;
     lane.phase = 'working';
     lane.lastPane = grokPaneWorking(0);
     let runCostUsd = 0;
@@ -373,7 +377,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
                 ? ` → ${e.route.provider}/${e.route.model} (${e.route.source})`
                 : e.model ? ` (${e.model})` : '';
               lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}${route}` });
-              broadcastWorkerPhase(spec, todoId, 'start', e);
+              broadcastWorkerPhase(spec, todoId, epicId, 'start', e);
             } else if (e.type === 'step') {
               lane.step += 1;
               lane.transcript.push({
@@ -390,6 +394,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
               recordPhase({
                 project: spec.project,
                 todoId,
+                epicId,
                 session: spec.session,
                 phase: e.role,
                 provider: e.route?.provider ?? this.id,
@@ -402,7 +407,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
                 steps: e.steps,
                 parseError: e.parseError ?? null,
               });
-              broadcastWorkerPhase(spec, todoId, 'end', e);
+              broadcastWorkerPhase(spec, todoId, epicId, 'end', e);
               const tok = e.usage ? `${e.usage.inputTokens ?? 0}/${e.usage.outputTokens ?? 0} tok` : '';
               lane.step += 1;
               lane.transcript.push({
