@@ -110,6 +110,15 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   }, [activeTab]);
   const isGrokLane = laneProvider === 'grok-build';
 
+  // consoleEpoch (terminalStore) keys the persistent console; bumping it remounts
+  // the xterm + WebSocket → a clean tmux attach-redraw. This is the client-side
+  // cure for the "blank console + blinking cursor" state (xterm attached + WS
+  // connected, but the one-shot redraw never painted). reattachConsole() is the
+  // shared trigger any refresh path can call; the server /reset can't repaint a
+  // blanked client xterm.
+  const consoleEpoch = useTerminalStore((s) => s.consoleEpoch);
+  const reattachConsole = useTerminalStore((s) => s.reattachConsole);
+
   // No auto-open: clicking a watched row is the explicit entry point for a
   // terminal. Auto-open would race with the watched-row open and steal focus by
   // creating a session on the active server immediately after the user opened one
@@ -118,6 +127,9 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
   const resetActiveTerminal = () => {
     const tab = activeTab;
     if (!tab) return;
+    // Client-side cure first: remount the xterm/WS so a blanked console repaints
+    // even if the server is fine. Runs alongside the server-side TUI re-sync below.
+    reattachConsole();
     const reqPath = `/api/terminal/sessions/${encodeURIComponent(tab.id)}/reset?project=${encodeURIComponent(tab.project)}&session=${encodeURIComponent(tab.session)}`;
     const onOk = () => {
       useNotificationStore.getState().addToast({
@@ -222,7 +234,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         <button
           type="button"
           onClick={resetActiveTerminal}
-          title="Reset terminal (re-sync Claude TUI → fullscreen: restore scroll)"
+          title="Reset terminal — reattach the console (fixes a blank pane) + re-sync Claude TUI"
           style={{
             cursor: 'pointer', color: '#6e7681', background: 'none',
             border: 'none', padding: '4px 8px', fontSize: 12,
@@ -259,7 +271,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
           {!activeTab ? (
             <div style={{ color: '#6e7681', fontSize: 12, padding: 8 }}>
-              No terminal open — click + to start one
+              No terminal open — select a session to attach its console.
             </div>
           ) : (
             <div style={{ position: 'absolute', inset: 0, padding: 6 }}>
@@ -273,6 +285,7 @@ export function TerminalDrawer({ embedded = false }: { embedded?: boolean } = {}
                 />
               ) : (
                 <TerminalConsole
+                  key={consoleEpoch}
                   serverId={activeTab.serverId}
                   tmuxBase={activeTab.tmuxName}
                 />

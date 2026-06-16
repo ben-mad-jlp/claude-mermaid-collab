@@ -39,6 +39,7 @@ import { funnelCounts, excludeEpics } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
+import { useTerminalStore } from '@/stores/terminalStore';
 import { TodoWorkerPanel } from './LaneCallout';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
@@ -128,6 +129,15 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     // Force the worker cards (polled session statuses) to refresh now, not in ≤10s.
     setStatusRefreshNonce((n) => n + 1);
   }, [serverScope, project, watchedProjects, loadEscalations, loadProjectTodos, loadAudit, loadRequirements, loadCoverage]);
+
+  // EXPLICIT refresh (the ↺ button) — data resync PLUS a terminal reattach, since a
+  // common reason to hit refresh is a blanked console. Kept separate from the
+  // automatic resyncBridge effect so the terminal isn't remounted on every
+  // dependency-driven resync (only on a deliberate click).
+  const onManualRefresh = useCallback(() => {
+    resyncBridge();
+    useTerminalStore.getState().reattachConsole();
+  }, [resyncBridge]);
 
   useEffect(() => {
     resyncBridge();
@@ -427,7 +437,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
             needsYouCount={openEscalationCount}
             serverScope={serverScope}
             project={project}
-            onRefresh={resyncBridge}
+            onRefresh={onManualRefresh}
           />
         }
         left={

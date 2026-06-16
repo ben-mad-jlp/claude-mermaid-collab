@@ -121,6 +121,8 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   const todos: SessionTodo[] = todosByProject[project] ?? [];
   const [mode, setMode] = useState<Mode>('kanban');
   const [graphEpicId, setGraphEpicId] = useState<string | null>(null);
+  // Graph mode: the epic list is a collapsible LEFT rail (was a top tab bar).
+  const [graphListCollapsed, setGraphListCollapsed] = useState(false);
   // Shared across Kanban / List / Graph — when off, completed (done/dropped)
   // todos and fully-completed epics are hidden everywhere, including graph tabs.
   const [showCompleted, setShowCompleted] = useState(false);
@@ -283,25 +285,53 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           ) : (() => {
             const active = epicGraphs.find((g) => g.epic.id === graphEpicId) ?? epicGraphs[0];
             return (
-              <div className="flex flex-col h-full min-h-0">
-                {/* One tab per epic. */}
-                <div className="shrink-0 flex items-stretch gap-0.5 overflow-x-auto border-b border-gray-200 dark:border-gray-700 px-1">
-                  {epicGraphs.map((g) => (
+              <div className="flex h-full min-h-0">
+                {/* Epic list — a collapsible LEFT rail (one row per epic). */}
+                {graphListCollapsed ? (
+                  <div className="shrink-0 border-r border-gray-200 dark:border-gray-700 flex flex-col items-center py-1">
                     <button
-                      key={g.epic.id}
                       type="button"
-                      onClick={() => setGraphEpicId(g.epic.id)}
-                      title={g.epic.title ?? g.epic.text}
-                      className={`shrink-0 max-w-[14rem] truncate px-2.5 py-1.5 text-2xs font-semibold border-b-2 -mb-px transition-colors ${
-                        active.epic.id === g.epic.id
-                          ? 'border-accent-500 text-accent-700 dark:text-accent-300'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                      }`}
+                      onClick={() => setGraphListCollapsed(false)}
+                      title="Show epics"
+                      aria-label="Show epics"
+                      className="p-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                     >
-                      {(g.epic.title ?? g.epic.text ?? '').replace(/^\[EPIC\]\s*/i, '')}
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
                     </button>
-                  ))}
-                </div>
+                  </div>
+                ) : (
+                  <div className="shrink-0 w-44 border-r border-gray-200 dark:border-gray-700 flex flex-col min-h-0">
+                    <div className="shrink-0 flex items-center justify-between px-2 py-1 border-b border-gray-200 dark:border-gray-700">
+                      <span className="text-3xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Epics</span>
+                      <button
+                        type="button"
+                        onClick={() => setGraphListCollapsed(true)}
+                        title="Collapse epics"
+                        aria-label="Collapse epics"
+                        className="p-0.5 rounded text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                      </button>
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto p-1 space-y-0.5">
+                      {epicGraphs.map((g) => (
+                        <button
+                          key={g.epic.id}
+                          type="button"
+                          onClick={() => setGraphEpicId(g.epic.id)}
+                          title={g.epic.title ?? g.epic.text}
+                          className={`w-full text-left truncate px-2 py-1 text-2xs rounded transition-colors ${
+                            active.epic.id === g.epic.id
+                              ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 font-semibold'
+                              : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                          }`}
+                        >
+                          {(g.epic.title ?? g.epic.text ?? '').replace(/^\[EPIC\]\s*/i, '')}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex-1 min-h-0">
                   <FleetGraph todos={active.todos} subs={[]} onSelectTodo={onSelectTodo} onSelectEpic={onSelectEpic} />
                 </div>

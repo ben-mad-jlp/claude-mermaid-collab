@@ -332,21 +332,6 @@ export const SessionCard: React.FC<{
           </div>
         )}
       </div>
-      {/* Action buttons — outside the card, own bordered section, square columns */}
-      <div className="flex items-center flex-shrink-0 gap-1 px-1">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleSupervise(sub, !supervised);
-          }}
-          className={`flex items-center justify-center w-7 h-7 rounded-full transition-all hover:opacity-80 active:scale-90 active:brightness-75 ${supervised ? 'bg-success-300 text-success-900' : 'bg-gray-200 text-gray-500'}`}
-          title={supervised ? 'Stop supervising' : 'Supervise this session'}
-        >
-          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9.661 2.237a.531.531 0 01.678 0 11.947 11.947 0 007.078 2.749.5.5 0 01.479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 01-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 01.48-.425 11.947 11.947 0 007.077-2.75zM10 8a2 2 0 100-4 2 2 0 000 4zm0 1.5c-1.66 0-3 1.12-3 2.5v.5h6v-.5c0-1.38-1.34-2.5-3-2.5z" clipRule="evenodd" />
-          </svg>
-        </button>
-      </div>
       {/* Claude pixel avatar — outside the colored card, right side */}
       <ClaudePixAvatar status={sub.status} />
     </div>

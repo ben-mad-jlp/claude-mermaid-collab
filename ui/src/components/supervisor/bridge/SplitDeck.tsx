@@ -26,9 +26,12 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({ commandBar, left, right })
   const direction = 'vertical' as const;
   const storageId = 'bridge-deck-split-v';
 
+  // The pane itself does NOT scroll: it's a bounded flex column so the fixed-height
+  // instruments (FleetVitals, RequirementsInbox) sit at their natural size and the
+  // tab group (flex-1) fills the rest and scrolls INSIDE its own content area.
   const leftPane = (
-    <div data-testid="split-left" className="h-full min-h-0 overflow-y-auto w-full">
-      <div className="flex flex-col gap-3 p-3 w-full min-h-full">{left}</div>
+    <div data-testid="split-left" className="h-full min-h-0 w-full">
+      <div className="flex flex-col gap-3 p-3 w-full h-full min-h-0">{left}</div>
     </div>
   );
   const rightPane = (

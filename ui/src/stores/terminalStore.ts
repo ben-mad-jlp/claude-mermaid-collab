@@ -21,6 +21,10 @@ interface TerminalState {
   tabs: TerminalTab[];
   activeTabId: string | null;
   width: number;
+  /** Bumped to force the persistent console to remount (fresh xterm + WS → clean
+   *  tmux attach-redraw). The client-side cure for a blank console; any refresh
+   *  path can call reattachConsole() to repaint a blanked terminal. */
+  consoleEpoch: number;
   toggle: () => void;
   openDrawer: () => void;
   close: () => void;
@@ -29,6 +33,8 @@ interface TerminalState {
   closeTab: (id: string) => void;
   /** Reorder tabs by moving the dragged tab to the dropped tab's position. */
   moveTab: (dragId: string, dropId: string) => void;
+  /** Remount the persistent console to repaint a blanked terminal. */
+  reattachConsole: () => void;
   openFor: (
     project: string,
     session: string,
@@ -60,11 +66,13 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
   tabs: [],
   activeTabId: null,
   width: 480,
+  consoleEpoch: 0,
 
   toggle: () => set((s) => ({ open: !s.open })),
   openDrawer: () => set({ open: true }),
   close: () => set({ open: false }),
   setWidth: (w) => set({ width: w }),
+  reattachConsole: () => set((s) => ({ consoleEpoch: s.consoleEpoch + 1 })),
 
   setActive: (id) => set({ activeTabId: id }),
 

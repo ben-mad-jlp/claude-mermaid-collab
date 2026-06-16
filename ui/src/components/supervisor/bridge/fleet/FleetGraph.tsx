@@ -11,9 +11,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Background,
   Controls,
-  MiniMap,
   Panel,
   ReactFlow,
   ReactFlowProvider,
@@ -212,10 +210,12 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
       minZoom={0.2}
       maxZoom={2}
       proOptions={{ hideAttribution: true }}
+      className="!bg-gray-50 dark:!bg-gray-900"
     >
-      <Background gap={20} className="!bg-gray-50 dark:!bg-gray-900" />
-      <Controls showInteractive={false} />
-      <MiniMap pannable zoomable className="!bg-white dark:!bg-gray-800" />
+      <Controls
+        showInteractive={false}
+        className="!shadow-sm [&_button]:!bg-white dark:[&_button]:!bg-gray-800 [&_button]:!border-gray-200 dark:[&_button]:!border-gray-700 [&_button:hover]:!bg-gray-100 dark:[&_button:hover]:!bg-gray-700 [&_path]:!fill-gray-600 dark:[&_path]:!fill-gray-200"
+      />
       <Panel position="top-right" className="flex items-center gap-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 px-1.5 py-1">
         {lodButtons.map((l) => {
           const active = l === 'auto' ? forcedLod === null : forcedLod === l;

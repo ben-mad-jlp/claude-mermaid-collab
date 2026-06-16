@@ -412,7 +412,9 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
             source: src,
             target: tgt,
             animated: false,
-            style: { stroke: 'var(--color-muted-400, #9ca3af)', strokeWidth: 1 },
+            // Dependency edges: a calm sky-blue, distinct from the indigo (accent)
+            // animated claim edges and far more legible than the old muted gray.
+            style: { stroke: '#38bdf8', strokeWidth: 1.5 },
           });
         }
       }

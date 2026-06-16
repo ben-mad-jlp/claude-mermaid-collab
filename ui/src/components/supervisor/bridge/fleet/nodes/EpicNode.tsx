@@ -6,7 +6,8 @@
  */
 
 import React from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Position, type NodeProps } from '@xyflow/react';
+import { EdgeHandle } from './EdgeHandle';
 import { STATUS_STYLE, type FunnelKey } from '../../funnel';
 import type { EpicNodeData } from '../types';
 import { useDeckStore } from '@/stores/deckStore';
@@ -61,11 +62,11 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
   if (d.expanded) {
     return (
       <div
-        className={`rounded-lg border bg-gray-50/60 dark:bg-gray-900/40 ${ring}`}
+        className={`rounded-lg border bg-gray-100 dark:bg-gray-800 ${ring}`}
         style={{ width: d.width, height: d.height }}
       >
-        <Handle type="target" position={Position.Left} className="!bg-gray-400" />
-        <div className="px-3 pt-2 pb-1.5 border-b border-gray-200/70 dark:border-gray-700/70 bg-white/70 dark:bg-gray-900/70 rounded-t-lg">
+        <EdgeHandle type="target" position={Position.Left} />
+        <div className="px-3 pt-2 pb-1.5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-t-lg">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] uppercase tracking-wide text-gray-400">epic</span>
             <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{d.label}</span>
@@ -74,7 +75,7 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
           </div>
           <StatusBar counts={d.counts} />
         </div>
-        <Handle type="source" position={Position.Right} className="!bg-gray-400" />
+        <EdgeHandle type="source" position={Position.Right} />
       </div>
     );
   }
@@ -84,14 +85,14 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
       className={`rounded-lg bg-white dark:bg-gray-900 border px-3 py-2 ${ring}`}
       style={{ width: 200 }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-gray-400" />
+      <EdgeHandle type="target" position={Position.Left} />
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{d.label}</span>
         <span className="ml-auto text-xs text-gray-400">{d.total}</span>
         <EpicCost epicId={id} />
       </div>
       <StatusBar counts={d.counts} />
-      <Handle type="source" position={Position.Right} className="!bg-gray-400" />
+      <EdgeHandle type="source" position={Position.Right} />
     </div>
   );
 };

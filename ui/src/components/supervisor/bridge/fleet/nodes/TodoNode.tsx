@@ -7,7 +7,8 @@
  */
 
 import React from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Position, type NodeProps } from '@xyflow/react';
+import { EdgeHandle } from './EdgeHandle';
 import { FUNNEL_LABELS, STATUS_STYLE } from '../../funnel';
 import type { TodoNodeData } from '../types';
 import { useLod } from '../useLod';
@@ -41,7 +42,7 @@ const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
       className={`relative rounded-md bg-white dark:bg-gray-900 ${ring}`}
       style={{ width: lod === 0 ? 16 : 180 }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-gray-400" />
+      <EdgeHandle type="target" position={Position.Left} />
       {lod === 0 ? (
         <div className={`h-4 w-4 rounded-full ${style.dot}${live ? ' animate-pulse ring-1 ring-accent-400' : ''}`} title={live ? `${d.title} · ${live.phase}` : d.title} />
       ) : (
@@ -79,7 +80,7 @@ const TodoNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
           )}
         </div>
       )}
-      <Handle type="source" position={Position.Right} className="!bg-gray-400" />
+      <EdgeHandle type="source" position={Position.Right} />
     </div>
   );
 };

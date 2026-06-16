@@ -6,7 +6,8 @@
  */
 
 import React from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Position, type NodeProps } from '@xyflow/react';
+import { EdgeHandle } from './EdgeHandle';
 import type { WorkerNodeData } from '../types';
 import type { Liveness } from '@/lib/liveness';
 import { useLod } from '../useLod';
@@ -37,7 +38,7 @@ const WorkerNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
       }`}
       style={{ width: lod === 0 ? 18 : 170 }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-accent-400" />
+      <EdgeHandle type="target" position={Position.Left} dotClass="!bg-accent-400" />
       {lod === 0 ? (
         <div className="flex items-center justify-center h-[18px]">
           <span className={`h-2.5 w-2.5 rounded-full ${dotColor(d.liveness)}`} title={d.session} />
@@ -73,7 +74,7 @@ const WorkerNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
           )}
         </div>
       )}
-      <Handle type="source" position={Position.Right} className="!bg-accent-400" />
+      <EdgeHandle type="source" position={Position.Right} dotClass="!bg-accent-400" />
     </div>
   );
 };
