@@ -34,6 +34,7 @@ function makeDeps(over: {
   spec?: TodoSpec | null;
   phaseText: Partial<Record<SubloopRole, string>>;
   gate: (n: number) => GateOutcome;
+  readWorktreeFiles?: (cwd: string, paths: string[]) => Record<string, string | null>;
 }): WorkerCoreDeps & { calls: { complete: number; escalate: string[]; gate: number } } {
   const calls = { complete: 0, escalate: [] as string[], gate: 0 };
   return {
@@ -47,8 +48,11 @@ function makeDeps(over: {
     escalate: vi.fn(async (_p, _t, kind) => {
       calls.escalate.push(kind);
     }),
+    ...(over.readWorktreeFiles ? { readWorktreeFiles: over.readWorktreeFiles } : {}),
   };
 }
+
+const AUTHORTESTS_OK = '{"wroteTests":true,"testFiles":["a.test.ts"],"testCommand":"npm test"}';
 
 describe('runWorkerCore', () => {
   it('happy path: research → implement → verify+gate green → host completes', async () => {
@@ -97,6 +101,33 @@ describe('runWorkerCore', () => {
     });
     const r = await runWorkerCore({ project: 'p', todoId: 't1', cwd }, deps);
     expect(r).toMatchObject({ outcome: 'escalated', kind: 'incomplete' });
+    expect(deps.calls.complete).toBe(0);
+  });
+
+  it('test-as-spec: behavioral leaf authors tests; untouched spec tests → completes', async () => {
+    const deps = makeDeps({
+      spec: { todoId: 't1', title: 'add archive', behavioral: true },
+      phaseText: { research: RESEARCH_OK, authortests: AUTHORTESTS_OK, implement: 'done', verify: VERIFY_PASS, review: '{"complete":true,"gaps":[]}' },
+      gate: () => ({ pass: true, errorSignatures: [] }),
+      // The authored spec test reads identical before + after implement → no tamper.
+      readWorktreeFiles: () => ({ 'a.test.ts': 'EXPECT(behavior)' }),
+    });
+    const r = await runWorkerCore({ project: 'p', todoId: 't1', cwd }, deps);
+    expect(r).toEqual({ outcome: 'completed' });
+    expect(deps.calls.escalate).toEqual([]);
+  });
+
+  it('test-as-spec anti-tamper: implementer modifying a spec test → escalate, no completion', async () => {
+    let reads = 0;
+    const deps = makeDeps({
+      spec: { todoId: 't1', title: 'add archive', behavioral: true },
+      phaseText: { research: RESEARCH_OK, authortests: AUTHORTESTS_OK, implement: 'done', verify: VERIFY_PASS },
+      gate: () => ({ pass: true, errorSignatures: [] }),
+      // First read = the snapshot; second read (after implement) differs → tampered.
+      readWorktreeFiles: () => ({ 'a.test.ts': reads++ === 0 ? 'original' : 'weakened' }),
+    });
+    const r = await runWorkerCore({ project: 'p', todoId: 't1', cwd }, deps);
+    expect(r).toMatchObject({ outcome: 'escalated', kind: 'test-tampering' });
     expect(deps.calls.complete).toBe(0);
   });
 

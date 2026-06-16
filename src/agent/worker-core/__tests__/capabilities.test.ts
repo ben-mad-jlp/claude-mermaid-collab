@@ -8,7 +8,7 @@ import {
   type SubloopRole,
 } from '../capabilities';
 
-const ROLES: SubloopRole[] = ['sizegate', 'research', 'implement', 'verify', 'review'];
+const ROLES: SubloopRole[] = ['sizegate', 'research', 'authortests', 'implement', 'verify', 'review'];
 
 describe('worker-core capabilities', () => {
   it('every read-only role declares ZERO tree-mutating tools (the structural invariant)', () => {

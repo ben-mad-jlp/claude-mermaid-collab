@@ -10,6 +10,8 @@
  * bridge closes over project/todoId so the cwd-only runScopedGate can reach the
  * authoritative, todo-scoped gate).
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { getTodo as storeGetTodo } from '../../services/todo-store';
 import { resolveModel, anthropicAvailable, grokAvailable, providerAvailable, PROVIDER_IDS, DEFAULT_MODEL_BY_PROVIDER } from './resolve-model';
 import { getConfig } from '../../services/config-service';
@@ -25,7 +27,7 @@ import type { SubloopRole } from './capabilities';
  *  falls back to the run's base provider when its preferred provider has no key, so the
  *  recipe never hard-fails on a missing key. This is the DEFAULT; per-phase config
  *  keys (resolveTierRoute) override it. */
-const JUDGMENT_PHASES = new Set<SubloopRole>(['sizegate', 'research', 'verify', 'review']);
+const JUDGMENT_PHASES = new Set<SubloopRole>(['sizegate', 'research', 'authortests', 'verify', 'review']);
 
 export interface BridgeOpts {
   /** Base provider for this run — the per-tier fallback when the tier's preferred
@@ -52,6 +54,7 @@ export function providerForPhase(phase: SubloopRole, base: ProviderId): Provider
 const PHASE_CONFIG_SUFFIX: Record<SubloopRole, string> = {
   sizegate: 'SIZEGATE',
   research: 'RESEARCH',
+  authortests: 'AUTHORTESTS',
   implement: 'IMPLEMENT',
   verify: 'VERIFY',
   review: 'REVIEW',
@@ -115,6 +118,22 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
       const v = await runGate(project, todoId);
       if (!v) return { pass: true, errorSignatures: [] };
       return { pass: v.passed, errorSignatures: v.passed ? [] : v.reasons };
+    },
+
+    readWorktreeFiles: (laneCwd, paths) => {
+      // Snapshot the authored spec-test files for the anti-tamper guard. Path-guarded to
+      // the lane worktree; a missing/unreadable file reads as null (treated as changed
+      // if it later appears, which is the safe direction).
+      const out: Record<string, string | null> = {};
+      for (const rel of paths) {
+        try {
+          const abs = resolve(laneCwd, rel);
+          out[rel] = abs.startsWith(laneCwd) ? readFileSync(abs, 'utf8') : null;
+        } catch {
+          out[rel] = null;
+        }
+      }
+      return out;
     },
 
     completeAccepted: async (p, id) => {

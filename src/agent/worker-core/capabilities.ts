@@ -8,7 +8,7 @@
  * guarantee rather than a hope. A misconfiguration throws, loudly, at build time.
  */
 
-export type SubloopRole = 'sizegate' | 'research' | 'implement' | 'verify' | 'review';
+export type SubloopRole = 'sizegate' | 'research' | 'authortests' | 'implement' | 'verify' | 'review';
 
 export type ToolName =
   | 'read_file'
@@ -47,6 +47,9 @@ export function isReadOnlyRole(role: SubloopRole): boolean {
 export const ROLE_TOOLS: Record<SubloopRole, ToolName[]> = {
   sizegate: ['read_file', 'grep', 'glob', 'run_bash_ro'],
   research: ['read_file', 'grep', 'glob', 'run_bash_ro', 'create_diagram', 'get_diagram'],
+  // authortests is a WRITER phase (it creates the executable-spec test files) but a
+  // JUDGMENT-tier one — the strong model authors the contract the implementer must pass.
+  authortests: ['read_file', 'grep', 'glob', 'write_file', 'edit', 'run_bash', 'get_diagram'],
   implement: ['read_file', 'grep', 'glob', 'write_file', 'edit', 'run_bash'],
   verify: ['read_file', 'grep', 'glob', 'run_bash_ro', 'get_diagram'],
   review: ['read_file', 'grep', 'glob', 'run_bash_ro', 'get_diagram'],

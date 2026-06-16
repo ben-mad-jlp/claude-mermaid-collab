@@ -14,7 +14,7 @@
  */
 import type { LanguageModel } from 'ai';
 import { spawnSubloop } from './subloop';
-import { SplitProposalSchema, ResearchFindingsSchema, VerifyVerdictSchema, ReviewVerdictSchema } from './schemas';
+import { SplitProposalSchema, ResearchFindingsSchema, TestSpecSchema, VerifyVerdictSchema, ReviewVerdictSchema } from './schemas';
 import { sameSignatures } from './helpers';
 import type { SubloopRole } from './capabilities';
 import type { WorkerCoreEventSink, PhaseRoute } from './events';
@@ -45,6 +45,10 @@ export interface WorkerCoreDeps {
   runScopedGate: (cwd: string) => Promise<GateOutcome>;
   /** Host-authoritative completion (wraps handleWorkerComplete → resolveCompletion). */
   completeAccepted: (project: string, todoId: string) => Promise<void>;
+  /** Read worktree files (for the test-as-spec anti-tamper snapshot). Returns a map
+   *  of path → content (null if absent). Optional: when omitted, the anti-tamper guard
+   *  is skipped (e.g. pure tests). */
+  readWorktreeFiles?: (cwd: string, paths: string[]) => Record<string, string | null>;
   /** Raise a structured blocker (the model never self-resolves). */
   escalate: (project: string, todoId: string, kind: string, detail: string) => Promise<void>;
 }
@@ -70,8 +74,17 @@ const researchPrompt = (s: TodoSpec) =>
   `Then call the submit_verdict tool with your findings: ` +
   `{ "filesToEdit": string[], "plan": string, "testCommand"?: string, "behavioral": boolean, "specDiagramId"?: string }. Calling submit_verdict ENDS this phase.`;
 
-const implementPrompt = (s: TodoSpec, plan: string, files: string[]) =>
+const authorTestsPrompt = (s: TodoSpec, plan: string) =>
+  `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\nPLAN: ${plan}\n\n` +
+  `You author the EXECUTABLE SPEC: write FAILING test(s) that encode the REQUIRED behavior of this change (the contract the implementer must satisfy). Use the project's existing test framework/conventions (look at a sibling test). Write ONLY test files — do NOT implement the feature. ` +
+  `Run the tests to confirm they FAIL for the right reason (the behavior doesn't exist yet), then \`git add -A && git commit -m "test: spec for ${s.todoId}"\` and STOP. ` +
+  `Then call submit_verdict with { "wroteTests": boolean, "testFiles": string[], "testCommand"?: string } — testFiles = the exact paths you authored. If the leaf genuinely can't be expressed as a test, return wroteTests:false with empty testFiles.`;
+
+const implementPrompt = (s: TodoSpec, plan: string, files: string[], specTestFiles: string[]) =>
   `TASK: ${s.title}\n\nIMPLEMENT this plan exactly (edit only these files: ${files.join(', ')}):\n${plan}\n\n` +
+  (specTestFiles.length
+    ? `These test files are the SPEC — make them PASS, and do NOT modify them (changing a spec test is drift and will be rejected): ${specTestFiles.join(', ')}\n\n`
+    : '') +
   `Make the edits. If there are tests run them; if there are none, skip. Then run \`git add -A && git commit -m "<summary>"\` and STOP IMMEDIATELY — do not keep exploring or re-listing files. Do not report completion.`;
 
 const verifyPrompt = (s: TodoSpec, plan: string, specDiagramId?: string) =>
@@ -127,11 +140,38 @@ export async function runWorkerCore(
   }
   const { plan, filesToEdit, specDiagramId } = research.object;
 
+  // 1.5. TEST-AS-SPEC (behavioral leaves): the judgment-tier model AUTHORS failing
+  //      tests = the executable contract; the implementer must pass them and must NOT
+  //      weaken them (drift caught mechanically by the snapshot guard below). Best-
+  //      effort — if no tests are authored, the recipe degrades to the prior flow.
+  let specTestFiles: string[] = [];
+  let specSnapshot: Record<string, string | null> = {};
+  if (spec.behavioral || research.object.behavioral) {
+    const authored = await runPhase('authortests', authorTestsPrompt(spec, plan), { schema: TestSpecSchema, stepCap: 10 });
+    if (authored.object?.wroteTests && authored.object.testFiles.length > 0) {
+      specTestFiles = authored.object.testFiles;
+      specSnapshot = deps.readWorktreeFiles?.(cwd, specTestFiles) ?? {};
+    }
+  }
+
   // 2-3. IMPLEMENT → VERIFY → host fix loop (self-terminating).
   let lastSig: string[] | null = null;
   let converged = false;
   for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
-    await runPhase('implement', implementPrompt(spec, plan, filesToEdit), { stepCap: 12 });
+    await runPhase('implement', implementPrompt(spec, plan, filesToEdit, specTestFiles), { stepCap: 12 });
+
+    // Anti-tamper: the authored spec tests must be byte-identical after implement —
+    // an implementer that edits a spec test to make it pass is gaming the gate (the
+    // bakeoff failure mode). A changed spec file → escalate, never silently accept.
+    if (specTestFiles.length > 0 && deps.readWorktreeFiles) {
+      const after = deps.readWorktreeFiles(cwd, specTestFiles);
+      const tampered = specTestFiles.filter((f) => after[f] !== specSnapshot[f]);
+      if (tampered.length > 0) {
+        const detail = `implementer modified the spec tests (test-as-spec violation): ${tampered.join(', ')}`;
+        await deps.escalate(project, todoId, 'test-tampering', detail);
+        return { outcome: 'escalated', kind: 'test-tampering', detail };
+      }
+    }
 
     const verify = await runPhase('verify', verifyPrompt(spec, plan, specDiagramId), { schema: VerifyVerdictSchema, stepCap: 6 });
     const gate = await deps.runScopedGate(cwd);

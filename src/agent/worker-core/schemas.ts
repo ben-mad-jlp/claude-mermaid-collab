@@ -40,6 +40,17 @@ export const ResearchFindingsSchema = z.object({
 });
 export type ResearchFindings = z.infer<typeof ResearchFindingsSchema>;
 
+/** authortests → implement. The executable spec: the test files authored by the
+ *  judgment-tier model that the implementer must make pass and must NOT weaken
+ *  (test-as-spec anti-drift, north-star §7). */
+export const TestSpecSchema = z.object({
+  wroteTests: z.boolean(),
+  /** Paths (relative to the worktree) of the test files authored as the spec. */
+  testFiles: z.array(z.string()).default([]),
+  testCommand: z.string().optional(),
+});
+export type TestSpec = z.infer<typeof TestSpecSchema>;
+
 /** verify → (host fix loop). Pass + the error signatures that drive stuck-detection. */
 export const VerifyVerdictSchema = z.object({
   pass: z.boolean(),
