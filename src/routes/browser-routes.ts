@@ -1,5 +1,6 @@
 import { ensureTab, focusTab, listActiveSessions, CDP_PORT, setElectronTarget, clearElectronTarget } from '../services/cdp-session.js';
 import type { WebSocketHandler } from '../websocket/handler.js';
+import { MC_BROWSER_TARGET } from '../config.js';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -51,6 +52,11 @@ export async function handleBrowserRoutes(req: Request, url: URL, wsHandler: Web
   if (url.pathname === '/api/browser/electron-target' && req.method === 'DELETE') {
     clearElectronTarget();
     return Response.json({ success: true });
+  }
+
+  // GET /api/browser/mode → { mode, streamed }
+  if (url.pathname === '/api/browser/mode' && req.method === 'GET') {
+    return Response.json({ mode: MC_BROWSER_TARGET, streamed: MC_BROWSER_TARGET === 'streamed-panel' });
   }
 
   return null;
