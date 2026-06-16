@@ -553,4 +553,36 @@ describe('WebSocketHandler', () => {
       expect(mockWebSockets[1].send).toHaveBeenCalledOnce();
     });
   });
+
+  describe('broadcastBrowserFrame()', () => {
+    it('should deliver browser_frame only to subscribers of the matching browser:<session> channel', () => {
+      const ws1 = createMockWS(); // subscribes to browser:s1
+      const ws2 = createMockWS(); // subscribes to browser:s2
+      const ws3 = createMockWS(); // no subscription
+
+      handler.handleConnection(ws1);
+      handler.handleConnection(ws2);
+      handler.handleConnection(ws3);
+
+      ws1.data.subscriptions.add('channel:browser:s1');
+      ws2.data.subscriptions.add('channel:browser:s2');
+
+      const frame = {
+        data: 'base64jpeg==',
+        meta: { offsetTop: 0, pageScaleFactor: 1, deviceWidth: 1280, deviceHeight: 720, timestamp: 1.0 },
+      };
+
+      handler.broadcastBrowserFrame('s1', frame);
+
+      expect(mockWebSockets[0].send).toHaveBeenCalledOnce();
+      expect(mockWebSockets[1].send).not.toHaveBeenCalled();
+      expect(mockWebSockets[2].send).not.toHaveBeenCalled();
+
+      const sent = JSON.parse(mockWebSockets[0].send.mock.calls[0][0]);
+      expect(sent.type).toBe('browser_frame');
+      expect(sent.session).toBe('s1');
+      expect(sent.data).toBe('base64jpeg==');
+      expect(sent.meta.deviceWidth).toBe(1280);
+    });
+  });
 });

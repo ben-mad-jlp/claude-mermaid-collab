@@ -194,6 +194,46 @@ const wsHandler = new WebSocketHandler();
 
 // Initialize WebSocket handler manager for global access
 initializeWebSocketHandler(wsHandler);
+
+// Demand-driven bridge: subscribe a WS-broadcasting ScreencastService sink only while
+// a browser:<session> channel has viewers. The ScreencastService is lazy — CDP capture
+// starts on first subscriber and stops on last unsubscribe — so this ensures no capture
+// runs when nobody is watching.
+const screencastUnsubscribers = new Map<string, () => void>();
+if (screencastService) {
+  wsHandler.setOnChannelSubscriptionChange((channel, count) => {
+    const prefix = 'browser:';
+    if (!channel.startsWith(prefix)) return;
+    const session = channel.slice(prefix.length);
+    if (count === 1 && !screencastUnsubscribers.has(session)) {
+      // First viewer — attach sink (mark pending so a rapid second subscribe doesn't double-attach)
+      screencastUnsubscribers.set(session, () => {});
+      const sink = (frame: { data: string; metadata: any; sessionName: string }) => {
+        wsHandler.broadcastBrowserFrame(frame.sessionName, {
+          data: frame.data,
+          meta: {
+            offsetTop: frame.metadata.offsetTop,
+            pageScaleFactor: frame.metadata.pageScaleFactor,
+            deviceWidth: frame.metadata.deviceWidth,
+            deviceHeight: frame.metadata.deviceHeight,
+            timestamp: frame.metadata.timestamp,
+          },
+        });
+      };
+      screencastService!.subscribe(session, sink).then((unsub) => {
+        screencastUnsubscribers.set(session, unsub);
+      }).catch((err: unknown) => {
+        screencastUnsubscribers.delete(session);
+        console.error(`mermaid-collab: screencast subscribe failed for ${session} —`, err);
+      });
+    } else if (count === 0) {
+      // Last viewer left — detach sink
+      const unsub = screencastUnsubscribers.get(session);
+      if (unsub) { unsub(); screencastUnsubscribers.delete(session); }
+    }
+  });
+}
+
 const sweeper = new BindingSweeper();
 sweeper.start();
 
@@ -563,6 +603,8 @@ process.on('SIGINT', () => {
   cancelSupervisorHeartbeat();
   console.log('\n🛑 SIGINT received, shutting down gracefully...');
   sweeper.stop();
+  for (const unsub of screencastUnsubscribers.values()) { try { unsub(); } catch {} }
+  screencastUnsubscribers.clear();
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
@@ -577,6 +619,8 @@ process.on('SIGTERM', () => {
   cancelSupervisorHeartbeat();
   console.log('\n🛑 SIGTERM received, shutting down gracefully...');
   sweeper.stop();
+  for (const unsub of screencastUnsubscribers.values()) { try { unsub(); } catch {} }
+  screencastUnsubscribers.clear();
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}

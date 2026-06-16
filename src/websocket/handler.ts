@@ -127,11 +127,15 @@ export type WSMessage =
       lifecycle: 'start' | 'end'; role: string; provider?: string; model?: string;
       source?: string; winningScope?: string;
       usage?: { inputTokens?: number; outputTokens?: number }; costUsd?: number; steps?: number; ts: number }
-  | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string }> };
+  | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string }> }
+  | { type: 'browser_frame'; session: string; data: string; meta: {
+      offsetTop: number; pageScaleFactor: number; deviceWidth: number;
+      deviceHeight: number; timestamp?: number } };
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
   private onConnectionsChanged: ((n: number) => void) | null = null;
+  private onChannelSubscriptionChange: ((channel: string, count: number) => void) | null = null;
   private agentDispatcher: AgentDispatcherLike | null = null;
 
   setOnConnectionsChanged(cb: (n: number) => void): void {
@@ -144,6 +148,19 @@ export class WebSocketHandler {
 
   setAgentDispatcher(dispatcher: AgentDispatcherLike): void {
     this.agentDispatcher = dispatcher;
+  }
+
+  setOnChannelSubscriptionChange(cb: (channel: string, count: number) => void): void {
+    this.onChannelSubscriptionChange = cb;
+  }
+
+  private countChannelSubscribers(channel: string): number {
+    const key = `channel:${channel}`;
+    let count = 0;
+    for (const ws of this.connections) {
+      if (ws.data.subscriptions.has(key)) count++;
+    }
+    return count;
   }
 
   handleConnection(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void {
@@ -170,6 +187,7 @@ export class WebSocketHandler {
         } else if (data.channel) {
           // General channel subscription (new)
           ws.data.subscriptions.add(`channel:${data.channel}`);
+          this.onChannelSubscriptionChange?.(data.channel, this.countChannelSubscribers(data.channel));
           // Send current state immediately so client doesn't wait for the next change
           if (data.channel === 'ide') {
             ws.send(JSON.stringify({ type: 'ide_status', connected: ideState.getStatus().connected }));
@@ -196,6 +214,7 @@ export class WebSocketHandler {
           ws.data.subscriptions.delete(data.id);
         } else if (data.channel) {
           ws.data.subscriptions.delete(`channel:${data.channel}`);
+          this.onChannelSubscriptionChange?.(data.channel, this.countChannelSubscribers(data.channel));
         }
       } else if (
         data.type === 'agent_start' ||
@@ -429,6 +448,16 @@ export class WebSocketHandler {
 
   broadcastBrowserTabUpdate(session: string, active: boolean): void {
     this.broadcast({ type: 'browser_tab_update', session, active });
+  }
+
+  broadcastBrowserFrame(session: string, frame: {
+    data: string;
+    meta: { offsetTop: number; pageScaleFactor: number; deviceWidth: number;
+            deviceHeight: number; timestamp?: number };
+  }): void {
+    this.broadcastToChannel(`browser:${session}`, {
+      type: 'browser_frame', session, data: frame.data, meta: frame.meta,
+    });
   }
 
   getConnectionCount(): number {
