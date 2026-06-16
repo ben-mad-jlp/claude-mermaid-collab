@@ -12,6 +12,7 @@ export default defineConfig({
       'src/types/update-log.test.ts',
       'src/services/__tests__/question-manager.test.ts',
       'src/services/__tests__/todo-store.test.ts',
+      'src/services/__tests__/worker-ledger.test.ts',
       'src/services/__tests__/system-object-store.test.ts',
       'src/services/__tests__/system-object-bom.test.ts',
       'src/services/__tests__/system-object-edges.test.ts',

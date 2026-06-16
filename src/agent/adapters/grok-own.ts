@@ -42,6 +42,8 @@ import { spawnSync } from 'node:child_process';
 import { DEFAULT_EVENT_POLL_MS } from '../worker-agent';
 import { getTodo } from '../../services/todo-store';
 import { getConfig } from '../../services/config-service';
+import { recordPhase } from '../../services/worker-ledger';
+import { knownPricing } from '../worker-core/cost';
 import type {
   WorkerAgent,
   WorkerEvent,
@@ -341,6 +343,22 @@ class GrokOwnHarnessImpl implements WorkerAgent {
             } else if (e.type === 'phase-end') {
               // Per-phase cost line → the live transcript + the run total (cost ledger).
               runCostUsd += e.costUsd ?? 0;
+              // Durable, queryable audit trail (north-star §6) — best-effort, never throws.
+              recordPhase({
+                project: spec.project,
+                todoId,
+                session: spec.session,
+                phase: e.role,
+                provider: e.route?.provider ?? this.id,
+                model: e.model ?? '?',
+                source: e.route?.source ?? 'default',
+                inputTokens: e.usage?.inputTokens ?? 0,
+                outputTokens: e.usage?.outputTokens ?? 0,
+                costUsd: e.costUsd ?? 0,
+                knownPrice: knownPricing(e.model),
+                steps: e.steps,
+                parseError: e.parseError ?? null,
+              });
               const tok = e.usage ? `${e.usage.inputTokens ?? 0}/${e.usage.outputTokens ?? 0} tok` : '';
               lane.step += 1;
               lane.transcript.push({

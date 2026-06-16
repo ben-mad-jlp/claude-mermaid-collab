@@ -2780,6 +2780,29 @@ export async function handleAPI(
     });
   }
 
+  // GET /api/worker-ledger?project=&todoId=&since=&limit=&summary=
+  // Read-only query over the durable model-call ledger (north-star §6): per-phase
+  // provider/model/token/cost records for completed + in-flight worker runs. With
+  // summary=true returns the aggregate roll-up (per-phase + per-model cost) instead
+  // of raw rows — what makes the tier matrix tunable on real cost.
+  if (path === '/api/worker-ledger' && req.method === 'GET') {
+    const { queryLedger, summarize } = await import('../services/worker-ledger');
+    const project = url.searchParams.get('project') ?? undefined;
+    const todoId = url.searchParams.get('todoId') ?? undefined;
+    const sinceRaw = url.searchParams.get('since');
+    const limitRaw = url.searchParams.get('limit');
+    const q = {
+      project,
+      todoId,
+      since: sinceRaw ? Number(sinceRaw) : undefined,
+      limit: limitRaw ? Number(limitRaw) : undefined,
+    };
+    if (url.searchParams.get('summary') === 'true') {
+      return Response.json(summarize(q));
+    }
+    return Response.json({ rows: queryLedger(q) });
+  }
+
   // POST /api/worker-inject { project, session, text }
   // Steer an in-process grok-build lane: queues a human follow-up that lands as a
   // user turn at the NEXT step boundary. Graceful no-op for claude/unknown lanes.
