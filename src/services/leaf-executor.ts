@@ -27,7 +27,7 @@ import { ClaudeNodeInvoker, assertSubscriptionAuth } from '../agent/node-invoker
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
-import { recordNode } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight } from './worker-ledger';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -97,6 +97,11 @@ export interface LeafExecutorDeps {
   }) => void;
   /** Append a best-effort node-ledger row. */
   recordNode: typeof recordNode;
+  /** LIVE in-flight signal (optional): mark/clear the leaf as running a node so separate
+   *  processes (UI, MCP, daemon_status) can see "on node X, Ns elapsed". Best-effort; the
+   *  floor/tests run fine unwired. */
+  setInflight?: (e: { project: string; leafId: string; epicId?: string | null; nodeKind?: string | null; model?: string | null; attempt?: number | null }) => void;
+  clearInflight?: (leafId: string) => void;
   /** Master node budget override (TEST seam). Default {@link NODE_BUDGET}=20. The
    *  floor structurally spends ≤6 nodes (3/attempt × cap 2); this backstop catches a
    *  runaway node (e.g. one that internally loops). Lowerable in tests to exercise
@@ -447,7 +452,15 @@ export async function runLeaf(
     extra?: { verdict?: 'pass' | 'fail' | null; leafOutcome?: LeafRunResult['outcome'] | null },
   ): Promise<NodeResult> => {
     state.nodesSpent += 1;
-    const res = await deps.invoker.invoke(spec);
+    // LIVE signal: mark the leaf as running THIS node before the (slow) spawn, clear it
+    // the instant the node returns — so the in-flight node is visible cross-process.
+    deps.setInflight?.({ project, leafId: leaf.id, epicId, nodeKind: kind, model: NODE_PROFILE[kind].model, attempt: state.attempt });
+    let res: NodeResult;
+    try {
+      res = await deps.invoker.invoke(spec);
+    } finally {
+      deps.clearInflight?.(leaf.id);
+    }
     try {
       deps.recordNode({
         project,
@@ -865,6 +878,8 @@ export async function makeLeafExecutorDeps(
       wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
     escalate: createEscalation,
     recordNode,
+    setInflight: setLeafInflight,
+    clearInflight: clearLeafInflight,
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
     readBlueprint: async (cwd, lf) => {
       try {

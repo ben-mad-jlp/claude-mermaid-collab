@@ -130,6 +130,20 @@ function openDb(): Database {
   add('leafOutcome', 'TEXT'); // 'accepted'|'blocked'|'rejected'|'paused'|null (terminal)
   add('outputText', 'TEXT'); // node's final output text (diagnostic + UI source)
   add('outcomeDetail', 'TEXT'); // atomic terminal record (JSON) on the outcome marker row
+  // LIVE in-flight signal: the append-only ledger only gets a row when a node COMPLETES,
+  // so a running node is invisible (the "3 minutes of silence" blind spot). This tiny
+  // table holds exactly one row per CURRENTLY-running leaf (cross-process via SQLite, so
+  // the UI/MCP — separate processes from the executor — can see it), set at node start and
+  // cleared the instant the node finishes. Stale rows (hard crash) are aged out by readers.
+  db.exec(`CREATE TABLE IF NOT EXISTS leaf_inflight (
+    leafId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    epicId TEXT,
+    nodeKind TEXT,
+    model TEXT,
+    attempt INTEGER,
+    startedAt INTEGER NOT NULL
+  )`);
   return db;
 }
 
@@ -241,6 +255,44 @@ export function recordNode(
     },
     now,
   );
+}
+
+// --- LIVE in-flight signal (leaf_inflight) ------------------------------------
+export interface InflightEntry {
+  leafId: string;
+  project: string;
+  epicId?: string | null;
+  nodeKind?: string | null;
+  model?: string | null;
+  attempt?: number | null;
+}
+export interface InflightRow extends InflightEntry { startedAt: number }
+
+/** Mark a leaf as RUNNING a node (upsert — one row per leaf). Best-effort. */
+export function setLeafInflight(e: InflightEntry, now: number = Date.now()): void {
+  try {
+    openDb().prepare(
+      `INSERT INTO leaf_inflight (leafId, project, epicId, nodeKind, model, attempt, startedAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(leafId) DO UPDATE SET
+         project=excluded.project, epicId=excluded.epicId, nodeKind=excluded.nodeKind,
+         model=excluded.model, attempt=excluded.attempt, startedAt=excluded.startedAt`,
+    ).run(e.leafId, e.project, e.epicId ?? null, e.nodeKind ?? null, e.model ?? null, e.attempt ?? null, now);
+  } catch { /* telemetry — never break the run */ }
+}
+
+/** Clear a leaf's in-flight row (node finished / leaf terminal). Best-effort. */
+export function clearLeafInflight(leafId: string): void {
+  try { openDb().prepare('DELETE FROM leaf_inflight WHERE leafId = ?').run(leafId); } catch { /* best-effort */ }
+}
+
+/** List currently-running leaves (newest-started first). Optional project filter. */
+export function listLeafInflight(opts: { project?: string } = {}): InflightRow[] {
+  try {
+    const d = openDb();
+    const sql = `SELECT * FROM leaf_inflight${opts.project ? ' WHERE project = ?' : ''} ORDER BY startedAt DESC`;
+    return d.query(sql).all(...((opts.project ? [opts.project] : []) as never[])) as InflightRow[];
+  } catch { return []; }
 }
 
 /** Query raw ledger rows (newest first), filtered by project/todo/time. */
