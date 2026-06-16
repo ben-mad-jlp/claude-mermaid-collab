@@ -39,6 +39,7 @@ import { funnelCounts, excludeEpics } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
+import { LaneCallout } from './LaneCallout';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
 
@@ -521,9 +522,12 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                       project={project}
                     />
                   ) : selectedTodoId ? (
-                    <div className="p-3">
-                      <TodoDetailView todoId={selectedTodoId} />
-                    </div>
+                    <>
+                      <LaneCallout todoId={selectedTodoId} project={project} serverId={serverScope} />
+                      <div className="p-3">
+                        <TodoDetailView todoId={selectedTodoId} />
+                      </div>
+                    </>
                   ) : (
                     <p className="p-3 text-xs text-gray-400 dark:text-gray-500 italic">
                       Click a todo to see its description, or an epic in the Plan below for its escalation &amp; decision history.
