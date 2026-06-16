@@ -39,9 +39,11 @@ describe('buildToolset', () => {
     expect(parsed.totalLines).toBe(2);
   });
 
-  it('exposes the wired tools (diagrams still pending the collab funnel)', () => {
+  it('exposes the wired tools (incl. the diagram-as-spec funnel)', () => {
     expect(WIRED_TOOLS.sort()).toEqual([
+      'create_diagram',
       'edit',
+      'get_diagram',
       'glob',
       'grep',
       'read_file',
@@ -49,5 +51,20 @@ describe('buildToolset', () => {
       'run_bash_ro',
       'write_file',
     ]);
+  });
+
+  it('diagram tools require a collab project+session — skipped without one, present with one', () => {
+    // No project/session → research omits the diagram tools (worktree-only / tests).
+    const bare = buildToolset('research', { cwd });
+    expect(bare).not.toHaveProperty('create_diagram');
+    expect(bare).not.toHaveProperty('get_diagram');
+    // With a collab project+session → research gets the diagram-as-spec tools.
+    const full = buildToolset('research', { cwd, project: '/p', session: 's' });
+    expect(full).toHaveProperty('create_diagram');
+    expect(full).toHaveProperty('get_diagram');
+    // create_diagram is non-mutating, so a read-only role (verify) may also hold get_diagram.
+    const verify = buildToolset('verify', { cwd, project: '/p', session: 's' });
+    expect(verify).toHaveProperty('get_diagram');
+    expect(verify).not.toHaveProperty('write_file');
   });
 });

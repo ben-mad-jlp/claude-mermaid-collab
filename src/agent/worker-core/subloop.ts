@@ -31,6 +31,10 @@ export interface SubloopCtx {
   /** The routing decision for this phase (provider + model + why) — emitted in the
    *  phase-start/phase-end events for routing visibility (north-star §6). */
   route?: PhaseRoute;
+  /** The run's collab project + session — enables the diagram-as-spec tools
+   *  (create_diagram / get_diagram). Omitted in pure tests → those tools are skipped. */
+  project?: string;
+  session?: string;
 }
 
 export interface SubloopOpts<T> {
@@ -75,7 +79,9 @@ export async function spawnSubloop<T = unknown>(
   prompt: string,
   opts: SubloopOpts<T> = {},
 ): Promise<SubloopResult<T>> {
-  const tools: Record<string, Tool> = { ...buildToolset(role, { cwd: ctx.cwd }) }; // fresh, capability-gated
+  const tools: Record<string, Tool> = {
+    ...buildToolset(role, { cwd: ctx.cwd, project: ctx.project, session: ctx.session }),
+  }; // fresh, capability-gated
   const now = () => Date.now();
   const modelId = (ctx.model as { modelId?: string }).modelId;
   const phaseUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };

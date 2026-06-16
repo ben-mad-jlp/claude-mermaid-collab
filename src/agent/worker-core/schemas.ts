@@ -34,6 +34,9 @@ export const ResearchFindingsSchema = z.object({
   /** Name of the before/after diagram posted to the collab tree (the contract
    *  verify/review judge the change-set against). */
   specDiagramName: z.string().optional(),
+  /** Id returned by create_diagram for the before/after diagram-as-spec — passed to
+   *  verify/review so they read the contract back via get_diagram. */
+  specDiagramId: z.string().optional(),
 });
 export type ResearchFindings = z.infer<typeof ResearchFindingsSchema>;
 

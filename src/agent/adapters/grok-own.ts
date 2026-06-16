@@ -318,6 +318,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
           project: spec.project,
           todoId,
           cwd,
+          session: spec.session,
           abortSignal: lane.controller.signal,
           // Sink worker-core phase events into the SAME live transcript the Bridge
           // console reads (/api/worker-transcript) — the worker-core path is observable

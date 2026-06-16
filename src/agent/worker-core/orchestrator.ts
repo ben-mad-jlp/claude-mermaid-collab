@@ -65,27 +65,33 @@ const sizegatePrompt = (s: TodoSpec) =>
 const researchPrompt = (s: TodoSpec) =>
   `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\n` +
   `Do MINIMAL exploration — at most 1-2 read-only commands, ONLY inside the current worktree (NEVER explore the wider filesystem with paths like / or /app). ` +
-  `If the task is self-explanatory, do NOT explore at all. Then call the submit_verdict tool with your findings: ` +
-  `{ "filesToEdit": string[], "plan": string, "testCommand"?: string, "behavioral": boolean }. Calling submit_verdict ENDS this phase.`;
+  `If the task is self-explanatory, do NOT explore at all. ` +
+  `If this is a BEHAVIORAL change (it changes runtime behavior, not pure docs/config), FIRST call create_diagram with a SHORT before/after Mermaid flowchart capturing the behavior change (the DIAGRAM-AS-SPEC the reviewer will judge against), and put the returned id in specDiagramId. Skip the diagram for trivial/non-behavioral leaves. ` +
+  `Then call the submit_verdict tool with your findings: ` +
+  `{ "filesToEdit": string[], "plan": string, "testCommand"?: string, "behavioral": boolean, "specDiagramId"?: string }. Calling submit_verdict ENDS this phase.`;
 
 const implementPrompt = (s: TodoSpec, plan: string, files: string[]) =>
   `TASK: ${s.title}\n\nIMPLEMENT this plan exactly (edit only these files: ${files.join(', ')}):\n${plan}\n\n` +
   `Make the edits. If there are tests run them; if there are none, skip. Then run \`git add -A && git commit -m "<summary>"\` and STOP IMMEDIATELY — do not keep exploring or re-listing files. Do not report completion.`;
 
-const verifyPrompt = (s: TodoSpec, plan: string) =>
-  `SPEC: ${s.title}\nPLAN: ${plan}\n\nYou did NOT write this code. Briefly + independently verify the change-set satisfies the spec (read/check as needed, but be concise — a few checks at most). ` +
+const verifyPrompt = (s: TodoSpec, plan: string, specDiagramId?: string) =>
+  `SPEC: ${s.title}\nPLAN: ${plan}\n` +
+  (specDiagramId ? `DIAGRAM-AS-SPEC: call get_diagram with id "${specDiagramId}" — the before/after contract; judge the change-set against it.\n` : '') +
+  `\nYou did NOT write this code. Briefly + independently verify the change-set satisfies the spec (read/check as needed, but be concise — a few checks at most). ` +
   `Then call the submit_verdict tool with: { "pass": boolean, "failingChecks": string[], "errorSignatures": string[] }. ` +
   `Calling submit_verdict is the ONLY way to finish this phase — do it as soon as you have a verdict, do not keep re-checking.`;
 
-const reviewPrompt = (s: TodoSpec) =>
-  `SPEC: ${s.title}\n${s.description ?? ''}\n\nRead-only completeness review of the change-set vs the spec — missing cases / spec drift / stopped-early. ` +
+const reviewPrompt = (s: TodoSpec, specDiagramId?: string) =>
+  `SPEC: ${s.title}\n${s.description ?? ''}\n` +
+  (specDiagramId ? `DIAGRAM-AS-SPEC: call get_diagram with id "${specDiagramId}" — the before/after contract to review completeness against.\n` : '') +
+  `\nRead-only completeness review of the change-set vs the spec — missing cases / spec drift / stopped-early. ` +
   `Then call the submit_verdict tool with: { "complete": boolean, "gaps": string[] }. Calling it ENDS the phase.`;
 
 export async function runWorkerCore(
-  ctx: { project: string; todoId: string; cwd: string; abortSignal?: AbortSignal; onEvent?: WorkerCoreEventSink },
+  ctx: { project: string; todoId: string; cwd: string; session?: string; abortSignal?: AbortSignal; onEvent?: WorkerCoreEventSink },
   deps: WorkerCoreDeps,
 ): Promise<WorkerCoreOutcome> {
-  const { project, todoId, cwd, abortSignal, onEvent } = ctx;
+  const { project, todoId, cwd, session, abortSignal, onEvent } = ctx;
   const spec = deps.getTodo(project, todoId);
   if (!spec) return { outcome: 'noop', reason: 'todo not found' };
 
@@ -93,7 +99,7 @@ export async function runWorkerCore(
   // carried into the events purely for observability — north-star §6).
   const runPhase = <T>(role: SubloopRole, prompt: string, opts?: { schema?: import('zod').ZodType<T>; stepCap?: number }) =>
     spawnSubloop<T>(
-      { cwd, model: deps.resolveModel(role), abortSignal, onEvent, route: deps.describeRoute?.(role) },
+      { cwd, model: deps.resolveModel(role), abortSignal, onEvent, route: deps.describeRoute?.(role), project, session },
       role,
       prompt,
       opts ?? {},
@@ -119,7 +125,7 @@ export async function runWorkerCore(
     await deps.escalate(project, todoId, 'research-failed', detail);
     return { outcome: 'escalated', kind: 'research-failed', detail };
   }
-  const { plan, filesToEdit } = research.object;
+  const { plan, filesToEdit, specDiagramId } = research.object;
 
   // 2-3. IMPLEMENT → VERIFY → host fix loop (self-terminating).
   let lastSig: string[] | null = null;
@@ -127,7 +133,7 @@ export async function runWorkerCore(
   for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
     await runPhase('implement', implementPrompt(spec, plan, filesToEdit), { stepCap: 12 });
 
-    const verify = await runPhase('verify', verifyPrompt(spec, plan), { schema: VerifyVerdictSchema, stepCap: 6 });
+    const verify = await runPhase('verify', verifyPrompt(spec, plan, specDiagramId), { schema: VerifyVerdictSchema, stepCap: 6 });
     const gate = await deps.runScopedGate(cwd);
 
     if (verify.object?.pass === true && gate.pass) {
@@ -156,7 +162,7 @@ export async function runWorkerCore(
 
   // 4. COMPLETENESS REVIEW (behavioral leaves only).
   if (spec.behavioral || research.object.behavioral) {
-    const review = await runPhase('review', reviewPrompt(spec), { schema: ReviewVerdictSchema });
+    const review = await runPhase('review', reviewPrompt(spec, specDiagramId), { schema: ReviewVerdictSchema });
     if (review.object && review.object.complete === false && review.object.gaps.length > 0) {
       const detail = `completeness review found gaps: ${review.object.gaps.join('; ')}`;
       await deps.escalate(project, todoId, 'incomplete', detail);
