@@ -40,6 +40,7 @@ import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { TodoWorkerPanel } from './LaneCallout';
+import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
 
@@ -377,7 +378,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'todos' | 'workers' | 'stream' | 'detail'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'todos' | 'workers' | 'stream' | 'executor' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -458,6 +459,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
                     { key: 'workers', label: 'Workers', count: workerSubs.length },
                     { key: 'stream', label: 'Stream' },
+                    { key: 'executor', label: 'Executor' },
                     ...((selectedTodoId || selectedEpic)
                       ? [{ key: 'detail' as const, label: selectedEpic ? 'Epic' : 'Todo', closable: true }]
                       : []),
@@ -508,6 +510,11 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                   )}
                   {bridgeTab === 'workers' && <div className="p-2"><WorkerRoster embedded subscriptions={workerSubs} todos={todos} onJump={handleJump} /></div>}
                   {bridgeTab === 'stream' && <div className="p-2"><StreamTicker embedded events={projectStreamEvents} /></div>}
+                  {bridgeTab === 'executor' && (
+                    <div className="p-2">
+                      <ExecutorStatsPanel project={project} serverScope={serverScope} />
+                    </div>
+                  )}
                   {bridgeTab === 'detail' && (
                     selectedEpic ? (
                       <EpicHistoryView
