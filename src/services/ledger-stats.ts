@@ -253,3 +253,58 @@ export function getFleetStats(
     },
   };
 }
+
+/** One-line-per-leaf run summary (newest-first) — the triage list behind the
+ *  `leaf_failures` / `leaf_runs` MCP tool. Groups ledger rows by leafId and reads the
+ *  terminal marker for the authoritative outcome + reason. */
+export interface LeafRunSummary {
+  leafId: string;
+  project: string;
+  epicId: string | null;
+  finalOutcome: LeafRunStats['finalOutcome'];
+  reviewVerdict: 'pass' | 'fail' | null;
+  /** Human reason from the atomic terminal record (reason ?? pendingReason). */
+  reason: string | null;
+  pathTaken: 'floor' | 'waves' | null;
+  lastTs: number;
+  nodesSpent: number;
+  costUsd: number;
+}
+
+export function listLeafRuns(
+  opts: { project?: string; epicId?: string; sinceTs?: number; limit?: number } = {},
+): LeafRunSummary[] {
+  const rows = queryLedger({ project: opts.project, epicId: opts.epicId, since: opts.sinceTs, limit: 2000 })
+    .filter((r) => r.leafId != null);
+  const byLeaf = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const id = r.leafId as string;
+    let g = byLeaf.get(id);
+    if (!g) { g = []; byLeaf.set(id, g); }
+    g.push(r);
+  }
+  const out: LeafRunSummary[] = [];
+  for (const [leafId, group] of byLeaf) {
+    const markers = group.filter(isOutcomeMarker);
+    const nodeRows = group.filter((r) => !isOutcomeMarker(r));
+    // queryLedger returns newest-first, so the LATEST marker is the max-ts one (NOT
+    // markers[last], which is the oldest). A re-run leaf must report its newest outcome.
+    const lastMarker = [...markers].sort((a, b) => a.ts - b.ts).pop();
+    let terminal: LeafRunStats['terminal'] = null;
+    if (lastMarker?.outcomeDetail) { try { terminal = JSON.parse(lastMarker.outcomeDetail); } catch { terminal = null; } }
+    out.push({
+      leafId,
+      project: group[0].project,
+      epicId: group[0].epicId ?? null,
+      finalOutcome: (lastMarker?.leafOutcome as LeafRunStats['finalOutcome']) ?? null,
+      reviewVerdict: (lastMarker?.verdict as 'pass' | 'fail' | undefined) ?? null,
+      reason: terminal?.reason ?? terminal?.pendingReason ?? null,
+      pathTaken: terminal?.pathTaken ?? null,
+      lastTs: Math.max(...group.map((r) => r.ts)),
+      nodesSpent: nodeRows.reduce((s, r) => s + (r.nodesSpent ?? 0), 0) || nodeRows.length,
+      costUsd: group.reduce((s, r) => s + (r.costUsd ?? 0), 0),
+    });
+  }
+  out.sort((a, b) => b.lastTs - a.lastTs);
+  return opts.limit ? out.slice(0, opts.limit) : out;
+}
