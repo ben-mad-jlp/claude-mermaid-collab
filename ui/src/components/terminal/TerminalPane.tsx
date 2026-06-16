@@ -72,13 +72,19 @@ function TerminalConsoleInner({
   // Re-point hook published by the active connection effect; the tmuxBase effect
   // calls it to switch targets on the live WS without tearing it down.
   const repointRef = useRef<((target: string | null) => void) | null>(null);
+  // Manual reconnect hook published by the effect; the disconnected overlay's
+  // "Reconnect" button calls it to retry immediately (skip the backoff wait).
+  const reconnectRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     onConnChange?.(conn);
   }, [conn, onConnChange]);
 
-  // Per-server connection lifecycle: one xterm + one WebSocket to the persistent
-  // PTY. Re-runs (full teardown) only when the server changes.
+  // Per-server connection lifecycle: ONE xterm (kept alive across reconnects so
+  // scrollback + sizing survive) and a WebSocket that AUTO-RECONNECTS with backoff.
+  // The effect re-runs (full teardown) only when the server changes; a dropped
+  // socket (sidecar restart, proxy blip) reconnects in place and re-syncs — instead
+  // of leaving a blank pane behind a "connected"-looking xterm.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -103,9 +109,15 @@ function TerminalConsoleInner({
     // reading undefined renderer dimensions).
     let disposed = false;
     let opened = false;
-    // The tmux target currently shown by THIS connection — dedups redundant
-    // switches and is reset implicitly each time the effect re-runs per server.
+    // Per-CONNECTION state (reset on every (re)connect): the tmux target this
+    // socket currently shows, and whether the replay-triggering initial resize
+    // has been sent. Resetting these on reconnect forces a fresh re-sync + redraw.
     let currentTarget: string | null = null;
+    let sentInitial = false;
+    // Live socket + reconnect bookkeeping.
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempts = 0;
 
     const hasSize = () => {
       const el = containerRef.current;
@@ -134,19 +146,16 @@ function TerminalConsoleInner({
       }
     };
 
-    // Per-UI-instance console PTY id (stable per client via localStorage), so two
-    // UIs on the same server get independent server-side consoles.
-    const ws = new WebSocket(getTerminalWebSocketURL(serverId, getConsolePtyId()));
+    const wsOpen = () => !!ws && ws.readyState === WebSocket.OPEN;
     const send = (msg: unknown) => {
-      if (!disposed && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+      if (!disposed && wsOpen()) ws!.send(JSON.stringify(msg));
     };
 
     // Re-point the live connection at a tmux target. Reset xterm cleanly BEFORE
     // sending the switch so prior-session state doesn't bleed; the server's
     // attach-redraw repaints the new target.
     const repoint = (target: string | null) => {
-      if (disposed || !target || !wsOpen || target === currentTarget) return;
-      // Ensure xterm is attached so the reset/redraw lands somewhere.
+      if (disposed || !target || !wsOpen() || target === currentTarget) return;
       if (!opened) tryOpen();
       try {
         term.reset();
@@ -161,10 +170,8 @@ function TerminalConsoleInner({
     // resize must carry the real container-fitted size (not xterm's 80x24
     // default), else a full-screen TUI replays at the wrong width and renders
     // jumbled. Hold the initial resize until the container has a non-zero size.
-    let wsOpen = false;
-    let sentInitial = false;
     const trySendInitial = () => {
-      if (disposed || sentInitial || !wsOpen || !hasSize()) return;
+      if (disposed || sentInitial || !wsOpen() || !hasSize()) return;
       tryOpen();
       if (!safeFit()) return;
       if (term.cols > 0 && term.rows > 0) {
@@ -173,39 +180,74 @@ function TerminalConsoleInner({
       }
     };
 
-    ws.onopen = () => {
-      if (disposed) return;
-      wsOpen = true;
-      setConn('connected');
-      trySendInitial();
-      // Point the freshly-opened connection at the currently-selected session.
-      repoint(tmuxBaseRef.current);
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer) return;
+      // Exponential backoff capped at 10s — a sidecar restart recovers in seconds.
+      const delay = Math.min(1000 * 2 ** reconnectAttempts, 10_000);
+      reconnectAttempts += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
     };
-    ws.onerror = (e) => {
+
+    const connect = () => {
       if (disposed) return;
-      console.error('[TerminalConsole] WS error', serverId, e);
-      wsOpen = false;
-      setConn('disconnected');
-    };
-    ws.onclose = (e) => {
-      if (disposed) return;
-      if (!e.wasClean) {
-        console.warn('[TerminalConsole] WS unclean close', serverId, { code: e.code, reason: e.reason });
-        wsOpen = false;
+      setConn('connecting');
+      // Each connection re-syncs from scratch: re-send the initial resize (server
+      // replays the buffer) and re-issue the switch (attach-redraw repaints).
+      sentInitial = false;
+      currentTarget = null;
+      // Per-UI-instance console PTY id (stable per client via localStorage), so two
+      // UIs on the same server get independent server-side consoles.
+      const sock = new WebSocket(getTerminalWebSocketURL(serverId, getConsolePtyId()));
+      ws = sock;
+
+      sock.onopen = () => {
+        if (disposed || ws !== sock) return;
+        reconnectAttempts = 0;
+        setConn('connected');
+        trySendInitial();
+        // Point the freshly-opened connection at the currently-selected session.
+        repoint(tmuxBaseRef.current);
+      };
+      sock.onerror = (e) => {
+        if (disposed || ws !== sock) return;
+        console.error('[TerminalConsole] WS error', serverId, e);
         setConn('disconnected');
-      }
+        // onclose follows an error and is where we schedule the retry.
+      };
+      sock.onclose = (e) => {
+        if (disposed || ws !== sock) return;
+        // A clean close is graceful (intentional server shutdown / our own close) —
+        // leave it be. Only an UNCLEAN drop (sidecar restart, proxy blip → code 1006)
+        // flips to disconnected and auto-reconnects.
+        if (e.wasClean) return;
+        console.warn('[TerminalConsole] WS unclean close → reconnecting', serverId, { code: e.code, reason: e.reason });
+        setConn('disconnected');
+        scheduleReconnect();
+      };
+      sock.onmessage = (e) => {
+        if (disposed) return;
+        try {
+          const msg = JSON.parse(typeof e.data === 'string' ? e.data : '');
+          if (!opened) tryOpen();
+          if (!opened) return;
+          if (msg.type === 'output') term.write(msg.data);
+          else if (msg.type === 'exit') term.write(`\r\n\x1b[90m[process exited: ${msg.code}]\x1b[0m\r\n`);
+          else if (msg.type === 'error') term.write(`\r\n\x1b[31m[error: ${msg.message}]\x1b[0m\r\n`);
+          // 'switched' acks need no client action — tmux's attach-redraw paints it.
+        } catch { /* ignore non-JSON frames */ }
+      };
     };
-    ws.onmessage = (e) => {
+
+    // Manual reconnect (overlay button): drop any pending backoff + retry now.
+    reconnectRef.current = () => {
       if (disposed) return;
-      try {
-        const msg = JSON.parse(typeof e.data === 'string' ? e.data : '');
-        if (!opened) tryOpen();
-        if (!opened) return;
-        if (msg.type === 'output') term.write(msg.data);
-        else if (msg.type === 'exit') term.write(`\r\n\x1b[90m[process exited: ${msg.code}]\x1b[0m\r\n`);
-        else if (msg.type === 'error') term.write(`\r\n\x1b[31m[error: ${msg.message}]\x1b[0m\r\n`);
-        // 'switched' acks need no client action — tmux's attach-redraw paints it.
-      } catch { /* ignore non-JSON frames */ }
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      reconnectAttempts = 0;
+      try { ws?.close(); } catch { /* ignore */ }
+      connect();
     };
 
     const onData = term.onData((data) => send({ type: 'input', data }));
@@ -222,13 +264,16 @@ function TerminalConsoleInner({
     // The container may already be sized on mount (no resize event coming).
     tryOpen();
     safeFit();
+    connect();
 
     return () => {
       disposed = true;
       repointRef.current = null;
+      reconnectRef.current = null;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       observer.disconnect();
       onData.dispose();
-      try { ws.close(); } catch { /* ignore */ }
+      try { ws?.close(); } catch { /* ignore */ }
       try { term.dispose(); } catch { /* guard double/partial dispose */ }
       if (termRef.current === term) termRef.current = null;
     };
@@ -247,12 +292,12 @@ function TerminalConsoleInner({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      {conn === 'disconnected' && <DisconnectedOverlay />}
+      {conn === 'disconnected' && <DisconnectedOverlay onReconnect={() => reconnectRef.current?.()} />}
     </div>
   );
 }
 
-function DisconnectedOverlay() {
+function DisconnectedOverlay({ onReconnect }: { onReconnect: () => void }) {
   return (
     <div
       data-testid="terminal-disconnected"
@@ -271,7 +316,23 @@ function DisconnectedOverlay() {
       }}
     >
       <div style={{ color: '#f85149' }}>Terminal disconnected</div>
-      <div style={{ color: '#8b949e', fontSize: 12 }}>The connection closed or could not be established.</div>
+      <div style={{ color: '#8b949e', fontSize: 12 }}>Reconnecting automatically…</div>
+      <button
+        type="button"
+        onClick={onReconnect}
+        style={{
+          marginTop: 4,
+          padding: '4px 12px',
+          background: '#21262d',
+          color: '#c9d1d9',
+          border: '1px solid #30363d',
+          borderRadius: 6,
+          cursor: 'pointer',
+          fontSize: 12,
+        }}
+      >
+        Reconnect now
+      </button>
     </div>
   );
 }
