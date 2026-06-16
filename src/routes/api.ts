@@ -2759,17 +2759,21 @@ export async function handleAPI(
     if (!session) {
       return Response.json({ error: 'session required' }, { status: 400 });
     }
-    const { getGrokHarnessForInspection } = await import('../agent/registry');
-    const harness = getGrokHarnessForInspection();
+    const { getGrokHarnessForInspection, getAnthropicCoreHarnessForInspection } = await import('../agent/registry');
+    // Either in-process harness may own this lane (grok-build OR claude worker-core).
+    const grok = getGrokHarnessForInspection();
+    const grokHas = grok.getTranscript(session).length > 0 || grok.isAlive(session);
+    const harness = grokHas ? grok : getAnthropicCoreHarnessForInspection();
+    const provider = grokHas ? 'grok-build' : 'claude';
     const entries = harness.getTranscript(session);
     const alive = harness.isAlive(session);
-    // No lane → not a grok-build lane (dormant for claude). entries is [] AND the
-    // lane was never live → report provider:null so the UI keeps the tmux path.
+    // No lane in EITHER → not an in-process lane (legacy CLI). entries [] + never live →
+    // provider:null so the UI keeps the tmux/pane path.
     if (entries.length === 0 && !alive) {
       return Response.json({ provider: null, entries: [] });
     }
     return Response.json({
-      provider: 'grok-build',
+      provider,
       entries,
       alive,
       phase: alive ? 'working' : 'exited',
@@ -2788,11 +2792,13 @@ export async function handleAPI(
     if (!body.session || !body.text) {
       return Response.json({ ok: false, reason: 'session-and-text-required' }, { status: 400 });
     }
-    const { getGrokHarnessForInspection } = await import('../agent/registry');
-    const harness = getGrokHarnessForInspection();
-    const queued = harness.injectFollowup(body.session, body.text);
+    const { getGrokHarnessForInspection, getAnthropicCoreHarnessForInspection } = await import('../agent/registry');
+    // Steer whichever in-process harness owns the lane (grok-build or claude).
+    const queued =
+      getGrokHarnessForInspection().injectFollowup(body.session, body.text) ||
+      getAnthropicCoreHarnessForInspection().injectFollowup(body.session, body.text);
     if (!queued) {
-      return Response.json({ ok: false, reason: 'no-live-grok-lane' });
+      return Response.json({ ok: false, reason: 'no-live-in-process-lane' });
     }
     return Response.json({ ok: true, queued: true });
   }
