@@ -600,6 +600,21 @@ describe('runLeaf P5 size gate', () => {
     expect(res.reason).toBe('waves-file-stuck');
   });
 
+  it('(h) large multi-file waves leaf does NOT budget-exhaust on the DEFAULT budget (L4 regression)', async () => {
+    // L4: a 6-file leaf spent ~21 nodes (blueprint+6 research+6 wimplement+7 verify+review),
+    // exceeding the floor-sized NODE_BUDGET=20 → false node-budget-exhausted. The waves path
+    // must size its budget to the manifest. No explicit nodeBudget here → size-aware applies.
+    const tasks = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, files: [`f${i}.ts`], description: `d${i}` }));
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 6, estimatedTasks: 6, nonEnumerableFanout: false, filesToCreate: tasks.map((t) => t.files[0]), filesToEdit: [], tasks },
+      reviewVerdict: 'VERDICT: PASS',
+      // NO nodeBudget — exercise the default (size-aware) ceiling.
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).not.toBe('node-budget-exhausted');
+  });
+
   it('(g) wave wimplement/fix INLINE the blueprint + research (waves-file-stuck regression)', async () => {
     // The live L3 run got `waves-file-stuck` because wimplement was told to READ the
     // blueprint/research off disk, but they were not present in the fresh worktree → the

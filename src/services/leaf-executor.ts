@@ -159,6 +159,13 @@ export interface LeafRunResult {
 
 export const ATTEMPT_CAP = 2;
 export const NODE_BUDGET = 20;
+/** Hard cap on the size-aware WAVES budget — a true runaway is still bounded. */
+export const WAVES_BUDGET_MAX = 45;
+/** Size-aware node budget for the waves path: blueprint(1) + research(per task) +
+ *  implement/verify/fix(~3 per file) + gate/review margin(5), capped. */
+export function wavesBudget(taskCount: number, fileCount: number): number {
+  return Math.min(WAVES_BUDGET_MAX, 1 + taskCount + fileCount * 3 + 5);
+}
 /** P6 surgical reuse: max in-place re-implement passes per attempt on a missing-logic
  *  review FAIL (a NEW finding) before discarding the worktree for a fresh attempt. */
 export const REVISE_REUSE_CAP = 1;
@@ -450,7 +457,14 @@ export async function runLeaf(
   // run's shape (and which path a failure came from) is legible without re-deriving.
   let pathTaken: 'floor' | 'waves' | null = null;
 
-  const budget = deps.nodeBudget ?? NODE_BUDGET;
+  // NODE_BUDGET (20) is the runaway ceiling sized for the FLOOR (≤6 nodes/2 attempts). The
+  // WAVES path legitimately spends ~tasks + files×~3 nodes (research per task, then
+  // implement/verify/fix per file) — a 6-file leaf needs ~22, which the floor ceiling
+  // false-kills mid-wave (the L4 node-budget-exhausted). Raise the ceiling size-aware for
+  // waves (computed from the manifest below), capped so a true runaway is still bounded.
+  // A test-supplied nodeBudget is honored verbatim (so budget-ceiling tests stay
+  // deterministic). `let` so the waves branch can lift it once the manifest is known.
+  let budget = deps.nodeBudget ?? NODE_BUDGET;
   /** TRUE while still within the master node budget. */
   const checkBudget = (): boolean => state.nodesSpent <= budget;
 
@@ -769,6 +783,14 @@ export async function runLeaf(
 
     if (!shouldUseFloor(manifest)) {
       pathTaken = 'waves';
+      // Lift the runaway ceiling to the size-aware waves budget (unless a test pinned one),
+      // so a legitimately large multi-file leaf isn't false-killed mid-wave.
+      if (deps.nodeBudget == null && manifest) {
+        const fileCount = new Set([
+          ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
+        ]).size;
+        budget = Math.max(budget, wavesBudget(manifest.tasks.length, fileCount));
+      }
       // WAVES — research/wimplement/verify/fix; budget/pause/stuck short-circuit here.
       const wavesResult = await runWaves(manifest!, cwd, blueprintBody);
       if (wavesResult) return wavesResult;
