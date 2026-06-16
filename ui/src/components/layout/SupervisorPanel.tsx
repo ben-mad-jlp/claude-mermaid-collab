@@ -541,8 +541,9 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       const drag = e.dataTransfer.getData('text/x-mc-project');
                       if (drag && drag !== project) { e.preventDefault(); reorderProjects(orderedProjects.map((p) => p.project), drag, project); }
                     }}
-                    className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
+                    className={`group w-full flex flex-col gap-0.5 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
                   >
+                    <div className="flex items-center gap-2">
                     <button
                       type="button"
                       data-bridge-project={project}
@@ -584,29 +585,30 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                         <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
                     </button>
-                  </div>
-                  {/* At-a-glance sub-line: plan progress (open / in-progress / blocked),
-                      an idle-with-work pip (ready work queued, nothing running it), and the
-                      most-recent session activity. Hidden when there's nothing to show. */}
-                  {(stats.open > 0 || lastActive > 0) && (
-                    <div className="flex items-center gap-2 pl-7 pr-2 pt-0.5 text-3xs text-gray-400 dark:text-gray-500">
-                      {stats.open > 0 && <span title="open todos">{stats.open} open</span>}
-                      {stats.inProgress > 0 && (
-                        <span className="text-info-600 dark:text-info-400" title="in progress">{stats.inProgress}▶</span>
-                      )}
-                      {stats.blocked > 0 && (
-                        <span className="text-warning-600 dark:text-warning-400" title="blocked">{stats.blocked}⊘</span>
-                      )}
-                      {stats.idleWithWork && (
-                        <span className="text-warning-600 dark:text-warning-400" title="ready work queued, nothing running it">⚠ ready</span>
-                      )}
-                      {lastActive > 0 && (
-                        <span className="ml-auto tabular-nums" title={`last active ${new Date(lastActive).toLocaleString()}`}>
-                          {relAge(lastActive)}
-                        </span>
-                      )}
                     </div>
-                  )}
+                    {/* At-a-glance second line — INSIDE the card, below the name row: plan
+                        progress (open / in-progress / blocked), an idle-with-work pip (ready
+                        work queued, nothing running it), and most-recent session activity. */}
+                    {(stats.open > 0 || lastActive > 0) && (
+                      <div className="flex items-center gap-2 pl-6 text-3xs text-gray-400 dark:text-gray-500 font-normal">
+                        {stats.open > 0 && <span title="open todos">{stats.open} open</span>}
+                        {stats.inProgress > 0 && (
+                          <span className="text-info-600 dark:text-info-400" title="in progress">{stats.inProgress}▶</span>
+                        )}
+                        {stats.blocked > 0 && (
+                          <span className="text-warning-600 dark:text-warning-400" title="blocked">{stats.blocked}⊘</span>
+                        )}
+                        {stats.idleWithWork && (
+                          <span className="text-warning-600 dark:text-warning-400" title="ready work queued, nothing running it">⚠ ready</span>
+                        )}
+                        {lastActive > 0 && (
+                          <span className="ml-auto tabular-nums" title={`last active ${new Date(lastActive).toLocaleString()}`}>
+                            {relAge(lastActive)}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })
