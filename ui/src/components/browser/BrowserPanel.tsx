@@ -2,6 +2,10 @@ import { useRef, useEffect, useState } from 'react';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore } from '@/stores/uiStore';
 import { ResizableColumn } from '@/components/layout/ResizableColumn';
+import { StreamedViewport } from '@/components/browser/StreamedViewport';
+import { useBrowserMode } from '@/hooks/useBrowserMode';
+import { useServers } from '@/contexts/ServerContext';
+import { useSessionStore } from '@/stores/sessionStore';
 
 const bridge = () => (window as any).mc?.browser;
 
@@ -34,6 +38,12 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}) 
   // (flex-1) instead of staying a fixed-width resizable column.
   const viewerVisible = useUIStore((s) => s.viewerVisible);
 
+  const currentSession = useSessionStore((s) => s.currentSession);
+  const { servers } = useServers();
+  const server = servers.find((s) => s.id === currentSession?.serverId);
+  const mode = useBrowserMode(server);
+  const streamed = mode === 'streamed';
+
   const activeTab = tabs.find((t) => t.id === activeId);
   const [addressValue, setAddressValue] = useState(activeTab?.url ?? '');
 
@@ -59,6 +69,7 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}) 
   // robust way to follow the placeholder div.
   const zero = { x: 0, y: 0, width: 0, height: 0 };
   useEffect(() => {
+    if (streamed) return;
     if (!visible) {
       bridge()?.setBounds?.(zero);
       return;
@@ -103,7 +114,7 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}) 
     };
     // Re-run on activeId so a newly-opened/switched tab gets the current column
     // rect pushed immediately (fresh `last` → no dedup skip).
-  }, [visible, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible, activeId, streamed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!visible) return null;
 
@@ -257,8 +268,10 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}) 
           </button>
         </div>
 
-        {/* Viewport placeholder — native WebContentsView sits over this rect */}
-        <div ref={viewportRef} className="flex-1" />
+        {/* Viewport: canvas in streamed-panel mode, native overlay placeholder otherwise */}
+        {streamed && currentSession
+          ? <StreamedViewport session={currentSession.name} server={server} />
+          : <div ref={viewportRef} className="flex-1" />}
       </div>
   );
 
