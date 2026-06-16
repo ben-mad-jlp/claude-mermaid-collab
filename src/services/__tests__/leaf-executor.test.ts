@@ -652,3 +652,20 @@ describe('blueprint-node failure short-circuit (ce02d796 — live L1 finding)', 
     expect(spies.invokeSpecs.some((s) => s.allowedTools === 'Read Grep Glob Bash')).toBe(false);
   });
 });
+
+describe('blueprint inlining (b77dd104 — no stray-blueprint file discovery)', () => {
+  it('implement/review inline the blueprint text and forbid reading other blueprint files', () => {
+    const bpText = 'THE-REAL-BLUEPRINT-BODY estimatedFiles 2';
+    const impl = buildNodePrompt('implement', makeLeaf(), bpText);
+    expect(impl).toContain('THE-REAL-BLUEPRINT-BODY');
+    expect(impl.toLowerCase()).toContain('do not search');
+    const rev = buildNodePrompt('review', makeLeaf(), bpText);
+    expect(rev).toContain('THE-REAL-BLUEPRINT-BODY');
+    expect(rev.toLowerCase()).toContain('do not read any other blueprint');
+  });
+  it('falls back to the exact-file instruction when no blueprint text is supplied', () => {
+    const impl = buildNodePrompt('implement', makeLeaf());
+    expect(impl).toContain('.collab/leaf-blueprints/');
+    expect(impl).toContain('ONLY that exact file');
+  });
+});

@@ -173,7 +173,7 @@ function blueprintPath(leaf: Todo): string {
 /** Build the inline prompt for a node kind (clones the LOGIC of vibe-blueprint /
  *  vibe-go worker / vibe-review as a self-contained string — references NOTHING
  *  in skills/). */
-export function buildNodePrompt(kind: LeafNodeKind, leaf: Todo): string {
+export function buildNodePrompt(kind: LeafNodeKind, leaf: Todo, blueprintText?: string): string {
   const title = leaf.title ?? leaf.id;
   const description = leaf.description ?? '(no description)';
   const bp = blueprintPath(leaf);
@@ -203,15 +203,19 @@ export function buildNodePrompt(kind: LeafNodeKind, leaf: Todo): string {
     case 'implement':
       return [
         'You are the IMPLEMENT node. Make REAL, compiling code edits (Read/Edit only).',
-        `Read the blueprint at \`${bp}\` and the files it references, then implement it FULLY.`,
+        blueprintText
+          ? `This leaf's blueprint is inlined below — implement it FULLY against the working tree. Do NOT search for, glob, or read ANY other blueprint file (other leaves' blueprints may be present in shared dirs — ignore them entirely).\n\n=== BLUEPRINT (${leaf.id}) START ===\n${blueprintText}\n=== BLUEPRINT END ===`
+          : `Read the blueprint at \`${bp}\` — ONLY that exact file (ignore any other blueprint in the directory) — and the files it references, then implement it FULLY.`,
         'Do not stub or leave TODOs. Do NOT run the acceptance gate or report completion —',
         'the executor drives the gate. Just make the edits the blueprint specifies.',
       ].join('\n');
     case 'review':
       return [
         'You are the REVIEW node, READ-ONLY (Read/Grep/Glob and Bash for inspection ONLY; no edits).',
-        `Compare the working tree against the blueprint at \`${bp}\`. Decide if the work is`,
-        'complete and correct (it compiles, satisfies the blueprint, no obvious bugs).',
+        blueprintText
+          ? `Compare the working tree against THIS leaf's blueprint, inlined below (do NOT read any other blueprint file — ignore strays in shared dirs):\n\n=== BLUEPRINT (${leaf.id}) START ===\n${blueprintText}\n=== BLUEPRINT END ===`
+          : `Compare the working tree against the blueprint at \`${bp}\` (ONLY that exact file).`,
+        'Decide if the work is complete and correct (it compiles, satisfies the blueprint, no obvious bugs).',
         'End your reply with EXACTLY one line, nothing after it:',
         '`VERDICT: PASS`  (if complete and correct)',
         '`VERDICT: FAIL — <reason>`  (otherwise)',
@@ -257,7 +261,7 @@ export function buildWavePrompt(
     case 'wimplement':
       return [
         `You are the IMPLEMENT node for ONE file: \`${target.ref}\` (Read/Edit only).`,
-        `Read the blueprint at \`${bp}\` and any research notes in \`.collab/leaf-blueprints/\`,`,
+        `Read the blueprint at \`${bp}\` and THIS leaf's research notes (\`.collab/leaf-blueprints/${leaf.id}.research.*.md\`) — ONLY those exact files; ignore any other blueprint in the directory,`,
         'then implement this file FULLY. Do not stub or leave TODOs. Do NOT run the gate.',
       ].join('\n');
     case 'verify':
@@ -495,8 +499,8 @@ export async function runLeaf(
     };
   };
 
-  const buildSpec = (kind: LeafNodeKind, cwd: string): NodeSpec => ({
-    prompt: buildNodePrompt(kind, leaf),
+  const buildSpec = (kind: LeafNodeKind, cwd: string, blueprintText?: string): NodeSpec => ({
+    prompt: buildNodePrompt(kind, leaf, blueprintText),
     model: NODE_PROFILE[kind].model,
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
@@ -660,13 +664,13 @@ export async function runLeaf(
     } else {
       // FLOOR — UNCHANGED implement node (byte-identical to P2):
       // IMPLEMENT
-      const impl = await runNode('implement', buildSpec('implement', cwd));
+      const impl = await runNode('implement', buildSpec('implement', cwd, manifestText));
       if (impl.rateLimited) return pausedResult('implement', impl);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
 
     // REVIEW (parse PASS/FAIL — fail-closed).
-    const review = await runNode('review', buildSpec('review', cwd));
+    const review = await runNode('review', buildSpec('review', cwd, manifestText));
     if (review.rateLimited) return pausedResult('review', review);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     // P4a R1: the verdict is known the instant the review node returns. It is
