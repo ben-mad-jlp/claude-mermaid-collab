@@ -118,6 +118,16 @@ function TerminalConsoleInner({
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectAttempts = 0;
+    // Heartbeat: detect a HALF-OPEN socket (TCP stalled, no onclose) by pinging and
+    // requiring a reply (pong, or any other frame) within a deadline.
+    const HEARTBEAT_MS = 15_000;
+    const PONG_TIMEOUT_MS = 8_000;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearHeartbeat = () => {
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+      if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
+    };
 
     const hasSize = () => {
       const el = containerRef.current;
@@ -203,6 +213,29 @@ function TerminalConsoleInner({
       const sock = new WebSocket(getTerminalWebSocketURL(serverId, getConsolePtyId()));
       ws = sock;
 
+      // Heartbeat for THIS socket: ping on an interval; if nothing comes back within
+      // the pong deadline, the socket is half-open → force a reconnect. ANY inbound
+      // frame (output included) counts as liveness and clears the deadline.
+      const startHeartbeat = () => {
+        clearHeartbeat();
+        heartbeatTimer = setInterval(() => {
+          if (disposed || ws !== sock || !wsOpen()) return;
+          send({ type: 'ping' });
+          if (!pongTimer) {
+            pongTimer = setTimeout(() => {
+              pongTimer = null;
+              if (disposed || ws !== sock) return;
+              console.warn('[TerminalConsole] heartbeat timeout → forcing reconnect', serverId);
+              clearHeartbeat();
+              try { sock.onclose = null; sock.onerror = null; sock.close(); } catch { /* ignore */ }
+              if (ws === sock) ws = null;
+              setConn('disconnected');
+              scheduleReconnect();
+            }, PONG_TIMEOUT_MS);
+          }
+        }, HEARTBEAT_MS);
+      };
+
       sock.onopen = () => {
         if (disposed || ws !== sock) return;
         reconnectAttempts = 0;
@@ -210,6 +243,7 @@ function TerminalConsoleInner({
         trySendInitial();
         // Point the freshly-opened connection at the currently-selected session.
         repoint(tmuxBaseRef.current);
+        startHeartbeat();
       };
       sock.onerror = (e) => {
         if (disposed || ws !== sock) return;
@@ -219,6 +253,7 @@ function TerminalConsoleInner({
       };
       sock.onclose = (e) => {
         if (disposed || ws !== sock) return;
+        clearHeartbeat();
         // A clean close is graceful (intentional server shutdown / our own close) —
         // leave it be. Only an UNCLEAN drop (sidecar restart, proxy blip → code 1006)
         // flips to disconnected and auto-reconnects.
@@ -228,9 +263,12 @@ function TerminalConsoleInner({
         scheduleReconnect();
       };
       sock.onmessage = (e) => {
-        if (disposed) return;
+        if (disposed || ws !== sock) return;
+        // Any inbound frame proves the socket is alive → clear the pong deadline.
+        if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
         try {
           const msg = JSON.parse(typeof e.data === 'string' ? e.data : '');
+          if (msg.type === 'pong') return; // heartbeat ack — liveness only
           if (!opened) tryOpen();
           if (!opened) return;
           if (msg.type === 'output') term.write(msg.data);
@@ -245,6 +283,7 @@ function TerminalConsoleInner({
     reconnectRef.current = () => {
       if (disposed) return;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      clearHeartbeat();
       reconnectAttempts = 0;
       try { ws?.close(); } catch { /* ignore */ }
       connect();
@@ -271,6 +310,7 @@ function TerminalConsoleInner({
       repointRef.current = null;
       reconnectRef.current = null;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearHeartbeat();
       observer.disconnect();
       onData.dispose();
       try { ws?.close(); } catch { /* ignore */ }

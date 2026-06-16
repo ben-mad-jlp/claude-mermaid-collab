@@ -25,14 +25,16 @@ import type { TmuxTarget } from '../terminal/index';
 type ClientMessage =
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number; isInitial?: boolean }
-  | { type: 'switch'; serverId: string; sessionId: string };
+  | { type: 'switch'; serverId: string; sessionId: string }
+  | { type: 'ping' };
 
 /** Server to Client messages */
 type ServerMessage =
   | { type: 'output'; data: string }
   | { type: 'exit'; code: number }
   | { type: 'switched'; target: TmuxTarget }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'pong' };
 
 /**
  * Terminal WebSocket data attached to each connection
@@ -136,6 +138,10 @@ export function handleTerminalMessage(ws: ServerWebSocket<TerminalWebSocketData>
       // backend the switch re-points the local PTY to tmux base = the requested
       // sessionId.
       ptyManager.switchTarget(sessionId, { base: parsed.sessionId });
+    } else if (parsed.type === 'ping') {
+      // Heartbeat: echo so the client can detect a half-open socket (a stalled TCP
+      // connection that never fires onclose). No PTY interaction.
+      ws.send(JSON.stringify({ type: 'pong' } as ServerMessage));
     } else {
       console.warn(`Unknown message type: ${(parsed as any).type}`);
       sendError(ws, `Unknown message type: ${(parsed as any).type}`);

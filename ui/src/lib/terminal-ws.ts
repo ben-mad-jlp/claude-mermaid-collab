@@ -98,13 +98,15 @@ export interface TmuxTarget {
 export type TerminalClientMessage =
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number; isInitial?: boolean }
-  | { type: 'switch'; serverId: string; sessionId: string };
+  | { type: 'switch'; serverId: string; sessionId: string }
+  | { type: 'ping' };
 
 export type TerminalServerMessage =
   | { type: 'output'; data: string }
   | { type: 'exit'; code: number }
   | { type: 'switched'; target: TmuxTarget }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'pong' };
 
 /**
  * Build the `switch` message that re-points the persistent PTY at the
