@@ -201,7 +201,14 @@ export async function runLeaf(
   /** Single wrapper used for EVERY invokeNode call: increment BEFORE the spawn
    *  (so a hanging node still counts toward the budget), invoke, then a best-effort
    *  ledger write. */
-  const runNode = async (kind: LeafNodeKind, spec: NodeSpec): Promise<NodeResult> => {
+  const runNode = async (
+    kind: LeafNodeKind,
+    spec: NodeSpec,
+    /** P4a R1: optional verdict/outcome to stamp on THIS node's ledger row (the
+     *  review node passes its parsed verdict; the terminal return path also stamps
+     *  the leaf's final outcome here so no extra row is emitted). */
+    extra?: { verdict?: 'pass' | 'fail' | null; leafOutcome?: LeafRunResult['outcome'] | null },
+  ): Promise<NodeResult> => {
     state.nodesSpent += 1;
     const res = await deps.invoker.invoke(spec);
     try {
@@ -223,6 +230,8 @@ export async function runLeaf(
         costUsd: res.usage?.costUsd,
         steps: res.usage?.numTurns,
         parseError: res.parseError ?? null,
+        verdict: extra?.verdict ?? null,
+        leafOutcome: extra?.leafOutcome ?? null,
       });
     } catch {
       /* ledger is telemetry — never break the run */
@@ -230,9 +239,40 @@ export async function runLeaf(
     return res;
   };
 
+  /** P4a R1: stamp the leaf's terminal outcome (and, when known, the deciding
+   *  review verdict) onto a lightweight marker row so the read-side `getLeafRun`
+   *  can surface finalOutcome/reviewVerdict. Best-effort telemetry — a marker write
+   *  must never break the run. Kept additive: it does NOT touch the prior node rows.
+   *  Carries nodesSpent:0 so it doesn't inflate the budget rollup. */
+  const recordOutcome = (
+    outcome: LeafRunResult['outcome'],
+    verdict: 'pass' | 'fail' | null = null,
+  ): void => {
+    try {
+      deps.recordNode({
+        project,
+        todoId: leaf.id,
+        session: sessionKey,
+        epicId,
+        leafId: leaf.id,
+        nodeKind: 'outcome',
+        model: '',
+        nodesSpent: 0,
+        verdict,
+        leafOutcome: outcome,
+      });
+    } catch {
+      /* telemetry — never break the run */
+    }
+  };
+
   /** Park BLOCKED: route a final 'rejected' through the SAME gate so dependents
    *  settle, raise an escalation card, and return the blocked result. */
-  const parkBlocked = async (reason: string): Promise<LeafRunResult> => {
+  const parkBlocked = async (
+    reason: string,
+    verdict: 'pass' | 'fail' | null = null,
+  ): Promise<LeafRunResult> => {
+    recordOutcome('blocked', verdict);
     try {
       await deps.complete(project, leaf.id, 'rejected');
     } catch {
@@ -255,7 +295,9 @@ export async function runLeaf(
    *  the daemon (headless-breaker) owns all timing. Pause does NOT advance
    *  `state.attempt` (we `return` before the loop's `attempt += 1`), so the in-flight
    *  attempt is preserved as-is. */
-  const pausedResult = (kind: LeafNodeKind, res: NodeResult): LeafRunResult => ({
+  const pausedResult = (kind: LeafNodeKind, res: NodeResult): LeafRunResult => {
+    recordOutcome('paused');
+    return {
     outcome: 'paused',
     attempts: state.attempt,
     nodesSpent: state.nodesSpent,
@@ -266,7 +308,8 @@ export async function runLeaf(
       nodesSpent: state.nodesSpent,
       capReset: res.capReset,
     },
-  });
+    };
+  };
 
   const buildSpec = (kind: LeafNodeKind, cwd: string): NodeSpec => ({
     prompt: buildNodePrompt(kind, leaf),
@@ -298,12 +341,16 @@ export async function runLeaf(
     if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
-    // REVIEW (parse PASS/FAIL — fail-closed)
+    // REVIEW (parse PASS/FAIL — fail-closed).
     const review = await runNode('review', buildSpec('review', cwd));
     if (review.rateLimited) return pausedResult('review', review);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    // P4a R1: the verdict is known the instant the review node returns. It is
+    // carried into the terminal marker row (recordOutcome) so the read-side can
+    // surface reviewVerdict alongside the final outcome.
+    const reviewVerdict = parseVerdict(review.text);
 
-    if (parseVerdict(review.text) === 'pass') {
+    if (reviewVerdict === 'pass') {
       // RISK (blueprint §"RISKS"): commit+merge the leaf worktree onto the epic
       // branch BEFORE proposing acceptance, so the gate's work-committed re-verify
       // sees committed work — else every PASS downgrades to 'pending'.
@@ -318,12 +365,15 @@ export async function runLeaf(
         // Merge-back failed (e.g. conflict) → can't safely accept. Park blocked.
         return parkBlocked(
           `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
+          reviewVerdict,
         );
       }
       const gate = await deps.complete(project, leaf.id, 'accepted');
       const effective = gate.effective ?? 'accepted';
+      const outcome: LeafRunResult['outcome'] = effective === 'accepted' ? 'accepted' : 'rejected';
+      recordOutcome(outcome, reviewVerdict);
       return {
-        outcome: effective === 'accepted' ? 'accepted' : 'rejected',
+        outcome,
         attempts: state.attempt,
         nodesSpent: state.nodesSpent,
         ...(effective === 'pending' ? { reason: 'gate-pending' } : {}),
@@ -331,7 +381,7 @@ export async function runLeaf(
     }
 
     // REVIEW FAIL → next fresh attempt, unless the cap is exhausted.
-    if (isLastAttempt) return parkBlocked('attempt-cap-exhausted');
+    if (isLastAttempt) return parkBlocked('attempt-cap-exhausted', reviewVerdict);
   }
 
   // Unreachable in practice (the loop returns), but keeps the type total.

@@ -51,6 +51,12 @@ export interface LedgerEntry {
   rateLimited?: boolean | null;
   /** Leaf correlation id (the executor leaf this node ran for). */
   leafId?: string | null;
+  /** REVIEW node's parsed PASS/FAIL verdict ('pass'|'fail'|null). Written by the
+   *  leaf-executor on the review node row (P4a R1 — the read-side needs it). */
+  verdict?: string | null;
+  /** Terminal leaf outcome ('accepted'|'blocked'|'rejected'|'paused'|null),
+   *  stamped by the leaf-executor on the row of the node it returned from. */
+  leafOutcome?: string | null;
 }
 
 interface LedgerRow extends LedgerEntry {
@@ -104,6 +110,9 @@ function openDb(): Database {
   add('durationMs', 'INTEGER');
   add('rateLimited', 'INTEGER'); // 0/1 like knownPrice
   add('leafId', 'TEXT');
+  // Additive migration: P4a R1 verdict/outcome write-back (idempotent, nullable).
+  add('verdict', 'TEXT'); // 'pass'|'fail'|null (review node)
+  add('leafOutcome', 'TEXT'); // 'accepted'|'blocked'|'rejected'|'paused'|null (terminal)
   return db;
 }
 
@@ -125,8 +134,8 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
       .prepare(
         `INSERT INTO worker_ledger
           (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, costUsd, knownPrice, steps, parseError,
-           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, ts)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?)`,
+           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, ts)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?, ?)`,
       )
       .run(
         entry.project, entry.todoId, entry.epicId ?? null, entry.session, entry.phase, entry.provider, entry.model, entry.source,
@@ -134,6 +143,7 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
         entry.parseError ?? null,
         entry.nodeKind ?? null, entry.nodesSpent ?? null, entry.authMode ?? null, entry.exitCode ?? null,
         entry.durationMs ?? null, entry.rateLimited == null ? null : entry.rateLimited ? 1 : 0, entry.leafId ?? null,
+        entry.verdict ?? null, entry.leafOutcome ?? null,
         now,
       );
     return Number(res.lastInsertRowid);
@@ -147,6 +157,9 @@ export interface LedgerQuery {
   todoId?: string;
   /** Roll up only rows for this epic (per-epic cost / budget bar). */
   epicId?: string;
+  /** Only rows for this executor leaf (per-leaf run view — P4a). Unindexed at
+   *  current volume (scanned under the 2000 cap); add idx_ledger_leaf if it grows. */
+  leafId?: string;
   /** Only rows at/after this epoch-ms. */
   since?: number;
   /** Cap rows returned (default 200, max 2000), newest first. */
@@ -202,6 +215,8 @@ export function recordNode(
       durationMs: entry.durationMs ?? null,
       rateLimited: entry.rateLimited ?? null,
       leafId: entry.leafId ?? null,
+      verdict: entry.verdict ?? null,
+      leafOutcome: entry.leafOutcome ?? null,
     },
     now,
   );
@@ -215,6 +230,7 @@ export function queryLedger(q: LedgerQuery = {}): LedgerRow[] {
   if (q.project) { where.push('project = ?'); params.push(q.project); }
   if (q.todoId) { where.push('todoId = ?'); params.push(q.todoId); }
   if (q.epicId) { where.push('epicId = ?'); params.push(q.epicId); }
+  if (q.leafId) { where.push('leafId = ?'); params.push(q.leafId); }
   if (q.since != null) { where.push('ts >= ?'); params.push(q.since); }
   const limit = Math.min(Math.max(1, q.limit ?? 200), 2000);
   const sql = `SELECT * FROM worker_ledger${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ts DESC, id DESC LIMIT ${limit}`;
