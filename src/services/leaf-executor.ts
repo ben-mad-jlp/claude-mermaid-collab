@@ -609,9 +609,25 @@ export async function runLeaf(
 
     // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
     // must not interpret its empty/error output as a FAIL nor advance the attempt).
-    const bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+    let bp = await runNode('blueprint', buildSpec('blueprint', cwd));
     if (bp.rateLimited) return pausedResult('blueprint', bp);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+
+    // L1-pilot finding (ce02d796): a blueprint node that FAILED (non-zero exit /
+    // errored — NOT rate-limited, which is handled above) wrote no usable blueprint.
+    // Proceeding to implement+review against a missing blueprint wastes two nodes on
+    // a guaranteed review FAIL and burns the whole attempt. Give it ONE in-place
+    // retry (still counted against the node budget); if it still fails, short-circuit
+    // to a fresh attempt rather than running the rest of the pipeline blind.
+    if (!bp.ok) {
+      bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      if (bp.rateLimited) return pausedResult('blueprint', bp);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    }
+    if (!bp.ok) {
+      if (isLastAttempt) return parkBlocked('blueprint-node-failed');
+      continue; // fresh attempt — never implement against a missing blueprint
+    }
 
     // --- P5 SIZE GATE ---
     // Read the blueprint artifact (its trailing ```json size block) and derive the

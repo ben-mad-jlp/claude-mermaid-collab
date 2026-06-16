@@ -75,6 +75,12 @@ function okResult(text: string): NodeResult {
   };
 }
 
+/** A non-rate-limited node failure (e.g. the transient blueprint exit-1 seen in the
+ *  live L1 pilot). ok:false, NOT rateLimited. */
+function failResult(): NodeResult {
+  return { ok: false, exitCode: 1, stdout: '', durationMs: 1, rateLimited: false, authMode: 'subscription', text: '' };
+}
+
 interface Spies {
   ensureCalls: Array<{ sessionKey: string; opts: { baseBranch?: string; fresh?: boolean } }>;
   invokeSpecs: NodeSpec[];
@@ -90,6 +96,7 @@ function makeDeps(opts: {
   gateEffective?: 'accepted' | 'rejected' | 'pending';
   authThrows?: boolean;
   mergeThrows?: boolean;
+  blueprintFails?: number; // first N blueprint-node invocations return ok:false (non-rate-limited)
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -99,12 +106,19 @@ function makeDeps(opts: {
     escalations: [],
   };
   let reviewIdx = 0;
+  let bpFailsLeft = opts.blueprintFails ?? 0;
   const deps: LeafExecutorDeps = {
     invoker: {
       async invoke(spec: NodeSpec): Promise<NodeResult> {
         spies.invokeSpecs.push(spec);
         // The review node is the opus read-only one (no Write/Edit in allowedTools).
         const isReview = spec.allowedTools === 'Read Grep Glob Bash';
+        // The blueprint node is the one allowed to Write (implement uses Edit).
+        const isBlueprint = spec.allowedTools.includes('Write');
+        if (isBlueprint && bpFailsLeft > 0) {
+          bpFailsLeft -= 1;
+          return failResult();
+        }
         if (isReview) {
           const v = opts.reviewVerdicts?.[reviewIdx] ?? 'VERDICT: FAIL — none';
           reviewIdx += 1;
@@ -611,5 +625,30 @@ describe('runLeaf 86b persistBlueprint (durable per-attempt)', () => {
     };
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
+  });
+});
+
+describe('blueprint-node failure short-circuit (ce02d796 — live L1 finding)', () => {
+  it('one blueprint failure → in-place retry succeeds → PASS in ONE attempt (no burned attempt)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], blueprintFails: 1 });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.attempts).toBe(1);              // a transient blueprint blip did NOT cost a fresh attempt
+    expect(spies.ensureCalls.length).toBe(1);  // single worktree → single attempt
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    // implement node DID run (the in-place retry produced a usable blueprint)
+    expect(spies.invokeSpecs.some((s) => s.allowedTools.includes('Edit'))).toBe(true);
+  });
+
+  it('blueprint fails every time → BLOCKED + escalation, implement never runs', async () => {
+    const { deps, spies } = makeDeps({ blueprintFails: 99 });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // never accepted; the only completion (if any) is the blocked-path 'rejected'
+    expect(spies.completeCalls.some((c) => c.acceptance === 'accepted')).toBe(false);
+    expect(spies.escalations.length).toBeGreaterThan(0);
+    // we NEVER ran implement (Edit) or review against a missing blueprint
+    expect(spies.invokeSpecs.some((s) => s.allowedTools.includes('Edit'))).toBe(false);
+    expect(spies.invokeSpecs.some((s) => s.allowedTools === 'Read Grep Glob Bash')).toBe(false);
   });
 });
