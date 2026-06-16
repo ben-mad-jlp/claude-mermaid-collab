@@ -503,7 +503,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto">
                   {bridgeTab === 'escalations' && (
-                    <div className="p-2"><NeedsYouZone embedded escalations={escalations} project={project} serverScope={serverScope} onJump={handleJump} /></div>
+                    <div className="p-2"><NeedsYouZone embedded escalations={escalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
                   )}
                   {bridgeTab === 'todos' && (
                     <div className="p-2">

@@ -108,6 +108,10 @@ export interface Escalation {
    *  silently vanish); 'human' = a person decided/resolved it. Absent on older
    *  payloads. */
   resolvedBy?: 'ai' | 'human';
+  /** The work-graph todo this escalation was raised against (coordinator-stamped).
+   *  Lets the inbox show what work the question is about and, on dismiss, optionally
+   *  re-ready / block that todo. Null/absent for escalations with no todo link. */
+  todoId?: string | null;
 }
 
 /** Orch P2: a Grok-suggested action attached inline to an escalation (mirrors the

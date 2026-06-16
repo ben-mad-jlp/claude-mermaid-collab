@@ -18,6 +18,7 @@
 
 import React from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import type { SessionTodo } from '@/types/sessionTodo';
 import { selectOpenEscalations } from '@/lib/statusSelectors';
 import { selectRecentlyAiResolved } from '@/lib/escalationLifecycle';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
@@ -28,6 +29,8 @@ export interface NeedsYouZoneProps {
   project: string;
   serverScope: string;
   onJump?: (project: string, session: string) => void;
+  /** Open an escalation's linked todo in the detail tab. */
+  onSelectTodo?: (todo: SessionTodo) => void;
   /** Render body-only (no card chrome / header) for use inside a tab panel. */
   embedded?: boolean;
 }
@@ -37,6 +40,7 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
   project,
   serverScope,
   onJump,
+  onSelectTodo,
   embedded,
 }) => {
   const open = selectOpenEscalations(escalations, { kind: 'project', project });
@@ -59,7 +63,7 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
         <span>All clear — nothing needs you</span>
       </div>
     ) : (
-      <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} project={project} />
+      <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} project={project} onSelectTodo={onSelectTodo} />
     );
 
   if (embedded) return <div data-testid="needs-you-zone" data-needs-you={open.length}>{body}</div>;
