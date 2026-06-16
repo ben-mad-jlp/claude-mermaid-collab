@@ -62,9 +62,10 @@ export type WorkerCoreOutcome =
 
 const sizegatePrompt = (s: TodoSpec) =>
   `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\n` +
-  `Assess SIZE ONLY — is this leaf too big for ONE worker pass? Too big = ~4+ edit-INDEPENDENT files, OR it spans different work types (e.g. backend + ui), OR a wide many-site migration. Do MINIMAL read-only exploration. ` +
+  `Assess SIZE ONLY — is this leaf too big for ONE worker pass? A worker can edit BOTH backend and UI files in its worktree, so a NORMAL full-stack feature slice (a few backend files + a few UI files for ONE coherent change) is NOT oversized — do NOT split it. ` +
+  `Oversized means GENUINELY too large: ~6+ edit-independent files, OR a wide many-site migration (10+ call sites), OR several UNRELATED changes bundled together. Do MINIMAL read-only exploration. ` +
   `Then call submit_verdict with { "oversized": boolean, "reason"?: string, "subtasks": [{ "title": string, "files": string[], "type"?: string }] }. ` +
-  `If it is a coherent single change, return oversized:false with an empty subtasks list. Only propose a split when the parallelism is REAL (file-disjoint siblings).`;
+  `Default to oversized:false with an empty subtasks list. Only propose a split when the leaf is genuinely huge AND the parallelism is REAL (file-disjoint siblings).`;
 
 const researchPrompt = (s: TodoSpec) =>
   `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\n\n` +
