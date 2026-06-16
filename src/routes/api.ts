@@ -2884,6 +2884,41 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/leaf-executor/blueprint/:leafId?project=
+  // The per-todo "Proposed changes" source (PAW): reads the durable blueprint doc the
+  // leaf-executor persisted (link.blueprintId) and re-decodes its trailing ```json size
+  // block via the SAME parseSizeManifest the executor uses, returning ONLY the two file
+  // lists the card needs. Plain read, no ws (b2fe36b1). Mirrors the run route's ran:false
+  // shape ({ ran:false }) when the leaf has no persisted blueprint.
+  {
+    const m = path.match(/^\/api\/leaf-executor\/blueprint\/([^/]+)$/);
+    if (m && req.method === 'GET') {
+      const leafId = decodeURIComponent(m[1]);
+      const project = url.searchParams.get('project');
+      if (!project) return Response.json({ leafId, ran: false });
+      const { getTodo } = await import('../services/todo-store');
+      const todo = getTodo(project, leafId);
+      const blueprintId = todo?.link?.blueprintId ?? null;
+      if (!blueprintId) return Response.json({ leafId, ran: false });
+      const dir = sessionRegistry.resolvePath(project, 'leaf-blueprints', 'documents');
+      const dm = new DocumentManager(dir);
+      await dm.initialize();
+      const doc = await dm.getDocument(blueprintId);
+      if (!doc) return Response.json({ leafId, blueprintId, ran: false });
+      const { parseSizeManifest } = await import('../services/leaf-executor');
+      const manifest = parseSizeManifest(doc.content);
+      if (!manifest) return Response.json({ leafId, blueprintId, ran: false });
+      return Response.json({
+        leafId,
+        blueprintId,
+        manifest: {
+          filesToCreate: manifest.filesToCreate,
+          filesToEdit: manifest.filesToEdit,
+        },
+      });
+    }
+  }
+
   // GET /api/leaf-executor/stats?project=&epicId=&since=
   // Fleet/aggregate leaf stats (PAW P4a / P4b source): avg nodes/leaf, attempt-rate,
   // block-rate, cap-pause count, wall-clock distribution, and the first-class authMode

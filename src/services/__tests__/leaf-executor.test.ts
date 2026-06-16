@@ -16,6 +16,7 @@ import {
   TASK_THRESHOLD,
   NODE_BUDGET,
   type LeafExecutorDeps,
+  type LeafSizeManifest,
 } from '../leaf-executor';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
@@ -428,13 +429,17 @@ function waveKindOf(spec: NodeSpec): 'blueprint' | 'implement' | 'review' | 'res
 interface WaveOpts {
   manifest?: object | string; // blueprint-artifact text the readBlueprint seam returns
   reviewVerdict?: string;
+  reviewVerdicts?: string[]; // multi-attempt: one verdict per review call, in order
   nodeBudget?: number;
   /** verify text per call, in order; defaults to 'TSC: CLEAN'. */
   verifyTexts?: string[];
+  /** Spy collector for persistBlueprint calls (one expected per attempt). */
+  persistCalls?: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }>;
 }
 
 function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[] } {
   const calls: string[] = [];
+  let reviewIdx = 0;
   let verifyIdx = 0;
   const manifestText = typeof opts.manifest === 'string'
     ? opts.manifest
@@ -446,7 +451,14 @@ function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[]
       async invoke(spec: NodeSpec): Promise<NodeResult> {
         const kind = waveKindOf(spec);
         calls.push(kind);
-        if (kind === 'review') return okResult(opts.reviewVerdict ?? 'VERDICT: PASS');
+        if (kind === 'review') {
+          if (opts.reviewVerdicts) {
+            const v = opts.reviewVerdicts[reviewIdx] ?? 'VERDICT: FAIL — none';
+            reviewIdx += 1;
+            return okResult(v);
+          }
+          return okResult(opts.reviewVerdict ?? 'VERDICT: PASS');
+        }
         if (kind === 'verify') {
           const t = opts.verifyTexts?.[verifyIdx] ?? 'TSC: CLEAN';
           verifyIdx += 1;
@@ -466,6 +478,12 @@ function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[]
     escalate() {},
     recordNode: () => null,
     readBlueprint: async () => manifestText,
+    persistBlueprint: opts.persistCalls
+      ? async ({ project, attempt, manifest, blueprintMd }) => {
+          opts.persistCalls!.push({ project, attempt, manifest, blueprintMd });
+          return `doc-${attempt}`;
+        }
+      : undefined,
   };
   if (opts.nodeBudget !== undefined) deps.nodeBudget = opts.nodeBudget;
   return { deps, calls };
@@ -539,5 +557,59 @@ describe('runLeaf P5 size gate', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('waves-file-stuck');
+  });
+});
+
+describe('runLeaf 86b persistBlueprint (durable per-attempt)', () => {
+  const smallManifest = {
+    schemaVersion: 1,
+    estimatedFiles: 2,
+    estimatedTasks: 1,
+    nonEnumerableFanout: false,
+    filesToCreate: ['new.ts'],
+    filesToEdit: ['old.ts'],
+    tasks: [{ id: 't', files: ['old.ts'], description: 'x' }],
+  };
+
+  it('(a) invoked ONCE on a single PASS attempt with the parsed manifest + .md text', async () => {
+    const persistCalls: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }> = [];
+    const { deps } = makeWaveDeps({ manifest: smallManifest, reviewVerdict: 'VERDICT: PASS', persistCalls });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(persistCalls.length).toBe(1);
+    expect(persistCalls[0].attempt).toBe(1);
+    expect(persistCalls[0].project).toBe('proj');
+    expect(persistCalls[0].manifest.filesToCreate).toEqual(['new.ts']);
+    expect(persistCalls[0].manifest.filesToEdit).toEqual(['old.ts']);
+    expect(persistCalls[0].blueprintMd).toContain('```json');
+  });
+
+  it('(b) invoked PER attempt — fail attempt 1 then pass attempt 2 → two persists', async () => {
+    const persistCalls: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }> = [];
+    const { deps } = makeWaveDeps({
+      manifest: smallManifest,
+      reviewVerdicts: ['VERDICT: FAIL — retry', 'VERDICT: PASS'],
+      persistCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.attempts).toBe(2);
+    expect(persistCalls.map((c) => c.attempt)).toEqual([1, 2]);
+  });
+
+  it('(c) NOT invoked when the manifest is unparseable (no .md/manifest to persist)', async () => {
+    const persistCalls: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }> = [];
+    const { deps } = makeWaveDeps({ manifest: 'no json fence at all', reviewVerdict: 'VERDICT: PASS', persistCalls });
+    await runLeaf('proj', makeLeaf(), deps);
+    expect(persistCalls.length).toBe(0);
+  });
+
+  it('(d) a throwing persistBlueprint never breaks the run (best-effort)', async () => {
+    const { deps } = makeWaveDeps({ manifest: smallManifest, reviewVerdict: 'VERDICT: PASS' });
+    deps.persistBlueprint = async () => {
+      throw new Error('doc store down');
+    };
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
   });
 });
