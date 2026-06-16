@@ -9,8 +9,14 @@ import React from 'react';
 export const RECIPE_PHASES = ['sizegate', 'research', 'authortests', 'implement', 'verify', 'review'] as const;
 export type RecipePhase = (typeof RECIPE_PHASES)[number];
 
-const SHORT: Record<RecipePhase, string> = {
-  sizegate: 'sg', research: 'rs', authortests: 'at', implement: 'im', verify: 'vf', review: 'rv',
+/** Human-readable phase names — the "what the worker is doing" verb. */
+export const PHASE_LABEL: Record<RecipePhase, string> = {
+  sizegate: 'Sizing',
+  research: 'Researching',
+  authortests: 'Authoring tests',
+  implement: 'Implementing',
+  verify: 'Verifying',
+  review: 'Reviewing',
 };
 
 type PhaseState = 'done' | 'running' | 'pending';
@@ -43,8 +49,15 @@ export const PhasePipelineStrip: React.FC<{
   current?: string;
   lifecycle?: 'start' | 'end';
   compact?: boolean;
-}> = ({ current, lifecycle, compact }) => {
-  const states = statesFor(current, lifecycle);
+  /** Explicit "these phases ran" mode (a persisted/finished run has no single current
+   *  phase). When provided, listed phases render done, the rest pending — overrides current. */
+  completed?: readonly string[];
+}> = ({ current, lifecycle, compact, completed }) => {
+  const states = completed
+    ? (Object.fromEntries(
+        RECIPE_PHASES.map((p) => [p, completed.includes(p) ? 'done' : 'pending']),
+      ) as Record<RecipePhase, PhaseState>)
+    : statesFor(current, lifecycle);
   if (compact) {
     return (
       <div className="flex items-center gap-0.5" aria-label="phase pipeline">
@@ -57,8 +70,12 @@ export const PhasePipelineStrip: React.FC<{
   return (
     <div className="flex items-center gap-1 flex-wrap" aria-label="phase pipeline">
       {RECIPE_PHASES.map((p) => (
-        <span key={p} title={p} className={`px-1 py-0.5 rounded text-[10px] font-medium ${CHIP[states[p]]}`}>
-          {SHORT[p]}
+        <span
+          key={p}
+          title={`${PHASE_LABEL[p]}: ${states[p]}`}
+          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${CHIP[states[p]]}`}
+        >
+          {PHASE_LABEL[p]}
         </span>
       ))}
     </div>

@@ -39,7 +39,7 @@ import { funnelCounts, excludeEpics } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
-import { LaneCallout } from './LaneCallout';
+import { TodoWorkerPanel } from './LaneCallout';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
 
@@ -377,14 +377,22 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'todos' | 'workers' | 'stream'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'todos' | 'workers' | 'stream' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
     setSelectedEpic(null);
+    setBridgeTab('detail'); // surface the detail in the merged tab group
   };
   const handleSelectEpic = (epic: { id: string; label: string }) => {
     setSelectedEpic(epic);
+    setBridgeTab('detail');
+  };
+  /** Close the contextual detail tab: clear the selection and fall back to Todos. */
+  const closeDetail = () => {
+    setSelectedTodoId(null);
+    setSelectedEpic(null);
+    setBridgeTab('todos');
   };
 
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
@@ -439,13 +447,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               project={project}
               serverScope={serverScope}
             />
-            {/* Two columns above the graph: a TABBED instrument panel
-                (Escalations · Todos · Workers · Stream) + a Todo-description panel
-                that fills when a todo node is clicked in the graph. */}
-            <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3">
-              {/* Column 1 — tabbed instrument panel. Flexes to fill the column's
-                  available vertical space (no fixed max-height cap); scrolls
-                  internally only when content exceeds the available height. */}
+            {/* One merged tabbed instrument panel above the graph: Escalations · Todos
+                · Workers · Stream, plus a CONTEXTUAL Detail tab that appears when a todo
+                or epic is selected (in the graph or the Todos tab). */}
+            <div className="flex-1 min-h-0 flex flex-col">
               <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col flex-1 min-h-[18rem] min-w-0">
                 <div className="shrink-0 flex items-stretch border-b border-gray-200 dark:border-gray-700 overflow-x-auto min-w-0">
                   {([
@@ -453,7 +458,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
                     { key: 'workers', label: 'Workers', count: workerSubs.length },
                     { key: 'stream', label: 'Stream' },
-                  ] as const).map((t) => (
+                    ...((selectedTodoId || selectedEpic)
+                      ? [{ key: 'detail' as const, label: selectedEpic ? 'Epic' : 'Todo', closable: true }]
+                      : []),
+                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; closable?: boolean }>).map((t) => (
                     <button
                       key={t.key}
                       type="button"
@@ -467,71 +475,57 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                       }`}
                     >
                       {t.label}
-                      {'count' in t && t.count != null && t.count > 0 && (
-                        <span className={'loud' in t && t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
+                      {t.count != null && t.count > 0 && (
+                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
+                      )}
+                      {t.closable && (
+                        <span
+                          role="button"
+                          aria-label="Close detail"
+                          onClick={(e) => { e.stopPropagation(); closeDetail(); }}
+                          className="ml-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 leading-none"
+                        >
+                          ✕
+                        </span>
                       )}
                     </button>
                   ))}
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                <div className="flex-1 min-h-0 overflow-y-auto">
                   {bridgeTab === 'escalations' && (
-                    <NeedsYouZone embedded escalations={escalations} project={project} serverScope={serverScope} onJump={handleJump} />
+                    <div className="p-2"><NeedsYouZone embedded escalations={escalations} project={project} serverScope={serverScope} onJump={handleJump} /></div>
                   )}
                   {bridgeTab === 'todos' && (
-                    <HumanInbox
-                      embedded
-                      todos={todos}
-                      onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
-                      onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
-                      onOpen={handleSelectTodo}
-                    />
+                    <div className="p-2">
+                      <HumanInbox
+                        embedded
+                        todos={todos}
+                        onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
+                        onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
+                        onOpen={handleSelectTodo}
+                      />
+                    </div>
                   )}
-                  {bridgeTab === 'workers' && <WorkerRoster embedded subscriptions={workerSubs} todos={todos} onJump={handleJump} />}
-                  {bridgeTab === 'stream' && <StreamTicker embedded events={projectStreamEvents} />}
-                </div>
-              </div>
-
-              {/* Column 2 — detail panel. An EPIC click surfaces the epic's
-                  escalation + decision history (takes precedence); a TODO click
-                  fills the todo description. */}
-              <div
-                data-testid="bridge-todo-detail"
-                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col flex-1 min-h-[18rem] min-w-0"
-              >
-                <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                  <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {selectedEpic ? 'Epic History' : 'Todo'}
-                  </span>
-                  {(selectedEpic || selectedTodoId) && (
-                    <button
-                      type="button"
-                      aria-label={selectedEpic ? 'Close epic history' : 'Close todo detail'}
-                      onClick={() => (selectedEpic ? setSelectedEpic(null) : setSelectedTodoId(null))}
-                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm leading-none px-1"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                <div className="flex-1 min-h-0 overflow-y-auto">
-                  {selectedEpic ? (
-                    <EpicHistoryView
-                      epicId={selectedEpic.id}
-                      epicLabel={selectedEpic.label}
-                      serverScope={serverScope}
-                      project={project}
-                    />
-                  ) : selectedTodoId ? (
-                    <>
-                      <LaneCallout todoId={selectedTodoId} project={project} serverId={serverScope} />
-                      <div className="p-3">
-                        <TodoDetailView todoId={selectedTodoId} />
-                      </div>
-                    </>
-                  ) : (
-                    <p className="p-3 text-xs text-gray-400 dark:text-gray-500 italic">
-                      Click a todo to see its description, or an epic in the Plan below for its escalation &amp; decision history.
-                    </p>
+                  {bridgeTab === 'workers' && <div className="p-2"><WorkerRoster embedded subscriptions={workerSubs} todos={todos} onJump={handleJump} /></div>}
+                  {bridgeTab === 'stream' && <div className="p-2"><StreamTicker embedded events={projectStreamEvents} /></div>}
+                  {bridgeTab === 'detail' && (
+                    selectedEpic ? (
+                      <EpicHistoryView
+                        epicId={selectedEpic.id}
+                        epicLabel={selectedEpic.label}
+                        serverScope={serverScope}
+                        project={project}
+                      />
+                    ) : selectedTodoId ? (
+                      <>
+                        <TodoWorkerPanel todoId={selectedTodoId} project={project} serverId={serverScope} />
+                        <div className="p-3">
+                          <TodoDetailView todoId={selectedTodoId} />
+                        </div>
+                      </>
+                    ) : (
+                      <p className="p-3 text-xs text-gray-400 dark:text-gray-500 italic">Nothing selected.</p>
+                    )
                   )}
                 </div>
               </div>

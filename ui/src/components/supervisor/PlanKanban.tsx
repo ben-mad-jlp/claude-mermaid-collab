@@ -19,7 +19,7 @@ import React, { useMemo, useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
-import { bucketTodo, funnelCounts, FUNNEL_SEGMENTS, STATUS_STYLE, type FunnelKey } from './bridge/funnel';
+import { bucketTodo, FUNNEL_SEGMENTS, STATUS_STYLE, type FunnelKey } from './bridge/funnel';
 
 export interface PlanKanbanProps {
   todos: SessionTodo[];
@@ -132,8 +132,6 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
   const unblocks = useMemo(() => unblocksCount(todos), [todos]);
-  const counts = useMemo(() => funnelCounts(todos), [todos]);
-  const total = todos.length;
 
   // Build epic swimlanes: an epic is any todo that is some other todo's parent.
   // Children go in their epic's lane; everything else (no epic parent, not an
@@ -202,6 +200,19 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
   }, [todos, waveMap]);
 
   const completedLaneCount = useMemo(() => lanes.filter((l) => l.completed).length, [lanes]);
+
+  // PLAN totals reflect ONLY unfinished epics (a finished epic — every child terminal —
+  // is excluded entirely), so the progress header tracks the work that's actually left.
+  const { counts, total } = useMemo(() => {
+    const c: Record<FunnelKey, number> = { backlog: 0, ready: 0, inflight: 0, blocked: 0, done: 0 };
+    let tot = 0;
+    for (const l of lanes) {
+      if (l.completed) continue;
+      for (const k of Object.keys(c) as FunnelKey[]) c[k] += l.counts[k];
+      tot += l.items.length;
+    }
+    return { counts: c, total: tot };
+  }, [lanes]);
   const visibleLanes = useMemo(
     () =>
       lanes
@@ -215,7 +226,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     [lanes, showCompleted],
   );
 
-  if (total === 0) {
+  if (todos.length === 0) {
     return (
       <div data-testid="plan-kanban" className="flex items-center justify-center h-full">
         <p className="text-xs text-gray-400 dark:text-gray-500">No plan items for this project.</p>
@@ -235,7 +246,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   key={seg.key}
                   data-testid={`progress-seg-${seg.key}`}
                   className={STATUS_STYLE[seg.key].dot}
-                  style={{ width: `${(counts[seg.key] / total) * 100}%` }}
+                  style={{ width: `${total > 0 ? (counts[seg.key] / total) * 100 : 0}%` }}
                   title={`${seg.label}: ${counts[seg.key]}`}
                 />
               ) : null,

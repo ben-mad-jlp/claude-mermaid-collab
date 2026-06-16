@@ -8,9 +8,34 @@
  */
 import React from 'react';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
-import { PhasePipelineStrip, RECIPE_PHASES } from './fleet/PhasePipelineStrip';
+import { PhasePipelineStrip, RECIPE_PHASES, PHASE_LABEL } from './fleet/PhasePipelineStrip';
+import type { RecipePhase } from './fleet/PhasePipelineStrip';
 import { GrokTranscript } from '@/components/terminal/GrokTranscript';
 import { TieringEditor } from '@/components/settings/TieringEditor';
+import { WorkerRunSummary } from './WorkerRunSummary';
+
+/**
+ * TodoWorkerPanel — the always-on worker section for a selected todo. Shows the LIVE
+ * LaneCallout while a lane is running; otherwise falls back to the durable, ledger-backed
+ * WorkerRunSummary (which renders an empty state when the todo has never been worked). So
+ * the "what ran, on which model, at what cost" record is visible whether or not a worker
+ * is currently active.
+ */
+export const TodoWorkerPanel: React.FC<{
+  todoId: string;
+  project: string;
+  serverId: string;
+}> = ({ todoId, project, serverId }) => {
+  const live = useWorkerFabricStore((s) => {
+    const l = s.lanes[todoId];
+    return !!l && l.alive && l.lifecycle !== 'end';
+  });
+  return live ? (
+    <LaneCallout todoId={todoId} project={project} serverId={serverId} />
+  ) : (
+    <WorkerRunSummary todoId={todoId} project={project} />
+  );
+};
 
 export const LaneCallout: React.FC<{
   todoId: string;
@@ -23,21 +48,41 @@ export const LaneCallout: React.FC<{
   if (!lane) return null;
 
   const byPhase = lane.byPhase ?? {};
+  const running = lane.alive && lane.lifecycle !== 'end';
+  const activity = running && lane.phase ? PHASE_LABEL[lane.phase as RecipePhase] ?? 'Working' : 'Lane ended';
+  const costPhases = RECIPE_PHASES.filter((p) => byPhase[p]);
   return (
-    <div className="m-3 mb-0 rounded-lg border border-accent-200 dark:border-accent-800 bg-accent-50/50 dark:bg-accent-900/20">
-      <div className="px-3 py-2 border-b border-accent-200/60 dark:border-accent-800/60 flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wide text-accent-500">worker lane</span>
-        {lane.alive ? (
-          <span className="flex items-center gap-1 text-2xs text-accent-600 dark:text-accent-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent-500 animate-pulse" /> running
-          </span>
-        ) : (
-          <span className="text-2xs text-gray-400">ended</span>
-        )}
-        <span className="ml-auto text-2xs tabular-nums text-gray-600 dark:text-gray-300" title="run cost">
+    <div className="m-3 mb-0 rounded-lg border border-accent-200 dark:border-accent-800 bg-accent-50/50 dark:bg-accent-900/20 overflow-hidden">
+      {/* Activity headline — the "what is this worker doing right now" line. */}
+      <div className="px-3 py-2.5 border-b border-accent-200/60 dark:border-accent-800/60 flex items-center gap-2">
+        <span
+          className={`h-2 w-2 rounded-full shrink-0 ${running ? 'bg-accent-500 animate-pulse' : 'bg-gray-300 dark:bg-gray-600'}`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+              {activity}
+            </span>
+            {running && lane.route?.model && (
+              <span
+                className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300"
+                title={lane.route.provider ? `${lane.route.provider} / ${lane.route.model}` : lane.route.model}
+              >
+                {lane.route.model}
+              </span>
+            )}
+          </div>
+          {running && lane.route?.source && (
+            <div className="text-2xs text-gray-500 dark:text-gray-400 truncate">
+              routed by {lane.route.source}
+              {lane.route.winningScope ? ` · ${lane.route.winningScope}` : ''}
+            </div>
+          )}
+        </div>
+        <span className="shrink-0 text-2xs tabular-nums text-gray-600 dark:text-gray-300" title="run cost">
           ${lane.runCostUsd.toFixed(4)}
         </span>
-        {lane.alive && lane.session && (
+        {running && lane.session && (
           <button
             type="button"
             title="Stop this worker lane (aborts the run)"
@@ -48,31 +93,26 @@ export const LaneCallout: React.FC<{
                 body: JSON.stringify({ session: lane.session }),
               }).catch(() => {});
             }}
-            className="text-2xs px-1.5 py-0.5 rounded bg-danger-50 text-danger-600 hover:bg-danger-100 dark:bg-danger-900/30 dark:text-danger-300"
+            className="shrink-0 text-2xs px-1.5 py-0.5 rounded bg-danger-50 text-danger-600 hover:bg-danger-100 dark:bg-danger-900/30 dark:text-danger-300"
           >
             ⏹ stop
           </button>
         )}
       </div>
 
-      <div className="px-3 py-2 space-y-1.5">
+      <div className="px-3 py-2.5 space-y-2">
         <PhasePipelineStrip current={lane.phase} lifecycle={lane.lifecycle} />
-        {/* Per-phase model + cost captions (the WHY of routing + spend). */}
-        <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5 text-[10px]">
-          {RECIPE_PHASES.filter((p) => byPhase[p] || p === lane.phase).map((p) => (
-            <React.Fragment key={p}>
-              <span className="text-gray-500 dark:text-gray-400">{p}</span>
-              <span className="text-gray-400 truncate">
-                {p === lane.phase && lane.route?.model
-                  ? `${lane.route.provider}/${lane.route.model} (${lane.route.source}${lane.route.winningScope ? ':' + lane.route.winningScope : ''})`
-                  : ''}
+        {/* Per-phase spend breakdown (the WHERE of the run cost). */}
+        {costPhases.length > 0 && (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs">
+            {costPhases.map((p) => (
+              <span key={p} className="text-gray-500 dark:text-gray-400">
+                {PHASE_LABEL[p]}{' '}
+                <span className="tabular-nums text-gray-700 dark:text-gray-300">${byPhase[p].usd.toFixed(3)}</span>
               </span>
-              <span className="tabular-nums text-gray-500 dark:text-gray-400 text-right">
-                {byPhase[p] ? `$${byPhase[p].usd.toFixed(3)}` : ''}
-              </span>
-            </React.Fragment>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
         {/* Tiering-in-context (design graft): tune which model runs each phase, scoped
             to this lane's project, right where the routing is shown. */}
         <button

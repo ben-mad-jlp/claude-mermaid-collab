@@ -22,6 +22,8 @@ import {
   type EscalationHistoryResponse,
 } from '@/lib/epicHistory';
 import type { EscalationLifecycle } from '@/lib/escalationLifecycle';
+import { useWorkerFabricStore } from '@/stores/workerFabricStore';
+import { RECIPE_PHASES, PHASE_LABEL } from './fleet/PhasePipelineStrip';
 
 export interface EpicHistoryViewProps {
   epicId: string;
@@ -48,6 +50,86 @@ function fmtTime(ts: number): string {
     return String(ts);
   }
 }
+
+/**
+ * EpicSpend — run-cost + routing rolled up across THIS epic's worker lanes
+ * (the same fabric store the work-graph nodes read). Shows the epic total, lane
+ * count, per-phase spend, and which models actually ran the phases (the routing).
+ * Renders nothing until the epic has at least one lane with cost/activity.
+ */
+const EpicSpend: React.FC<{ epicId: string }> = ({ epicId }) => {
+  const lanes = useWorkerFabricStore((s) => s.lanes);
+  const roll = React.useMemo(() => {
+    let total = 0;
+    let live = 0;
+    let laneCount = 0;
+    const byPhase: Record<string, number> = {};
+    const models = new Map<string, number>(); // "provider/model" → times seen as a phase route
+    for (const l of Object.values(lanes)) {
+      if (l.epicId !== epicId) continue;
+      laneCount += 1;
+      total += l.runCostUsd;
+      if (l.alive) live += 1;
+      for (const [phase, c] of Object.entries(l.byPhase ?? {})) {
+        byPhase[phase] = (byPhase[phase] ?? 0) + c.usd;
+      }
+      if (l.route?.model) {
+        const key = l.route.provider ? `${l.route.provider}/${l.route.model}` : l.route.model;
+        models.set(key, (models.get(key) ?? 0) + 1);
+      }
+    }
+    return { total, live, laneCount, byPhase, models };
+  }, [lanes, epicId]);
+
+  if (roll.laneCount === 0 || (roll.total <= 0 && roll.live === 0)) return null;
+  const costPhases = RECIPE_PHASES.filter((p) => roll.byPhase[p]);
+  return (
+    <div className="rounded border border-accent-200 dark:border-accent-800 bg-accent-50/50 dark:bg-accent-900/20 p-2">
+      <div className="flex items-center gap-2">
+        <span className="text-2xs font-semibold uppercase tracking-wide text-accent-600 dark:text-accent-400">
+          Worker spend
+        </span>
+        {roll.live > 0 && (
+          <span className="flex items-center gap-1 text-3xs text-accent-600 dark:text-accent-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent-500 animate-pulse" />
+            {roll.live} running
+          </span>
+        )}
+        <span className="ml-auto text-2xs tabular-nums font-semibold text-gray-800 dark:text-gray-100" title="epic run cost">
+          ${roll.total.toFixed(4)}
+        </span>
+      </div>
+      <div className="mt-0.5 text-3xs text-gray-500 dark:text-gray-400">
+        across {roll.laneCount} {roll.laneCount === 1 ? 'lane' : 'lanes'}
+      </div>
+
+      {costPhases.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-2xs">
+          {costPhases.map((p) => (
+            <span key={p} className="text-gray-500 dark:text-gray-400">
+              {PHASE_LABEL[p]}{' '}
+              <span className="tabular-nums text-gray-700 dark:text-gray-300">${roll.byPhase[p].toFixed(3)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {roll.models.size > 0 && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-3xs uppercase tracking-wide text-gray-400">routed via</span>
+          {[...roll.models.keys()].map((m) => (
+            <span
+              key={m}
+              className="text-3xs font-medium px-1.5 py-0.5 rounded bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300"
+            >
+              {m}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const EscalationRow: React.FC<{ entry: Extract<EpicTimelineEntry, { type: 'escalation' }> }> = ({ entry }) => (
   <div
@@ -147,6 +229,8 @@ export const EpicHistoryView: React.FC<EpicHistoryViewProps> = ({ epicId, epicLa
         </span>
         {epicLabel && <span className="text-2xs text-gray-700 dark:text-gray-200 truncate">· {epicLabel}</span>}
       </div>
+
+      <EpicSpend epicId={epicId} />
 
       {loading && <p className="text-2xs text-gray-400 dark:text-gray-500 italic">Loading history…</p>}
       {!loading && error && <p className="text-2xs text-danger-500">{error}</p>}
