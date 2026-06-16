@@ -90,38 +90,6 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
  * every lane's heartbeat in lockstep (the bug this fixes). Non-worker lanes (no
  * fleet claim) keep the generic last-activity behaviour.
  */
-const SupervisorProjectCards: React.FC<{
-  project: string;
-  serverScope: string;
-  rows: Array<{ session: SupervisedSession; card: SessionCardData; isSelected: boolean }>;
-  serverLabelById: Map<string, string>;
-  serverIconById: Map<string, string>;
-  activeServerIcon?: string;
-  onNavigate: (sub: SessionCardData) => void;
-  onToggleSupervise: (sub: SessionCardData, next: boolean) => void;
-}> = ({ project, serverScope, rows, serverLabelById, serverIconById, activeServerIcon, onNavigate, onToggleSupervise }) => {
-  const fleet = useFleetStatus(serverScope, project || undefined);
-  return (
-    <div className="space-y-1 mt-1">
-      {rows.map(({ session, card, isSelected }) => {
-        const claimedAt = fleet[session.session]?.claimedAt ?? null;
-        return (
-          <SessionCard
-            key={session.session}
-            sub={claimedAt != null ? { ...card, taskClaimedAt: claimedAt } : card}
-            serverLabel={serverLabelById.get(card.serverId) ?? undefined}
-            serverIcon={serverIconById.get(card.serverId) ?? activeServerIcon}
-            onNavigate={onNavigate}
-            isSelected={isSelected}
-            supervised
-            onToggleSupervise={onToggleSupervise}
-          />
-        );
-      })}
-    </div>
-  );
-};
-
 export interface SupervisorPanelProps {
   currentProject?: string;
   currentSession?: string;
@@ -200,8 +168,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const storeCurrentSession = useSessionStore((s) => s.currentSession);
   const { servers } = useServers();
-  const collapsedProjects = useUIStore((s) => s.supervisorCollapsedProjects);
-  const toggleSupervisorProject = useUIStore((s) => s.toggleSupervisorProject);
   const [collapsed, setCollapsed] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -492,7 +458,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const isVisibleSession = (s: SupervisedSession, idx: number) =>
                 isOrchestratorSession(s.session) || cards[idx].status !== 'unknown';
               const visibleCount = projSessions.filter(isVisibleSession).length;
-              const isProjCollapsed = !!collapsedProjects[project];
               const projName = projectLabels[project] ?? (project.split('/').filter(Boolean).pop() ?? project);
               const isActive = activeProject === project;
               return (
@@ -505,7 +470,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     data-project={project}
                     data-combined-status={combined}
                     data-active={isActive}
-                    aria-expanded={!isProjCollapsed}
                     draggable
                     onDragStart={(e) => { e.dataTransfer.setData('text/x-mc-project', project); e.dataTransfer.effectAllowed = 'move'; }}
                     onDragOver={(e) => { if (e.dataTransfer.types.includes('text/x-mc-project')) e.preventDefault(); }}
@@ -515,17 +479,6 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     }}
                     className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
                   >
-                    <button
-                      type="button"
-                      aria-label="Toggle sessions"
-                      aria-expanded={!isProjCollapsed}
-                      onClick={() => toggleSupervisorProject(project)}
-                      className="shrink-0 text-gray-500"
-                    >
-                      <svg className={`w-3 h-3 transition-transform ${isProjCollapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                      </svg>
-                    </button>
                     <button
                       type="button"
                       data-bridge-project={project}
@@ -564,38 +517,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       </svg>
                     </button>
                   </div>
-
-                  {/* Supervised sessions — same card as Watching. Hidden when the
-                      project group is collapsed. */}
-                  {!isProjCollapsed && visibleCount > 0 && (
-                    // Declutter: hide gray (idle/stale) worker lanes — show only
-                    // colored ones (active/waiting/permission, incl. the dimmed
-                    // "recently used" within ~15min). The previous check used
-                    // isWorkerSession, which only matches `worker-*` names — NOT
-                    // the pool lanes (backend-1, general-1, …) that ARE the
-                    // workers, so it never fired. Hide any gray session EXCEPT
-                    // orchestrator/role sessions (planner/steward/supervisor).
-                    <SupervisorProjectCards
-                      project={project}
-                      serverScope={serverScope}
-                      rows={projSessions
-                        .map((s, idx) => ({ s, idx }))
-                        .filter(({ s, idx }) => isVisibleSession(s, idx))
-                        .map(({ s, idx }) => ({
-                          session: s,
-                          card: cards[idx],
-                          isSelected:
-                            !!storeCurrentSession &&
-                            storeCurrentSession.project === s.project &&
-                            storeCurrentSession.name === s.session,
-                        }))}
-                      serverLabelById={serverLabelById}
-                      serverIconById={serverIconById}
-                      activeServerIcon={activeServerIcon}
-                      onNavigate={handleNavigate}
-                      onToggleSupervise={handleToggleSupervise}
-                    />
-                  )}
+                  {/* Per-project session cards removed (option 2): the Bridge tree is now
+                      a pure project index. Live sessions are read in the Watching panel and
+                      the Bridge Workers tab; the count badge on the row remains the at-a-
+                      glance "N sessions" read. */}
                 </div>
               );
             })
