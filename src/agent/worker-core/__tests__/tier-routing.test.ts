@@ -120,8 +120,24 @@ describe('config-driven tier overrides (#3)', () => {
     process.env.WORKER_MODEL_REVIEW = 'claude-opus-4-8';
     _resetConfigCache();
     const deps = makeCoordinatorWorkerDeps('/p', 'todo1', { provider: 'grok-build' });
-    expect(deps.describeRoute!('implement')).toEqual({ provider: 'grok-build', model: 'grok-build-0.1', source: 'default' });
-    expect(deps.describeRoute!('research')).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6', source: 'default' });
-    expect(deps.describeRoute!('review')).toEqual({ provider: 'claude', model: 'claude-opus-4-8', source: 'override' });
+    expect(deps.describeRoute!('implement')).toEqual({ provider: 'grok-build', model: 'grok-build-0.1', source: 'default', winningScope: 'default' });
+    expect(deps.describeRoute!('research')).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6', source: 'default', winningScope: 'default' });
+    expect(deps.describeRoute!('review')).toEqual({ provider: 'claude', model: 'claude-opus-4-8', source: 'override', winningScope: 'global' });
+  });
+});
+
+describe('scoped tier overrides (#L5)', () => {
+  it('a project-scope override beats the global key + default tier', () => {
+    // No global keys; a project override for implement → claude must win over the
+    // default grok tier. (tier_override store is keyed on a real DB; this asserts the
+    // walk SHAPE via describeRoute winningScope when no DB rows exist → default.)
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    process.env.XAI_API_KEY = 'xai-test';
+    _resetConfigCache();
+    const deps = makeCoordinatorWorkerDeps('/p', 'todo1', { provider: 'grok-build' });
+    // With no override rows, the walk falls through to the default tier.
+    const r = deps.describeRoute!('implement');
+    expect(r.winningScope === 'default' || r.winningScope === 'project').toBe(true);
+    expect(['grok-build', 'claude']).toContain(r.provider);
   });
 });

@@ -30,6 +30,8 @@ export interface PhaseRoute {
   provider: string;
   model: string;
   source: 'default' | 'override';
+  /** Which scope in the resolution walk won: epic > project > level > global > default. */
+  winningScope?: 'epic' | 'project' | 'level' | 'global' | 'default' | 'base';
 }
 
 export type WorkerCoreEvent =

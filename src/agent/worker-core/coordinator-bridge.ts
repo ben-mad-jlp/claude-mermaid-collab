@@ -15,9 +15,20 @@ import { resolve } from 'node:path';
 import { getTodo as storeGetTodo } from '../../services/todo-store';
 import { resolveModel, anthropicAvailable, grokAvailable, providerAvailable, PROVIDER_IDS, DEFAULT_MODEL_BY_PROVIDER } from './resolve-model';
 import { getConfig } from '../../services/config-service';
+import { getTierOverride, type TierScope } from '../../services/tier-override-store';
+import { getOrchestratorLevel } from '../../services/orchestrator-config';
 import type { WorkerCoreDeps, GateOutcome } from './orchestrator';
 import type { ProviderId } from '../worker-agent';
 import type { SubloopRole } from './capabilities';
+
+/** Scoping context for the tier-resolution walk (design-worker-fabric-ui §3). */
+export interface RouteCtx {
+  project?: string;
+  epicId?: string;
+  level?: string;
+}
+
+export type WinningScope = 'epic' | 'project' | 'level' | 'global' | 'default' | 'base';
 
 /** Tier matrix: an EXPLICIT phase→provider routing, independent of the todo's pin.
  *  JUDGMENT phases (sizegate/research/verify/review) route to Claude — the bakeoff
@@ -73,18 +84,49 @@ function parseProviderId(raw: string | undefined): ProviderId | null {
 export function resolveTierRoute(
   phase: SubloopRole,
   base: ProviderId,
-): { provider: ProviderId; model?: string; source: 'default' | 'override' } {
+  ctx: RouteCtx = {},
+): { provider: ProviderId; model?: string; source: 'default' | 'override'; winningScope: WinningScope } {
+  // Ordered walk, first AVAILABLE match wins; fall through on miss OR on a provider
+  // whose key is missing (keyless-safe). epic > project > level > global > default > base.
+  const fromScope = (scope: TierScope, scopeId?: string) => {
+    if (!scopeId) return null;
+    const o = getTierOverride(scope, scopeId, phase);
+    const pid = parseProviderId(o?.provider);
+    if (o && pid && providerAvailable(pid)) {
+      return { provider: pid, model: o.model ?? undefined };
+    }
+    return null;
+  };
+  const epic = fromScope('epic', ctx.epicId);
+  if (epic) return { ...epic, source: 'override', winningScope: 'epic' };
+  const proj = fromScope('project', ctx.project);
+  if (proj) return { ...proj, source: 'override', winningScope: 'project' };
+  const lvl = fromScope('level', ctx.level);
+  if (lvl) return { ...lvl, source: 'override', winningScope: 'level' };
+  // Global config keys (WORKER_PROVIDER_<PHASE>).
   const suffix = PHASE_CONFIG_SUFFIX[phase];
-  const override = parseProviderId(getConfig(`WORKER_PROVIDER_${suffix}`));
-  if (override && providerAvailable(override)) {
-    return { provider: override, model: getConfig(`WORKER_MODEL_${suffix}`) || undefined, source: 'override' };
+  const g = parseProviderId(getConfig(`WORKER_PROVIDER_${suffix}`));
+  if (g && providerAvailable(g)) {
+    return { provider: g, model: getConfig(`WORKER_MODEL_${suffix}`) || undefined, source: 'override', winningScope: 'global' };
   }
-  return { provider: providerForPhase(phase, base), source: 'default' };
+  // Default tier (judgment→claude, implement→grok; base when keyless).
+  const def = providerForPhase(phase, base);
+  return { provider: def, source: 'default', winningScope: def === base && !providerAvailable(def) ? 'base' : 'default' };
 }
 
 /** WorkerCoreDeps wired to the real coordinator for one todo. */
 export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts: BridgeOpts): WorkerCoreDeps {
   const session = `worker-${todoId.slice(0, 8)}`;
+  // Resolve the scoping context ONCE per todo: the epic (parentId) and the project's
+  // autonomy level drive the tier-resolution walk. Best-effort — a failure leaves the
+  // scope undefined and the walk falls through to global/default (byte-identical).
+  let ctx: RouteCtx = { project };
+  try {
+    const t = storeGetTodo(project, todoId);
+    ctx = { project, epicId: t?.parentId ?? undefined, level: getOrchestratorLevel(project) };
+  } catch {
+    /* keep { project } */
+  }
   return {
     getTodo: (p, id) => {
       const t = storeGetTodo(p, id);
@@ -92,21 +134,19 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
     },
 
     resolveModel: (phase) => {
-      // Config-driven tier matrix: a per-phase WORKER_PROVIDER_<PHASE> override (if set
-      // and available) wins; else the default tier (judgment → claude, implement →
-      // grok-build regardless of pin), each keyless-safe. A WORKER_MODEL_<PHASE> or an
-      // explicit modelByPhase pins the model; otherwise the provider default applies.
-      const route = resolveTierRoute(phase, opts.provider);
+      // Scoped tier matrix walk (epic > project > level > global > default); each tier
+      // keyless-safe. A WORKER_MODEL override or an explicit modelByPhase pins the model.
+      const route = resolveTierRoute(phase, opts.provider, ctx);
       const model = route.model ?? opts.modelByPhase?.(phase);
       return resolveModel(route.provider, model);
     },
 
     describeRoute: (phase) => {
       // Same resolution the resolveModel dep uses, surfaced as a typed routing decision
-      // for observability (which provider+model ran this phase, and why).
-      const route = resolveTierRoute(phase, opts.provider);
+      // for observability (which provider+model ran this phase, and WHY — winningScope).
+      const route = resolveTierRoute(phase, opts.provider, ctx);
       const model = route.model ?? opts.modelByPhase?.(phase) ?? DEFAULT_MODEL_BY_PROVIDER[route.provider];
-      return { provider: route.provider, model, source: route.source };
+      return { provider: route.provider, model, source: route.source, winningScope: route.winningScope };
     },
 
     runScopedGate: async (): Promise<GateOutcome> => {

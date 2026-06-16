@@ -2835,6 +2835,63 @@ export async function handleAPI(
     return Response.json({ lanes });
   }
 
+  // GET /api/tiering?scope=&scopeId=  ·  POST /api/tiering { scope, scopeId, phase, provider, model }
+  // The scoped per-phase provider/model overrides (design-worker-fabric-ui §3). GET lists
+  // a scope's overrides for the matrix; POST sets one (empty provider clears it).
+  if (path === '/api/tiering' && req.method === 'GET') {
+    const scope = url.searchParams.get('scope');
+    const scopeId = url.searchParams.get('scopeId');
+    if (scope !== 'project' && scope !== 'epic' && scope !== 'level') return Response.json({ error: 'bad scope' }, { status: 400 });
+    if (!scopeId) return Response.json({ error: 'scopeId required' }, { status: 400 });
+    const { listTierOverrides } = await import('../services/tier-override-store');
+    return Response.json({ overrides: listTierOverrides(scope, scopeId) });
+  }
+  if (path === '/api/tiering' && req.method === 'POST') {
+    const b = (await req.json().catch(() => ({}))) as { scope?: string; scopeId?: string; phase?: string; provider?: string; model?: string };
+    if (b.scope !== 'project' && b.scope !== 'epic' && b.scope !== 'level') return Response.json({ error: 'bad scope' }, { status: 400 });
+    if (!b.scopeId || !b.phase) return Response.json({ error: 'scopeId and phase required' }, { status: 400 });
+    const { setTierOverride } = await import('../services/tier-override-store');
+    const ok = setTierOverride(b.scope, b.scopeId, b.phase, b.provider ?? '', b.model ?? null);
+    return Response.json({ success: ok });
+  }
+
+  // GET /api/worker/route-preview?project=&epicId=&level=&base=
+  // Runs the resolution walk per phase server-side → {phase, provider, model, source,
+  // winningScope, available}. Backs the TieringEditor WHY column + preview row.
+  if (path === '/api/worker/route-preview' && req.method === 'GET') {
+    const { resolveTierRoute } = await import('../agent/worker-core/coordinator-bridge');
+    const { DEFAULT_MODEL_BY_PROVIDER, providerAvailable } = await import('../agent/worker-core/resolve-model');
+    const base = (url.searchParams.get('base') || 'grok-build') as 'claude' | 'grok-build' | 'codex';
+    const ctx = {
+      project: url.searchParams.get('project') ?? undefined,
+      epicId: url.searchParams.get('epicId') ?? undefined,
+      level: url.searchParams.get('level') ?? undefined,
+    };
+    const PHASES = ['sizegate', 'research', 'authortests', 'implement', 'verify', 'review'] as const;
+    const rows = PHASES.map((phase) => {
+      const r = resolveTierRoute(phase, base, ctx);
+      return {
+        phase,
+        provider: r.provider,
+        model: r.model ?? DEFAULT_MODEL_BY_PROVIDER[r.provider],
+        source: r.source,
+        winningScope: r.winningScope,
+        available: providerAvailable(r.provider),
+      };
+    });
+    return Response.json({ rows });
+  }
+
+  // GET /api/worker/key-health — which providers can actually run (key present + wired).
+  if (path === '/api/worker/key-health' && req.method === 'GET') {
+    const { providerAvailable } = await import('../agent/worker-core/resolve-model');
+    return Response.json({
+      claude: providerAvailable('claude'),
+      'grok-build': providerAvailable('grok-build'),
+      codex: providerAvailable('codex'),
+    });
+  }
+
   // POST /api/worker-inject { project, session, text }
   // Steer an in-process grok-build lane: queues a human follow-up that lands as a
   // user turn at the NEXT step boundary. Graceful no-op for claude/unknown lanes.
