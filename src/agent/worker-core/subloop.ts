@@ -145,8 +145,30 @@ export async function spawnSubloop<T = unknown>(
   };
 
   if (opts.schema) {
+    // FORCED CLOSING CALL: a real leaf often exhausts the step budget EXPLORING and
+    // never calls submit_verdict (observed live: claude judgment phases hitting the
+    // cap → "no JSON object" → the leaf dies). One more call with toolChoice pinned to
+    // submit_verdict COMPELS a structured verdict, fed the prose notes the model just
+    // produced so it has context. Best-effort — on any failure we fall through to the
+    // tolerant text parse (prior behavior). This makes the verdict provider-robust.
+    if (captured === undefined) {
+      try {
+        await generateText({
+          model: ctx.model,
+          tools: { [SUBMIT]: tools[SUBMIT] },
+          toolChoice: { type: 'tool', toolName: SUBMIT },
+          prompt:
+            `${prompt}\n\n--- YOUR EXPLORATION NOTES ---\n${res.text || '(none)'}\n\n` +
+            `You have explored enough. Output your FINAL verdict NOW by calling ${SUBMIT} — do not explore further.`,
+          stopWhen: [stepCountIs(1), hasToolCall(SUBMIT)],
+          abortSignal: ctx.abortSignal,
+        });
+      } catch {
+        /* forced submit failed → fall through to the text parse below */
+      }
+    }
     if (captured !== undefined) {
-      out.object = captured; // already validated by the submit_verdict tool's schema
+      out.object = captured; // validated by the submit_verdict tool's schema (main or closing call)
     } else {
       // Fallback: the model answered in prose/JSON instead of calling submit_verdict.
       const parsed = tolerantJsonParse(res.text);

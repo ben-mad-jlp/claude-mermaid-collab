@@ -121,7 +121,7 @@ export async function runWorkerCore(
   // 0. SIZE GATE → an oversized leaf files a SPLIT-PROPOSAL escalation (the planner
   //    promotes the drafted siblings) and the worker STOPS — it never grinds a whole
   //    epic or fans out writers itself (the worker-skill Step 1.5/4d discipline).
-  const sizegate = await runPhase('sizegate', sizegatePrompt(spec), { schema: SplitProposalSchema, stepCap: 4 });
+  const sizegate = await runPhase('sizegate', sizegatePrompt(spec), { schema: SplitProposalSchema, stepCap: 6 });
   if (sizegate.object?.oversized) {
     const subs = sizegate.object.subtasks ?? [];
     const detail =
@@ -132,7 +132,7 @@ export async function runWorkerCore(
   }
 
   // 1. RESEARCH → typed findings (the per-todo blueprint).
-  const research = await runPhase('research', researchPrompt(spec), { schema: ResearchFindingsSchema, stepCap: 4 });
+  const research = await runPhase('research', researchPrompt(spec), { schema: ResearchFindingsSchema, stepCap: 8 });
   if (!research.object) {
     const detail = `research produced no valid findings: ${research.parseError ?? 'unknown'}`;
     await deps.escalate(project, todoId, 'research-failed', detail);
