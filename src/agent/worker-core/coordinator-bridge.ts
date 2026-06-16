@@ -11,22 +11,34 @@
  * authoritative, todo-scoped gate).
  */
 import { getTodo as storeGetTodo } from '../../services/todo-store';
-import { resolveModel, anthropicAvailable } from './resolve-model';
+import { resolveModel, anthropicAvailable, grokAvailable } from './resolve-model';
 import type { WorkerCoreDeps, GateOutcome } from './orchestrator';
 import type { ProviderId } from '../worker-agent';
 import type { SubloopRole } from './capabilities';
 
-/** Tier matrix: JUDGMENT phases (blueprint/research, verify, review, sizegate) route
- *  to Claude — the bakeoff showed grok-build drifts on judgment — while the high-volume
- *  IMPLEMENT phase stays on the cheap provider. Falls back to the base provider when no
- *  Anthropic key is configured, so the recipe never hard-fails on a missing key. */
+/** Tier matrix: an EXPLICIT phase→provider routing, independent of the todo's pin.
+ *  JUDGMENT phases (sizegate/research/verify/review) route to Claude — the bakeoff
+ *  showed grok-build drifts on judgment — while the high-volume IMPLEMENT phase routes
+ *  to the cheap grok-build EVEN when the todo is pinned to claude (the whole point of
+ *  phase-routing: don't burn the expensive model on bulk implementation). Each tier
+ *  falls back to the run's base provider when its preferred provider has no key, so the
+ *  recipe never hard-fails on a missing key. */
 const JUDGMENT_PHASES = new Set<SubloopRole>(['sizegate', 'research', 'verify', 'review']);
 
 export interface BridgeOpts {
-  /** Base provider for this run (grok-build) — used for implement + as the judgment fallback. */
+  /** Base provider for this run — the per-tier fallback when the tier's preferred
+   *  provider isn't configured. */
   provider: ProviderId;
   /** Optional per-phase model override (e.g. Opus for a hard blueprint). */
   modelByPhase?: (phase: SubloopRole) => string | undefined;
+}
+
+/** The provider for a phase under the tier matrix. Judgment → claude (or base if no
+ *  key); implement → grok-build (or base if no key) regardless of the run's pin. */
+export function providerForPhase(phase: SubloopRole, base: ProviderId): ProviderId {
+  if (JUDGMENT_PHASES.has(phase)) return anthropicAvailable() ? 'claude' : base;
+  // implement (the high-volume phase): the cheap grok-build always wins over the pin.
+  return grokAvailable() ? 'grok-build' : base;
 }
 
 /** WorkerCoreDeps wired to the real coordinator for one todo. */
@@ -39,9 +51,9 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
     },
 
     resolveModel: (phase) => {
-      // Judgment phase + a key present → Claude; else the base provider (grok).
-      const useClaude = JUDGMENT_PHASES.has(phase) && anthropicAvailable();
-      const provider: ProviderId = useClaude ? 'claude' : opts.provider;
+      // Explicit tier matrix: judgment → claude, implement → grok-build (regardless
+      // of the run's pin), each falling back to the base provider when keyless.
+      const provider = providerForPhase(phase, opts.provider);
       return resolveModel(provider, opts.modelByPhase?.(phase));
     },
 

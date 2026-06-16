@@ -24,6 +24,13 @@ export function anthropicAvailable(): boolean {
   return !!getSecret('ANTHROPIC_API_KEY');
 }
 
+/** True when an xAI key is configured — the implement phase routes to the cheap
+ *  grok-build regardless of the todo's pin, falling back to the base provider when
+ *  this is false so the recipe never hard-fails on a missing key. */
+export function grokAvailable(): boolean {
+  return !!getSecret('XAI_API_KEY');
+}
+
 /** Per-provider default model when a phase doesn't pin one. */
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
   'grok-build': 'grok-build-0.1',
