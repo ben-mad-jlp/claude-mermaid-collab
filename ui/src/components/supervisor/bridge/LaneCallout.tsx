@@ -10,6 +10,7 @@ import React from 'react';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { PhasePipelineStrip, RECIPE_PHASES } from './fleet/PhasePipelineStrip';
 import { GrokTranscript } from '@/components/terminal/GrokTranscript';
+import { TieringEditor } from '@/components/settings/TieringEditor';
 
 export const LaneCallout: React.FC<{
   todoId: string;
@@ -18,6 +19,7 @@ export const LaneCallout: React.FC<{
 }> = ({ todoId, project, serverId }) => {
   const lane = useWorkerFabricStore((s) => s.lanes[todoId]);
   const [showTranscript, setShowTranscript] = React.useState(false);
+  const [showTiering, setShowTiering] = React.useState(false);
   if (!lane) return null;
 
   const byPhase = lane.byPhase ?? {};
@@ -55,6 +57,24 @@ export const LaneCallout: React.FC<{
             </React.Fragment>
           ))}
         </div>
+        {/* Tiering-in-context (design graft): tune which model runs each phase, scoped
+            to this lane's project, right where the routing is shown. */}
+        <button
+          type="button"
+          onClick={() => setShowTiering((v) => !v)}
+          className="text-2xs text-accent-600 dark:text-accent-400 hover:underline"
+        >
+          {showTiering ? '▾ hide model routing' : '⚙ model routing'}
+        </button>
+        {showTiering && (
+          <div className="mt-1 rounded border border-gray-200 dark:border-gray-700 p-2 bg-white/60 dark:bg-gray-900/40">
+            <TieringEditor
+              scope="project"
+              scopeId={project}
+              previewParams={{ project, epicId: lane.epicId }}
+            />
+          </div>
+        )}
       </div>
 
       {lane.session && (
