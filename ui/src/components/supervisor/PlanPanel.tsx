@@ -4,6 +4,7 @@ import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
 import { PlanKanban } from './PlanKanban';
+import { PlanTotalsBar } from './PlanTotals';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
 import { bucketTodo, STATUS_STYLE } from './bridge/funnel';
 
@@ -158,11 +159,19 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
     const keep = (t: SessionTodo) => showCompleted || !TERMINAL.has(t.status);
     const rows: { todo: SessionTodo; depth: number }[] = [];
     for (const top of [...topLevel].sort(sort)) {
-      const kids = (childrenByParent.get(top.id) ?? []).filter(keep);
-      // Drop a fully-completed epic (itself terminal AND no surviving children).
-      if (!keep(top) && kids.length === 0) continue;
-      rows.push({ todo: top, depth: 0 });
-      for (const k of [...kids].sort(sort)) rows.push({ todo: k, depth: 1 });
+      const allKids = childrenByParent.get(top.id) ?? [];
+      if (allKids.length > 0) {
+        // An epic: a fully-completed one (every child terminal) is gated by Show
+        // completed; an ACTIVE epic always shows ALL its children, completed ones
+        // included (progress).
+        const epicCompleted = allKids.every((k) => TERMINAL.has(k.status));
+        if (epicCompleted && !showCompleted) continue;
+        rows.push({ todo: top, depth: 0 });
+        for (const k of [...allKids].sort(sort)) rows.push({ todo: k, depth: 1 });
+      } else if (keep(top)) {
+        // An orphan top-level leaf — gated by Show completed.
+        rows.push({ todo: top, depth: 0 });
+      }
     }
     return rows;
   }, [todos, waveMap, showCompleted]);
@@ -197,13 +206,15 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
     return [...topLevel]
       .sort(sort)
       .map((epic) => {
-        const full = [epic, ...descendants(epic.id)];
-        // Honor "Show completed": when off, drop terminal todos; a fully-completed
-        // epic then collapses to <2 nodes and is filtered out below (no tab).
-        const visible = showCompleted ? full : full.filter((t) => !TERMINAL.has(t.status));
-        return { epic, todos: visible };
+        const desc = descendants(epic.id);
+        // Always graph the epic's FULL subtree — completed todos inside an epic stay
+        // visible (progress). "Show completed" only gates whether a fully-completed
+        // epic gets a tab at all.
+        const completed = desc.length > 0 && desc.every((t) => TERMINAL.has(t.status));
+        return { epic, todos: [epic, ...desc], completed };
       })
-      .filter((g) => g.todos.length > 1);
+      .filter((g) => g.todos.length > 1)
+      .filter((g) => showCompleted || !g.completed);
   }, [todos, waveMap, showCompleted]);
 
   const modeButton = (m: Mode, label: string) => (
@@ -268,6 +279,14 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
           </div>
         </div>
       </div>
+
+      {/* Shared progress chart + totals — shown on every tab (Kanban/List/Graph),
+          below the header. Reflects unfinished-epic work only. */}
+      {todos.length > 0 && (
+        <div className="shrink-0 border-b border-gray-200 dark:border-gray-700">
+          <PlanTotalsBar todos={todos} />
+        </div>
+      )}
 
       {/* Body — wave-kanban (primary) or the dense epic-grouped list fallback. */}
       <div className="flex-1 overflow-hidden min-h-0">

@@ -19,7 +19,7 @@ import React, { useMemo, useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
-import { bucketTodo, FUNNEL_SEGMENTS, STATUS_STYLE, type FunnelKey } from './bridge/funnel';
+import { bucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 
 export interface PlanKanbanProps {
   todos: SessionTodo[];
@@ -199,29 +199,19 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     return out.sort((a, b) => a.rank - b.rank);
   }, [todos, waveMap]);
 
-  const completedLaneCount = useMemo(() => lanes.filter((l) => l.completed).length, [lanes]);
-
-  // PLAN totals reflect ONLY unfinished epics (a finished epic — every child terminal —
-  // is excluded entirely), so the progress header tracks the work that's actually left.
-  const { counts, total } = useMemo(() => {
-    const c: Record<FunnelKey, number> = { backlog: 0, ready: 0, inflight: 0, blocked: 0, done: 0 };
-    let tot = 0;
-    for (const l of lanes) {
-      if (l.completed) continue;
-      for (const k of Object.keys(c) as FunnelKey[]) c[k] += l.counts[k];
-      tot += l.items.length;
-    }
-    return { counts: c, total: tot };
-  }, [lanes]);
   const visibleLanes = useMemo(
     () =>
       lanes
+        // "Show completed" gates only fully-completed lanes (a done epic, or the
+        // orphan group when all terminal).
         .filter((l) => showCompleted || !l.completed)
-        // Within a kept lane, also drop terminal orphan/child cards when hiding
-        // completed — keeps a partially-done epic but trims its finished cards.
-        .map((l) =>
-          showCompleted ? l : { ...l, items: l.items.filter((t) => !TERMINAL.has(t.status)) },
-        )
+        .map((l) => {
+          // An ACTIVE epic always shows its completed children (progress) — never
+          // trimmed. Only the orphan ("No epic") group obeys Show completed.
+          if (l.epic && !l.completed) return l;
+          if (showCompleted) return l;
+          return { ...l, items: l.items.filter((t) => !TERMINAL.has(t.status)) };
+        })
         .filter((l) => l.items.length > 0),
     [lanes, showCompleted],
   );
@@ -236,31 +226,8 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
 
   return (
     <div data-testid="plan-kanban" className="flex flex-col h-full min-h-0">
-      {/* Segmented progress header (the Show-completed toggle lives in PlanPanel). */}
-      <div className="shrink-0 px-1 pb-2 space-y-1">
-        <div className="flex items-center gap-2">
-          <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
-            {FUNNEL_SEGMENTS.map((seg) =>
-              counts[seg.key] > 0 ? (
-                <div
-                  key={seg.key}
-                  data-testid={`progress-seg-${seg.key}`}
-                  className={STATUS_STYLE[seg.key].dot}
-                  style={{ width: `${total > 0 ? (counts[seg.key] / total) * 100 : 0}%` }}
-                  title={`${seg.label}: ${counts[seg.key]}`}
-                />
-              ) : null,
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-3xs">
-          {FUNNEL_SEGMENTS.map((seg) => (
-            <span key={seg.key} className={seg.tint}>
-              {seg.label} {counts[seg.key]}
-            </span>
-          ))}
-        </div>
-      </div>
+      {/* The Plan progress chart + totals now live in PlanPanel's shared sub-header
+          (shown on every tab), so the Kanban surface is just the swimlanes. */}
 
       {/* Vertical stack of swimlanes (epics as rows). */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
