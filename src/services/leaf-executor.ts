@@ -75,14 +75,32 @@ export interface LeafExecutorDeps {
    *  the budget ceiling deterministically without faking a 20-node run. */
   nodeBudget?: number;
   now?: () => number;
+  /** Resume seam (P3): seed `state.nodesSpent` so total spawns across all
+   *  pause/resume cycles stay bounded by the master {@link NODE_BUDGET}. The daemon
+   *  (headless-breaker) carries the paused leaf's prior `nodesSpent` in here on
+   *  re-dispatch. Defaults 0 (a fresh, never-paused leaf). */
+  startNodesSpent?: number;
 }
 
 export interface LeafRunResult {
-  outcome: 'accepted' | 'rejected' | 'blocked';
+  outcome: 'accepted' | 'rejected' | 'blocked' | 'paused';
   attempts: number;
   nodesSpent: number;
   /** Set on a 'blocked' outcome (the cap/budget reason). */
   reason?: string;
+  /** Present ONLY when outcome==='paused' (a node hit a rate cap). The minimum the
+   *  daemon needs to resume — the executor NEVER backs off; it just yields this. */
+  paused?: {
+    /** the node kind that hit the cap. */
+    atNode: LeafNodeKind;
+    /** 1-based attempt in flight when paused (preserved — pause does NOT burn it). */
+    attempt: number;
+    /** budget already consumed (carried across resume via startNodesSpent). */
+    nodesSpent: number;
+    /** epoch ms the cap is known to reset, if the CLI surfaced one (else undefined →
+     *  daemon uses pure backoff). */
+    capReset?: number;
+  };
 }
 
 export const ATTEMPT_CAP = 2;
@@ -172,7 +190,9 @@ export async function runLeaf(
 
   // Single mutable run-state held in this closure (the budget counter must span
   // ALL attempts and ALL node kinds).
-  const state = { attempt: 0, nodesSpent: 0 };
+  // nodesSpent is SEEDED from startNodesSpent (P3 resume) so the master budget is
+  // global across pause/resume cycles, not reset per re-dispatch.
+  const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0 };
 
   const budget = deps.nodeBudget ?? NODE_BUDGET;
   /** TRUE while still within the master node budget. */
@@ -230,6 +250,24 @@ export async function runLeaf(
     return { outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason };
   };
 
+  /** Yield a `paused` outcome — the executor's ENTIRE rate-cap response. It NEVER
+   *  backs off, sleeps, or retries; it returns immediately with the resume state and
+   *  the daemon (headless-breaker) owns all timing. Pause does NOT advance
+   *  `state.attempt` (we `return` before the loop's `attempt += 1`), so the in-flight
+   *  attempt is preserved as-is. */
+  const pausedResult = (kind: LeafNodeKind, res: NodeResult): LeafRunResult => ({
+    outcome: 'paused',
+    attempts: state.attempt,
+    nodesSpent: state.nodesSpent,
+    reason: 'rate-limited',
+    paused: {
+      atNode: kind,
+      attempt: state.attempt,
+      nodesSpent: state.nodesSpent,
+      capReset: res.capReset,
+    },
+  });
+
   const buildSpec = (kind: LeafNodeKind, cwd: string): NodeSpec => ({
     prompt: buildNodePrompt(kind, leaf),
     model: NODE_PROFILE[kind].model,
@@ -249,16 +287,20 @@ export async function runLeaf(
     const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
     const cwd = wt.path;
 
-    // BLUEPRINT
-    await runNode('blueprint', buildSpec('blueprint', cwd));
+    // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
+    // must not interpret its empty/error output as a FAIL nor advance the attempt).
+    const bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+    if (bp.rateLimited) return pausedResult('blueprint', bp);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
     // IMPLEMENT
-    await runNode('implement', buildSpec('implement', cwd));
+    const impl = await runNode('implement', buildSpec('implement', cwd));
+    if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
     // REVIEW (parse PASS/FAIL — fail-closed)
     const review = await runNode('review', buildSpec('review', cwd));
+    if (review.rateLimited) return pausedResult('review', review);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
     if (parseVerdict(review.text) === 'pass') {
@@ -305,6 +347,8 @@ export async function makeLeafExecutorDeps(
   project: string,
   targetProject: string,
   leaf: Todo,
+  /** P3 resume: carried prior nodesSpent for a known-paused leaf (default 0). */
+  startNodesSpent = 0,
 ): Promise<LeafExecutorDeps> {
   const wm = getWorktreeManager(targetProject);
   const epicId = resolveEpicId(leaf, project);
@@ -322,5 +366,6 @@ export async function makeLeafExecutorDeps(
       wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
     escalate: createEscalation,
     recordNode,
+    startNodesSpent,
   };
 }

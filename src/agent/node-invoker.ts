@@ -55,6 +55,10 @@ export interface NodeResult {
   usage?: NodeUsage;
   /** Detected via exit code / stderr signal (see RATE_LIMIT_RE — heuristic). */
   rateLimited: boolean;
+  /** Epoch ms the rate cap is known to reset, IF the CLI surfaces one.
+   *  v1: always `undefined` (stub) — see `parseCapReset` + §5 of the P3 blueprint.
+   *  The daemon falls back to pure exponential backoff when this is absent. */
+  capReset?: number;
   /** The auth mode in effect for this node (from the memoized pre-flight guard). */
   authMode: AuthMode;
   /** Best-effort parsed final assistant text from the json result (result.result). */
@@ -75,6 +79,21 @@ const DEFAULT_TIMEOUT_MS = 600_000;
  *   // CONFIRM: observed exit code = ?  ,  observed stderr = ?  ,  json subtype = ?
  */
 export const RATE_LIMIT_RE = /rate.?limit|429|too many requests|usage limit|overloaded|quota/i;
+
+/**
+ * Best-effort scrape of a cap-RESET timestamp (epoch ms) from a node's output.
+ *
+ * UNCONFIRMED — v1 STUB returning `undefined`. `claude --help` documents no
+ * reset-time field, so there is no safe format to parse yet. Pure exponential
+ * backoff (owned by the daemon's headless-breaker) is the correct, dependency-free
+ * default. See §1c/§5 of the P3 blueprint and the RUNTIME-CONFIRM TODO above: when a
+ * REAL 429 is first observed, populate a CAP_RESET_RE (ISO-8601 / unix-epoch /
+ * `retry after Ns`) here. Fail-safe: a wrong value only changes how long the daemon
+ * waits, never loses work.
+ */
+export function parseCapReset(_stdout: string, _stderr: string): number | undefined {
+  return undefined;
+}
 
 /**
  * Build the exact `claude -p` argv (NOT a shell string — spawned directly, so no
@@ -345,6 +364,8 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
     durationMs,
     usage: parsed.usage,
     rateLimited,
+    // v1 stub → always undefined; daemon uses pure backoff. See parseCapReset.
+    capReset: rateLimited ? parseCapReset(stdout, stderr) : undefined,
     authMode,
     text: parsed.text,
     parseError: parsed.parseError ?? (parsed.isError ? (stderr || 'result is_error=true') : undefined),

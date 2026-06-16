@@ -12,7 +12,7 @@ import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, add
 import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
-import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
+import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
@@ -21,6 +21,15 @@ import { validateStewardProof } from './steward-proof';
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { runLeaf, makeLeafExecutorDeps } from './leaf-executor';
+import {
+  breakerOpen,
+  tripBreaker,
+  enqueuePausedLeaf,
+  pausedNodesSpent,
+  pausedLeavesFor,
+  breakerExhausted,
+  recordResume,
+} from './headless-breaker';
 import { resolveProfile, resolveProvider, type AgentProfile } from '../config/agent-profiles';
 import type { ProviderId } from '../agent/worker-agent';
 import { resolveManifestPacks } from '../config/tech-packs';
@@ -1164,9 +1173,21 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // (hold a claimProbe todo while its env is down), then (2) BP1 — drop a
     // dependent whose foundation is accepted-but-stranded off integration. Neither
     // writes status; a held-back todo is just not claimed this tick.
-    claimGuard: async (project, todos) =>
+    claimGuard: async (project, todos) => {
       // Budget gate first: over the daily cap → claim nothing for this project today.
-      overDailyBudget(project) ? [] : bp1FilterStrandedFoundations(project, await filterClaimable(todos)),
+      if (overDailyBudget(project)) return [];
+      let claimable = await bp1FilterStrandedFoundations(project, await filterClaimable(todos));
+      // P3 headless circuit-breaker: while the per-process cap window is open, hold
+      // HEADLESS leaves out of the claimable set (mirrors the probe-gate filter
+      // above). This avoids the claim→release spin a launch-time gate alone would
+      // cause. tmux/legacy lanes are untouched — only node-invoker spawns are gated.
+      if (breakerOpen()) {
+        claimable = claimable.filter(
+          (t) => !(leafExecutorEnabled() && isHeadlessLeaf(t, project)),
+        );
+      }
+      return claimable;
+    },
     // Wrapped to record coordinator lifecycle events into the supervisor audit
     // log → it doubles as the unified orchestration trace (open-problem #10/obs).
     claimTodo: async (project, id, claimedBy, leaseMs) => {
@@ -1425,10 +1446,34 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // BEFORE the legacy provider-resolution / tmux machinery below. On any auth-halt
       // or hard error we release + escalate rather than silently fall through to tmux.
       if (leafExecutorEnabled() && isHeadlessLeaf(todo, project)) {
+        // P3 breaker gate: if the cap window is still open, do NOT spawn. Release the
+        // claim so the todo returns to `ready` (the claimGuard filter normally holds
+        // it out, but a todo claimed before the breaker tripped this tick can still
+        // reach here). Transient hold — no escalation. The lease also backstops.
+        if (breakerOpen()) {
+          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+          return false;
+        }
         try {
           const ledProject = todo.targetProject ?? project;
-          const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo));
+          // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
+          // NODE_BUDGET bounds total spawns across all pause/resume cycles.
+          const carried = pausedNodesSpent(project, todo.id);
+          const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo, carried));
           recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
+          if (res.outcome === 'paused') {
+            // The executor hit a rate cap and yielded WITHOUT backing off. The DAEMON
+            // owns the response: trip the breaker (backoff/capReset), record the leaf
+            // for exhaustion tracking, and release the claim so the ordinary claim
+            // loop re-dispatches it once the breaker closes.
+            tripBreaker(res.paused?.capReset);
+            enqueuePausedLeaf(project, todo.id, res.paused!);
+            try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+            return false;
+          }
+          // A non-paused outcome means the leaf made progress past the cap (or never
+          // hit one) — clear any stale paused record so a future pause starts clean.
+          recordResume(project, todo.id);
           return res.outcome === 'accepted';
         } catch (e) {
           try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
@@ -1984,6 +2029,28 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         questionText: `Todo "${todo?.title ?? todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
         todoId,
       });
+    },
+    sweepExhaustedHeadless: async (project: string): Promise<void> => {
+      // P3: any leaf paused on a rate cap past the 2h total-wait ceiling is parked
+      // BLOCKED + escalated. The cap may persist indefinitely (account out of quota
+      // for the billing window); bound the total wait rather than spin forever.
+      const deps = makeCoordinatorDeps();
+      for (const entry of pausedLeavesFor(project)) {
+        if (!breakerExhausted(entry.firstTrippedAt)) continue;
+        const todo = getTodo(project, entry.todoId);
+        // Park BLOCKED via the EXISTING completion funnel (route a 'rejected' →
+        // status blocked, completion cleared), same mechanism parkBlocked uses.
+        try { await handleWorkerComplete(deps, project, entry.todoId, 'rejected'); }
+        catch { /* gate funnel best-effort on the exhaustion path */ }
+        createEscalation({
+          project,
+          session: todo?.sessionName ?? 'unassigned',
+          kind: 'blocker',
+          questionText: `Leaf "${todo?.title ?? entry.todoId}" is RATE-CAP exhausted — the claude.ai account stayed capped for over 2h. Parked blocked; needs a human (wait for the cap to reset, then re-open, or split/drop).`,
+          todoId: entry.todoId,
+        });
+        recordResume(project, entry.todoId);
+      }
     },
     escalateRejected: async (project: string, todoId: string): Promise<void> => {
       const todo = getTodo(project, todoId);

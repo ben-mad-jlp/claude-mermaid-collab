@@ -270,3 +270,78 @@ describe('runLeaf state machine', () => {
     expect(res.reason).toBe('gate-pending');
   });
 });
+
+// ── P3: rate-cap → paused outcome (executor NEVER backs off) ─────────────────
+/** Kind detection for the scripted invoker (matches NODE_PROFILE allowedTools). */
+function kindOf(spec: NodeSpec): 'blueprint' | 'implement' | 'review' {
+  if (spec.allowedTools === 'Read Grep Glob Bash') return 'review';
+  if (spec.allowedTools === 'Read Write Grep Glob Bash') return 'blueprint';
+  return 'implement';
+}
+
+/** Deps whose invoker flags `capKind` rateLimited (with an optional capReset), all
+ *  other nodes ok. Records the invoked node kinds in `calls`. */
+function makePauseDeps(capKind: 'blueprint' | 'implement' | 'review', capReset?: number) {
+  const calls: Array<'blueprint' | 'implement' | 'review'> = [];
+  let reviewIdx = 0;
+  const deps: LeafExecutorDeps = {
+    invoker: {
+      async invoke(spec: NodeSpec): Promise<NodeResult> {
+        const kind = kindOf(spec);
+        calls.push(kind);
+        if (kind === capKind) {
+          return { ok: false, exitCode: 1, stdout: '429', durationMs: 1, rateLimited: true, capReset, authMode: 'subscription', text: '' };
+        }
+        if (kind === 'review') { reviewIdx += 1; return { ok: true, exitCode: 0, stdout: 'VERDICT: PASS', durationMs: 1, rateLimited: false, authMode: 'subscription', text: 'VERDICT: PASS' }; }
+        return { ok: true, exitCode: 0, stdout: 'done', durationMs: 1, rateLimited: false, authMode: 'subscription', text: 'done' };
+      },
+    },
+    wm: { async ensure() { return { isGit: true, path: '/tmp/wt/1', branch: 'b', baseBranch: 'm' } as never; } } as never,
+    epicId: EPIC_ID,
+    epicBranch: EPIC_BRANCH,
+    assertAuth: () => 'subscription',
+    async complete(_p, _t, a) { return { effective: a }; },
+    async mergeToEpic() { return {}; },
+    escalate() {},
+    recordNode: () => null,
+  };
+  return { deps, calls };
+}
+
+describe('runLeaf P3 rate-cap pause', () => {
+  it('(i) blueprint rate-limited ⇒ outcome paused, atNode blueprint, attempt preserved, no further nodes', async () => {
+    const { deps, calls } = makePauseDeps('blueprint');
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('paused');
+    expect(res.paused?.atNode).toBe('blueprint');
+    expect(res.paused?.attempt).toBe(1);
+    expect(res.attempts).toBe(1); // pause did NOT advance the attempt
+    expect(calls).toEqual(['blueprint']); // implement/review never invoked
+  });
+
+  it('implement rate-limited ⇒ paused atNode implement; review never invoked', async () => {
+    const { deps, calls } = makePauseDeps('implement');
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('paused');
+    expect(res.paused?.atNode).toBe('implement');
+    expect(calls).toEqual(['blueprint', 'implement']);
+  });
+
+  it('capReset passes straight through into paused.capReset (and undefined when absent)', async () => {
+    const reset = 1_000 + 5 * 60_000;
+    const withReset = await runLeaf('proj', makeLeaf(), makePauseDeps('blueprint', reset).deps);
+    expect(withReset.paused?.capReset).toBe(reset);
+    const without = await runLeaf('proj', makeLeaf(), makePauseDeps('blueprint').deps);
+    expect(without.paused?.capReset).toBeUndefined();
+  });
+
+  it('(v) startNodesSpent seeds the budget so a resumed leaf trips NODE_BUDGET → parks BLOCKED', async () => {
+    // budget 20; seed 20 already spent → the very first node pushes nodesSpent to 21
+    // (>budget) → checkBudget fails → parkBlocked('node-budget-exhausted').
+    const { deps } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    deps.startNodesSpent = NODE_BUDGET;
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('node-budget-exhausted');
+  });
+});
