@@ -17,7 +17,7 @@ import { spawnSubloop } from './subloop';
 import { SplitProposalSchema, ResearchFindingsSchema, VerifyVerdictSchema, ReviewVerdictSchema } from './schemas';
 import { sameSignatures } from './helpers';
 import type { SubloopRole } from './capabilities';
-import type { WorkerCoreEventSink } from './events';
+import type { WorkerCoreEventSink, PhaseRoute } from './events';
 
 /** The minimal todo spec the recipe needs (title + description = the contract). */
 export interface TodoSpec {
@@ -38,6 +38,9 @@ export interface WorkerCoreDeps {
   getTodo: (project: string, todoId: string) => TodoSpec | null;
   /** Per-phase model (resolveModel + the tier matrix live behind this). */
   resolveModel: (phase: SubloopRole) => LanguageModel;
+  /** The routing decision for a phase (provider + model + why) — observability only
+   *  (north-star §6). Optional so the pure tests can omit it. */
+  describeRoute?: (phase: SubloopRole) => PhaseRoute;
   /** The scoped mechanical gate over the lane change-set (tsc + scoped tests). */
   runScopedGate: (cwd: string) => Promise<GateOutcome>;
   /** Host-authoritative completion (wraps handleWorkerComplete → resolveCompletion). */
@@ -86,15 +89,20 @@ export async function runWorkerCore(
   const spec = deps.getTodo(project, todoId);
   if (!spec) return { outcome: 'noop', reason: 'todo not found' };
 
+  // One fresh-context phase, with the per-phase model + routing decision (the latter
+  // carried into the events purely for observability — north-star §6).
+  const runPhase = <T>(role: SubloopRole, prompt: string, opts?: { schema?: import('zod').ZodType<T>; stepCap?: number }) =>
+    spawnSubloop<T>(
+      { cwd, model: deps.resolveModel(role), abortSignal, onEvent, route: deps.describeRoute?.(role) },
+      role,
+      prompt,
+      opts ?? {},
+    );
+
   // 0. SIZE GATE → an oversized leaf files a SPLIT-PROPOSAL escalation (the planner
   //    promotes the drafted siblings) and the worker STOPS — it never grinds a whole
   //    epic or fans out writers itself (the worker-skill Step 1.5/4d discipline).
-  const sizegate = await spawnSubloop(
-    { cwd, model: deps.resolveModel('sizegate'), abortSignal, onEvent },
-    'sizegate',
-    sizegatePrompt(spec),
-    { schema: SplitProposalSchema, stepCap: 4 },
-  );
+  const sizegate = await runPhase('sizegate', sizegatePrompt(spec), { schema: SplitProposalSchema, stepCap: 4 });
   if (sizegate.object?.oversized) {
     const subs = sizegate.object.subtasks ?? [];
     const detail =
@@ -105,12 +113,7 @@ export async function runWorkerCore(
   }
 
   // 1. RESEARCH → typed findings (the per-todo blueprint).
-  const research = await spawnSubloop(
-    { cwd, model: deps.resolveModel('research'), abortSignal, onEvent },
-    'research',
-    researchPrompt(spec),
-    { schema: ResearchFindingsSchema, stepCap: 4 },
-  );
+  const research = await runPhase('research', researchPrompt(spec), { schema: ResearchFindingsSchema, stepCap: 4 });
   if (!research.object) {
     const detail = `research produced no valid findings: ${research.parseError ?? 'unknown'}`;
     await deps.escalate(project, todoId, 'research-failed', detail);
@@ -122,19 +125,9 @@ export async function runWorkerCore(
   let lastSig: string[] | null = null;
   let converged = false;
   for (let attempt = 0; attempt < MAX_FIX_ATTEMPTS; attempt++) {
-    await spawnSubloop(
-      { cwd, model: deps.resolveModel('implement'), abortSignal, onEvent },
-      'implement',
-      implementPrompt(spec, plan, filesToEdit),
-      { stepCap: 12 },
-    );
+    await runPhase('implement', implementPrompt(spec, plan, filesToEdit), { stepCap: 12 });
 
-    const verify = await spawnSubloop(
-      { cwd, model: deps.resolveModel('verify'), abortSignal, onEvent },
-      'verify',
-      verifyPrompt(spec, plan),
-      { schema: VerifyVerdictSchema, stepCap: 6 },
-    );
+    const verify = await runPhase('verify', verifyPrompt(spec, plan), { schema: VerifyVerdictSchema, stepCap: 6 });
     const gate = await deps.runScopedGate(cwd);
 
     if (verify.object?.pass === true && gate.pass) {
@@ -163,12 +156,7 @@ export async function runWorkerCore(
 
   // 4. COMPLETENESS REVIEW (behavioral leaves only).
   if (spec.behavioral || research.object.behavioral) {
-    const review = await spawnSubloop(
-      { cwd, model: deps.resolveModel('review'), abortSignal, onEvent },
-      'review',
-      reviewPrompt(spec),
-      { schema: ReviewVerdictSchema },
-    );
+    const review = await runPhase('review', reviewPrompt(spec), { schema: ReviewVerdictSchema });
     if (review.object && review.object.complete === false && review.object.gaps.length > 0) {
       const detail = `completeness review found gaps: ${review.object.gaps.join('; ')}`;
       await deps.escalate(project, todoId, 'incomplete', detail);

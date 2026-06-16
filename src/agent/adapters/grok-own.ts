@@ -324,7 +324,11 @@ class GrokOwnHarnessImpl implements WorkerAgent {
             if (e.type === 'phase-start') {
               lane.step += 1;
               lane.lastPane = grokPaneWorking(lane.step);
-              lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}${e.model ? ` (${e.model})` : ''}` });
+              // Routing visibility (north-star §6): which provider/model ran + why.
+              const route = e.route
+                ? ` → ${e.route.provider}/${e.route.model} (${e.route.source})`
+                : e.model ? ` (${e.model})` : '';
+              lane.transcript.push({ step: lane.step, ts: e.ts, text: `▶ ${e.role}${route}` });
             } else if (e.type === 'step') {
               lane.step += 1;
               lane.transcript.push({

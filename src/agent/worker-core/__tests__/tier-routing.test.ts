@@ -112,4 +112,16 @@ describe('config-driven tier overrides (#3)', () => {
     const deps = makeCoordinatorWorkerDeps('/p', 'todo1', { provider: 'grok-build' });
     expect(modelId(deps.resolveModel('research'))).toBe('claude-sonnet-4-6'); // default judgment tier
   });
+
+  it('describeRoute surfaces provider + model + source (default vs override) for visibility', () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    process.env.XAI_API_KEY = 'xai-test';
+    process.env.WORKER_PROVIDER_REVIEW = 'claude';
+    process.env.WORKER_MODEL_REVIEW = 'claude-opus-4-8';
+    _resetConfigCache();
+    const deps = makeCoordinatorWorkerDeps('/p', 'todo1', { provider: 'grok-build' });
+    expect(deps.describeRoute!('implement')).toEqual({ provider: 'grok-build', model: 'grok-build-0.1', source: 'default' });
+    expect(deps.describeRoute!('research')).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6', source: 'default' });
+    expect(deps.describeRoute!('review')).toEqual({ provider: 'claude', model: 'claude-opus-4-8', source: 'override' });
+  });
 });

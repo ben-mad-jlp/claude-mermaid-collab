@@ -17,7 +17,7 @@ import { generateText, stepCountIs, hasToolCall, tool, type LanguageModel, type 
 import type { z } from 'zod';
 import { buildToolset } from './tools/registry';
 import type { SubloopRole } from './capabilities';
-import { EVENT_RESULT_CAP, type WorkerCoreEventSink } from './events';
+import { EVENT_RESULT_CAP, type WorkerCoreEventSink, type PhaseRoute } from './events';
 import { estimateCostUsd } from './cost';
 
 export interface SubloopCtx {
@@ -28,6 +28,9 @@ export interface SubloopCtx {
   abortSignal?: AbortSignal;
   /** Observability sink (north-star §6); per-step tool calls/results/usage flow here. */
   onEvent?: WorkerCoreEventSink;
+  /** The routing decision for this phase (provider + model + why) — emitted in the
+   *  phase-start/phase-end events for routing visibility (north-star §6). */
+  route?: PhaseRoute;
 }
 
 export interface SubloopOpts<T> {
@@ -76,7 +79,7 @@ export async function spawnSubloop<T = unknown>(
   const now = () => Date.now();
   const modelId = (ctx.model as { modelId?: string }).modelId;
   const phaseUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  ctx.onEvent?.({ type: 'phase-start', role, ts: now(), model: modelId });
+  ctx.onEvent?.({ type: 'phase-start', role, ts: now(), model: modelId, route: ctx.route });
 
   // FORCED structured output: a schema phase gets a submit_verdict tool whose input
   // IS the schema. Calling it captures the SDK-validated verdict and ends the phase.
@@ -158,6 +161,7 @@ export async function spawnSubloop<T = unknown>(
     text: out.text,
     parseError: out.parseError,
     model: modelId,
+    route: ctx.route,
     usage: phaseUsage,
     costUsd: estimateCostUsd(modelId, phaseUsage),
   });

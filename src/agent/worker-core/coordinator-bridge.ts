@@ -11,7 +11,7 @@
  * authoritative, todo-scoped gate).
  */
 import { getTodo as storeGetTodo } from '../../services/todo-store';
-import { resolveModel, anthropicAvailable, grokAvailable, providerAvailable, PROVIDER_IDS } from './resolve-model';
+import { resolveModel, anthropicAvailable, grokAvailable, providerAvailable, PROVIDER_IDS, DEFAULT_MODEL_BY_PROVIDER } from './resolve-model';
 import { getConfig } from '../../services/config-service';
 import type { WorkerCoreDeps, GateOutcome } from './orchestrator';
 import type { ProviderId } from '../worker-agent';
@@ -67,13 +67,16 @@ function parseProviderId(raw: string | undefined): ProviderId | null {
  *  default tier is used — strictly smarter than falling to the raw base, and it never
  *  hard-fails. NOTE: removing a provider's key later silently re-routes that phase to
  *  the default tier on the next run (intended — never block on a missing key). */
-export function resolveTierRoute(phase: SubloopRole, base: ProviderId): { provider: ProviderId; model?: string } {
+export function resolveTierRoute(
+  phase: SubloopRole,
+  base: ProviderId,
+): { provider: ProviderId; model?: string; source: 'default' | 'override' } {
   const suffix = PHASE_CONFIG_SUFFIX[phase];
   const override = parseProviderId(getConfig(`WORKER_PROVIDER_${suffix}`));
   if (override && providerAvailable(override)) {
-    return { provider: override, model: getConfig(`WORKER_MODEL_${suffix}`) || undefined };
+    return { provider: override, model: getConfig(`WORKER_MODEL_${suffix}`) || undefined, source: 'override' };
   }
-  return { provider: providerForPhase(phase, base) };
+  return { provider: providerForPhase(phase, base), source: 'default' };
 }
 
 /** WorkerCoreDeps wired to the real coordinator for one todo. */
@@ -93,6 +96,14 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
       const route = resolveTierRoute(phase, opts.provider);
       const model = route.model ?? opts.modelByPhase?.(phase);
       return resolveModel(route.provider, model);
+    },
+
+    describeRoute: (phase) => {
+      // Same resolution the resolveModel dep uses, surfaced as a typed routing decision
+      // for observability (which provider+model ran this phase, and why).
+      const route = resolveTierRoute(phase, opts.provider);
+      const model = route.model ?? opts.modelByPhase?.(phase) ?? DEFAULT_MODEL_BY_PROVIDER[route.provider];
+      return { provider: route.provider, model, source: route.source };
     },
 
     runScopedGate: async (): Promise<GateOutcome> => {

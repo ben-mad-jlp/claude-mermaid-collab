@@ -22,8 +22,18 @@ export interface ToolResultEvent {
   result: string;
 }
 
+/** The routing decision for a phase — which (provider, model) ran and WHY (the
+ *  default tier vs a WORKER_PROVIDER_<PHASE> config override). North-star §6: a human
+ *  can SEE that e.g. blueprint=sonnet, implement=grok, and that implement was the
+ *  default tier not an override. */
+export interface PhaseRoute {
+  provider: string;
+  model: string;
+  source: 'default' | 'override';
+}
+
 export type WorkerCoreEvent =
-  | { type: 'phase-start'; role: SubloopRole; ts: number; model?: string }
+  | { type: 'phase-start'; role: SubloopRole; ts: number; model?: string; route?: PhaseRoute }
   | {
       type: 'step';
       role: SubloopRole;
@@ -43,6 +53,8 @@ export type WorkerCoreEvent =
       parseError?: string;
       /** Which model ran this phase (for the cost ledger + routing visibility). */
       model?: string;
+      /** The routing decision (provider + model + why) for this phase. */
+      route?: PhaseRoute;
       /** Summed token usage across the phase's steps. */
       usage?: PhaseUsage;
       /** Estimated USD cost for this phase (0 if the model's price is unknown). */
