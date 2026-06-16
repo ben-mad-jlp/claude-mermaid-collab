@@ -76,7 +76,7 @@ const researchPrompt = (s: TodoSpec) =>
 
 const authorTestsPrompt = (s: TodoSpec, plan: string) =>
   `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\nPLAN: ${plan}\n\n` +
-  `You author the EXECUTABLE SPEC: write FAILING test(s) that encode the REQUIRED behavior of this change (the contract the implementer must satisfy). Use the project's existing test framework/conventions (look at a sibling test). Write ONLY test files — do NOT implement the feature. ` +
+  `You author the EXECUTABLE SPEC: write FAILING test(s) that encode the REQUIRED behavior of this change (the contract the implementer must satisfy). Use the project's existing test framework/conventions (look at a sibling test for the imports + naming pattern, but do NOT append to it). Create a NEW, DEDICATED test file for THIS leaf (name it after the unit under test, e.g. the sibling convention applied to this change) — do NOT add your tests to an existing/shared test file. Write ONLY test files — do NOT implement the feature. ` +
   `Run the tests to confirm they FAIL for the right reason (the behavior doesn't exist yet), then \`git add -A && git commit -m "test: spec for ${s.todoId}"\` and STOP. ` +
   `Then call submit_verdict with { "wroteTests": boolean, "testFiles": string[], "testCommand"?: string } — testFiles = the exact paths you authored. If the leaf genuinely can't be expressed as a test, return wroteTests:false with empty testFiles.`;
 
