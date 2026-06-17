@@ -21,6 +21,7 @@ import { validateStewardProof } from './steward-proof';
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executor';
+import { getLeafRun } from './ledger-stats';
 import {
   breakerOpen,
   tripBreaker,
@@ -652,26 +653,26 @@ export async function workCommittedOnEpic(project: string, todo: Todo): Promise<
 //   - verifyWorkCommitted: a verify-only leaf is read AFTER the dirty/ahead/on-branch
 //     positive checks, so we only reach here on a genuinely clean lane — exactly when
 //     a no-op is legitimate.
-//   - the !merge.integrated branch of the completeTodo callback: a clean worktree with
-//     no commit reports integrated:false; skip the stranded-accept reversal for a
-//     verify-only leaf and let the accept stand.
-// Reads the blueprint manifest the executor persisted into the lane worktree
-// (`.collab/leaf-blueprints/<leafId>.md`). Scoped to leaf-executor leaves — the legacy
-// tmux lane writes no such file, so this returns false and is a no-op for it.
-// Best-effort: any error ⇒ false (fall back to today's stricter behaviour).
-async function leafNoCommitExpected(targetProject: string, todo: Todo): Promise<boolean> {
+//   - the completeTodo callback's merge-back: a verify-only leaf either reports
+//     integrated:false (clean worktree, nothing merged) OR — the path it actually hits —
+//     THROWS 'no worktree' because its clean lane was already torn down at accept-time.
+//     Both skip the stranded-accept reversal for a verify-only leaf and let it stand.
+// Reads the size manifest from the BLUEPRINT node's recorded output in the worker
+// ledger (getLeafRun) — the DURABLE source. The blueprint node emits its manifest as
+// a trailing ```json fence in its final message, which the executor records to the
+// ledger regardless of whether the model also wrote the .md to disk (it often does
+// NOT, and the lane worktree is torn down at accept anyway — so neither the on-disk
+// file nor the worktree is reliable here). Scoped to leaf-executor leaves — the legacy
+// tmux lane records no leaf run, so getLeafRun is null and this is a no-op for it.
+// Best-effort: any error / no run / unparseable manifest ⇒ false (today's behaviour).
+function leafNoCommitExpected(todoId: string): boolean {
   try {
-    if (!todo.sessionName) return false;
-    const wm = getWorktreeManager(targetProject);
-    const wtPath = await wm.existingPath(todo.sessionName);
-    if (!wtPath) return false;
-    const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    const md = await fs
-      .readFile(path.join(wtPath, `.collab/leaf-blueprints/${todo.id}.md`), 'utf8')
-      .catch(() => undefined);
-    if (!md) return false;
-    const manifest = parseSizeManifest(md);
+    const run = getLeafRun(todoId);
+    if (!run) return false;
+    // Latest blueprint node (a fresh attempt emits one each) carries the manifest.
+    const bp = [...(run.nodes ?? [])].reverse().find((n) => n.nodeKind === 'blueprint');
+    if (!bp?.outputText) return false;
+    const manifest = parseSizeManifest(bp.outputText);
     return manifest != null && manifest.estimatedFiles === 0;
   } catch {
     return false;
@@ -1315,7 +1316,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             try { await killTmuxSession(tmuxBaseName(targetProject, session)); } catch { /* best-effort teardown */ }
             removeSlot(targetProject, session);
             recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, conflict: 'parked-blocked-teardown' }) });
-          } else if (!merge.integrated && (await leafNoCommitExpected(targetProject, r.completed))) {
+          } else if (!merge.integrated && leafNoCommitExpected(id)) {
             // VERIFY-ONLY (todo 231d10d4): the merge reported nothing integrated because
             // there was genuinely nothing to integrate — the blueprint declared this a
             // no-op leaf (estimatedFiles:0, work already done). That clean-lane outcome is
@@ -1378,7 +1379,18 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           try {
             const wm = getWorktreeManager(errTargetProject);
             const epicId = resolveEpicId(r.completed, project);
-            if (!(await wm.todoOnEpicBranch(epicId, id))) {
+            if (leafNoCommitExpected(id)) {
+              // VERIFY-ONLY (todo 231d10d4): the merge-back threw because there was no
+              // lane/worktree to merge — but the blueprint declared this a no-op leaf
+              // (estimatedFiles:0, work already done), so "nothing to integrate" is the
+              // EXPECTED outcome, not a strand. Keep the acceptance; just tear the lane
+              // down. (This is the path verify-only leaves actually hit: a clean lane is
+              // torn down by accept-time, so commitAndMergeToEpic throws 'no worktree'.)
+              recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'verify-only-noop-accept-on-throw' }) });
+              await wm.remove(session).catch(() => {});
+              try { await killTmuxSession(tmuxBaseName(errTargetProject, session)); } catch { /* best-effort teardown */ }
+              removeSlot(errTargetProject, session);
+            } else if (!(await wm.todoOnEpicBranch(epicId, id))) {
               await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, wm.epicBranchName(epicId), session);
               try {
                 createEscalation({
@@ -2226,7 +2238,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // whether the blueprint declared this a no-op leaf (estimatedFiles:0). If so the
         // empty lane is the EXPECTED outcome — preserve (null), don't false-downgrade to
         // pending. Only reached on the genuinely-clean path, so it can't mask real work.
-        if (await leafNoCommitExpected(targetProject, todo)) return null;
+        if (leafNoCommitExpected(todoId)) return null;
         return false; // clean lane, not on epic branch, not on integration → hallucination
       } catch {
         return null; // probe error → indeterminate → preserve (never false-downgrade)
