@@ -27,6 +27,8 @@ import { bom } from '../services/system-object-bom.ts';
 import { satisfy } from '../services/system-object-edges.ts';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
 import { landEpic, getWorktreeManager } from '../services/coordinator-live.ts';
+import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt } from '../services/deploy-service.ts';
+import { systemStatus } from '../services/system-status.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
@@ -295,6 +297,54 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const result = await landEpic(project, escalationId);
       getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
       return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/deploy-status?project= — the deploy-drift read-model the
+  // UI banner renders. Combines version-string drift (system-status DeployDrift)
+  // with the PRECISE staleness signal it misses: a self-land that happened AFTER
+  // the live sidecar started (master advanced even if the version string didn't).
+  // `canDeploy` reflects the same hard gates the POST enforces, so the UI only
+  // offers the button where a deploy would actually run.
+  if (url.pathname === '/api/supervisor/deploy-status' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      if (!project) return jsonError('project is required', 400);
+      const status = await systemStatus(project);
+      const liveStartedMs = status.deploy.liveStartedAt ? Date.parse(status.deploy.liveStartedAt) : null;
+      const lastSelfLandAt = getLastSelfLandAt();
+      const selfLandPending = lastSelfLandAt != null && (liveStartedMs == null || lastSelfLandAt > liveStartedMs);
+      const gate = selfDeployEligibility(project);
+      // Stale = either the version-string drift fired OR a self-land post-dates
+      // the running binary. The banner shows when stale AND we can act on it.
+      const stale = !!status.deploy.drift || selfLandPending;
+      return Response.json({
+        ...status.deploy,
+        selfLandPending,
+        lastSelfLandAt,
+        stale,
+        canDeploy: gate.eligible,
+        deployBlockedReason: gate.eligible ? null : gate.reason,
+      });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/deploy — human-gated self-deploy (land-deploy-hook-design).
+  // Strictly SEPARATE from land: this rebuilds + restarts the running sidecar. The
+  // server hard-gates self-project (project === MERMAID_PROJECT) inside
+  // requestSelfDeploy, so a crafted request can't deploy another repo. The deploy
+  // is spawned detached and will kill+relaunch this very process — so we respond
+  // immediately; the detached child owns the actual deploy regardless.
+  if (url.pathname === '/api/supervisor/deploy' && req.method === 'POST') {
+    try {
+      const { project } = (await req.json()) as { project?: string };
+      if (!project) return jsonError('project is required', 400);
+      const result = requestSelfDeploy(project);
+      return Response.json(result, { status: result.ok ? 200 : 409 });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

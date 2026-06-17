@@ -53,6 +53,7 @@ import {
 // tmux-reaper) and tests resolve them from here exactly as before.
 import { resolveWorkerAgent } from '../agent/registry';
 import { getConfig } from './config-service';
+import { recordSelfLand, isSelfProject } from './deploy-service';
 import {
   agentAliveInSubtree,
   CLAUDE_COMM_MATCHER,
@@ -969,6 +970,15 @@ export interface LandEpicOutcome {
   epicId?: string;
   epicBranch?: string;
   masterSha?: string;
+  /**
+   * True when the landed epic's targetProject IS a checkout of this app's own
+   * source repo (by package name, see isSelfProject) — i.e. the running :9002
+   * binary is now stale against
+   * master and a self-deploy is the relevant next step. The UI uses this to
+   * surface the (separate, human-gated) Deploy affordance. Only meaningful on
+   * a successful land.
+   */
+  selfLand?: boolean;
 }
 
 /**
@@ -1150,8 +1160,12 @@ export async function landEpic(project: string, escalationId: string): Promise<L
       // Landed — remove the epic branch + worktree (gated on land success), resolve the card.
       await wm.removeEpic(epicId, targetProject).catch(() => {});
       resolveEscalation(escalationId, 'resolved', 'ai');
-      recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha }) });
-      return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha };
+      const selfLand = isSelfProject(targetProject);
+      // Stamp the self-land so the deploy-status surface can flag the running
+      // binary as stale even when the version string didn't change.
+      if (selfLand) recordSelfLand(Date.now());
+      recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
+      return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand };
     } catch (e) {
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
       return { ok: false, landed: false, reason: e instanceof Error ? e.message : String(e), epicId, epicBranch };

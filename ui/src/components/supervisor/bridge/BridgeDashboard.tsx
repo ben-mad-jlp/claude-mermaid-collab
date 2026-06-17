@@ -33,6 +33,7 @@ import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
 import { selectHumanInbox } from '@/components/todos/humanInboxSelectors';
 import { FleetVitals } from './FleetVitals';
+import { DeployBanner } from './DeployBanner';
 import { WorkerRoster } from './WorkerRoster';
 import { StreamTicker } from './StreamTicker';
 import { PlanPanel } from '../PlanPanel';
@@ -475,6 +476,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               coverage={coverageByProject[project]}
               unlandedEpics={unlandedEpicsByProject[project]}
             />
+            {/* Self-deploy banner — self-hides unless the running sidecar is stale
+                against the repo (version drift OR a self-land post-dating the
+                build). The one place the human-gated Deploy lives. */}
+            <DeployBanner project={project} serverScope={serverScope} />
             {/* The confirm-loop heartbeat — full width above the columns, self-hides
                 when there's no requirement to sign off. */}
             <RequirementsInbox
