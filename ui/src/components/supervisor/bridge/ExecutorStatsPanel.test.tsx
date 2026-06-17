@@ -1,7 +1,9 @@
 /**
  * ExecutorStatsPanel tests — UI-only; no live executor. Mocks fetch + the websocket client.
  * Covers: (a) hero tiles render from mocked stats; (b) auth audit GREEN when healthy;
- * (c) auth audit LOUD RED when authModeAlarm true; (d) empty / no-runs state (leafCount 0).
+ * (c) auth audit LOUD RED when authModeAlarm true; (d) empty / no-runs state (leafCount 0);
+ * (e) daemon section: breaker open band, running inflight leaf, rejected failure row,
+ *     daemon section absent when daemon is idle.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -14,8 +16,12 @@ vi.mock('@/lib/websocket', () => ({
   }),
 }));
 
-function mockFetchOnce(body: unknown) {
-  return vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) });
+function mockFetchRouter(routes: Record<string, unknown>) {
+  return vi.fn().mockImplementation((url: string) => {
+    const match = Object.entries(routes).find(([key]) => url.includes(key));
+    if (!match) return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(match[1]) });
+  });
 }
 
 const HEALTHY = {
@@ -48,6 +54,37 @@ const EMPTY = {
   wallClock: { p50: 0, p90: 0, max: 0 },
 };
 
+const DAEMON_IDLE = {
+  now: Date.now(),
+  inflight: [],
+  breaker: { open: false, openUntil: 0 },
+  paused: [],
+  recentSpawns: [],
+  failures: [],
+};
+
+const DAEMON_ACTIVE = {
+  now: Date.now(),
+  inflight: [
+    {
+      leafId: 'leaf-abc123',
+      epicId: null,
+      nodeKind: 'implement',
+      model: 'claude-sonnet-4-6',
+      attempt: 1,
+      startedAt: Date.now() - 30000,
+      elapsedMs: 30000,
+      stale: false,
+    },
+  ],
+  breaker: { open: true, openUntil: Date.now() + 120000 },
+  paused: [{ todoId: 'todo-xyz', project: 'p', firstTrippedAt: Date.now() - 60000 }],
+  recentSpawns: [
+    { id: 's1', ts: Date.now(), project: 'p', session: 'sess-1', detail: '{"kind":"spawn"}' },
+  ],
+  failures: [{ leafId: 'leaf-fail1', finalOutcome: 'rejected', reason: 'review failed' }],
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -55,7 +92,7 @@ afterEach(() => {
 
 describe('ExecutorStatsPanel', () => {
   it('renders hero tiles from mocked stats', async () => {
-    global.fetch = mockFetchOnce(HEALTHY) as any;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_IDLE }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('stat-leafcount')).toBeTruthy());
     expect(screen.getByTestId('stat-leafcount').textContent).toBe('5');
@@ -67,7 +104,7 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('shows a GREEN auth audit (no alarm) when healthy', async () => {
-    global.fetch = mockFetchOnce(HEALTHY) as any;
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_IDLE }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('authmode-audit')).toBeTruthy());
     const band = screen.getByTestId('authmode-audit');
@@ -77,7 +114,7 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('shows a LOUD RED auth alarm when authModeAlarm is true', async () => {
-    global.fetch = mockFetchOnce(ALARM) as any;
+    global.fetch = mockFetchRouter({ '/stats': ALARM, '/daemon': DAEMON_IDLE }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByTestId('authmode-audit')).toBeTruthy());
     const band = screen.getByTestId('authmode-audit');
@@ -90,10 +127,41 @@ describe('ExecutorStatsPanel', () => {
   });
 
   it('renders the empty state on leafCount 0 — no tiles, no audit band', async () => {
-    global.fetch = mockFetchOnce(EMPTY) as any;
+    global.fetch = mockFetchRouter({ '/stats': EMPTY, '/daemon': DAEMON_IDLE }) as any;
     render(<ExecutorStatsPanel project="p" />);
     await waitFor(() => expect(screen.getByText('No headless runs yet.')).toBeTruthy());
     expect(screen.queryByTestId('stat-leafcount')).toBeNull();
     expect(screen.queryByTestId('authmode-audit')).toBeNull();
+  });
+
+  it('shows open breaker band when daemon breaker is open', async () => {
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_ACTIVE }) as any;
+    render(<ExecutorStatsPanel project="p" />);
+    await waitFor(() => expect(screen.getByTestId('daemon-breaker')).toBeTruthy());
+    const band = screen.getByTestId('daemon-breaker');
+    expect(band.textContent).toContain('OPEN');
+  });
+
+  it('shows running inflight leaf in daemon-inflight section', async () => {
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_ACTIVE }) as any;
+    render(<ExecutorStatsPanel project="p" />);
+    await waitFor(() => expect(screen.getByTestId('daemon-inflight')).toBeTruthy());
+    expect(screen.getByTestId('daemon-inflight').textContent).toContain('implement');
+  });
+
+  it('shows rejected failure in daemon-failures section', async () => {
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_ACTIVE }) as any;
+    render(<ExecutorStatsPanel project="p" />);
+    await waitFor(() => expect(screen.getByTestId('daemon-failures')).toBeTruthy());
+    const section = screen.getByTestId('daemon-failures');
+    expect(section.textContent).toContain('rejected');
+    expect(section.textContent).toContain('review failed');
+  });
+
+  it('daemon section absent when daemon is idle', async () => {
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_IDLE }) as any;
+    render(<ExecutorStatsPanel project="p" />);
+    await waitFor(() => expect(screen.getByTestId('stat-leafcount')).toBeTruthy());
+    expect(screen.queryByTestId('daemon-inflight')).toBeNull();
   });
 });
