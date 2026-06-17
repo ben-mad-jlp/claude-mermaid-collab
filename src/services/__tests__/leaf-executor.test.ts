@@ -882,7 +882,7 @@ function makeVerifyDeps(opts: {
   resultJson?: string;       // what readArtifact returns for the *.result.json artifact
   planJson?: string;         // what readArtifact returns for the *.plan.json artifact
   planFails?: number;        // first N driveplan invocations fail (ok:false)
-  execFails?: boolean;       // driveexec returns ok:false
+  execFails?: number;        // first N driveexec invocations fail (ok:false), then ok
   reportFails?: boolean;     // report returns ok:false
   gateEffective?: 'accepted' | 'rejected' | 'pending';
   mergeThrows?: boolean;
@@ -896,6 +896,7 @@ function makeVerifyDeps(opts: {
     reportFindings: [] as string[],
   };
   let planFailsLeft = opts.planFails ?? 0;
+  let execFailsLeft = opts.execFails ?? 0;
   const deps: LeafExecutorDeps = {
     invoker: {
       async invoke(spec: NodeSpec): Promise<NodeResult> {
@@ -909,7 +910,7 @@ function makeVerifyDeps(opts: {
           return okResult(opts.planJson ?? '{"plan":"inline"}');
         }
         if (isExec) {
-          if (opts.execFails) return failResult();
+          if (execFailsLeft > 0) { execFailsLeft -= 1; return failResult(); }
           return okResult(opts.resultJson ?? PLAN_CLEAN);
         }
         if (isReport) {
@@ -991,6 +992,24 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     expect(res.outcome).toBe('blocked');
     expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('build_assembly_plan'))).toBe(false);
     expect(spies.mergeCalls).toBe(0);
+  });
+
+  it('driveexec transient failure → ONE in-place retry → succeeds + accepts', async () => {
+    const { deps, spies } = makeVerifyDeps({ execFails: 1 }); // first verb call fails, retry ok
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // two driveexec invocations (the transient + the retry), then report ran.
+    const execCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('build_assembly_plan'));
+    expect(execCalls.length).toBe(2);
+    expect(spies.mergeCalls).toBe(1);
+  });
+
+  it('driveexec fails twice → BLOCKED (verify-execute-node-failed), no report', async () => {
+    const { deps, spies } = makeVerifyDeps({ execFails: 99 });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('verify-execute-node-failed');
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
   });
 
   it('gate-pending propagates as a first-class pending outcome', async () => {

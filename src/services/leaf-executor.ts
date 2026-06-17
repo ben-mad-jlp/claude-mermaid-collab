@@ -1029,10 +1029,19 @@ export async function runLeaf(
     const planText = planFromFile && planFromFile.trim() ? planFromFile : plan.text;
     if (!planText || !planText.trim()) return parkBlocked('verify-plan-empty');
 
-    // 2. EXECUTE — node constrained to the resolved verb; captures its raw result.
-    const exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, cfg.verb, planText));
+    // 2. EXECUTE — node constrained to the resolved verb; captures its raw result. The verb
+    //    call is a single network-heavy MCP round-trip, so give ONE in-place retry on a
+    //    transient node failure (e.g. the "Connection closed while thinking" API drop seen in
+    //    the first live T14 run) before parking — mirrors the blueprint-node retry. The verb is
+    //    deterministic/idempotent, so re-calling is safe.
+    let exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, cfg.verb, planText));
     if (exec.rateLimited) return pausedResult('driveexec', exec);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    if (!exec.ok) {
+      exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, cfg.verb, planText));
+      if (exec.rateLimited) return pausedResult('driveexec', exec);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    }
     if (!exec.ok) return parkBlocked('verify-execute-node-failed');
 
     // 3. GATE — parse the verb's TRUE verdicts from the result artifact (not the prose).
