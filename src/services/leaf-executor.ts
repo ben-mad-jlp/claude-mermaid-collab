@@ -121,6 +121,13 @@ export interface LeafExecutorDeps {
    *  than the model's prose. Default reads `path.join(cwd, relPath)` via fs; tests inject
    *  text directly. Optional `?.` keeps the code path working unwired. */
   readArtifact?: (cwd: string, relPath: string) => Promise<string | undefined>;
+  /** Verify pipeline seam (epic f5c7fc46 L5): write a worktree-relative artifact from the
+   *  EXECUTOR, not the node. The report node emits its markdown as its final message; the
+   *  executor persists it into the leaf worktree itself, because a headless node's NEW-file
+   *  Write resolves to the project ROOT (a worktree's .git points back to the main repo), not
+   *  the worktree — so a node-written report never reaches mergeToEpic and the accept reverses.
+   *  Default writes `path.join(cwd, relPath)` via fs (mkdir -p); tests stub it. */
+  writeArtifact?: (cwd: string, relPath: string, content: string) => Promise<void>;
   /** L3 verify command-gate seam (epic f5c7fc46 e9ce8693): run a {@link VerifyGateConfig.command}
    *  shell gate (e.g. `pytest -q`) in the worktree. `ran:false` ⇒ the command could not execute
    *  (spawn error / missing tool) → INFRA failure → park blocked; `ran:true, ok:false` ⇒ the gate
@@ -229,10 +236,11 @@ const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string }
   // writes+commits findings and files one session-todo per finding.
   driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash' },
   driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}` },
-  // No Bash: the report node must NOT run git — runLeaf's mergeToEpic owns the commit +
-  // epic-branch integration (a manual commit here strands the report off the epic branch,
-  // tripping the accept-time stranded-accept guard → reversal). Write + the todo MCP only.
-  report: { model: 'sonnet', allowedTools: 'Read Write Grep Glob mcp__mermaid__add_session_todo' },
+  // No Bash, no Write: the report node only READS the verdicts, files finding todos via MCP,
+  // and EMITS the report markdown as its final message — the EXECUTOR writes it into the
+  // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
+  // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
+  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__add_session_todo' },
 };
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
@@ -388,15 +396,15 @@ export function buildVerifyPrompt(
         gateFindings && gateFindings.trim()
           ? `The gate reported these FAILED verdicts — each is a finding:\n--- FINDINGS ---\n${gateFindings}\n--- END FINDINGS ---`
           : 'The gate reported a CLEAN result (all accept gates passed — validity/dof/mobility/clearance/contract).',
-        `Read \`${resultFile}\` for the raw verdicts if present, then WRITE a findings report (markdown)`,
-        `to \`${reportFile}\`: what was verified, the overall verdict, and each finding with enough`,
-        'detail to act on (and how to reproduce). This report file IS the deliverable.',
+        'Compose a findings report (markdown): what was verified, the overall verdict, and each',
+        'finding with enough detail to act on (and how to reproduce).',
         'For EACH distinct finding, file one session-todo via the collab MCP tool',
         '`mcp__mermaid__add_session_todo` (title = the finding, description = detail + repro) if that',
-        'tool is available; if it is not, list the would-be todos as a section in the report instead.',
-        'Do NOT edit any source code. Do NOT run git (no add/commit/branch/checkout) — the executor',
-        'commits the report and integrates it onto the epic branch with the right trailers; a manual',
-        'commit here strands the work off the epic branch. Just WRITE the file and file the todos.',
+        'tool is available; if it is not, include the would-be todos as a section in the report.',
+        'OUTPUT the COMPLETE report markdown as your FINAL reply message, verbatim — that final',
+        'message IS the deliverable: the executor writes it to the worktree and commits it onto the',
+        'epic branch. Do NOT write files yourself and do NOT run git — just emit the markdown and',
+        'file the todos. (Do not edit any source code.)',
       ].filter(Boolean).join('\n');
   }
 }
@@ -1077,6 +1085,17 @@ export async function runLeaf(
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!report.ok) return parkBlocked('verify-report-node-failed');
 
+    // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
+    // node's new-file Write resolves to the project root, not the worktree, so it would never
+    // reach mergeToEpic. Write it at the worktree path; an empty report is an executor failure.
+    const reportMd = (report.text ?? '').trim();
+    if (!reportMd) return parkBlocked('verify-report-empty');
+    try {
+      await deps.writeArtifact?.(cwd, verifyReportPath(leaf), reportMd);
+    } catch (e) {
+      return parkBlocked(`verify-report-write-failed: ${e instanceof Error ? e.message : String(e)}`, 'fail');
+    }
+
     // Overall verdict: clean ONLY if BOTH the verb gate passed AND no command-gate finding.
     const gateVerdict: 'pass' | 'fail' = findings.length === 0 ? 'pass' : 'fail';
 
@@ -1340,6 +1359,15 @@ export async function makeLeafExecutorDeps(
       } catch {
         return undefined;
       }
+    },
+    // L5: executor-owned write into the worktree (the deliverable's location must not depend
+    // on the node's cwd path resolution). mkdir -p the parent, then write.
+    writeArtifact: async (cwd, relPath, content) => {
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const full = path.join(cwd, relPath);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content, 'utf8');
     },
     // L3 command-gate (epic f5c7fc46): run the config's shell gate in the worktree. A spawn
     // failure (missing tool) ⇒ ran:false (infra → block); a non-zero exit ⇒ ran:true/ok:false

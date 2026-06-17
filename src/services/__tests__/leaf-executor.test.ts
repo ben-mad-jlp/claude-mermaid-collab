@@ -886,7 +886,7 @@ function makeVerifyDeps(opts: {
   reportFails?: boolean;     // report returns ok:false
   gateEffective?: 'accepted' | 'rejected' | 'pending';
   mergeThrows?: boolean;
-}): { deps: LeafExecutorDeps; spies: Spies & { reportFindings: string[] } } {
+}): { deps: LeafExecutorDeps; spies: Spies & { reportFindings: string[]; writes: Array<{ relPath: string; content: string }> } } {
   const spies = {
     ensureCalls: [] as Spies['ensureCalls'],
     invokeSpecs: [] as NodeSpec[],
@@ -894,6 +894,7 @@ function makeVerifyDeps(opts: {
     mergeCalls: 0,
     escalations: [] as Spies['escalations'],
     reportFindings: [] as string[],
+    writes: [] as Array<{ relPath: string; content: string }>,
   };
   let planFailsLeft = opts.planFails ?? 0;
   let execFailsLeft = opts.execFails ?? 0;
@@ -916,7 +917,8 @@ function makeVerifyDeps(opts: {
         if (isReport) {
           if (opts.reportFails) return failResult();
           spies.reportFindings.push(spec.prompt);
-          return okResult('report written');
+          // The report node EMITS the markdown as its final message (the executor persists it).
+          return okResult('# T14 verify report\n\nVerdict: see findings.');
         }
         return okResult('done');
       },
@@ -946,6 +948,9 @@ function makeVerifyDeps(opts: {
       if (relPath.endsWith('.plan.json')) return opts.planJson;
       return undefined;
     },
+    async writeArtifact(_cwd, relPath, content) {
+      spies.writes.push({ relPath, content });
+    },
   };
   return { deps, spies };
 }
@@ -964,6 +969,27 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     expect(kinds.some((t) => t.includes('add_session_todo'))).toBe(true); // report
     expect(spies.mergeCalls).toBe(1);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    // L5: the EXECUTOR persists the report node's emitted markdown into the worktree at the
+    // report path BEFORE mergeToEpic (so it actually reaches the epic branch).
+    const reportWrite = spies.writes.find((w) => w.relPath.endsWith('.report.md'));
+    expect(reportWrite).toBeDefined();
+    expect(reportWrite!.content).toContain('T14 verify report');
+  });
+
+  it('empty report node output → BLOCKED (verify-report-empty), no merge', async () => {
+    const { deps, spies } = makeVerifyDeps({ resultJson: PLAN_CLEAN });
+    deps.invoker.invoke = (async (spec) => {
+      spies.invokeSpecs.push(spec);
+      const tools = spec.allowedTools ?? '';
+      if (tools.includes('build_assembly_plan')) return okResult(PLAN_CLEAN);
+      if (tools.includes('add_session_todo')) return okResult('   '); // blank report
+      if (tools.includes('Write')) return okResult('{"plan":"inline"}'); // driveplan
+      return okResult('done');
+    }) as typeof deps.invoker.invoke;
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('verify-report-empty');
+    expect(spies.mergeCalls).toBe(0);
   });
 
   it('failing DOMAIN gate is a FINDING, not an executor failure → still reports + accepts', async () => {
