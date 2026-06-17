@@ -23,11 +23,30 @@
  * on the SERVER, not in the UI, so a crafted request can't bypass it.
  */
 import { spawn } from 'node:child_process';
-import { openSync, existsSync } from 'node:fs';
+import { openSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
-import { MERMAID_PROJECT } from '../config';
+
+/**
+ * package.json `name` of this very app. The self-project is identified by this
+ * name — NOT by `project === MERMAID_PROJECT`. In the packaged desktop app the
+ * sidecar's cwd (hence MERMAID_PROJECT) is the app bundle, never the source
+ * checkout, so an equality check there is always false. Matching the target
+ * repo's package name correctly identifies the collab source tree wherever it
+ * lives, and rejects every other tracked repo (build123d, yolox, …).
+ */
+const SELF_PACKAGE_NAME = 'claude-mermaid-collab';
+
+/** True when `project` is a checkout of THIS app's source repo. */
+export function isSelfProject(project: string): boolean {
+  try {
+    const raw = readFileSync(join(project, 'package.json'), 'utf8');
+    return (JSON.parse(raw) as { name?: unknown }).name === SELF_PACKAGE_NAME;
+  } catch {
+    return false;
+  }
+}
 
 export interface DeployRequestResult {
   /** True when a detached deploy was actually launched. */
@@ -86,9 +105,9 @@ export interface DeployEligibility {
  * UI can never coax a deploy the server would reject.
  */
 export function selfDeployEligibility(project: string): DeployEligibility {
-  // Gate #1: must be the sidecar's own repo. Deploying anyone else's repo from
-  // here is never correct.
-  if (project !== MERMAID_PROJECT) return { eligible: false, reason: 'not-self-project' };
+  // Gate #1: must be a checkout of THIS app's source repo (by package name —
+  // see isSelfProject). Deploying anyone else's repo from here is never correct.
+  if (!isSelfProject(project)) return { eligible: false, reason: 'not-self-project' };
   // Gate #2: the deploy recipe is macOS-only (swaps into the installed .app).
   if (process.platform !== 'darwin') return { eligible: false, reason: 'unsupported-platform' };
   // Gate #3: the script must exist in this checkout. A packaged end-user
