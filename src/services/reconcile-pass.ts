@@ -30,6 +30,7 @@ import {
   getSupervisedLaunchProject,
 } from './supervisor-store.ts';
 import { listTodos, getTodo, sweepEpicRollups } from './todo-store.ts';
+import { isClaimable } from './claimability.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND } from './coordinator-live.ts';
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
@@ -69,14 +70,16 @@ function isSessionIdle(project: string, session: string, now: number): boolean {
   return liveness === 'idle';
 }
 
-/** True when a session has at least one `ready` todo it OWNS or is assigned to. */
+/** True when a session has at least one CLAIMABLE todo it OWNS or is assigned to.
+ *  De-conflate (b2c858d4): readiness is DERIVED — the old `{status:'ready'}` filter is stale
+ *  (ready work is now stored status='planned'+approvedAt), so derive via isClaimable over the
+ *  full work-graph (byId needed for dep resolution). */
 function hasReadyWork(project: string, session: string): boolean {
-  // Check todos owned by this session
-  const owned = listTodos(project, { ownerSession: session, status: 'ready' });
-  if (owned.length > 0) return true;
-  // Check todos assigned to this session
-  const assigned = listTodos(project, { assigneeSession: session, status: 'ready' });
-  return assigned.length > 0;
+  const all = listTodos(project, { includeCompleted: true });
+  const byId = new Map(all.map((t) => [t.id, t]));
+  return all.some(
+    (t) => (t.ownerSession === session || t.assigneeSession === session) && isClaimable(t, byId),
+  );
 }
 
 // ---------------------------------------------------------------------------

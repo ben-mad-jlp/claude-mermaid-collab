@@ -324,11 +324,16 @@ async function makeEpicWithChildren(
   project: string,
   children: Array<{ status: 'done' | 'in_progress' | 'dropped'; acceptance?: 'accepted' | 'pending' | 'rejected' | null }>,
 ): Promise<{ epicId: string; childIds: string[] }> {
-  const epic = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] sweep test', status: 'in_progress' });
+  // De-conflate (b2c858d4): epics are 'planned' (non-terminal); the seam rejects a manual
+  // 'in_progress'. An "open" child stays non-terminal (created 'ready'→planned+approved) — what
+  // the rollup actually keys on is NOT-done+accepted, so a non-terminal child blocks rollup.
+  const epic = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] sweep test', status: 'planned' });
   const childIds: string[] = [];
   for (const c of children) {
     const child = await createTodo(project, { ownerSession: 'w', title: 'child', parentId: epic.id, status: 'ready' });
-    await updateTodo(project, child.id, { status: c.status, acceptanceStatus: c.acceptance ?? null });
+    if (c.status !== 'in_progress') {
+      await updateTodo(project, child.id, { status: c.status, acceptanceStatus: c.acceptance ?? null });
+    }
     childIds.push(child.id);
   }
   return { epicId: epic.id, childIds };
@@ -363,7 +368,7 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
     expect(getTodo(project, epicId)?.status).toBe('done');
   });
 
-  it('does NOT roll up an epic with an open (in_progress) child', async () => {
+  it('does NOT roll up an epic with an open (open) child', async () => {
     const project = freshProject();
     const { epicId } = await makeEpicWithChildren(project, [
       { status: 'done', acceptance: 'accepted' },
@@ -374,7 +379,7 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
 
     expect(rolledUp).not.toContain(epicId);
     expect(flagged).toHaveLength(0); // not all done → not flagged either
-    expect(getTodo(project, epicId)?.status).toBe('in_progress');
+    expect(getTodo(project, epicId)?.status).toBe('planned');
   });
 
   it('FLAGS (does not close) an epic whose children are all done but some UNACCEPTED — the 34a22538 case', async () => {
@@ -391,7 +396,7 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
     const { rolledUp, flagged } = await sweepEpicRollups(project);
 
     expect(rolledUp).not.toContain(epicId);
-    expect(getTodo(project, epicId)?.status).toBe('in_progress'); // left in_progress
+    expect(getTodo(project, epicId)?.status).toBe('planned'); // left in_progress
     expect(flagged).toHaveLength(1);
     expect(flagged[0]).toMatchObject({ epicId, children: 5, unaccepted: 2 });
   });
@@ -400,8 +405,8 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
     const project = freshProject();
     // root → mid (epic) → leaf(done+accepted). root also has another direct
     // done+accepted child. Closing mid should let root roll up in the same call.
-    const root = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] root', status: 'in_progress' });
-    const mid = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] mid', parentId: root.id, status: 'in_progress' });
+    const root = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] root', status: 'planned' });
+    const mid = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] mid', parentId: root.id, status: 'planned' });
     const leaf = await createTodo(project, { ownerSession: 'w', title: 'leaf', parentId: mid.id, status: 'ready' });
     await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
     const rootChild = await createTodo(project, { ownerSession: 'w', title: 'root-child', parentId: root.id, status: 'ready' });
@@ -428,13 +433,13 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
 
   it('never closes a childless epic', async () => {
     const project = freshProject();
-    const epic = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] empty', status: 'in_progress' });
+    const epic = await createTodo(project, { ownerSession: 'planner', title: '[EPIC] empty', status: 'planned' });
 
     const { rolledUp, flagged } = await sweepEpicRollups(project);
 
     expect(rolledUp).not.toContain(epic.id);
     expect(flagged).toHaveLength(0);
-    expect(getTodo(project, epic.id)?.status).toBe('in_progress');
+    expect(getTodo(project, epic.id)?.status).toBe('planned');
   });
 });
 
@@ -468,7 +473,7 @@ describe('runReconcilePass — epic-rollup sweep wiring', () => {
 
     await runReconcilePass(project);
 
-    expect(getTodo(project, epicId)?.status).toBe('in_progress');
+    expect(getTodo(project, epicId)?.status).toBe('planned');
     const audits = listSupervisorAudit({ project, kind: 'reconcile' });
     expect(audits.some((a) => (a.detail ?? '').includes('epic-all-done-but-unaccepted') && (a.detail ?? '').includes(epicId))).toBe(true);
   });
@@ -481,7 +486,7 @@ describe('runReconcilePass — epic-rollup sweep wiring', () => {
 describe('runReconcilePass — verified-done escalation auto-close', () => {
   it('closes an open escalation whose linked todo is done+accepted', async () => {
     const project = freshProject();
-    const todo = await createTodo(project, { ownerSession: 'w', title: 'gated work', status: 'in_progress' });
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'gated work', status: 'ready' });
     const { escalation } = createEscalation({
       project,
       session: 'worker-vd',
@@ -501,7 +506,7 @@ describe('runReconcilePass — verified-done escalation auto-close', () => {
 
   it('closes an open escalation whose linked todo was dropped', async () => {
     const project = freshProject();
-    const todo = await createTodo(project, { ownerSession: 'w', title: 'abandoned work', status: 'in_progress' });
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'abandoned work', status: 'ready' });
     const { escalation } = createEscalation({
       project,
       session: 'worker-vd2',
@@ -520,7 +525,7 @@ describe('runReconcilePass — verified-done escalation auto-close', () => {
 
   it('leaves open an escalation whose linked todo is done but UNACCEPTED', async () => {
     const project = freshProject();
-    const todo = await createTodo(project, { ownerSession: 'w', title: 'ungated work', status: 'in_progress' });
+    const todo = await createTodo(project, { ownerSession: 'w', title: 'ungated work', status: 'ready' });
     const { escalation } = createEscalation({
       project,
       session: 'worker-vd3',
