@@ -12,7 +12,7 @@ import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, add
 import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
-import { runTick, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
+import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
@@ -20,6 +20,16 @@ import { validateStewardProof } from './steward-proof';
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
+import { runLeaf, makeLeafExecutorDeps } from './leaf-executor';
+import {
+  breakerOpen,
+  tripBreaker,
+  enqueuePausedLeaf,
+  pausedNodesSpent,
+  pausedLeavesFor,
+  breakerExhausted,
+  recordResume,
+} from './headless-breaker';
 import { resolveProfile, resolveProvider, type AgentProfile } from '../config/agent-profiles';
 import type { ProviderId } from '../agent/worker-agent';
 import { resolveManifestPacks } from '../config/tech-packs';
@@ -524,6 +534,25 @@ function mergeToolTokens(...parts: Array<string | undefined>): string {
 export function workerIsolationEnabled(): boolean {
   const v = process.env.MERMAID_WORKER_ISOLATION;
   return v === '1' || v === 'true';
+}
+
+/** True when the headless P2 leaf-executor is enabled via env flag. Default OFF
+ *  ⇒ production behaviour is byte-identical (the legacy tmux launch path runs).
+ *  Mirrors the workerIsolationEnabled / registry env-flag idiom. */
+export function leafExecutorEnabled(): boolean {
+  const v = (process.env.LEAF_EXECUTOR ?? 'off').trim().toLowerCase();
+  return v === '1' || v === 'on' || v === 'true';
+}
+
+/** A leaf the headless executor may drive: a work todo with NO children (a leaf in
+ *  the work-graph) that is not human-owned. Keeps gates/epics/human todos out of
+ *  the executor (those go the legacy path). `project` is the tracking project. */
+export function isHeadlessLeaf(todo: Todo, project: string): boolean {
+  if (todo.assigneeKind === 'human') return false;
+  if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return false;
+  // Leaf = no child todos parented to it in the tracking work-graph.
+  const hasChildren = listTodos(project, {}).some((t) => t.parentId === todo.id);
+  return !hasChildren;
 }
 
 // One WorktreeManager per target-repo root (memoised). Records + worktrees live
@@ -1144,9 +1173,21 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // (hold a claimProbe todo while its env is down), then (2) BP1 — drop a
     // dependent whose foundation is accepted-but-stranded off integration. Neither
     // writes status; a held-back todo is just not claimed this tick.
-    claimGuard: async (project, todos) =>
+    claimGuard: async (project, todos) => {
       // Budget gate first: over the daily cap → claim nothing for this project today.
-      overDailyBudget(project) ? [] : bp1FilterStrandedFoundations(project, await filterClaimable(todos)),
+      if (overDailyBudget(project)) return [];
+      let claimable = await bp1FilterStrandedFoundations(project, await filterClaimable(todos));
+      // P3 headless circuit-breaker: while the per-process cap window is open, hold
+      // HEADLESS leaves out of the claimable set (mirrors the probe-gate filter
+      // above). This avoids the claim→release spin a launch-time gate alone would
+      // cause. tmux/legacy lanes are untouched — only node-invoker spawns are gated.
+      if (breakerOpen()) {
+        claimable = claimable.filter(
+          (t) => !(leafExecutorEnabled() && isHeadlessLeaf(t, project)),
+        );
+      }
+      return claimable;
+    },
     // Wrapped to record coordinator lifecycle events into the supervisor audit
     // log → it doubles as the unified orchestration trace (open-problem #10/obs).
     claimTodo: async (project, id, claimedBy, leaseMs) => {
@@ -1186,7 +1227,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // Walk the parent chain in the TRACKING project (where the work-graph lives).
           const epicId = resolveEpicId(r.completed, project);
           const message = `collab(${id.slice(0, 8)}): ${r.completed.title}`.slice(0, 200);
-          const merge = await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
+          // IDEMPOTENT merge-back: the LEAF-EXECUTOR self-merges its lane onto the epic
+          // branch in runLeaf (before proposing acceptance), so by accept-time the work is
+          // ALREADY integrated. Re-running commitAndMergeToEpic on that already-merged lane
+          // can report a spurious conflict and wrongly park the (correctly-accepted) todo
+          // BLOCKED. If the todo's commit is already on the epic branch, the merge is done —
+          // synthesize a clean integrated result and skip the re-merge. The legacy tmux lane
+          // is NOT yet on the branch at accept-time, so it still merges here as before.
+          const alreadyOnEpic = await wm.todoOnEpicBranch(epicId, id).catch(() => false);
+          const merge = alreadyOnEpic
+            ? { merged: true, conflict: false, committed: false, integrated: true, workerBranch: '', epicBranch: wm.epicBranchName(epicId) }
+            : await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
           recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, isolation: 'merge-back', merged: merge.merged, conflict: merge.conflict, committed: merge.committed, branch: merge.workerBranch }) });
           if (merge.conflict) {
             // DEFECT 2 — a conflicted merge-back must NOT leave the todo accepted.
@@ -1397,6 +1448,49 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // from claimedBy=coordinator). Set alongside sessionName here at launch.
         try { await updateTodo(project, todo.id, { sessionName: poolName, executedBySession: poolName }); }
         catch (e) { recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, sessionNamePersist: 'failed', reason: e instanceof Error ? e.message : String(e) }) }); }
+      }
+
+      // LEAF_EXECUTOR (P2): headless deterministic blueprint→implement→review
+      // executor, default OFF. The lane identity is already persisted above (so the
+      // executor lane still shows in the fleet with a real sessionName); this runs
+      // BEFORE the legacy provider-resolution / tmux machinery below. On any auth-halt
+      // or hard error we release + escalate rather than silently fall through to tmux.
+      if (leafExecutorEnabled() && isHeadlessLeaf(todo, project)) {
+        // P3 breaker gate: if the cap window is still open, do NOT spawn. Release the
+        // claim so the todo returns to `ready` (the claimGuard filter normally holds
+        // it out, but a todo claimed before the breaker tripped this tick can still
+        // reach here). Transient hold — no escalation. The lease also backstops.
+        if (breakerOpen()) {
+          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+          return false;
+        }
+        try {
+          const ledProject = todo.targetProject ?? project;
+          // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
+          // NODE_BUDGET bounds total spawns across all pause/resume cycles.
+          const carried = pausedNodesSpent(project, todo.id);
+          const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo, carried));
+          recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
+          if (res.outcome === 'paused') {
+            // The executor hit a rate cap and yielded WITHOUT backing off. The DAEMON
+            // owns the response: trip the breaker (backoff/capReset), record the leaf
+            // for exhaustion tracking, and release the claim so the ordinary claim
+            // loop re-dispatches it once the breaker closes.
+            tripBreaker(res.paused?.capReset);
+            enqueuePausedLeaf(project, todo.id, res.paused!);
+            try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+            return false;
+          }
+          // A non-paused outcome means the leaf made progress past the cap (or never
+          // hit one) — clear any stale paused record so a future pause starts clean.
+          recordResume(project, todo.id);
+          return res.outcome === 'accepted';
+        } catch (e) {
+          try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
+          createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
+            questionText: `Leaf-executor failed for "${todo.title ?? todo.id}": ${e instanceof Error ? e.message : String(e)}` });
+          return false;
+        }
       }
 
       // CROSS-PROJECT (SEAM·collab): the todo lives in `project` (the tracking
@@ -1946,6 +2040,28 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         todoId,
       });
     },
+    sweepExhaustedHeadless: async (project: string): Promise<void> => {
+      // P3: any leaf paused on a rate cap past the 2h total-wait ceiling is parked
+      // BLOCKED + escalated. The cap may persist indefinitely (account out of quota
+      // for the billing window); bound the total wait rather than spin forever.
+      const deps = makeCoordinatorDeps();
+      for (const entry of pausedLeavesFor(project)) {
+        if (!breakerExhausted(entry.firstTrippedAt)) continue;
+        const todo = getTodo(project, entry.todoId);
+        // Park BLOCKED via the EXISTING completion funnel (route a 'rejected' →
+        // status blocked, completion cleared), same mechanism parkBlocked uses.
+        try { await handleWorkerComplete(deps, project, entry.todoId, 'rejected'); }
+        catch { /* gate funnel best-effort on the exhaustion path */ }
+        createEscalation({
+          project,
+          session: todo?.sessionName ?? 'unassigned',
+          kind: 'blocker',
+          questionText: `Leaf "${todo?.title ?? entry.todoId}" is RATE-CAP exhausted — the claude.ai account stayed capped for over 2h. Parked blocked; needs a human (wait for the cap to reset, then re-open, or split/drop).`,
+          todoId: entry.todoId,
+        });
+        recordResume(project, entry.todoId);
+      }
+    },
     escalateRejected: async (project: string, todoId: string): Promise<void> => {
       const todo = getTodo(project, todoId);
       createEscalation({
@@ -2024,17 +2140,25 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (await wm.isDirty(todo.sessionName)) return true; // uncommitted edits present
         const epicId = resolveEpicId(todo, project);
         if ((await wm.laneCommitsAheadOfEpic(todo.sessionName, epicId)) > 0) return true;
-        // BUG 7b7d66d5(b): a clean lane with 0 commits-ahead is NOT proof of a
+        // LEAF-EXECUTOR (the real-daemon dogfood finding): the leaf-executor MERGES the
+        // lane onto the epic accumulation branch (collab/epic/<id8>) BEFORE proposing
+        // acceptance — so a clean lane, 0-ahead, is the NORMAL success shape, not a
+        // hallucination. Work on the epic branch IS real, committable work (it ships when
+        // the epic lands). Recognize it FIRST, before the stricter integration probe (the
+        // epic branch is the accumulation tier; master is only reached at epic-land).
+        // Without this, EVERY leaf-executor PASS false-downgrades to 'pending'.
+        if (await wm.todoOnEpicBranch(epicId, todoId)) return true;
+        // BUG 7b7d66d5(b): a clean lane NOT on its epic branch is still not proof of a
         // hallucination — the work may have landed on the INTEGRATION branch directly
         // (hand cherry-pick / steward reconcile / a prior accepted+landed run that tore
         // the lane down). Before false-downgrading to 'pending', check whether the todo's
         // commit (by its Collab-Todo trailer) is reachable from integration. Only a
-        // provable "nowhere" (clean lane AND provably not on integration) is a real
-        // hallucination; an indeterminate probe preserves prior trust (never downgrades).
+        // provable "nowhere" (clean lane, not on epic, provably not on integration) is a
+        // real hallucination; an indeterminate probe preserves prior trust (never downgrades).
         const onInt = await wm.commitOnIntegration(epicId, todoId);
         if (onInt === true) return true; // landed on master/integration → real work
         if (onInt === null) return null; // indeterminate → preserve (never false-downgrade)
-        return false; // clean lane AND provably not on integration → hallucination
+        return false; // clean lane, not on epic branch, not on integration → hallucination
       } catch {
         return null; // probe error → indeterminate → preserve (never false-downgrade)
       }

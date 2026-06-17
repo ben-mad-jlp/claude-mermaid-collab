@@ -27,6 +27,10 @@ export interface CoordinatorDeps {
   launchWorker: (project: string, todo: Todo) => Promise<boolean>;
   /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
   escalateExhausted?: (project: string, todoId: string) => Promise<void>;
+  /** P3 headless circuit-breaker exhaustion sweep: for any leaf paused on a rate cap
+   *  past the 2h total-wait ceiling, escalate (blocker) + park BLOCKED and clear it
+   *  from the breaker. Called once per tick. Optional. */
+  sweepExhaustedHeadless?: (project: string) => Promise<void>;
   /** Reclaim claims whose worker is hard-dead (tmux gone), without waiting for
    *  the lease. Returns reclaimed-to-ready + retry-exhausted (parked blocked) ids. Optional. */
   reapDeadClaims?: (project: string) => Promise<{ reclaimed: string[]; exhausted: string[] }>;
@@ -126,6 +130,10 @@ export async function runTick(
   // stalled workers so a silent stall surfaces instead of sitting until lease-expiry.
   if (deps.detectStalls) {
     try { await deps.detectStalls(project); } catch { /* stall detection must not abort the tick */ }
+  }
+  // P3: rate-cap exhaustion sweep — park leaves stuck paused past the 2h ceiling.
+  if (deps.sweepExhaustedHeadless) {
+    try { await deps.sweepExhaustedHeadless(project); } catch { /* sweep must not abort the tick */ }
   }
   if (deps.drainDecisions) {
     try { await deps.drainDecisions(project); } catch { /* decision drain must not abort the tick */ }

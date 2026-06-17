@@ -80,6 +80,9 @@ import { systemStatus } from '../services/system-status.js';
 // same module instance (same `timer`, same level rows).
 import { getOrchestratorHealth as getOrchestratorHealthSST } from '../services/orchestrator-live.js';
 import { getEpicBranchStatus } from '../services/epic-branch-status.js';
+import { getLeafRun, listLeafRuns } from '../services/ledger-stats.js';
+import { listLeafInflight } from '../services/worker-ledger.js';
+import { breakerOpen } from '../services/headless-breaker.js';
 import { frictionTrends } from '../services/friction-trends.js';
 import { roadmapRollup } from '../services/roadmap-rollup.js';
 import { runtimeConfig } from '../services/runtime-config.js';
@@ -2192,6 +2195,9 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'supervisor_audit_list', description: 'List the supervisor\'s durable decision/action audit trail (nudge/escalate/checkpoint/clear/…), most-recent-first. Survives restart; feeds observability + the System Map. Optional project/kind filters.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, kind: { type: 'string' }, limit: { type: 'number', description: 'Max entries (default 100, max 1000).' } } } },
       { name: 'orchestrator_status', description: 'Live orchestrator daemon runtime snapshot: { running, tickMs, lastTickAt, projects:[{project,level}], pool:[{session,type,slot,status,todoId,tmux}], coldStartsInFlight, recentSpawns }. Read-only. Returns running:false cleanly when the daemon is stopped. Thin wrapper over the worker pool + the orchestrator level/health.', inputSchema: { type: 'object', properties: {} } },
       { name: 'system_status', description: "THE one-call steward rollup — call this FIRST to ground a decision instead of a stale checkpoint + N bash probes. COMPOSES the four foundational read-models (orchestrator_status: daemon running/level + pool occupancy + cold-starts · fleet_status: worker occupancy + proc-headroom early-warning · invariant_check: work-graph violation count · instance_topology: canonical :9002 confirmation vs stale shadows) PLUS inline: deploy/version drift (live sidecar pid+version+startedAt vs repo package.json version + git HEAD + uncommitted WIP — the 'did the deploy land or go cosmetic?' read), open-escalation + pending-decision counts, and steward/supervisor pause state. Returns a COMPACT summary with `pointers` to the focused tool for full detail behind any field. Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project to roll up (work-graph + deploy/git lives here).' } }, required: ['project'] } },
+      { name: 'daemon_status', description: "LIVE leaf-executor activity — the piece fleet_status/orchestrator_status are blind to (a leaf run makes no tmux). Returns the leaves RUNNING RIGHT NOW (leafId, current nodeKind, model, attempt, elapsedMs, and a `stale` flag for rows older than 15m = a likely crashed run) + the headless circuit-breaker state (open/closed). Use this to answer 'what is the daemon doing this second'; pair with orchestrator_status (level/pool/recentSpawns) and leaf_failures (what broke). Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Filter in-flight leaves to this project.' } } } },
+      { name: 'leaf_inspect', description: "Per-leaf HEADLESS run view from the worker-ledger — how you watch/diagnose a leaf-executor run (it leaves NO tmux, so fleet_status/orchestrator_status are blind to it). Returns the node timeline (kind, model, input/output tokens, durationMs, exitCode, verdict, output EXCERPT) + the ATOMIC terminal record (effectiveOutcome incl. 'pending', reviewVerdict, pathTaken floor/waves, reason, pendingReason, gateReasons, attempts, nodesSpent) + budget/cost rollup. leafId === the todoId (pass either). Node output is excerpted (~600 chars) by default since node outputs run 10-30k tokens; pass fullOutput=true for complete text. Read-only.", inputSchema: { type: 'object', properties: { leafId: { type: 'string', description: 'Leaf/todo id or prefix is NOT accepted — pass the full id (same value as todoId).' }, todoId: { type: 'string', description: 'Alias for leafId (the leaf-executor sets both to the todo id).' }, fullOutput: { type: 'boolean', description: "Return each node's FULL output text instead of a ~600-char excerpt." } } } },
+      { name: 'leaf_failures', description: "Triage list of recent leaf-executor runs that did NOT end cleanly — finalOutcome in {rejected, blocked, pending} — newest-first, each with the terminal reason/pendingReason, path (floor/waves), nodesSpent and cost. The entry point for 'what headless runs broke and why'. Filter by project and/or epicId. Pass includeAll=true to list EVERY recent run regardless of outcome. Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Filter to this tracking project.' }, epicId: { type: 'string', description: 'Filter to one epic.' }, limit: { type: 'number', description: 'Max runs (default 50).' }, includeAll: { type: 'boolean', description: 'Include accepted/clean runs too.' } } } },
       { name: 'runtime_config', description: "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose per-project overrides (watchdog threshold, supervisor pause, orchestrator level) to resolve.' } }, required: ['project'] } },
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
@@ -4691,6 +4697,48 @@ IMPORTANT - Common pitfalls to avoid:
             const { project } = args as { project: string };
             if (!project) throw new Error('Missing required: project');
             return JSON.stringify(await systemStatus(project), null, 2);
+          }
+          case 'daemon_status': {
+            const { project } = args as { project?: string };
+            const now = Date.now();
+            const STALE_MS = 15 * 60 * 1000;
+            const inflight = listLeafInflight({ project }).map((r) => ({
+              leafId: r.leafId,
+              project: r.project,
+              epicId: r.epicId ?? null,
+              nodeKind: r.nodeKind ?? null,
+              model: r.model ?? null,
+              attempt: r.attempt ?? null,
+              startedAt: r.startedAt,
+              elapsedMs: now - r.startedAt,
+              stale: now - r.startedAt > STALE_MS,
+            }));
+            return JSON.stringify({ now, inflight, breaker: { open: breakerOpen() } }, null, 2);
+          }
+          case 'leaf_inspect': {
+            const { leafId, todoId, fullOutput } = args as { leafId?: string; todoId?: string; fullOutput?: boolean };
+            const id = leafId ?? todoId;
+            if (!id) throw new Error('Missing required: leafId (or todoId)');
+            const run = getLeafRun(id);
+            if (!run) return JSON.stringify({ ran: false, leafId: id }, null, 2);
+            // Excerpt node output by default (node outputs run 10-30k tokens → context
+            // bloat); fullOutput=true returns the complete text for deliberate drill-in.
+            const EXCERPT = 600;
+            const nodes = run.nodes.map((n) => ({
+              ...n,
+              outputText: n.outputText == null
+                ? null
+                : fullOutput || n.outputText.length <= EXCERPT
+                  ? n.outputText
+                  : `${n.outputText.slice(0, EXCERPT)}\n…[+${n.outputText.length - EXCERPT} chars — pass fullOutput=true]`,
+            }));
+            return JSON.stringify({ ran: true, ...run, nodes }, null, 2);
+          }
+          case 'leaf_failures': {
+            const { project, epicId, limit, includeAll } = args as { project?: string; epicId?: string; limit?: number; includeAll?: boolean };
+            const all = listLeafRuns({ project, epicId, limit: limit ?? 50 });
+            const runs = includeAll ? all : all.filter((r) => r.finalOutcome != null && r.finalOutcome !== 'accepted');
+            return JSON.stringify({ count: runs.length, runs }, null, 2);
           }
           case 'epic_branch_status': {
             const { project, baseRef } = args as { project: string; baseRef?: string };

@@ -2920,6 +2920,71 @@ export async function handleAPI(
     });
   }
 
+  // GET /api/leaf-executor/run/:leafId
+  // The per-todo leaf run view (PAW P4a) — chronological node list, attempts, node
+  // budget usage, wall-clock, authMode audit, and (when recorded) review verdict +
+  // final outcome, aggregated from the durable worker-ledger NODE rows. Plain read,
+  // no ws (b2fe36b1). Mirrors /api/worker-run's ran:false shape for an unknown leaf.
+  {
+    const m = path.match(/^\/api\/leaf-executor\/run\/([^/]+)$/);
+    if (m && req.method === 'GET') {
+      const leafId = decodeURIComponent(m[1]);
+      const { getLeafRun } = await import('../services/ledger-stats');
+      const run = getLeafRun(leafId);
+      if (!run) return Response.json({ leafId, ran: false });
+      return Response.json({ ran: true, ...run });
+    }
+  }
+
+  // GET /api/leaf-executor/blueprint/:leafId?project=
+  // The per-todo "Proposed changes" source (PAW): reads the durable blueprint doc the
+  // leaf-executor persisted (link.blueprintId) and re-decodes its trailing ```json size
+  // block via the SAME parseSizeManifest the executor uses, returning ONLY the two file
+  // lists the card needs. Plain read, no ws (b2fe36b1). Mirrors the run route's ran:false
+  // shape ({ ran:false }) when the leaf has no persisted blueprint.
+  {
+    const m = path.match(/^\/api\/leaf-executor\/blueprint\/([^/]+)$/);
+    if (m && req.method === 'GET') {
+      const leafId = decodeURIComponent(m[1]);
+      const project = url.searchParams.get('project');
+      if (!project) return Response.json({ leafId, ran: false });
+      const { getTodo } = await import('../services/todo-store');
+      const todo = getTodo(project, leafId);
+      const blueprintId = todo?.link?.blueprintId ?? null;
+      if (!blueprintId) return Response.json({ leafId, ran: false });
+      const dir = sessionRegistry.resolvePath(project, 'leaf-blueprints', 'documents');
+      const dm = new DocumentManager(dir);
+      await dm.initialize();
+      const doc = await dm.getDocument(blueprintId);
+      if (!doc) return Response.json({ leafId, blueprintId, ran: false });
+      const { parseSizeManifest } = await import('../services/leaf-executor');
+      const manifest = parseSizeManifest(doc.content);
+      if (!manifest) return Response.json({ leafId, blueprintId, ran: false });
+      return Response.json({
+        leafId,
+        blueprintId,
+        manifest: {
+          filesToCreate: manifest.filesToCreate,
+          filesToEdit: manifest.filesToEdit,
+        },
+      });
+    }
+  }
+
+  // GET /api/leaf-executor/stats?project=&epicId=&since=
+  // Fleet/aggregate leaf stats (PAW P4a / P4b source): avg nodes/leaf, attempt-rate,
+  // block-rate, cap-pause count, wall-clock distribution, and the first-class authMode
+  // audit + alarm (the subscription-only invariant made visible). Plain read, no ws.
+  if (path === '/api/leaf-executor/stats' && req.method === 'GET') {
+    const { getFleetStats } = await import('../services/ledger-stats');
+    const project = url.searchParams.get('project') ?? undefined;
+    const epicId = url.searchParams.get('epicId') ?? undefined;
+    const sinceRaw = url.searchParams.get('since');
+    return Response.json(
+      getFleetStats({ project, epicId, sinceTs: sinceRaw ? Number(sinceRaw) : undefined }),
+    );
+  }
+
   // POST /api/worker-lane/abort { session }
   // Stop a live in-process worker lane (design-worker-fabric-ui §7) — aborts the lane's
   // AbortController via the harness teardown. The host marks the todo on the next reap;
