@@ -799,39 +799,58 @@ describe('blueprint inlining (b77dd104 — no stray-blueprint file discovery)', 
 
 // ── Verify pipeline (epic f5c7fc46) ──────────────────────────────────────────
 
-describe('parseVerifyGate (domain gate over the deterministic verb result)', () => {
-  it('all geometry/dof/clearance verdicts valid → pass', () => {
-    const r = parseVerifyGate(
-      JSON.stringify({ geometry: { valid: true }, dof: { valid: true }, clearance: { valid: true } }),
-    );
+/** Real build_assembly_plan PlanReport fixtures (confirmed L4 against the bsync-cad MCP). */
+const planReport = (nodes: unknown[], over: Record<string, unknown> = {}): string =>
+  JSON.stringify({ ok: true, error: null, halted_at: null, nodes, ...over });
+const PLAN_CLEAN = planReport([
+  { node: 'n1', op: 'author', ok: true, detail: 'ok', attempts: 1, repairs: [], gates: [{ name: 'validity', passed: true, detail: '' }] },
+]);
+
+describe('parseVerifyGate (PlanReport — nested node gates)', () => {
+  it('all gates passed → pass', () => {
+    const r = parseVerifyGate(planReport([
+      { node: 'n1', op: 'connect', ok: true, gates: [{ name: 'dof', passed: true }, { name: 'clearance', passed: true }] },
+    ]));
     expect(r.status).toBe('pass');
     expect(r.reasons).toEqual([]);
   });
 
-  it('a false domain verdict → fail, with the labelled reason', () => {
-    const r = parseVerifyGate(
-      JSON.stringify({ geometry: { valid: true }, dof: { valid: false, reason: 'over-constrained' } }),
-    );
+  it('a failed gate → fail, labelled by node / gate / detail', () => {
+    const r = parseVerifyGate(planReport([
+      { node: 'axis', op: 'connect', ok: false, gates: [{ name: 'dof', passed: false, detail: 'over-constrained' }] },
+    ], { ok: false }));
     expect(r.status).toBe('fail');
-    expect(r.reasons.some((x) => x.includes('dof failed') && x.includes('over-constrained'))).toBe(true);
+    expect(r.reasons.some((x) => x.includes('axis') && x.includes('dof failed') && x.includes('over-constrained'))).toBe(true);
   });
 
   it('tolerates markdown-fenced JSON', () => {
-    const r = parseVerifyGate('```json\n{ "geometry": { "passed": true } }\n```');
+    const r = parseVerifyGate('```json\n' + PLAN_CLEAN + '\n```');
     expect(r.status).toBe('pass');
   });
 
-  it('top-level error string → fail', () => {
-    const r = parseVerifyGate(JSON.stringify({ error: 'verb crashed', geometry: { valid: true } }));
+  it('top-level plan error (with halt) → fail', () => {
+    const r = parseVerifyGate(planReport([], { ok: false, error: 'plan invalid: dangling dep', halted_at: 'n3' }));
     expect(r.status).toBe('fail');
-    expect(r.reasons.some((x) => x.includes('verb crashed'))).toBe(true);
+    expect(r.reasons.some((x) => x.includes('plan error') && x.includes('halted at n3'))).toBe(true);
   });
 
-  it('empty / unparseable / no-verdict → error (fail-safe, never a silent pass)', () => {
+  it('a node that failed without a failed gate is still a finding', () => {
+    const r = parseVerifyGate(planReport([
+      { node: 'n2', op: 'realize', ok: false, detail: 'STEP import failed', gates: [{ name: 'validity', passed: true }] },
+    ], { ok: false }));
+    expect(r.status).toBe('fail');
+    expect(r.reasons.some((x) => x.includes('node n2 failed') && x.includes('STEP import failed'))).toBe(true);
+  });
+
+  it('VACUOUS result (zero gates ran) → error, never a silent pass — the T14 failure mode', () => {
+    expect(parseVerifyGate(planReport([{ node: 'n1', op: 'author', ok: true, gates: [] }])).status).toBe('error');
+    expect(parseVerifyGate(planReport([])).status).toBe('error');
+  });
+
+  it('empty / unparseable → error', () => {
     expect(parseVerifyGate('').status).toBe('error');
     expect(parseVerifyGate(undefined).status).toBe('error');
     expect(parseVerifyGate('not json at all').status).toBe('error');
-    expect(parseVerifyGate(JSON.stringify({ unrelated: 1 })).status).toBe('error');
   });
 });
 
@@ -891,7 +910,7 @@ function makeVerifyDeps(opts: {
         }
         if (isExec) {
           if (opts.execFails) return failResult();
-          return okResult(opts.resultJson ?? '{"geometry":{"valid":true}}');
+          return okResult(opts.resultJson ?? PLAN_CLEAN);
         }
         if (isReport) {
           if (opts.reportFails) return failResult();
@@ -934,7 +953,7 @@ const verifyLeaf = (): Todo => makeLeaf({ type: 'verify' });
 
 describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
   it('clean gate → plan→exec→report, merge + accept (commit-shaped deliverable)', async () => {
-    const { deps, spies } = makeVerifyDeps({ resultJson: JSON.stringify({ geometry: { valid: true }, dof: { valid: true }, clearance: { valid: true } }) });
+    const { deps, spies } = makeVerifyDeps({ resultJson: PLAN_CLEAN });
     const res = await runLeaf('proj', verifyLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     // ran exactly the three verify nodes, in order, and NEVER the code nodes.
@@ -947,7 +966,9 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
   });
 
   it('failing DOMAIN gate is a FINDING, not an executor failure → still reports + accepts', async () => {
-    const { deps, spies } = makeVerifyDeps({ resultJson: JSON.stringify({ geometry: { valid: true }, dof: { valid: false, reason: 'over-constrained' } }) });
+    const { deps, spies } = makeVerifyDeps({ resultJson: planReport([
+      { node: 'axis', op: 'connect', ok: false, gates: [{ name: 'dof', passed: false, detail: 'over-constrained' }] },
+    ], { ok: false }) });
     const res = await runLeaf('proj', verifyLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     expect(spies.mergeCalls).toBe(1);
@@ -973,7 +994,7 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
   });
 
   it('gate-pending propagates as a first-class pending outcome', async () => {
-    const { deps } = makeVerifyDeps({ resultJson: JSON.stringify({ geometry: { valid: true } }), gateEffective: 'pending' });
+    const { deps } = makeVerifyDeps({ resultJson: PLAN_CLEAN, gateEffective: 'pending' });
     const res = await runLeaf('proj', verifyLeaf(), deps);
     expect(res.outcome).toBe('pending');
     expect(res.reason).toBe('gate-pending');
@@ -996,9 +1017,9 @@ describe('resolveVerifyGate (pluggable {verb, command})', () => {
 });
 
 describe('verbMcpTool', () => {
-  it('namespaces a verb to its build123d MCP tool', () => {
-    expect(verbMcpTool('build_assembly_plan')).toBe('mcp__build123d__build_assembly_plan');
-    expect(verbMcpTool('check_graph_drift')).toBe('mcp__build123d__check_graph_drift');
+  it('namespaces a verb to its bsync-cad MCP tool', () => {
+    expect(verbMcpTool('build_assembly_plan')).toBe('mcp__bsync-cad__build_assembly_plan');
+    expect(verbMcpTool('check_graph_drift')).toBe('mcp__bsync-cad__check_graph_drift');
   });
 });
 
@@ -1028,7 +1049,7 @@ describe('runVerifyPipeline command-gate composition (L3)', () => {
 
   it('clean verb gate + passing command → accepts; command ran in the worktree', async () => {
     const { deps, calls } = makeCmdGateDeps({
-      resultJson: JSON.stringify({ geometry: { valid: true } }),
+      resultJson: PLAN_CLEAN,
       command: 'pytest -q',
       cmd: { ran: true, ok: true, output: 'all pass' },
     });
@@ -1039,7 +1060,7 @@ describe('runVerifyPipeline command-gate composition (L3)', () => {
 
   it('clean verb gate but FAILING command → still accepts; the command failure is a finding', async () => {
     const { deps, spies } = makeCmdGateDeps({
-      resultJson: JSON.stringify({ geometry: { valid: true } }),
+      resultJson: PLAN_CLEAN,
       command: 'pytest -q',
       cmd: { ran: true, ok: false, output: '2 failed' },
     });
@@ -1050,7 +1071,7 @@ describe('runVerifyPipeline command-gate composition (L3)', () => {
 
   it('command that could not RUN (ran:false) → INFRA failure → BLOCKED, no report', async () => {
     const { deps, spies } = makeCmdGateDeps({
-      resultJson: JSON.stringify({ geometry: { valid: true } }),
+      resultJson: PLAN_CLEAN,
       command: 'pytest -q',
       cmd: { ran: false, ok: false, output: 'command not found' },
     });
@@ -1060,11 +1081,11 @@ describe('runVerifyPipeline command-gate composition (L3)', () => {
   });
 
   it('driveexec is allowlisted to the RESOLVED verb (non-default)', async () => {
-    const base = makeVerifyDeps({ resultJson: JSON.stringify({ geometry: { valid: true } }) });
+    const base = makeVerifyDeps({ resultJson: PLAN_CLEAN });
     base.deps.resolveVerifyGate = () => ({ verb: 'check_graph_drift' });
     await runLeaf('proj', makeLeaf({ type: 'verify' }), base.deps);
     const exec = base.spies.invokeSpecs.find((s) => (s.allowedTools ?? '').includes('check_graph_drift'));
     expect(exec).toBeDefined();
-    expect(exec!.allowedTools).toContain('mcp__build123d__check_graph_drift');
+    expect(exec!.allowedTools).toContain('mcp__bsync-cad__check_graph_drift');
   });
 });

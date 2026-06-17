@@ -198,11 +198,14 @@ export const TASK_THRESHOLD = 6;
  *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
  *  (see {@link resolveVerifyGate}); this is just the fallback verb. */
 export const VERIFY_GATE_VERB = 'build_assembly_plan';
-/** Map a gate verb to the MCP-namespaced tool the execute node is allowlisted to. The exact
- *  build123d server namespace is finalized against the live MCP in L4 (e7273aa4); kept as one
+/** The build123d MCP server key (its FastMCP name — `FastMCP("bsync-cad")`, registered in
+ *  build123d-ocp-mcp/.mcp.json). A Claude Code node addresses its tools as
+ *  `mcp__bsync-cad__<verb>`. Confirmed against the live MCP in L4. */
+export const VERIFY_GATE_MCP_SERVER = 'bsync-cad';
+/** Map a gate verb to the MCP-namespaced tool the execute node is allowlisted to. Kept as one
  *  function so every call site generalizes together. */
 export function verbMcpTool(verb: string): string {
-  return `mcp__build123d__${verb}`;
+  return `mcp__${VERIFY_GATE_MCP_SERVER}__${verb}`;
 }
 /** The default verb's MCP tool — NODE_PROFILE.driveexec's static allowlist fallback. The
  *  pipeline recomputes the allowlist per-leaf from the resolved config (so a non-default verb
@@ -352,9 +355,12 @@ export function buildVerifyPrompt(
         'Read whatever you need to understand the target (Read/Grep/Glob, Bash for inspection only).',
         `Author a single AssemblyBuildPlan — the input schema of the \`${verb}\` verb — for`,
         `the target described above and WRITE it as JSON to \`${planFile}\`.`,
-        `It must be a complete, self-contained plan the deterministic \`${verb}\` verb can`,
-        'execute in ONE call: the parts, the connections/joints, and the geometry/DOF/clearance',
-        'checks to assert. Do not leave placeholders.',
+        'The plan is a DAG: `{ "nodes": [ { "id", "op", "params", "deps", "accept", "assembly_path?" } ],',
+        '"metadata": {} }`, where `op` ∈ realize|connect|author|subassembly and each node\'s `accept`',
+        'lists the gates to assert from {validity, dof, mobility, clearance, contract}. EVERY node that',
+        'should be verified MUST declare its `accept` gates — a node with no gates verifies nothing.',
+        `It must be a complete, self-contained plan the deterministic \`${verb}\` verb runs in ONE call.`,
+        'Do not leave placeholders.',
         '',
         'ALSO emit the COMPLETE plan JSON as your FINAL reply message, verbatim, so the executor has',
         'it even if the file read fails. Output ONLY the plan (write the file AND emit the full JSON).',
@@ -367,10 +373,10 @@ export function buildVerifyPrompt(
         planText
           ? `=== ASSEMBLY BUILD PLAN (${leaf.id}) START ===\n${planText}\n=== PLAN END ===`
           : `Read the plan JSON at \`${planFile}\` and use it verbatim.`,
-        `Call \`${verb}\` with that plan. Then WRITE the verb's COMPLETE raw JSON result`,
-        `(every geometry / DOF / clearance verdict, verbatim, no edits, no commentary) to`,
-        `\`${resultFile}\`. Also echo that same raw JSON as your final message. Do NOT interpret,`,
-        'summarize, or "fix" the result — the executor parses it.',
+        `Call \`${verb}\` with that plan. Then WRITE the verb's COMPLETE raw JSON PlanReport result`,
+        '(the full {ok, error, halted_at, nodes:[{gates:[...]}]} object, verbatim, no edits, no',
+        `commentary) to \`${resultFile}\`. Also echo that same raw JSON as your final message. Do NOT`,
+        'interpret, summarize, or "fix" the result — the executor parses it.',
       ].join('\n');
     case 'report':
       return [
@@ -378,7 +384,7 @@ export function buildVerifyPrompt(
         planText ? `The plan that was executed:\n${planText}` : '',
         gateFindings && gateFindings.trim()
           ? `The gate reported these FAILED verdicts — each is a finding:\n--- FINDINGS ---\n${gateFindings}\n--- END FINDINGS ---`
-          : 'The gate reported a CLEAN result (all geometry/DOF/clearance verdicts passed).',
+          : 'The gate reported a CLEAN result (all accept gates passed — validity/dof/mobility/clearance/contract).',
         `Read \`${resultFile}\` for the raw verdicts if present, then WRITE a findings report (markdown)`,
         `to \`${reportFile}\`: what was verified, the overall verdict, and each finding with enough`,
         'detail to act on (and how to reproduce). This committed report IS the deliverable.',
@@ -579,10 +585,12 @@ export function parseVerdict(text: string | undefined): 'pass' | 'fail' {
 
 /** The verify pipeline's domain-gate verdict (epic f5c7fc46), derived purely from the
  *  deterministic verb's raw JSON result. Three outcomes:
- *  - 'pass'  — verdict(s) present, all clean.
- *  - 'fail'  — verdict(s) present, at least one explicit failure → real findings to report.
- *  - 'error' — no usable verdict (empty / unparseable / no geometry-dof-clearance signal):
- *              an INFRA failure (verb crashed or wasn't run), NOT a finding → park blocked. */
+ *  - 'pass'  — gate(s) actually ran and all passed.
+ *  - 'fail'  — gate(s) ran, at least one failed (or the plan errored/halted) → real findings.
+ *  - 'error' — no usable result (empty / unparseable / NO gate ran = vacuous): an INFRA
+ *              failure, NOT a finding → park blocked. The vacuous-result case is exactly the
+ *              build123d T14 failure this epic fixes (a clean-looking result that verified
+ *              nothing), so a result with zero gates is an error, never a silent pass. */
 export interface VerifyGateVerdict {
   status: 'pass' | 'fail' | 'error';
   reasons: string[];
@@ -595,11 +603,15 @@ function unfenceJson(text: string): string {
   return (fenced ? fenced[1] : t).trim();
 }
 
-/** Parse the deterministic gate verb's raw result into a {@link VerifyGateVerdict}. Pure +
- *  unit-testable. Tolerant of markdown-fenced JSON. Reads the standard geometry/dof/clearance
- *  verdict shape (each an object carrying one of valid/passed/ok/success); a top-level
- *  error/ok:false/success:false is also a failure. No verdict found at all ⇒ 'error'
- *  (fail-safe: we never call an unverified result a pass). */
+/** Parse build_assembly_plan's raw PlanReport result into a {@link VerifyGateVerdict}. Pure +
+ *  unit-testable, tolerant of markdown-fenced JSON. The real shape (confirmed L4 against the
+ *  bsync-cad MCP) is:
+ *    { ok: bool, error: str|null, halted_at: str|null,
+ *      nodes: [ { node, op, ok, detail, attempts, repairs,
+ *                 gates: [ { name, passed, detail } ] } ] }
+ *  where gate `name` ∈ {validity, dof, mobility, clearance, contract}. A finding is any gate
+ *  with passed:false, plus a top-level error/halt. PASS requires ≥1 gate ran AND none failed
+ *  AND ok!==false. Zero gates ⇒ 'error' (vacuous — verified nothing). */
 export function parseVerifyGate(resultText: string | undefined): VerifyGateVerdict {
   if (!resultText || !resultText.trim()) {
     return { status: 'error', reasons: ['verify-gate: empty verb result'] };
@@ -614,40 +626,41 @@ export function parseVerifyGate(resultText: string | undefined): VerifyGateVerdi
     return { status: 'error', reasons: ['verify-gate: verb result is not a JSON object'] };
   }
   const reasons: string[] = [];
-  let sawVerdict = false;
-  const VERDICT_KEYS = ['valid', 'passed', 'ok', 'success'] as const;
-  const reasonOf = (node: Record<string, unknown>): string | undefined => {
-    const r = node.reason ?? node.message;
-    if (typeof r === 'string') return r;
-    if (Array.isArray(node.errors) && node.errors.length) return node.errors.join('; ');
-    return undefined;
-  };
-  // Top-level explicit failure (a verb that errored outright).
-  if (typeof raw.error === 'string' && raw.error) reasons.push(`verb error: ${raw.error}`);
-  for (const k of VERDICT_KEYS) {
-    if (k in raw) {
-      sawVerdict = true;
-      if (raw[k] === false) reasons.push(`gate failed${reasonOf(raw) ? `: ${reasonOf(raw)}` : ''}`);
-    }
+  // Top-level plan error / halt (the plan itself was rejected or execution stopped).
+  if (typeof raw.error === 'string' && raw.error) {
+    const halt = typeof raw.halted_at === 'string' && raw.halted_at ? ` (halted at ${raw.halted_at})` : '';
+    reasons.push(`plan error: ${raw.error}${halt}`);
   }
-  // Per-domain verdicts.
-  for (const label of ['geometry', 'dof', 'clearance'] as const) {
-    const node = raw[label];
-    if (node == null || typeof node !== 'object') continue;
-    const obj = node as Record<string, unknown>;
-    for (const k of VERDICT_KEYS) {
-      if (k in obj) {
-        sawVerdict = true;
-        if (obj[k] === false) reasons.push(`${label} failed${reasonOf(obj) ? `: ${reasonOf(obj)}` : ''}`);
+  // Walk every node's gates; count how many actually ran (the anti-vacuous guard).
+  let gatesRan = 0;
+  const nodes = Array.isArray(raw.nodes) ? raw.nodes : [];
+  for (const n of nodes) {
+    if (!n || typeof n !== 'object') continue;
+    const node = n as Record<string, unknown>;
+    const nodeId = typeof node.node === 'string' ? node.node : '?';
+    const gates = Array.isArray(node.gates) ? node.gates : [];
+    for (const g of gates) {
+      if (!g || typeof g !== 'object') continue;
+      const gate = g as Record<string, unknown>;
+      gatesRan += 1;
+      if (gate.passed === false) {
+        const name = typeof gate.name === 'string' ? gate.name : 'gate';
+        const detail = typeof gate.detail === 'string' && gate.detail ? `: ${gate.detail}` : '';
+        reasons.push(`${nodeId} / ${name} failed${detail}`);
       }
     }
+    // A node that failed without surfacing a failed gate is still a finding.
+    if (node.ok === false && gates.every((g) => !g || typeof g !== 'object' || (g as Record<string, unknown>).passed !== false)) {
+      const detail = typeof node.detail === 'string' && node.detail ? `: ${node.detail}` : '';
+      reasons.push(`node ${nodeId} failed${detail}`);
+    }
   }
-  if (!sawVerdict) {
-    return {
-      status: 'error',
-      reasons: reasons.length ? reasons : ['verify-gate: no geometry/dof/clearance verdict in verb result'],
-    };
+  // Vacuous result — nothing was actually gated. Never a silent pass (the T14 failure mode).
+  if (gatesRan === 0 && reasons.length === 0) {
+    return { status: 'error', reasons: ['verify-gate: no gates ran (vacuous result — verified nothing)'] };
   }
+  // Top-level ok:false with no other reason captured.
+  if (raw.ok === false && reasons.length === 0) reasons.push('plan reported ok:false');
   return { status: reasons.length ? 'fail' : 'pass', reasons };
 }
 
