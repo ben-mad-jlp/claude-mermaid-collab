@@ -30,7 +30,16 @@ RES="$APP_PATH/Contents/Resources"
 PORT="${MC_PORT:-9002}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-45}"
 DO_BUILD=1
-[ "${1:-}" = "--no-build" ] && DO_BUILD=0
+HOT_SWAP=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-build) DO_BUILD=0 ;;
+    # Phase-2 (49e3c1f6): after swapping the binary, ask Electron main to restart
+    # ONLY the sidecar child (app window survives) instead of pkill+relaunch.
+    # Falls back to the full relaunch if the control call fails.
+    --hot-swap) HOT_SWAP=1 ;;
+  esac
+done
 
 log() { printf '\033[1;36m[deploy]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[deploy] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -123,12 +132,32 @@ wait_health() {
   return 0
 }
 
-restart
-log "waiting for the sidecar on :$PORT (up to ${HEALTH_TIMEOUT}s)…"
-if ! wait_health; then
-  log "sidecar didn't come up — retrying restart once…"
+# Phase-2 hot-swap: ask Electron main to restart only the sidecar child. Returns
+# 0 on a healthy swap, non-zero to trigger the full-relaunch fallback.
+hot_swap() {
+  [ "$HOT_SWAP" = "1" ] || return 1
+  [ -n "${MC_DESKTOP_CONTROL_URL:-}" ] && [ -n "${MC_DESKTOP_CONTROL_TOKEN:-}" ] || {
+    log "hot-swap requested but no desktop-control URL/token in env — falling back"; return 1; }
+  log "hot-swapping the sidecar via Electron main (window stays up)…"
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    -H "authorization: Bearer $MC_DESKTOP_CONTROL_TOKEN" \
+    "$MC_DESKTOP_CONTROL_URL/sidecar/hot-swap" 2>/dev/null || echo 000)"
+  [ "$code" = "200" ] || { log "hot-swap returned $code — falling back to full relaunch"; return 1; }
+  return 0
+}
+
+if hot_swap; then
+  log "waiting for the swapped sidecar on :$PORT (up to ${HEALTH_TIMEOUT}s)…"
+  wait_health || die "swapped sidecar never reached health 200 on :$PORT"
+else
   restart
-  wait_health || die "sidecar never reached health 200 on :$PORT after retry"
+  log "waiting for the sidecar on :$PORT (up to ${HEALTH_TIMEOUT}s)…"
+  if ! wait_health; then
+    log "sidecar didn't come up — retrying restart once…"
+    restart
+    wait_health || die "sidecar never reached health 200 on :$PORT after retry"
+  fi
 fi
 
 # ── 5. verify ────────────────────────────────────────────────────────────────

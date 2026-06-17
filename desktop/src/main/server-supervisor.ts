@@ -568,6 +568,44 @@ export class ServerSupervisor {
     }
   }
 
+  /**
+   * Phase-2 hot-swap (todo 49e3c1f6): restart ONLY the sidecar child so the app
+   * window never dies during a self-deploy. The deploy script builds + swaps the
+   * mc-server binary in place, then asks Electron main to call this — we SIGKILL
+   * the running child, wait for the port to free, then respawn from the (now
+   * swapped) binary and wait for health. Returns true iff the new sidecar answers
+   * healthy; on false the caller falls back to the full app relaunch, so a failed
+   * hot-swap never strands the deploy. No-op (false) when we don't own the child
+   * (attached mode) — we must not kill a server we didn't spawn.
+   */
+  async hotSwapRestart(): Promise<boolean> {
+    if (this.attached || this.stopped || this.port == null) return false;
+    const port = this.port;
+    this.respawning = true;
+    try {
+      const pid = this.child?.pid;
+      try { this.child?.kill('SIGKILL'); } catch { /* already gone */ }
+      if (process.platform === 'win32' && pid != null) {
+        try { this.spawnImpl('taskkill', ['/pid', String(pid), '/T', '/F'], {}); } catch { /* ignore */ }
+      }
+      this.child = null;
+      // Wait for the old sidecar to actually release the port (≤3s) so the
+      // respawn can bind — probe until health stops answering.
+      for (let i = 0; i < 30; i++) {
+        if (!(await this.probeHealth(port, 300))) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      this.unhealthyForMs = 0;
+      this.spawnChild(port);
+      await this.waitForHealth(port);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.respawning = false;
+    }
+  }
+
   /** (Re)start the periodic watchdog interval. No-op when disabled (tests drive
    *  checkHealthOnce directly). The interval is unref'd so it never keeps the
    *  process alive on its own. */

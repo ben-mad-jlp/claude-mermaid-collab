@@ -8,6 +8,10 @@ export class DesktopControl {
   private server: http.Server | null = null;
   private port: number | null = null;
 
+  /** Set by index.ts — triggers a sidecar-only hot-swap restart (Phase-2 deploy,
+   *  49e3c1f6). Returns true iff the new sidecar came up healthy. */
+  onHotSwap: (() => Promise<boolean>) | null = null;
+
   constructor(private paneManager: BrowserPaneManager) {}
 
   async start(): Promise<{ url: string; token: string }> {
@@ -26,13 +30,27 @@ export class DesktopControl {
       res.end(JSON.stringify(obj));
     };
 
-    if (req.method !== 'POST' || req.url !== '/panes/ensure') {
+    if (req.method !== 'POST' || (req.url !== '/panes/ensure' && req.url !== '/sidecar/hot-swap')) {
       send(404, { error: 'not found' });
       return;
     }
 
     if (req.headers.authorization !== `Bearer ${this.token}`) {
       send(401, { error: 'unauthorized' });
+      return;
+    }
+
+    // Sidecar-only hot-swap restart (Phase-2 deploy). The deploy script POSTs this
+    // AFTER swapping the binary; we restart just the child (window survives) and
+    // report whether it came up healthy so the script can fall back if not.
+    if (req.url === '/sidecar/hot-swap') {
+      if (!this.onHotSwap) { send(503, { error: 'hot-swap unavailable' }); return; }
+      try {
+        const healthy = await this.onHotSwap();
+        send(healthy ? 200 : 500, { ok: healthy });
+      } catch (e) {
+        send(500, { ok: false, error: String(e) });
+      }
       return;
     }
 

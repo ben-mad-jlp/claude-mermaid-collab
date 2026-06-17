@@ -133,16 +133,24 @@ export function requestSelfDeploy(project: string): DeployRequestResult {
   }
   const logPath = join(logDir, 'self-deploy.log');
 
+  // Phase-2 (49e3c1f6): under the Electron app (the desktop-control channel is in
+  // our env) deploy in HOT-SWAP mode — the script asks main to restart only the
+  // sidecar child so the app window never dies, and falls back to the full
+  // relaunch on its own if that fails. A bare sidecar (no control channel) uses
+  // the Phase-1 full relaunch.
+  const underElectron = !!process.env.MC_DESKTOP_CONTROL_URL && !!process.env.MC_DESKTOP_CONTROL_TOKEN;
+  const scriptArgs = underElectron ? [scriptPath, '--hot-swap'] : [scriptPath];
+
   try {
     const out = openSync(logPath, 'a');
-    const child = spawn('bash', [scriptPath], {
+    const child = spawn('bash', scriptArgs, {
       cwd: project,
-      // Detach into its own process group/session so the deploy outlives the
-      // pkill -9 of this sidecar's process tree.
+      // Detach into its own process group/session so the deploy outlives a
+      // sidecar restart (hot-swap kills the child; full-relaunch pkills the tree).
       detached: true,
       stdio: ['ignore', out, out],
-      // Strip MERMAID_* overrides that would confuse a fresh build, but keep
-      // PATH etc. so bun/git/ditto resolve.
+      // Keep PATH etc. so bun/git/ditto resolve, AND the MC_DESKTOP_CONTROL_*
+      // vars so the script can reach Electron main for the hot-swap.
       env: { ...process.env },
     });
     child.unref();

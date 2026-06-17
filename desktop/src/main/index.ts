@@ -576,6 +576,10 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
   });
   const { port, attached } = await supervisor.start();
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);
+  // Phase-2 deploy (49e3c1f6): the deploy script asks main (via DesktopControl)
+  // to restart ONLY the sidecar child after swapping its binary, so the window
+  // never dies. Wire that to the supervisor's hot-swap.
+  control.onHotSwap = () => supervisor!.hotSwapRestart();
   await fetch(`http://127.0.0.1:${port}/api/browser/electron-target`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cdpPort }) }).catch(() => {});
   void publishDiscovery({ appName: 'mermaid-collab', port: cdpPort });
 
