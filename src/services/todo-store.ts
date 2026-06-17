@@ -20,6 +20,18 @@ export interface TodoLink {
   taskId?: string;
 }
 
+/** De-conflate refactor (S1): the in-progress claim collapsed to ONE value.
+ *  in_progress ≡ claim != null. Physical: one new `claim TEXT NULL` (JSON) column,
+ *  written/read only via writeClaim/readClaim. The 4 legacy columns
+ *  (claimedBy/claimToken/claimedAt/claimLeaseMs) stay present (write-frozen behind
+ *  the accessor) and are kept in lockstep until the deferred physical drop. */
+export interface ClaimStruct {
+  by: string;
+  token: string;
+  at: string;
+  leaseMs: number;
+}
+
 /** Whether a todo's assignee is an autonomous agent (default) or a human.
  *  Attribution, NOT auth (B1): drives "who is expected to act / who acted". */
 export type AssigneeKind = 'agent' | 'human';
@@ -63,6 +75,18 @@ export interface Todo {
   claimToken: string | null;
   claimedAt: string | null;
   claimLeaseMs: number | null;
+  /** De-conflate S1 — the collapsed in-progress claim (JSON struct or null).
+   *  null IFF any of the 4 legacy claim columns is null (the orphan class).
+   *  in_progress ≡ claim != null. Read/written only via readClaim/writeClaim. */
+  claim: ClaimStruct | null;
+  /** De-conflate S1 — Planner approval decision (ISO) / audit handle. Written ONLY
+   *  by the Planner approval verb. Null = not approved. Drives derived claimability. */
+  approvedAt: string | null;
+  approvedBy: string | null;
+  /** De-conflate S1 — hold decision (ISO) + reason. Written by Steward/human and
+   *  lease-exhaustion. Null = not held. The only honest stored "blocked". */
+  heldAt: string | null;
+  heldReason: string | null;
   retryCount: number;
   /** Opaque actor handle (e.g. 'local:<hostname>') recorded as the completer
    *  when a HUMAN todo is marked done — attribution, not auth (B1). Null for
@@ -142,6 +166,12 @@ export type UpdateTodoPatch = Partial<{
   objectRef: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
+  /** De-conflate S1 (additive). Decision axes; readers ignore these until S3.
+   *  `claim` is intentionally NOT patchable here — it is mutated only via writeClaim. */
+  approvedAt: string | null;
+  approvedBy: string | null;
+  heldAt: string | null;
+  heldReason: string | null;
 }>;
 
 interface TodoRow {
@@ -172,6 +202,11 @@ interface TodoRow {
   claimToken: string | null;
   claimedAt: string | null;
   claimLeaseMs: number | null;
+  claim: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  heldAt: string | null;
+  heldReason: string | null;
   retryCount: number;
   completedBy: string | null;
   objectRef: string | null;
@@ -262,11 +297,20 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'decisionRef', 'decisionRef TEXT');
   // Readiness-gates P4: nullable operator-env probe spec for the claim-time filter.
   addColumnIfMissing(db, 'todos', 'claimProbe', 'claimProbe TEXT');
+  // De-conflate Todo work-graph status (S1) — additive, nullable. The decision
+  // axes (approval / hold) split out of the overloaded enum, and the in-progress
+  // claim collapses to ONE JSON column. Readers are unchanged in S1; these are
+  // populated by writeClaim + the one-shot backfill below, ignored until S3.
+  addColumnIfMissing(db, 'todos', 'approvedAt', 'approvedAt TEXT');
+  addColumnIfMissing(db, 'todos', 'approvedBy', 'approvedBy TEXT');
+  addColumnIfMissing(db, 'todos', 'heldAt', 'heldAt TEXT');
+  addColumnIfMissing(db, 'todos', 'heldReason', 'heldReason TEXT');
+  addColumnIfMissing(db, 'todos', 'claim', 'claim TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
-    `UPDATE todos SET claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL
-     WHERE status != 'in_progress' AND (claimedBy IS NOT NULL OR claimToken IS NOT NULL OR claimedAt IS NOT NULL OR claimLeaseMs IS NOT NULL)`
+    `UPDATE todos SET ${CLAIM_CLEAR_SQL}, claim=NULL
+     WHERE status != 'in_progress' AND (claimedBy IS NOT NULL OR claimToken IS NOT NULL OR claimedAt IS NOT NULL OR claimLeaseMs IS NOT NULL OR claim IS NOT NULL)`
   );
   // One-shot backfill: targetProject is now a TOTAL field — every todo belongs to
   // exactly one project. Legacy rows left it NULL (the old "same as tracking
@@ -274,8 +318,103 @@ function openDb(project: string): Database {
   // DB it lives in" and combine cross-project todos into one diagram. Stamp every
   // NULL with this db's tracking project so the UI can partition by targetProject.
   db.prepare(`UPDATE todos SET targetProject = ? WHERE targetProject IS NULL`).run(project);
+  // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
+  // once per DB and is a no-op on every subsequent open (idempotent).
+  const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
+  if (ver < TODO_DECONFLATE_V1) {
+    backfillDeconflateV1(db);
+    db.exec(`PRAGMA user_version = ${TODO_DECONFLATE_V1}`);
+  }
   dbCache.set(project, db);
   return db;
+}
+
+/** user_version marker for the de-conflate S1 backfill (approvedAt/heldAt/claim). */
+export const TODO_DECONFLATE_V1 = 1;
+
+/**
+ * One-shot, idempotent de-conflate S1 backfill (design-todo-model-refactor §S1).
+ * Exported for unit-testing in isolation. Safe to re-run (re-running only
+ * re-derives the same values), but normally gated by user_version in openDb.
+ *
+ *  - approvedAt (LOAD-BEARING): every pre-terminal-or-terminal row that the
+ *    Planner must have approved (status left 'planned'/'backlog'/'todo' only when
+ *    NOT approved) → approvedAt = updatedAt. planned/backlog/todo → leave NULL.
+ *  - heldAt (existing 'blocked' rows): deps NOT satisfied → leave NULL (re-derives
+ *    as deps-pending/dep-rejected). deps satisfied AND (retryCount>=MAX OR no open
+ *    deps) → heldAt=updatedAt, heldReason='migrated-park'. Conservative: when
+ *    ambiguous, SET the hold (a spurious hold is human-clearable).
+ *  - claim (existing 'in_progress' rows): pack the 4 legacy cols; any null → NULL.
+ *  - enum: untouched.
+ *
+ * Throws if the post-backfill approvedAt invariant is violated.
+ */
+export function backfillDeconflateV1(db: Database): void {
+  // approvedAt: any row whose status implies it cleared the Planner's approval gate.
+  db.exec(
+    `UPDATE todos SET approvedAt = updatedAt
+     WHERE approvedAt IS NULL
+       AND status IN ('ready','blocked','in_progress','done','dropped')`
+  );
+
+  // heldAt: only existing 'blocked' rows are candidates. Recompute depsSatisfied
+  // per-row in TS (depSatisfied keys on status==='done' && acceptanceStatus!='rejected').
+  {
+    const rows = db.query(
+      `SELECT id, updatedAt, retryCount, dependsOn FROM todos WHERE status='blocked' AND heldAt IS NULL`
+    ).all() as Array<{ id: string; updatedAt: string; retryCount: number; dependsOn: string }>;
+    if (rows.length > 0) {
+      // Build a status/acceptance map for dep resolution.
+      const all = db.query(
+        `SELECT id, status, acceptanceStatus FROM todos`
+      ).all() as Array<{ id: string; status: string; acceptanceStatus: string | null }>;
+      const byId = new Map(all.map((r) => [r.id, r]));
+      const setHeld = db.prepare(
+        `UPDATE todos SET heldAt=?, heldReason='migrated-park' WHERE id=?`
+      );
+      db.transaction(() => {
+        for (const r of rows) {
+          let deps: string[] = [];
+          try { deps = JSON.parse(r.dependsOn); } catch { /* [] */ }
+          const depsSatisfied = deps.every((d) => {
+            const dep = byId.get(d);
+            return depSatisfied(dep ? { status: dep.status as TodoStatus, acceptanceStatus: dep.acceptanceStatus as Todo['acceptanceStatus'] } : undefined);
+          });
+          if (!depsSatisfied) continue; // re-derives as deps-pending / dep-rejected
+          const noOpenDeps = !deps.some((d) => {
+            const dep = byId.get(d);
+            // an "open" dep = a known dep that is not yet terminal
+            return dep && dep.status !== 'done' && dep.status !== 'dropped';
+          });
+          if ((r.retryCount ?? 0) >= MAX_CLAIM_RETRIES || noOpenDeps) {
+            setHeld.run(r.updatedAt, r.id);
+          }
+        }
+      })();
+    }
+  }
+
+  // claim: pack the 4 legacy cols for existing 'in_progress' rows. Any null → NULL.
+  {
+    const rows = db.query(
+      `SELECT id, claimedBy, claimToken, claimedAt, claimLeaseMs FROM todos WHERE status='in_progress' AND claim IS NULL`
+    ).all() as Array<{ id: string; claimedBy: string | null; claimToken: string | null; claimedAt: string | null; claimLeaseMs: number | null }>;
+    const setClaim = db.prepare(`UPDATE todos SET claim=? WHERE id=?`);
+    db.transaction(() => {
+      for (const r of rows) {
+        const c = packClaim(r.claimedBy, r.claimToken, r.claimedAt, r.claimLeaseMs);
+        if (c) setClaim.run(JSON.stringify(c), r.id);
+      }
+    })();
+  }
+
+  // Post-backfill assertion (top risk #2): approved work must never go dormant.
+  const orphanApprovals = (db.query(
+    `SELECT COUNT(*) AS n FROM todos WHERE approvedAt IS NULL AND status NOT IN ('planned','backlog','todo')`
+  ).get() as { n: number }).n;
+  if (orphanApprovals !== 0) {
+    throw new Error(`de-conflate backfill assertion failed: ${orphanApprovals} row(s) have approvedAt IS NULL but a non-pre-approval status`);
+  }
 }
 
 /** For tests: drop the cached handle so a fresh dir opens a fresh DB. */
@@ -304,6 +443,57 @@ const nowIso = () => new Date().toISOString();
 function defaultActorHandle(): string {
   try { return `local:${hostname()}`; } catch { return 'local:unknown'; }
 }
+
+/**
+ * Pack the 4 legacy claim columns into a ClaimStruct, or null if ANY is null
+ * (the orphan class — a half-set claim is treated as no claim). The single shared
+ * helper behind readClaim and the backfill.
+ */
+function packClaim(by: string | null, token: string | null, at: string | null, leaseMs: number | null): ClaimStruct | null {
+  if (by == null || token == null || at == null || leaseMs == null) return null;
+  return { by, token, at, leaseMs };
+}
+
+/**
+ * De-conflate S1 accessor (read). The single read path for the in-progress claim.
+ * Prefers the new `claim` JSON column when present; otherwise derives from the 4
+ * legacy columns (kept in lockstep by writeClaim). Returns null if any of the 4
+ * legacy columns is null — the orphan class is unrepresentable as a live claim.
+ */
+export function readClaim(row: Pick<TodoRow, 'claim' | 'claimedBy' | 'claimToken' | 'claimedAt' | 'claimLeaseMs'>): ClaimStruct | null {
+  if (row.claim) {
+    try {
+      const c = JSON.parse(row.claim) as ClaimStruct;
+      if (c && c.by != null && c.token != null && c.at != null && c.leaseMs != null) return c;
+    } catch { /* fall through to legacy cols */ }
+  }
+  return packClaim(row.claimedBy, row.claimToken, row.claimedAt, row.claimLeaseMs);
+}
+
+/**
+ * De-conflate S1 accessor (write). The SINGLE mutator for the claim: sets ALL of
+ * the 4 legacy columns AND the new `claim` JSON column in lockstep (or clears all
+ * 5 on null). Routing every set/clear site through here makes a partial claim
+ * unrepresentable by any code path. Pure refactor — identical to the old inline
+ * `claimedBy=?,…` / `claimedBy=NULL,…` writes, plus the in-sync `claim` column.
+ * Issues a standalone UPDATE on `id`; callers already hold the project write-lock.
+ */
+export function writeClaim(db: Database, id: string, claim: ClaimStruct | null): void {
+  if (claim == null) {
+    db.prepare(
+      `UPDATE todos SET ${CLAIM_CLEAR_SQL} WHERE id=?`
+    ).run(id);
+  } else {
+    db.prepare(
+      `UPDATE todos SET claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, claim=? WHERE id=?`
+    ).run(claim.by, claim.token, claim.at, claim.leaseMs, JSON.stringify(claim), id);
+  }
+}
+
+/** SQL fragment clearing all 5 claim columns in lockstep — for the sites where the
+ *  clear MUST stay bundled into a single atomic UPDATE alongside a status change
+ *  (behavior-identical to a separate writeClaim(db,id,null), one fewer write). */
+const CLAIM_CLEAR_SQL = 'claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, claim=NULL';
 
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
@@ -339,6 +529,11 @@ function rowToTodo(row: TodoRow): Todo {
     claimToken: row.claimToken ?? null,
     claimedAt: row.claimedAt ?? null,
     claimLeaseMs: row.claimLeaseMs ?? null,
+    claim: readClaim(row),
+    approvedAt: row.approvedAt ?? null,
+    approvedBy: row.approvedBy ?? null,
+    heldAt: row.heldAt ?? null,
+    heldReason: row.heldReason ?? null,
     retryCount: row.retryCount ?? 0,
     completedBy: row.completedBy ?? null,
     objectRef: row.objectRef ?? null,
@@ -468,7 +663,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
         dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
-        completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL' : ''} WHERE id=?`
+        completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
@@ -504,10 +699,14 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     const db = openDb(project);
     const token = crypto.randomUUID();
     const now = nowIso();
+    // CAS claim: the atomic guard stays IDENTICAL (status='ready' AND claimToken
+    // IS NULL); writeClaim's 5-column lockstep is folded inline so the set is one
+    // atomic write. claim JSON kept in sync with the 4 legacy columns.
+    const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs } satisfies ClaimStruct);
     const res = db.prepare(
-      `UPDATE todos SET status='in_progress', claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, updatedAt=?
+      `UPDATE todos SET status='in_progress', claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, claim=?, updatedAt=?
        WHERE id=? AND status='ready' AND claimToken IS NULL`
-    ).run(claimedBy, token, now, leaseMs, now, id);
+    ).run(claimedBy, token, now, leaseMs, claimJson, now, id);
     return res.changes === 1 ? getTodo(project, id) : null;
   });
 }
@@ -540,11 +739,11 @@ export function releaseExpiredClaims(project: string, now: string = nowIso()): P
     if (expired.length === 0) return { released: [], exhausted: [] };
     const ts = nowIso();
     const toReady = db.prepare(
-      `UPDATE todos SET status='ready', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+      `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     );
     const toBlocked = db.prepare(
-      `UPDATE todos SET status='blocked', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+      `UPDATE todos SET status='blocked', ${CLAIM_CLEAR_SQL},
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     );
     const released: string[] = [];
@@ -576,7 +775,7 @@ export function reclaimClaim(project: string, id: string): Promise<'ready' | 'bl
     if (!row) return null;
     const next: 'ready' | 'blocked' = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES ? 'blocked' : 'ready';
     db.prepare(
-      `UPDATE todos SET status=?, claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+      `UPDATE todos SET status=?, ${CLAIM_CLEAR_SQL},
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     ).run(next, nowIso(), id);
     return next;
@@ -603,7 +802,7 @@ export function reclaimOrphan(project: string, id: string): Promise<'ready' | 'b
     if (!row) return null;
     const next: 'ready' | 'blocked' = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES ? 'blocked' : 'ready';
     db.prepare(
-      `UPDATE todos SET status=?, claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+      `UPDATE todos SET status=?, ${CLAIM_CLEAR_SQL},
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     ).run(next, nowIso(), id);
     return next;
@@ -624,7 +823,7 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
     assertProjectLocal(project);
     const db = openDb(project);
     const res = db.prepare(
-      `UPDATE todos SET status='ready', claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+      `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
        updatedAt=? WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
     ).run(nowIso(), id);
     return res.changes > 0;
@@ -822,12 +1021,12 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // Not done → completedBy cleared (mirrors completedAt).
       db.prepare(
         `UPDATE todos SET status='blocked', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
-          claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
+          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
       ).run(accept, ts, id);
     } else {
       db.prepare(
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
-          claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
+          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
       ).run(ts, actor, accept, ts, id);
     }
     // Unblock pass: any 'blocked' todo whose every (known) dep is satisfied
@@ -860,7 +1059,7 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       if (!allChildrenDone) break;
       db.prepare(
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
-          claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`
+          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
       ).run(ts, 'accepted', nowIso(), parentId);
       rolledUp.push(parentId);
       parentId = parent.parentId;
@@ -962,7 +1161,7 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
           const ts = nowIso();
           db.prepare(
             `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
-              claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, updatedAt=? WHERE id=?`,
+              ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
           ).run(ts, ts, epic.id);
           rolledUp.push(epic.id);
           closedThisPass++;
@@ -1006,7 +1205,7 @@ export function resetTodo(
     const setTarget = targetProject !== undefined ? ', targetProject=?' : '';
     const stmt = db.prepare(
       `UPDATE todos SET status=?, retryCount=0, acceptanceStatus=NULL,
-        claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL,
+        ${CLAIM_CLEAR_SQL},
         completedAt=NULL, completedBy=NULL${setTarget}, updatedAt=? WHERE id=?`
     );
     if (targetProject !== undefined) stmt.run(status, targetProject, nowIso(), id);
