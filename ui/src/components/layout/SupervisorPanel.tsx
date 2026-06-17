@@ -31,7 +31,7 @@ import { isOrchestratorSession } from '@/lib/liveness';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { SessionCleanup } from '@/components/supervisor/SessionCleanup';
 import { useUIStore } from '@/stores/uiStore';
-import { selectOpenEscalationCount } from '@/lib/statusSelectors';
+import { selectEscalationKindCounts } from '@/lib/statusSelectors';
 import { AddProjectDialog } from '@/components/dialogs';
 import { OrchestratorLevelBadge } from '@/components/supervisor/bridge/OrchestratorLevelBadge';
 import { useFleetStatus, useFleetStatusByProject, fleetKey, fleetStateToStatus } from '@/hooks/useFleetStatus';
@@ -68,17 +68,20 @@ export function disambiguateProjectLabels(paths: string[]): Record<string, strin
   return out;
 }
 
-/** Per-project header background, mirroring SessionCard's statusBg palette. */
+/** Per-project header background — IDENTICAL to SessionCard's statusBg palette
+ *  (the "Watching" cards), so the two card kinds read the same in both themes.
+ *  These are light backgrounds with no dark: variant; the card text is dark
+ *  (text-black) so it stays legible on them regardless of theme. */
 export function projectHeaderBg(status: SessionCardData['status']): string {
   switch (status) {
     case 'permission':
-      return 'bg-danger-300 dark:bg-danger-900/40 border border-danger-500';
+      return 'bg-danger-300 hover:bg-danger-400 border border-danger-500';
     case 'active':
       return 'card-pulse-amber border border-warning-400';
     case 'waiting':
-      return 'bg-success-300 dark:bg-success-900/40 border border-success-500';
+      return 'bg-success-300 hover:bg-success-400 border border-success-500';
     default:
-      return 'bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600';
+      return 'bg-gray-200 hover:bg-gray-300 border border-gray-300';
   }
 }
 
@@ -208,6 +211,14 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const [addOpen, setAddOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
 
+  // Live "now" tick so each card's last-active age (relAge) counts up in real
+  // time instead of freezing between the 10s data polls.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   // Escalations + worker liveness are no longer refreshed here — escalations flow
   // through the app-root useStatusSync (WS ingest + bootstrap hydrate) and liveness
   // through subscriptionStore. This interval is scoped to the supervisor-ROLE facts
@@ -278,16 +289,24 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     watchedList.forEach((w) => w.project && !isRoleWorkspace(w.project) && paths.add(w.project));
     for (const p of m.keys()) if (!isRoleWorkspace(p)) paths.add(p);
     return Array.from(paths)
-      .map((project) => ({
-        project,
-        sessions: (m.get(project) ?? []).slice().sort((a, b) => a.session.localeCompare(b.session)),
-        escalationCount: selectOpenEscalationCount(openEscalations, { kind: 'project', project }),
-      }))
+      .map((project) => {
+        const esc = selectEscalationKindCounts(openEscalations, { kind: 'project', project });
+        return {
+          project,
+          sessions: (m.get(project) ?? []).slice().sort((a, b) => a.session.localeCompare(b.session)),
+          escalationCount: esc.total,
+          // 'paused on a human' items (red) vs the positive 'ready to land' prompt (download glyph).
+          blockerCount: esc.blockers,
+          landReadyCount: esc.landReady,
+        };
+      })
       .sort((a, b) => {
-        if ((b.escalationCount > 0 ? 1 : 0) !== (a.escalationCount > 0 ? 1 : 0)) {
-          return (b.escalationCount > 0 ? 1 : 0) - (a.escalationCount > 0 ? 1 : 0);
+        // Only BLOCKERS sort a project to the top (real "needs you"); a ready-to-land
+        // prompt is positive, not urgent, so it doesn't jump the queue.
+        if ((b.blockerCount > 0 ? 1 : 0) !== (a.blockerCount > 0 ? 1 : 0)) {
+          return (b.blockerCount > 0 ? 1 : 0) - (a.blockerCount > 0 ? 1 : 0);
         }
-        if (a.escalationCount !== b.escalationCount) return b.escalationCount - a.escalationCount;
+        if (a.blockerCount !== b.blockerCount) return b.blockerCount - a.blockerCount;
         return a.project.localeCompare(b.project);
       });
   }, [supervised, watchedList, openEscalations]);
@@ -403,7 +422,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         session: s.session,
         claudeSessionId: matched?.claudeSessionId,
         status,
-        lastUpdate: matched?.lastUpdate ?? fleetEntry?.lastActivity ?? Date.now(),
+        // Real last-activity only — NO Date.now() fallback. The card's last-active
+        // age is derived from this; defaulting to "now" would re-stamp it fresh on
+        // every render and pin the live ticker at 0s (it never appears to advance).
+        lastUpdate: matched?.lastUpdate ?? fleetEntry?.lastActivity ?? 0,
         contextPercent: matched?.contextPercent,
         stale,
       };
@@ -506,7 +528,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               No projects yet — add one below
             </div>
           ) : (
-            orderedProjects.map(({ project, sessions: projSessions, escalationCount }, i) => {
+            orderedProjects.map(({ project, sessions: projSessions, escalationCount, blockerCount, landReadyCount }, i) => {
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
@@ -524,17 +546,40 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               );
               const projName = projectLabels[project] ?? (project.split('/').filter(Boolean).pop() ?? project);
               const isActive = activeProject === project;
+              // Daemon-reactive status for the avatar + card color. The in-process
+              // worker-core lanes (worker-core) often run with NO tmux session, so
+              // the session-`combined` read alone misses "the daemon is building".
+              // Fold the project daemon's work-graph signals in so the dancing
+              // claude + card color react to what the daemon is actually doing:
+              //   in-progress    → building       (AMBER, dance/work pool)  ← WORKING WINS
+              //   blockers       → needs-you       (RED, surprised/permission pool)
+              //   parked-ready   → idle-waiting    (GREEN, idle pool)
+              //   else           → live-session combined read.
+              // WORKING beats blocked: a project actively building (a worker lane in
+              // progress) is NOT 'paused on a human' even if a sibling raised a blocker —
+              // it reads AMBER (working) with a red count badge, never full RED. Only a
+              // BLOCKER (not the positive 'ready to land' prompt) with NOTHING running is
+              // truly paused → RED. (Matches red=paused / amber=working / green=done.)
+              const daemonStatus: SessionCardData['status'] =
+                stats.inProgress > 0
+                  ? 'active'
+                  : blockerCount > 0
+                    ? 'permission'
+                    : stats.idleWithWork
+                      ? 'waiting'
+                      : combined;
               // Full hover legend — spells out every indicator (symbol + label + total)
               // so the card is legible to someone who hasn't memorised the glyphs.
               const legend = [
                 projName,
-                escalationCount > 0 ? `▲${escalationCount}  escalation${escalationCount === 1 ? '' : 's'} need you` : null,
+                blockerCount > 0 ? `▲${blockerCount}  escalation${blockerCount === 1 ? '' : 's'} need you (paused)` : null,
+                landReadyCount > 0 ? `⬇ ${landReadyCount}  epic${landReadyCount === 1 ? '' : 's'} ready to land` : null,
                 visibleCount > 0 ? `${visibleCount}λ  live session${visibleCount === 1 ? '' : 's'}` : null,
                 stats.open > 0 ? `${stats.open}  open todo${stats.open === 1 ? '' : 's'}` : null,
                 stats.inProgress > 0 ? `${stats.inProgress} ▶  in progress` : null,
                 stats.blocked > 0 ? `${stats.blocked} ⊘  blocked` : null,
                 stats.idleWithWork ? `⚠ parked  ${stats.ready} ready todo${stats.ready === 1 ? '' : 's'} queued, but nothing is running them` : null,
-                lastActive > 0 ? `last active ${relAge(lastActive)} ago (${new Date(lastActive).toLocaleString()})` : null,
+                lastActive > 0 ? `last active ${relAge(lastActive, now)} ago (${new Date(lastActive).toLocaleString()})` : null,
               ]
                 .filter(Boolean)
                 .join('\n');
@@ -556,11 +601,15 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       const drag = e.dataTransfer.getData('text/x-mc-project');
                       if (drag && drag !== project) { e.preventDefault(); reorderProjects(orderedProjects.map((p) => p.project), drag, project); }
                     }}
-                    className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
+                    // The whole card selects the project — the avatar (expand) and
+                    // the remove button stopPropagation so they keep their own clicks.
+                    onClick={() => handleSelectProject(project)}
+                    className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-black cursor-pointer ${projectHeaderBg(daemonStatus)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
                   >
-                    {/* Avatar (status) stays at the left as the project's identity. */}
+                    {/* Avatar reacts to the project daemon's activity, not just live
+                        sessions — see daemonStatus. Stays left as the project identity. */}
                     <span className="flex-shrink-0">
-                      <ClaudePixAvatar status={combined} />
+                      <ClaudePixAvatar status={daemonStatus} />
                     </span>
                     {/* Right column: row 1 = level dot + name; row 2 = all indicators.
                         The whole column carries the spelled-out legend on hover. */}
@@ -598,20 +647,34 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                       {/* Row 2 — every signal: escalations, sessions, plan progress, parked
                           pip, last-active. (Full labels are in the card's hover legend.) */}
                       {hasIndicators && (
-                        <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-3xs font-normal text-gray-500 dark:text-gray-400">
-                          {escalationCount > 0 && (
-                            <span data-testid="supervisor-project-badge" className="font-bold text-danger-600 dark:text-danger-400">
-                              ▲{escalationCount > 99 ? '99+' : escalationCount}
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-3xs font-normal text-gray-700">
+                          {blockerCount > 0 && (
+                            <span data-testid="supervisor-project-badge" className="font-bold text-danger-700" title={`${blockerCount} need you`}>
+                              ▲{blockerCount > 99 ? '99+' : blockerCount}
+                            </span>
+                          )}
+                          {landReadyCount > 0 && (
+                            <span
+                              data-testid="supervisor-project-landready"
+                              className="inline-flex items-center gap-0.5 font-semibold text-info-700"
+                              title={`${landReadyCount} epic${landReadyCount === 1 ? '' : 's'} ready to land`}
+                            >
+                              {/* download glyph = 'ready to ship to master' — positive, not red */}
+                              <svg className="w-2.5 h-2.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path d="M10 2a1 1 0 011 1v7.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 10.586V3a1 1 0 011-1z" />
+                                <path d="M3 14a1 1 0 011 1v1a1 1 0 001 1h10a1 1 0 001-1v-1a1 1 0 112 0v1a3 3 0 01-3 3H5a3 3 0 01-3-3v-1a1 1 0 011-1z" />
+                              </svg>
+                              {landReadyCount > 1 ? landReadyCount : ''}
                             </span>
                           )}
                           {visibleCount > 0 && (
-                            <span className="text-accent-600 dark:text-accent-400 font-semibold">{visibleCount}λ</span>
+                            <span className="text-accent-700 font-semibold">{visibleCount}λ</span>
                           )}
                           {stats.open > 0 && <span>{stats.open} open</span>}
-                          {stats.inProgress > 0 && <span className="text-info-600 dark:text-info-400">{stats.inProgress}▶</span>}
-                          {stats.blocked > 0 && <span className="text-warning-600 dark:text-warning-400">{stats.blocked}⊘</span>}
-                          {stats.idleWithWork && <span className="text-warning-600 dark:text-warning-400">⚠ parked</span>}
-                          {lastActive > 0 && <span className="ml-auto tabular-nums">{relAge(lastActive)}</span>}
+                          {stats.inProgress > 0 && <span className="text-info-700">{stats.inProgress}▶</span>}
+                          {stats.blocked > 0 && <span className="text-warning-700">{stats.blocked}⊘</span>}
+                          {stats.idleWithWork && <span className="text-warning-700">⚠ parked</span>}
+                          {lastActive > 0 && <span className="ml-auto tabular-nums">{relAge(lastActive, now)}</span>}
                         </div>
                       )}
                     </div>

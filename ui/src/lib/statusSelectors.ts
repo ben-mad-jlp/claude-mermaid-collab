@@ -117,6 +117,31 @@ export function selectOpenEscalationCount(open: Escalation[], scope: StatusScope
 }
 
 /**
+ * Split the open escalations inside `scope` into the two display buckets the project
+ * status surfaces treat DIFFERENTLY:
+ *   - `landReady`: kind `'epic-ready-to-land'` — a POSITIVE "ready to ship" prompt. It
+ *     never means the project is stuck, so it is shown with a download glyph, NOT red.
+ *   - `blockers`: everything else (blocker / decision / assumption-invalidated / …) — a
+ *     genuine "paused on a human" item → red.
+ * `total === blockers + landReady === selectOpenEscalationCount(open, scope)` (parity).
+ */
+export function selectEscalationKindCounts(
+  open: Escalation[],
+  scope: StatusScope,
+): { blockers: number; landReady: number; total: number } {
+  let blockers = 0;
+  let landReady = 0;
+  if (Array.isArray(open)) {
+    for (const e of open) {
+      if (!isOpen(e) || !escalationInScope(e, scope)) continue;
+      if (e.kind === 'epic-ready-to-land') landReady++;
+      else blockers++;
+    }
+  }
+  return { blockers, landReady, total: blockers + landReady };
+}
+
+/**
  * Roll up session liveness inside `scope`. `sessions` is the `subscriptionStore`
  * map (`compositeKey → SessionStatus`); iteration order follows the map's own key
  * order so the result is deterministic for a given input.

@@ -8,14 +8,21 @@ import {
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
 } from '../todo-store';
+import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 
 let project: string;
 
 beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'todo-store-'));
+  // resetTodo now auto-resolves a todo's open escalations → isolate the supervisor.db
+  // to the temp project so tests never touch the real ~/.mermaid-collab one.
+  process.env.MERMAID_SUPERVISOR_DIR = project;
+  _closeSupervisorDb();
 });
 afterEach(() => {
   _closeProject(project);
+  _closeSupervisorDb();
+  delete process.env.MERMAID_SUPERVISOR_DIR;
   rmSync(project, { recursive: true, force: true });
 });
 
@@ -710,6 +717,20 @@ describe('steward verbs', () => {
     const r = await resetTodo(project, t.id, 'planned');
     expect(r.status).toBe('planned');
     expect(r.retryCount).toBe(0);
+  });
+
+  test('resetTodo auto-resolves the todo\'s open escalations (re-promote supersedes stale red)', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'rejected-leaf', status: 'blocked' });
+    // A blocker raised against this todo (the 'paused on a human' red signal).
+    const { escalation: e } = createEscalation({ project, session: 'leaf-exec-x', kind: 'blocker', todoId: t.id, questionText: 'rejected — gate failed' });
+    // An UNRELATED open escalation (different todo) must NOT be touched.
+    const { escalation: other } = createEscalation({ project, session: 's2', kind: 'blocker', todoId: 'someone-else', questionText: 'unrelated' });
+    expect(getEscalation(e.id)?.status).toBe('open');
+
+    await resetTodo(project, t.id, 'ready');
+
+    expect(getEscalation(e.id)?.status).toBe('resolved'); // the todo's escalation cleared
+    expect(getEscalation(other.id)?.status).toBe('open');  // the unrelated one untouched
   });
 
   test('resetTodo reroutes targetProject when provided, leaves it untouched when omitted', async () => {
