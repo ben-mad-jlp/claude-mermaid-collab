@@ -194,6 +194,9 @@ initializeWebSocketHandler(wsHandler);
 // starts on first subscriber and stops on last unsubscribe — so this ensures no capture
 // runs when nobody is watching.
 const screencastUnsubscribers = new Map<string, () => void>();
+// Tracks an in-flight subscribe() so a count===0 arriving before the promise resolves
+// can cancel it (drain the unsub) instead of leaving a live screencast with no viewers.
+const screencastPending = new Map<string, { cancelled: boolean }>();
 
 interface FrameMeta {
   offsetTop: number;
@@ -210,9 +213,12 @@ if (screencastService) {
     const prefix = 'browser:';
     if (!channel.startsWith(prefix)) return;
     const session = channel.slice(prefix.length);
-    if (count === 1 && !screencastUnsubscribers.has(session)) {
-      // First viewer — attach sink (mark pending so a rapid second subscribe doesn't double-attach)
-      screencastUnsubscribers.set(session, () => {});
+    if (count === 1 && !screencastUnsubscribers.has(session) && !screencastPending.has(session)) {
+      // First viewer — attach sink. Mark pending so a count===0 mid-flight can cancel it,
+      // and so a rapid second subscribe doesn't double-attach.
+      const token = { cancelled: false };
+      screencastPending.set(session, token);
+      screencastUnsubscribers.set(session, () => {}); // placeholder until real unsub resolves
       const sink = (frame: { data: string; metadata: any; sessionName: string }) => {
         lastFrameMeta.set(frame.sessionName, {
           offsetTop: frame.metadata.offsetTop,
@@ -232,15 +238,29 @@ if (screencastService) {
         });
       };
       screencastService!.subscribe(session, sink).then((unsub) => {
+        screencastPending.delete(session);
+        if (token.cancelled) {
+          // Viewers already dropped to 0 while subscribing — drain immediately.
+          try { unsub(); } catch {}
+          screencastUnsubscribers.delete(session);
+          return;
+        }
         screencastUnsubscribers.set(session, unsub);
       }).catch((err: unknown) => {
+        screencastPending.delete(session);
         screencastUnsubscribers.delete(session);
         console.error(`mermaid-collab: screencast subscribe failed for ${session} —`, err);
       });
     } else if (count === 0) {
-      // Last viewer left — detach sink and drop cached frame meta
-      const unsub = screencastUnsubscribers.get(session);
-      if (unsub) { unsub(); screencastUnsubscribers.delete(session); }
+      // Last viewer left — cancel any in-flight subscribe, and detach if already attached.
+      const pending = screencastPending.get(session);
+      if (pending) {
+        pending.cancelled = true; // pending .then will drain the unsub it receives
+        // leave map cleanup to the .then; do not run the placeholder here
+      } else {
+        const unsub = screencastUnsubscribers.get(session);
+        if (unsub) { try { unsub(); } catch {} screencastUnsubscribers.delete(session); }
+      }
       lastFrameMeta.delete(session);
     }
   });
