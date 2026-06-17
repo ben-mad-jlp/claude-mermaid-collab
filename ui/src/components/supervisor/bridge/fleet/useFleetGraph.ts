@@ -337,7 +337,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         const counts = EMPTY_COUNTS();
         let total = 0;
         for (const c of struct.childrenByEpic.get(t.id) ?? []) {
-          const b = bucketTodo(c);
+          const b = bucketTodo(c, struct.byId);
           if (b) {
             counts[b] += 1;
             total += 1;
@@ -358,7 +358,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         const data: TodoNodeData = {
           kind: 'todo',
           title: t.title,
-          bucket: bucketTodo(t) ?? 'backlog',
+          bucket: bucketTodo(t, struct.byId) ?? 'backlog',
           retryCount: t.retryCount ?? 0,
           danger: dangerFor(t),
         };

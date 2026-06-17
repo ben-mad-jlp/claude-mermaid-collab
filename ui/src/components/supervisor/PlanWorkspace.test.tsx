@@ -37,6 +37,11 @@ function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
     updatedAt: '',
     completedAt: null,
     asanaGid: null,
+    // De-conflated model (epic b2c858d4): readiness derives from approvedAt +
+    // unblocked + no claim, not the legacy status enum. Approved by default.
+    approvedAt: '2026-06-16T00:00:00Z',
+    heldAt: null,
+    claim: null,
     ...p,
   } as SessionTodo;
 }

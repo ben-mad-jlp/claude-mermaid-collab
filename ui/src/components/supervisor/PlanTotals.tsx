@@ -36,7 +36,7 @@ export function computePlanTotals(todos: SessionTodo[]): PlanTotals {
   const addLane = (items: SessionTodo[]) => {
     if (items.length === 0) return;
     if (items.every((t) => TERMINAL.has(t.status))) return; // completed lane → excluded
-    for (const t of items) counts[bucketTodo(t) ?? 'backlog']++;
+    for (const t of items) counts[bucketTodo(t, byId) ?? 'backlog']++;
     total += items.length;
   };
 

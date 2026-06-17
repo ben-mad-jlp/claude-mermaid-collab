@@ -7,6 +7,7 @@
  */
 
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
+import { claimReason, buildById } from '@/lib/claimability';
 
 export type FunnelKey = 'backlog' | 'ready' | 'inflight' | 'blocked' | 'done';
 
@@ -25,14 +26,21 @@ export interface FunnelSegment {
   bg: string;
   /** Whether this segment is "loud" while it has items (blocked → solid amber). */
   loud?: boolean;
-  match: (t: SessionTodo) => boolean;
+  /**
+   * Bucket predicate. `byId` (the work-graph map) is passed so the predicate can
+   * call `claimReason` — the SINGLE source of truth for ready/blocked/in-flight
+   * (epic b2c858d4). It is OPTIONAL so legacy single-arg callers still compile;
+   * when absent the predicate falls back to a `byId`-free best effort (no dep
+   * resolution available), which is acceptable for unmigrated call sites.
+   */
+  match: (t: SessionTodo, byId?: Map<string, SessionTodo>) => boolean;
 }
 
 // A terminal status (done/dropped) must win over a stale claim: completeTodo
 // marks status='done' but does NOT clear claimedBy, so without this guard a
 // finished todo's lingering claimedBy would mis-bucket it as In-flight.
 const isInflight = (s: TodoStatus, t: SessionTodo) =>
-  s === 'in_progress' || (!!t.claimedBy && s !== 'done' && s !== 'dropped');
+  s === 'in_progress' || (!!t.claim || !!t.claimedBy) && s !== 'done' && s !== 'dropped';
 
 export const FUNNEL_SEGMENTS: FunnelSegment[] = [
   {
@@ -48,7 +56,16 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     // Ready=violet (claimable/queued) so it reads distinctly from backlog gray.
     tint: 'text-violet-600 dark:text-violet-400',
     bg: 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300',
-    match: (t) => t.status === 'ready' && !t.claimedBy,
+    // Derived "ready" = the predicate says it is actionable now: an agent todo
+    // the daemon can claim, or a fully-unblocked human todo. Rendered VERBATIM
+    // from claimReason — never re-derived. When `byId` is absent (an unmigrated
+    // single-todo caller that can't resolve deps) fall back to the legacy enum
+    // read so those sites keep their prior behavior until they thread `byId`.
+    match: (t, byId) => {
+      if (byId == null) return t.status === 'ready' && !t.claim && !t.claimedBy;
+      const r = claimReason(t, byId);
+      return r === 'claimable' || r === 'human-assignee';
+    },
   },
   {
     key: 'inflight',
@@ -65,7 +82,14 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     tint: 'text-warning-600 dark:text-warning-400',
     bg: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
     loud: true,
-    match: (t) => t.status === 'blocked',
+    // Derived "blocked" = held, dep-rejected, or deps-pending (the three jobs the
+    // old `status==='blocked'` conflated), read VERBATIM from claimReason. Legacy
+    // fallback (no byId) reads the old enum so unmigrated callers are unchanged.
+    match: (t, byId) => {
+      if (byId == null) return t.status === 'blocked';
+      const r = claimReason(t, byId);
+      return r === 'held' || r === 'dep-rejected' || r === 'deps-pending';
+    },
   },
   {
     key: 'done',
@@ -133,17 +157,22 @@ export const STATUS_STYLE: Record<FunnelKey, StatusStyle> = {
   done:     { dot: 'bg-success-500', pill: 'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300', tint: 'text-success-600 dark:text-success-400', bg: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' },
 };
 
-/** First matching segment wins, so each todo lands in exactly one bucket. */
-export function bucketTodo(t: SessionTodo): FunnelKey | null {
+/**
+ * First matching segment wins, so each todo lands in exactly one bucket. Pass
+ * `byId` (the work-graph map) so the ready/blocked/in-flight buckets resolve via
+ * `claimReason`; omit it only at legacy single-todo call sites (then those
+ * derived buckets are skipped and the todo falls through to backlog/done).
+ */
+export function bucketTodo(t: SessionTodo, byId?: Map<string, SessionTodo>): FunnelKey | null {
   for (const seg of FUNNEL_SEGMENTS) {
-    if (seg.match(t)) return seg.key;
+    if (seg.match(t, byId)) return seg.key;
   }
   return null;
 }
 
 /** Resolve a todo straight to its canonical status style (null if unbucketed). */
-export function statusStyle(t: SessionTodo): StatusStyle | null {
-  const k = bucketTodo(t);
+export function statusStyle(t: SessionTodo, byId?: Map<string, SessionTodo>): StatusStyle | null {
+  const k = bucketTodo(t, byId);
   return k ? STATUS_STYLE[k] : null;
 }
 
@@ -168,13 +197,15 @@ export function funnelCounts(todos: SessionTodo[]): Record<FunnelKey, number> {
     blocked: 0,
     done: 0,
   };
+  const byId = buildById(todos);
   for (const t of todos) {
-    const key = bucketTodo(t);
+    const key = bucketTodo(t, byId);
     if (key) counts[key] += 1;
   }
   return counts;
 }
 
 export function todosInSegment(todos: SessionTodo[], key: FunnelKey): SessionTodo[] {
-  return todos.filter((t) => bucketTodo(t) === key);
+  const byId = buildById(todos);
+  return todos.filter((t) => bucketTodo(t, byId) === key);
 }

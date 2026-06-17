@@ -161,7 +161,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     };
     const tally = (items: SessionTodo[]): Record<FunnelKey, number> => {
       const c: Record<FunnelKey, number> = { backlog: 0, ready: 0, inflight: 0, blocked: 0, done: 0 };
-      for (const t of items) c[bucketTodo(t) ?? 'backlog']++;
+      for (const t of items) c[bucketTodo(t, byId) ?? 'backlog']++;
       return c;
     };
     const minWave = (items: SessionTodo[]) =>

@@ -23,6 +23,12 @@ function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
     updatedAt: '',
     completedAt: null,
     asanaGid: null,
+    // De-conflated model (epic b2c858d4): inbox membership/actionability is
+    // DERIVED from approvedAt/heldAt/claim, not the legacy status enum. These
+    // fixtures represent approved, unblocked human work by default.
+    approvedAt: '2026-06-16T00:00:00Z',
+    heldAt: null,
+    claim: null,
     ...p,
   } as SessionTodo;
 }
@@ -49,7 +55,12 @@ describe('HumanInbox', () => {
       <HumanInbox
         todos={[
           todo({ id: 'ready1', assigneeKind: 'human', status: 'ready' }),
-          todo({ id: 'inflight1', assigneeKind: 'human', status: 'in_progress' }),
+          todo({
+            id: 'inflight1',
+            assigneeKind: 'human',
+            status: 'in_progress',
+            claim: { by: 'me', token: 't', at: '2026-06-16T00:00:00Z', leaseMs: 60000 },
+          }),
         ]}
         onClaim={onClaim}
         onComplete={onComplete}
