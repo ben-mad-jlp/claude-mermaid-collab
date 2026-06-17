@@ -229,7 +229,10 @@ const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string }
   // writes+commits findings and files one session-todo per finding.
   driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash' },
   driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}` },
-  report: { model: 'sonnet', allowedTools: 'Read Write Edit Grep Glob Bash mcp__mermaid__add_session_todo' },
+  // No Bash: the report node must NOT run git — runLeaf's mergeToEpic owns the commit +
+  // epic-branch integration (a manual commit here strands the report off the epic branch,
+  // tripping the accept-time stranded-accept guard → reversal). Write + the todo MCP only.
+  report: { model: 'sonnet', allowedTools: 'Read Write Grep Glob mcp__mermaid__add_session_todo' },
 };
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
@@ -387,11 +390,13 @@ export function buildVerifyPrompt(
           : 'The gate reported a CLEAN result (all accept gates passed — validity/dof/mobility/clearance/contract).',
         `Read \`${resultFile}\` for the raw verdicts if present, then WRITE a findings report (markdown)`,
         `to \`${reportFile}\`: what was verified, the overall verdict, and each finding with enough`,
-        'detail to act on (and how to reproduce). This committed report IS the deliverable.',
+        'detail to act on (and how to reproduce). This report file IS the deliverable.',
         'For EACH distinct finding, file one session-todo via the collab MCP tool',
         '`mcp__mermaid__add_session_todo` (title = the finding, description = detail + repro) if that',
         'tool is available; if it is not, list the would-be todos as a section in the report instead.',
-        'Do NOT edit any source code. Your only outputs are the committed report and the filed findings.',
+        'Do NOT edit any source code. Do NOT run git (no add/commit/branch/checkout) — the executor',
+        'commits the report and integrates it onto the epic branch with the right trailers; a manual',
+        'commit here strands the work off the epic branch. Just WRITE the file and file the todos.',
       ].filter(Boolean).join('\n');
   }
 }
