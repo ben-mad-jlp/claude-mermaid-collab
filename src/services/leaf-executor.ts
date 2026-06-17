@@ -6,8 +6,8 @@
  * worktree-manager (fresh worktree off the epic tip) and the EXISTING completion
  * funnel (`handleWorkerComplete`) as the acceptance gate. There are NO waves, NO
  * inner task graph, and NO surgical reuse — those are P5/P6. Each node is a single
- * shot. The whole thing ships behind the `LEAF_EXECUTOR` env gate (default OFF);
- * the legacy tmux launch path in coordinator-live is the unchanged fallback.
+ * shot. This is the SOLE worker path (P7): the legacy tmux launch lane and its
+ * LEAF_EXECUTOR env gate have been retired — the executor is always-on.
  *
  * Three hard ceilings, all explicit:
  *   1. attempt cap = 2          (ATTEMPT_CAP)
@@ -891,7 +891,7 @@ export async function runLeaf(
 /**
  * Factory wiring the REAL dependencies. Resolves the epic id (walking parentId in
  * the tracking project), materialises the epic branch, and binds the production
- * invoker/gate/escalation/ledger. Used by the `launchWorker` LEAF_EXECUTOR branch.
+ * invoker/gate/escalation/ledger. Used by the `launchWorker` leaf-executor branch.
  */
 export async function makeLeafExecutorDeps(
   project: string,

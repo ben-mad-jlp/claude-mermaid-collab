@@ -56,8 +56,6 @@ mock.module('../claude-launch', () => ({
 
 // Isolate supervisor DB
 process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-breaker-glue-sup-'));
-// Enable headless leaf executor
-process.env.LEAF_EXECUTOR = 'on';
 
 import { makeCoordinatorDeps } from '../coordinator-live';
 import {

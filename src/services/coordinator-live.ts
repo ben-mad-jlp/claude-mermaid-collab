@@ -509,17 +509,6 @@ export function workerIsolationEnabled(): boolean {
   return v === '1' || v === 'true';
 }
 
-/** True when the headless P2 leaf-executor is enabled via env flag. Default OFF
- *  ⇒ production behaviour is byte-identical (the legacy tmux launch path runs).
- *  Mirrors the workerIsolationEnabled / registry env-flag idiom. */
-export function leafExecutorEnabled(): boolean {
-  // P7: the headless leaf-executor is now the DEFAULT worker path (proven across the
-  // browser epic + leaf-executor backlog + bugfix inbox; the legacy tmux lane is
-  // deprecated and slated for removal). Unset ⇒ ON. Explicit `LEAF_EXECUTOR=off`
-  // remains an escape hatch back to the tmux path until that code is deleted.
-  const v = (process.env.LEAF_EXECUTOR ?? 'on').trim().toLowerCase();
-  return v === '1' || v === 'on' || v === 'true';
-}
 
 /** A leaf the headless executor may drive: a work todo with NO children (a leaf in
  *  the work-graph) that is not human-owned. Keeps gates/epics/human todos out of
@@ -1219,7 +1208,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // cause. tmux/legacy lanes are untouched — only node-invoker spawns are gated.
       if (breakerOpen()) {
         claimable = claimable.filter(
-          (t) => !(leafExecutorEnabled() && isHeadlessLeaf(t, project)),
+          (t) => !isHeadlessLeaf(t, project),
         );
       }
       return claimable;
@@ -1502,12 +1491,13 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         catch (e) { recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, sessionNamePersist: 'failed', reason: e instanceof Error ? e.message : String(e) }) }); }
       }
 
-      // LEAF_EXECUTOR (P2): headless deterministic blueprint→implement→review
-      // executor, default OFF. The lane identity is already persisted above (so the
-      // executor lane still shows in the fleet with a real sessionName); this runs
-      // BEFORE the legacy provider-resolution / tmux machinery below. On any auth-halt
-      // or hard error we release + escalate rather than silently fall through to tmux.
-      if (leafExecutorEnabled() && isHeadlessLeaf(todo, project)) {
+      // Headless leaf-executor (P7): the SOLE worker path — deterministic
+      // blueprint→implement→review executor, always-on (the tmux escape hatch and
+      // its LEAF_EXECUTOR gate were retired). The lane identity is already persisted
+      // above (so the executor lane still shows in the fleet with a real sessionName).
+      // On any auth-halt or hard error we release + escalate rather than silently
+      // dropping the todo.
+      if (isHeadlessLeaf(todo, project)) {
         // P3 breaker gate: if the cap window is still open, do NOT spawn. Release the
         // claim so the todo returns to `ready` (the claimGuard filter normally holds
         // it out, but a todo claimed before the breaker tripped this tick can still
