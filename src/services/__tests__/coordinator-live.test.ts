@@ -42,7 +42,7 @@ mock.module('../todo-store', () => ({
   reclaimOrphan: async () => null,
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -63,6 +63,21 @@ process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-coord-live-s
 // under /tmp instead of littering the repo cwd. Basenames are preserved so
 // tmuxBaseName slugs (and name assertions) are unchanged.
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'mc-coord-live-projects-'));
+
+describe('isHeadlessLeaf — non-code leaf exclusion', () => {
+  const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', ...(over as any) }) as Todo;
+  it('excludes reviewer-type leaves (L7 no-commit reversal) — they go the legacy/human path', () => {
+    expect(isHeadlessLeaf(base({ type: 'reviewer' }), TEST_ROOT)).toBe(false);
+  });
+  it('excludes human-owned, [EPIC], and [GATE] leaves', () => {
+    expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ title: '[EPIC] x' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ title: '[GATE] x' }), TEST_ROOT)).toBe(false);
+  });
+  it('admits an ordinary agent code leaf', () => {
+    expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), TEST_ROOT)).toBe(true);
+  });
+});
 
 describe('makeCoordinatorDeps', () => {
   it('returns an object with all required function properties', () => {
@@ -119,7 +134,7 @@ describe('resolveWorkerProfile', () => {
       expect(new Set(toks).size).toBe(toks.length);
       // project-context + the cad pack's domain context BOTH composed in.
       expect(p.contextPrompt).toContain('build123d repo: run pytest'); // project-context
-      expect(p.contextPrompt).toContain('a script that runs is not a part that exists'); // cad pack
+      expect(p.contextPrompt).toContain('a script that RUNS is not a part that EXISTS'); // cad pack
     });
 
     it('primary pack comes first in the composed context', () => {
@@ -135,147 +150,8 @@ describe('resolveWorkerProfile', () => {
 });
 
 
-describe('launchWorker auto-subscribe into Watching (POOL-2)', () => {
-  const PROJECT = join(TEST_ROOT, 'test-coordinator-live-spawn');
-
-  const makeTodo = (id: string): Todo =>
-    ({ id, type: 'frontend' } as Todo);
-
-  // POOL-4: pool routing names the session by type+provider+slot (frontend-claude-1
-  // since PAW P3), not worker-<id8>.
-  const POOL_SESSION = 'frontend-claude-1';
-
-  afterEach(() => {
-    launchStarted = true;
-    resetPool();
-    ensureSessionCalls.length = 0;
-    runTodoCalls.length = 0;
-    for (const s of listSupervised()) {
-      if (s.project === PROJECT) removeSupervised(s.project, s.session);
-    }
-  });
-
-  it('registers the spawned pool session as supervised when the spawn succeeds', async () => {
-    launchStarted = true;
-    const todo = makeTodo('11111111-2222-3333-4444-555555555555');
-    expect(isSupervised(PROJECT, POOL_SESSION)).toBe(false);
-
-    const started = await makeCoordinatorDeps().launchWorker(PROJECT, todo);
-
-    expect(started).toBe(true);
-    expect(isSupervised(PROJECT, POOL_SESSION)).toBe(true);
-    expect(listSupervised().find((s) => s.project === PROJECT && s.session === POOL_SESSION)?.source).toBe('spawn');
-  });
-
-  it('is idempotent: re-routing to the same warm pool session does not duplicate the subscription', async () => {
-    launchStarted = true;
-    const todo = makeTodo('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
-    const deps = makeCoordinatorDeps();
-
-    await deps.launchWorker(PROJECT, todo);
-    // Free the slot (keep-warm) so the second route reuses the same session.
-    markIdle(PROJECT, POOL_SESSION);
-    await deps.launchWorker(PROJECT, todo);
-
-    const matches = listSupervised().filter((s) => s.project === PROJECT && s.session === POOL_SESSION);
-    expect(matches.length).toBe(1);
-  });
-
-  it('does NOT subscribe when the spawn fails to start', async () => {
-    launchStarted = false;
-    const todo = makeTodo('99999999-8888-7777-6666-555555555555');
-
-    const started = await makeCoordinatorDeps().launchWorker(PROJECT, todo);
-
-    expect(started).toBe(false);
-    expect(isSupervised(PROJECT, POOL_SESSION)).toBe(false);
-  });
-});
-
 // Helper: flip a pool slot back to idle between routes (markIdle is the prod path,
 // but importing it here keeps the test intent — "the session is warm and free").
-import { markIdle as resetPoolSlotIdle } from '../worker-pool';
-
-describe('launchWorker pool routing & keep-warm (POOL-4)', () => {
-  const PROJECT = join(TEST_ROOT, 'test-coordinator-live-pool');
-
-  const makeTodo = (id: string, type: string | null): Todo =>
-    ({ id, type } as Todo);
-
-  afterEach(() => {
-    launchStarted = true;
-    completeSessionName = '';
-    resetPool();
-    ensureSessionCalls.length = 0;
-    runTodoCalls.length = 0;
-    for (const s of listSupervised()) {
-      if (s.project === PROJECT) removeSupervised(s.project, s.session);
-    }
-  });
-
-  it('routes two same-type todos to ONE reused pool session', async () => {
-    const deps = makeCoordinatorDeps();
-    const t1 = makeTodo('11111111-1111-1111-1111-111111111111', 'backend');
-
-    expect(await deps.launchWorker(PROJECT, t1)).toBe(true);
-    // First todo completes → slot goes idle (keep-warm, not killed).
-    completeSessionName = 'backend-claude-1';
-    await deps.completeTodo(PROJECT, t1.id, 'accepted');
-
-    const t2 = makeTodo('22222222-2222-2222-2222-222222222222', 'backend');
-    expect(await deps.launchWorker(PROJECT, t2)).toBe(true);
-
-    // Same session reused: ensureSession called for backend-claude-1 both times,
-    // runTodoInSession sent the skill twice — only ONE slot exists.
-    expect(ensureSessionCalls).toEqual(['backend-claude-1', 'backend-claude-1']);
-    expect(runTodoCalls.map((c) => c.session)).toEqual(['backend-claude-1', 'backend-claude-1']);
-    expect(listPool().map((s) => s.sessionName)).toEqual(['backend-claude-1']);
-  });
-
-  it('routes two different-type todos to two distinct named sessions', async () => {
-    const deps = makeCoordinatorDeps();
-    expect(await deps.launchWorker(PROJECT, makeTodo('aaaaaaaa-1111-1111-1111-111111111111', 'frontend'))).toBe(true);
-    expect(await deps.launchWorker(PROJECT, makeTodo('bbbbbbbb-2222-2222-2222-222222222222', 'api'))).toBe(true);
-
-    expect(ensureSessionCalls).toEqual(['frontend-claude-1', 'api-claude-1']);
-    expect(listPool().map((s) => s.sessionName).sort()).toEqual(['api-claude-1', 'frontend-claude-1']);
-  });
-
-  it('untyped todo routes to the general pool', async () => {
-    const deps = makeCoordinatorDeps();
-    expect(await deps.launchWorker(PROJECT, makeTodo('cccccccc-3333-3333-3333-333333333333', null))).toBe(true);
-    expect(ensureSessionCalls).toEqual(['general-claude-1']);
-  });
-
-  it('defers (returns false, no spawn) when the type is at capacity', async () => {
-    const deps = makeCoordinatorDeps();
-    // First todo occupies the single backend slot.
-    expect(await deps.launchWorker(PROJECT, makeTodo('dddddddd-1111-1111-1111-111111111111', 'backend'))).toBe(true);
-    ensureSessionCalls.length = 0; // isolate the second attempt
-    runTodoCalls.length = 0;
-
-    // Second same-type todo while slot busy → at capacity → deferred.
-    const started = await deps.launchWorker(PROJECT, makeTodo('eeeeeeee-2222-2222-2222-222222222222', 'backend'));
-
-    expect(started).toBe(false);
-    expect(ensureSessionCalls).toEqual([]); // nothing spawned
-    expect(runTodoCalls).toEqual([]);
-  });
-
-  it('complete marks the slot idle (warm, not killed)', async () => {
-    const deps = makeCoordinatorDeps();
-    await deps.launchWorker(PROJECT, makeTodo('ffffffff-1111-1111-1111-111111111111', 'library'));
-    const lib = () => listPool().find((s) => s.project === PROJECT && s.sessionName === 'library-claude-1')!;
-    expect(lib().status).toBe('busy');
-
-    completeSessionName = 'library-claude-1';
-    await deps.completeTodo(PROJECT, 'ffffffff-1111-1111-1111-111111111111', 'accepted');
-
-    // Slot still exists (session kept warm) but is now idle and available.
-    expect(lib().status).toBe('idle');
-    expect(lib().currentTodoId).toBeUndefined();
-  });
-});
 
 // --- DEFECT 2+3: conflicted merge-back parks BLOCKED + tears down ----------------
 // A real temp git repo with an epic branch and a worker branch that genuinely
@@ -353,44 +229,6 @@ describe('completeTodo merge-back conflict (DEFECT 2+3)', () => {
 
     // The worktree dir was removed, but the worker BRANCH survives for the human.
     expect(await wm.existingPath(SESSION)).toBeNull();
-  });
-});
-
-// --- DEFECT C: per-project cold-start cap ----------------------------------------
-describe('cold-start cap is per-project (DEFECT C)', () => {
-  const PROJ_A = mkdtempSync(join(tmpdir(), 'mc-cold-a-'));
-  const PROJ_B = mkdtempSync(join(tmpdir(), 'mc-cold-b-'));
-
-  afterEach(() => {
-    resetPool();
-    ensureSessionCalls.length = 0;
-    runTodoCalls.length = 0;
-    delete process.env.MERMAID_MAX_COLD_STARTS;
-  });
-
-  it('project A at the cap does not block project B from cold-starting', async () => {
-    // Make scratch .collab dirs so launchWorker's session/profile resolution works.
-    for (const p of [PROJ_A, PROJ_B]) mkdirSync(join(p, '.collab'), { recursive: true });
-    const deps = makeCoordinatorDeps();
-
-    const mk = (proj: string, id: string): Todo => ({
-      id, title: 't', status: 'in_progress', type: 'backend',
-      targetProject: proj, retryCount: 0,
-    } as unknown as Todo);
-
-    // Cap is per-project (default 2). Saturate project A's cold-start counter by
-    // launching its budget of backend lanes (the worker-pool budget is 1/type, so
-    // a second same-type todo in A defers on capacity — but the KEY assertion is
-    // that B is unaffected by A's in-flight cold-starts). Launch A then B and prove
-    // B starts regardless of A's state.
-    const aStarted = await deps.launchWorker(PROJ_A, mk(PROJ_A, 'aaaaaaaa-0000-0000-0000-000000000001'));
-    const bStarted = await deps.launchWorker(PROJ_B, mk(PROJ_B, 'bbbbbbbb-0000-0000-0000-000000000001'));
-    expect(aStarted).toBe(true);
-    expect(bStarted).toBe(true);
-
-    // Both projects ran a cold-start; the global readout sums across projects.
-    expect(getColdStartsInFlight()).toBe(0); // both finished (mock launch is sync-ish)
-    expect(getColdStartsInFlight(PROJ_A)).toBe(0);
   });
 });
 
@@ -492,40 +330,6 @@ describe('PID-based liveness (63a59bd6 — dead Claude in a live tmux)', () => {
     expect(isClaudeTuiPresent('  3. No, and tell Claude what to do (esc to interrupt)')).toBe(true);
     expect(isClaudeTuiPresent('benmaderazo@host project %')).toBe(false);
     expect(isClaudeTuiPresent('➜  claude-mermaid-collab git:(master) ✗')).toBe(false);
-  });
-});
-
-describe('launchWorker cross-project target (SEAM·collab)', () => {
-  const TRACKING = join(TEST_ROOT, 'test-coordinator-live-xproj');
-  const TARGET = '/repos/build123d-ocp-mcp';
-
-  afterEach(() => {
-    launchStarted = true;
-    resetPool();
-    ensureSessionCalls.length = 0;
-    ensureSessionOpts.length = 0;
-    runTodoCalls.length = 0;
-    for (const s of listSupervised()) {
-      if (s.project === TRACKING) removeSupervised(s.project, s.session);
-    }
-  });
-
-  it('spawns the worker with cwd = the todo.targetProject, not the tracking project', async () => {
-    const todo = { id: 'aaaa1111-2222-3333-4444-555555555555', type: 'backend', targetProject: TARGET } as Todo;
-    await makeCoordinatorDeps().launchWorker(TRACKING, todo);
-    const opts = ensureSessionOpts.at(-1)!;
-    expect(opts.project).toBe(TARGET);
-    // and the worker is told its todo is tracked elsewhere
-    expect(opts.contextPrompt).toContain(TRACKING);
-    expect(opts.contextPrompt).toMatch(/CROSS-PROJECT TODO/);
-  });
-
-  it('defaults cwd to the tracking project when no targetProject (no cross-project note)', async () => {
-    const todo = { id: 'bbbb1111-2222-3333-4444-555555555555', type: 'backend', targetProject: null } as Todo;
-    await makeCoordinatorDeps().launchWorker(TRACKING, todo);
-    const opts = ensureSessionOpts.at(-1)!;
-    expect(opts.project).toBe(TRACKING);
-    expect(opts.contextPrompt ?? '').not.toMatch(/CROSS-PROJECT TODO/);
   });
 });
 

@@ -261,30 +261,9 @@ export function parsePoolSessionName(
   return { type, provider, slot };
 }
 
-/** Rebuild a BUSY slot in the registry from ground truth (a live tmux session
- *  matched to a claimed todo on sidecar restart — P3). Pure registry mutation, no
- *  tmux/IO. Idempotent: overwrites any existing entry for the key. Returns the
- *  restored slot, or null if `sessionName` isn't a parseable pool-lane name. */
-export function restoreBusySlot(
-  project: string,
-  sessionName: string,
-  todoId: string,
-  tmux: string,
-): PoolSlot | null {
-  const parsed = parsePoolSessionName(sessionName);
-  if (!parsed) return null;
-  const slot: PoolSlot = {
-    project,
-    type: parsed.type,
-    provider: parsed.provider,
-    slot: parsed.slot,
-    status: 'busy',
-    currentTodoId: todoId,
-    tmux,
-  };
-  registry.set(regKey(project, sessionName), slot);
-  return slot;
-}
+// P7: restoreBusySlot (rebuild a busy slot from a live tmux worker session on sidecar
+// restart) was removed with the tmux worker lane — headless leaves run in-process and
+// can't survive a restart to be reconciled.
 
 /** Mark a session busy on a todo. Pass `tmux` (the slot's tmux base name) so the
  *  slot can be reaped on its worker's death independent of todo status. */

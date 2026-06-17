@@ -2985,6 +2985,51 @@ export async function handleAPI(
     );
   }
 
+  // GET /api/leaf-executor/daemon?project=&epicId=&failLimit=
+  // The LIVE "what is the daemon doing right now" read for the UI (UI fetches HTTP, not MCP).
+  // Composes the same read-sides as the daemon_status MCP tool PLUS the breaker open-until,
+  // the paused-leaf queue, recent spawns, and a short recent-failures tail — one poll for the
+  // fleet panel + the per-leaf inflight banner. Plain read, no ws.
+  if (path === '/api/leaf-executor/daemon' && req.method === 'GET') {
+    const { listLeafInflight } = await import('../services/worker-ledger');
+    const { breakerOpen, breakerOpenUntil, pausedLeavesFor } = await import('../services/headless-breaker');
+    const { listLeafRuns } = await import('../services/ledger-stats');
+    const { listSupervisorAudit } = await import('../services/supervisor-store');
+    const project = url.searchParams.get('project') ?? undefined;
+    const epicId = url.searchParams.get('epicId') ?? undefined;
+    const failLimit = Number(url.searchParams.get('failLimit') ?? 20);
+    const now = Date.now();
+    const STALE_MS = 15 * 60 * 1000;
+    const inflight = listLeafInflight({ project }).map((r) => ({
+      leafId: r.leafId,
+      project: r.project,
+      epicId: r.epicId ?? null,
+      nodeKind: r.nodeKind ?? null,
+      model: r.model ?? null,
+      attempt: r.attempt ?? null,
+      startedAt: r.startedAt,
+      elapsedMs: now - r.startedAt,
+      stale: now - r.startedAt > STALE_MS,
+    }));
+    const paused = (project ? pausedLeavesFor(project) : []).map((p) => ({
+      todoId: p.todoId,
+      project: p.project,
+      firstTrippedAt: p.firstTrippedAt ?? null,
+    }));
+    let recentSpawns: unknown[] = [];
+    try { recentSpawns = listSupervisorAudit({ kind: 'spawn', limit: 10 }); } catch { /* best-effort */ }
+    const failures = listLeafRuns({ project, epicId, limit: failLimit })
+      .filter((r) => r.finalOutcome != null && r.finalOutcome !== 'accepted');
+    return Response.json({
+      now,
+      inflight,
+      breaker: { open: breakerOpen(now), openUntil: breakerOpenUntil() },
+      paused,
+      recentSpawns,
+      failures,
+    });
+  }
+
   // POST /api/worker-lane/abort { session }
   // Stop a live in-process worker lane (design-worker-fabric-ui §7) — aborts the lane's
   // AbortController via the harness teardown. The host marks the todo on the next reap;

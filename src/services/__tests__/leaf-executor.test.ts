@@ -433,6 +433,16 @@ describe('parseSizeManifest (fail-safe = null)', () => {
     expect(parseSizeManifest(undefined, undefined)).toBeNull();
   });
 
+  it('parses a verify-only manifest (estimatedFiles:0) to a non-null 0 — not coerced away', () => {
+    // Contract leafNoCommitExpected (coordinator-live, todo 231d10d4) depends on:
+    // a no-op/already-done leaf declares estimatedFiles:0, which must survive parsing
+    // as a real 0 (manifest != null && estimatedFiles === 0), so the no-commit reversal
+    // sites can recognise the clean lane as an EXPECTED verified no-op, not a strand.
+    const m = parseSizeManifest(block({ ...good, estimatedFiles: 0, estimatedTasks: 0, filesToCreate: [], filesToEdit: [], tasks: [] }));
+    expect(m).not.toBeNull();
+    expect(m!.estimatedFiles).toBe(0);
+  });
+
   it('coerces a missing/garbled tasks array to []', () => {
     const { tasks, ...noTasks } = good;
     const m = parseSizeManifest(block(noTasks));
