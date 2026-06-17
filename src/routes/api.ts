@@ -2887,44 +2887,11 @@ export async function handleAPI(
     return Response.json({ lanes });
   }
 
-  // GET /api/worker-run?project=&todoId=
-  // The DURABLE per-todo worker run record (north-star §6) — sourced from the append-only
-  // ledger, so it survives the run ending AND a server restart (unlike /api/worker-lanes,
-  // which only reflects in-progress lanes still in memory). Powers the always-on "Worker
-  // run" section in the todo detail: which phases ran, on which model, at what cost.
-  // Returns ran:false with empty rollups when the todo has never been worked.
-  if (path === '/api/worker-run' && req.method === 'GET') {
-    const project = url.searchParams.get('project');
-    const todoId = url.searchParams.get('todoId');
-    if (!project || !todoId) return Response.json({ error: 'project and todoId required' }, { status: 400 });
-    const { summarize, queryLedger } = await import('../services/worker-ledger');
-    const summary = summarize({ project, todoId });
-    const rows = queryLedger({ project, todoId, limit: 2000 }); // newest-first
-    // Collapse to one entry per phase (latest route wins; cost summed across retries).
-    const phaseMap = new Map<string, { phase: string; provider: string; model: string; source: string; usd: number; steps: number; ts: number }>();
-    for (const r of rows) {
-      const cur = phaseMap.get(r.phase);
-      if (!cur) {
-        phaseMap.set(r.phase, { phase: r.phase, provider: r.provider, model: r.model, source: r.source, usd: r.costUsd, steps: r.steps, ts: r.ts });
-      } else {
-        cur.usd += r.costUsd; // older rows for the same phase (retries) fold into cost only
-      }
-    }
-    return Response.json({
-      todoId,
-      ran: rows.length > 0,
-      totalUsd: summary.totalUsd,
-      lastTs: rows[0]?.ts ?? null,
-      phases: [...phaseMap.values()],
-      byModel: summary.byModel,
-    });
-  }
-
   // GET /api/leaf-executor/run/:leafId
   // The per-todo leaf run view (PAW P4a) — chronological node list, attempts, node
   // budget usage, wall-clock, authMode audit, and (when recorded) review verdict +
   // final outcome, aggregated from the durable worker-ledger NODE rows. Plain read,
-  // no ws (b2fe36b1). Mirrors /api/worker-run's ran:false shape for an unknown leaf.
+  // no ws (b2fe36b1). Returns a ran:false shape for an unknown leaf.
   {
     const m = path.match(/^\/api\/leaf-executor\/run\/([^/]+)$/);
     if (m && req.method === 'GET') {

@@ -13,6 +13,13 @@ import {
   buildNodePrompt,
   parseSizeManifest,
   shouldUseFloor,
+  leafExecutionMode,
+  parseVerifyGate,
+  buildVerifyPrompt,
+  resolveVerifyGate,
+  verbMcpTool,
+  VERIFY_GATE_VERB,
+  VERIFY_EXEC_TIMEOUT_MS,
   FILE_THRESHOLD,
   TASK_THRESHOLD,
   NODE_BUDGET,
@@ -451,6 +458,20 @@ describe('parseSizeManifest (fail-safe = null)', () => {
   });
 });
 
+describe('leafExecutionMode (epic f5c7fc46 — thin code/verify dispatch)', () => {
+  const mk = (type: string | null): Todo => ({ id: 't', type } as unknown as Todo);
+  it("verify/cad-dogfood/dogfood types → 'verify' (case-insensitive)", () => {
+    expect(leafExecutionMode(mk('verify'))).toBe('verify');
+    expect(leafExecutionMode(mk('cad-dogfood'))).toBe('verify');
+    expect(leafExecutionMode(mk('Dogfood'))).toBe('verify');
+  });
+  it("everything else (incl. backend/ui/null) → 'code' (default, proven path)", () => {
+    expect(leafExecutionMode(mk('backend'))).toBe('code');
+    expect(leafExecutionMode(mk('ui'))).toBe('code');
+    expect(leafExecutionMode(mk(null))).toBe('code');
+  });
+});
+
 describe('shouldUseFloor (size gate, each boundary)', () => {
   const mk = (over: object) => ({
     schemaVersion: 1, estimatedFiles: 1, estimatedTasks: 1, nonEnumerableFanout: false,
@@ -774,5 +795,357 @@ describe('blueprint inlining (b77dd104 — no stray-blueprint file discovery)', 
     const impl = buildNodePrompt('implement', makeLeaf());
     expect(impl).toContain('.collab/leaf-blueprints/');
     expect(impl).toContain('ONLY that exact file');
+  });
+});
+
+// ── Verify pipeline (epic f5c7fc46) ──────────────────────────────────────────
+
+/** Real build_assembly_plan PlanReport fixtures (confirmed L4 against the bsync-cad MCP). */
+const planReport = (nodes: unknown[], over: Record<string, unknown> = {}): string =>
+  JSON.stringify({ ok: true, error: null, halted_at: null, nodes, ...over });
+const PLAN_CLEAN = planReport([
+  { node: 'n1', op: 'author', ok: true, detail: 'ok', attempts: 1, repairs: [], gates: [{ name: 'validity', passed: true, detail: '' }] },
+]);
+
+describe('parseVerifyGate (PlanReport — nested node gates)', () => {
+  it('all gates passed → pass', () => {
+    const r = parseVerifyGate(planReport([
+      { node: 'n1', op: 'connect', ok: true, gates: [{ name: 'dof', passed: true }, { name: 'clearance', passed: true }] },
+    ]));
+    expect(r.status).toBe('pass');
+    expect(r.reasons).toEqual([]);
+  });
+
+  it('a failed gate → fail, labelled by node / gate / detail', () => {
+    const r = parseVerifyGate(planReport([
+      { node: 'axis', op: 'connect', ok: false, gates: [{ name: 'dof', passed: false, detail: 'over-constrained' }] },
+    ], { ok: false }));
+    expect(r.status).toBe('fail');
+    expect(r.reasons.some((x) => x.includes('axis') && x.includes('dof failed') && x.includes('over-constrained'))).toBe(true);
+  });
+
+  it('tolerates markdown-fenced JSON', () => {
+    const r = parseVerifyGate('```json\n' + PLAN_CLEAN + '\n```');
+    expect(r.status).toBe('pass');
+  });
+
+  it('tolerates prose AROUND the JSON (the driveexec echo shape)', () => {
+    // The live driveexec node wraps the PlanReport in commentary + a fence + a trailer.
+    const echo = 'Raw PlanReport result:\n\n```json\n' + PLAN_CLEAN + '\n```\n\n**Execution note:** invoked via sys.path shim.';
+    expect(parseVerifyGate(echo).status).toBe('pass');
+    // unfenced, prose on both sides → outermost-braces fallback
+    const bare = 'Here it is: ' + PLAN_CLEAN + ' — done.';
+    expect(parseVerifyGate(bare).status).toBe('pass');
+  });
+
+  it('top-level plan error (with halt) → fail', () => {
+    const r = parseVerifyGate(planReport([], { ok: false, error: 'plan invalid: dangling dep', halted_at: 'n3' }));
+    expect(r.status).toBe('fail');
+    expect(r.reasons.some((x) => x.includes('plan error') && x.includes('halted at n3'))).toBe(true);
+  });
+
+  it('a node that failed without a failed gate is still a finding', () => {
+    const r = parseVerifyGate(planReport([
+      { node: 'n2', op: 'realize', ok: false, detail: 'STEP import failed', gates: [{ name: 'validity', passed: true }] },
+    ], { ok: false }));
+    expect(r.status).toBe('fail');
+    expect(r.reasons.some((x) => x.includes('node n2 failed') && x.includes('STEP import failed'))).toBe(true);
+  });
+
+  it('VACUOUS result (zero gates ran) → error, never a silent pass — the T14 failure mode', () => {
+    expect(parseVerifyGate(planReport([{ node: 'n1', op: 'author', ok: true, gates: [] }])).status).toBe('error');
+    expect(parseVerifyGate(planReport([])).status).toBe('error');
+  });
+
+  it('empty / unparseable → error', () => {
+    expect(parseVerifyGate('').status).toBe('error');
+    expect(parseVerifyGate(undefined).status).toBe('error');
+    expect(parseVerifyGate('not json at all').status).toBe('error');
+  });
+});
+
+describe('buildVerifyPrompt per-node specs', () => {
+  it('driveplan instructs plan-only authoring to the plan file', () => {
+    const p = buildVerifyPrompt('driveplan', makeLeaf());
+    expect(p).toContain('.collab/leaf-verify/');
+    expect(p).toContain(VERIFY_GATE_VERB);
+    expect(p.toLowerCase()).toContain('do not');
+  });
+  it('driveexec inlines the plan and constrains to a single verb call', () => {
+    const p = buildVerifyPrompt('driveexec', makeLeaf(), 'THE-PLAN-JSON');
+    expect(p).toContain('THE-PLAN-JSON');
+    expect(p).toContain(VERIFY_GATE_VERB);
+    expect(p.toLowerCase()).toContain('one verb call');
+  });
+  it('report relays the gate findings and forbids source edits', () => {
+    const clean = buildVerifyPrompt('report', makeLeaf(), 'PLAN', '');
+    expect(clean.toUpperCase()).toContain('CLEAN');
+    const withFindings = buildVerifyPrompt('report', makeLeaf(), 'PLAN', 'dof failed: over-constrained');
+    expect(withFindings).toContain('over-constrained');
+    expect(withFindings.toLowerCase()).toContain('do not edit any source');
+  });
+});
+
+/** Deps for the verify pipeline: scripts driveplan/driveexec/report by allowedTools, and
+ *  serves the plan/result artifacts via readArtifact (keyed by relPath suffix). */
+function makeVerifyDeps(opts: {
+  resultJson?: string;       // what readArtifact returns for the *.result.json artifact
+  planJson?: string;         // what readArtifact returns for the *.plan.json artifact
+  planFails?: number;        // first N driveplan invocations fail (ok:false)
+  execFails?: number;        // first N driveexec invocations fail (ok:false), then ok
+  reportFails?: boolean;     // report returns ok:false
+  gateEffective?: 'accepted' | 'rejected' | 'pending';
+  mergeThrows?: boolean;
+}): { deps: LeafExecutorDeps; spies: Spies & { reportFindings: string[]; writes: Array<{ relPath: string; content: string }> } } {
+  const spies = {
+    ensureCalls: [] as Spies['ensureCalls'],
+    invokeSpecs: [] as NodeSpec[],
+    completeCalls: [] as Spies['completeCalls'],
+    mergeCalls: 0,
+    escalations: [] as Spies['escalations'],
+    reportFindings: [] as string[],
+    writes: [] as Array<{ relPath: string; content: string }>,
+  };
+  let planFailsLeft = opts.planFails ?? 0;
+  let execFailsLeft = opts.execFails ?? 0;
+  const deps: LeafExecutorDeps = {
+    invoker: {
+      async invoke(spec: NodeSpec): Promise<NodeResult> {
+        spies.invokeSpecs.push(spec);
+        const tools = spec.allowedTools ?? '';
+        const isExec = tools.includes('build_assembly_plan');
+        const isReport = tools.includes('add_session_todo');
+        const isPlan = !isExec && !isReport && tools.includes('Write');
+        if (isPlan) {
+          if (planFailsLeft > 0) { planFailsLeft -= 1; return failResult(); }
+          return okResult(opts.planJson ?? '{"plan":"inline"}');
+        }
+        if (isExec) {
+          if (execFailsLeft > 0) { execFailsLeft -= 1; return failResult(); }
+          return okResult(opts.resultJson ?? PLAN_CLEAN);
+        }
+        if (isReport) {
+          if (opts.reportFails) return failResult();
+          spies.reportFindings.push(spec.prompt);
+          // The report node EMITS the markdown as its final message (the executor persists it).
+          return okResult('# T14 verify report\n\nVerdict: see findings.');
+        }
+        return okResult('done');
+      },
+    },
+    wm: {
+      async ensure(sessionKey: string, o: { baseBranch?: string; fresh?: boolean }) {
+        spies.ensureCalls.push({ sessionKey, opts: o ?? {} });
+        return { isGit: true, path: `/tmp/wt/${spies.ensureCalls.length}`, branch: 'b', baseBranch: o?.baseBranch ?? 'm' } as never;
+      },
+    } as never,
+    epicId: EPIC_ID,
+    epicBranch: EPIC_BRANCH,
+    assertAuth: () => 'subscription',
+    async complete(_p, _t, acceptance) {
+      spies.completeCalls.push({ acceptance });
+      return { effective: opts.gateEffective ?? acceptance };
+    },
+    async mergeToEpic() {
+      spies.mergeCalls += 1;
+      if (opts.mergeThrows) throw new Error('conflict');
+      return {};
+    },
+    escalate(input) { spies.escalations.push({ kind: input.kind, questionText: input.questionText }); },
+    recordNode: () => null,
+    async readArtifact(_cwd, relPath) {
+      if (relPath.endsWith('.result.json')) return opts.resultJson;
+      if (relPath.endsWith('.plan.json')) return opts.planJson;
+      return undefined;
+    },
+    async writeArtifact(_cwd, relPath, content) {
+      spies.writes.push({ relPath, content });
+    },
+  };
+  return { deps, spies };
+}
+
+const verifyLeaf = (): Todo => makeLeaf({ type: 'verify' });
+
+describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
+  it('clean gate → plan→exec→report, merge + accept (commit-shaped deliverable)', async () => {
+    const { deps, spies } = makeVerifyDeps({ resultJson: PLAN_CLEAN });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // ran exactly the three verify nodes, in order, and NEVER the code nodes.
+    const kinds = spies.invokeSpecs.map((s) => s.allowedTools ?? '');
+    expect(kinds.filter((t) => t.includes('Write') && !t.includes('build_assembly_plan') && !t.includes('add_session_todo')).length).toBe(1); // plan
+    expect(kinds.some((t) => t.includes('build_assembly_plan'))).toBe(true); // exec
+    expect(kinds.some((t) => t.includes('add_session_todo'))).toBe(true); // report
+    expect(spies.mergeCalls).toBe(1);
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    // the heavy CAD execute node gets the longer wall-clock cap; others use the default.
+    const execSpec = spies.invokeSpecs.find((s) => (s.allowedTools ?? '').includes('build_assembly_plan'));
+    expect(execSpec?.timeoutMs).toBe(VERIFY_EXEC_TIMEOUT_MS);
+    const planSpec = spies.invokeSpecs.find((s) => (s.allowedTools ?? '') === 'Read Write Grep Glob Bash');
+    expect(planSpec?.timeoutMs).toBeUndefined();
+    // L5: the EXECUTOR persists the report node's emitted markdown into the worktree at the
+    // report path BEFORE mergeToEpic (so it actually reaches the epic branch).
+    const reportWrite = spies.writes.find((w) => w.relPath.endsWith('.report.md'));
+    expect(reportWrite).toBeDefined();
+    expect(reportWrite!.content).toContain('T14 verify report');
+  });
+
+  it('empty report node output → BLOCKED (verify-report-empty), no merge', async () => {
+    const { deps, spies } = makeVerifyDeps({ resultJson: PLAN_CLEAN });
+    deps.invoker.invoke = (async (spec) => {
+      spies.invokeSpecs.push(spec);
+      const tools = spec.allowedTools ?? '';
+      if (tools.includes('build_assembly_plan')) return okResult(PLAN_CLEAN);
+      if (tools.includes('add_session_todo')) return okResult('   '); // blank report
+      if (tools.includes('Write')) return okResult('{"plan":"inline"}'); // driveplan
+      return okResult('done');
+    }) as typeof deps.invoker.invoke;
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('verify-report-empty');
+    expect(spies.mergeCalls).toBe(0);
+  });
+
+  it('failing DOMAIN gate is a FINDING, not an executor failure → still reports + accepts', async () => {
+    const { deps, spies } = makeVerifyDeps({ resultJson: planReport([
+      { node: 'axis', op: 'connect', ok: false, gates: [{ name: 'dof', passed: false, detail: 'over-constrained' }] },
+    ], { ok: false }) });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+    // the report node received the finding text so it can file the todo.
+    expect(spies.reportFindings.some((p) => p.includes('over-constrained'))).toBe(true);
+  });
+
+  it('INFRA gate error (verb produced no parseable verdict) → BLOCKED, no report, no merge', async () => {
+    const { deps, spies } = makeVerifyDeps({ resultJson: 'not json' });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.mergeCalls).toBe(0);
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
+    expect(spies.escalations.length).toBeGreaterThan(0);
+  });
+
+  it('plan node fails twice → BLOCKED before exec/report', async () => {
+    const { deps, spies } = makeVerifyDeps({ planFails: 99 });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('build_assembly_plan'))).toBe(false);
+    expect(spies.mergeCalls).toBe(0);
+  });
+
+  it('driveexec transient failure → ONE in-place retry → succeeds + accepts', async () => {
+    const { deps, spies } = makeVerifyDeps({ execFails: 1 }); // first verb call fails, retry ok
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // two driveexec invocations (the transient + the retry), then report ran.
+    const execCalls = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('build_assembly_plan'));
+    expect(execCalls.length).toBe(2);
+    expect(spies.mergeCalls).toBe(1);
+  });
+
+  it('driveexec fails twice → BLOCKED (verify-execute-node-failed), no report', async () => {
+    const { deps, spies } = makeVerifyDeps({ execFails: 99 });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('verify-execute-node-failed');
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
+  });
+
+  it('gate-pending propagates as a first-class pending outcome', async () => {
+    const { deps } = makeVerifyDeps({ resultJson: PLAN_CLEAN, gateEffective: 'pending' });
+    const res = await runLeaf('proj', verifyLeaf(), deps);
+    expect(res.outcome).toBe('pending');
+    expect(res.reason).toBe('gate-pending');
+  });
+
+  it('a code-typed leaf does NOT enter the verify pipeline (no verb node)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    await runLeaf('proj', makeLeaf({ type: 'backend' }), deps);
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('build_assembly_plan'))).toBe(false);
+  });
+});
+
+// ── Verify gate pluggability (epic f5c7fc46 L3) ──────────────────────────────
+
+describe('resolveVerifyGate (pluggable {verb, command})', () => {
+  it('defaults every verify type to the build_assembly_plan verb, no command', () => {
+    expect(resolveVerifyGate(makeLeaf({ type: 'verify' }))).toEqual({ verb: VERIFY_GATE_VERB });
+    expect(resolveVerifyGate(makeLeaf({ type: 'cad-dogfood' }))).toEqual({ verb: VERIFY_GATE_VERB });
+  });
+});
+
+describe('verbMcpTool', () => {
+  it('namespaces a verb to its bsync-cad MCP tool', () => {
+    expect(verbMcpTool('build_assembly_plan')).toBe('mcp__bsync-cad__build_assembly_plan');
+    expect(verbMcpTool('check_graph_drift')).toBe('mcp__bsync-cad__check_graph_drift');
+  });
+});
+
+describe('buildVerifyPrompt honors a non-default verb (L3)', () => {
+  it('plan + exec prompts reference the passed verb', () => {
+    const plan = buildVerifyPrompt('driveplan', makeLeaf(), undefined, undefined, 'check_graph_drift');
+    expect(plan).toContain('check_graph_drift');
+    const exec = buildVerifyPrompt('driveexec', makeLeaf(), 'PLAN', undefined, 'check_graph_drift');
+    expect(exec).toContain('check_graph_drift');
+  });
+});
+
+describe('runVerifyPipeline command-gate composition (L3)', () => {
+  /** Verify deps whose config resolves WITH a command gate and whose runCommandGate returns a
+   *  scripted verdict — so the composition path is genuinely exercised. */
+  function makeCmdGateDeps(opts: {
+    resultJson: string;
+    command: string;
+    cmd: { ran: boolean; ok: boolean; output: string };
+  }) {
+    const base = makeVerifyDeps({ resultJson: opts.resultJson });
+    const calls: string[] = [];
+    base.deps.resolveVerifyGate = () => ({ verb: VERIFY_GATE_VERB, command: opts.command });
+    base.deps.runCommandGate = async (_cwd, command) => { calls.push(command); return opts.cmd; };
+    return { deps: base.deps, spies: base.spies, calls };
+  }
+
+  it('clean verb gate + passing command → accepts; command ran in the worktree', async () => {
+    const { deps, calls } = makeCmdGateDeps({
+      resultJson: PLAN_CLEAN,
+      command: 'pytest -q',
+      cmd: { ran: true, ok: true, output: 'all pass' },
+    });
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(calls).toEqual(['pytest -q']);
+  });
+
+  it('clean verb gate but FAILING command → still accepts; the command failure is a finding', async () => {
+    const { deps, spies } = makeCmdGateDeps({
+      resultJson: PLAN_CLEAN,
+      command: 'pytest -q',
+      cmd: { ran: true, ok: false, output: '2 failed' },
+    });
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.reportFindings.some((p) => p.includes('command gate failed') && p.includes('pytest -q'))).toBe(true);
+  });
+
+  it('command that could not RUN (ran:false) → INFRA failure → BLOCKED, no report', async () => {
+    const { deps, spies } = makeCmdGateDeps({
+      resultJson: PLAN_CLEAN,
+      command: 'pytest -q',
+      cmd: { ran: false, ok: false, output: 'command not found' },
+    });
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
+  });
+
+  it('driveexec is allowlisted to the RESOLVED verb (non-default)', async () => {
+    const base = makeVerifyDeps({ resultJson: PLAN_CLEAN });
+    base.deps.resolveVerifyGate = () => ({ verb: 'check_graph_drift' });
+    await runLeaf('proj', makeLeaf({ type: 'verify' }), base.deps);
+    const exec = base.spies.invokeSpecs.find((s) => (s.allowedTools ?? '').includes('check_graph_drift'));
+    expect(exec).toBeDefined();
+    expect(exec!.allowedTools).toContain('mcp__bsync-cad__check_graph_drift');
   });
 });
