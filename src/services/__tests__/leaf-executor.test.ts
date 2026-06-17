@@ -19,6 +19,7 @@ import {
   resolveVerifyGate,
   verbMcpTool,
   VERIFY_GATE_VERB,
+  VERIFY_EXEC_TIMEOUT_MS,
   FILE_THRESHOLD,
   TASK_THRESHOLD,
   NODE_BUDGET,
@@ -978,6 +979,11 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     expect(kinds.some((t) => t.includes('add_session_todo'))).toBe(true); // report
     expect(spies.mergeCalls).toBe(1);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+    // the heavy CAD execute node gets the longer wall-clock cap; others use the default.
+    const execSpec = spies.invokeSpecs.find((s) => (s.allowedTools ?? '').includes('build_assembly_plan'));
+    expect(execSpec?.timeoutMs).toBe(VERIFY_EXEC_TIMEOUT_MS);
+    const planSpec = spies.invokeSpecs.find((s) => (s.allowedTools ?? '') === 'Read Write Grep Glob Bash');
+    expect(planSpec?.timeoutMs).toBeUndefined();
     // L5: the EXECUTOR persists the report node's emitted markdown into the worktree at the
     // report path BEFORE mergeToEpic (so it actually reaches the epic branch).
     const reportWrite = spies.writes.find((w) => w.relPath.endsWith('.report.md'));

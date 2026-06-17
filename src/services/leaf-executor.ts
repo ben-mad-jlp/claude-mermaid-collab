@@ -205,6 +205,11 @@ export const TASK_THRESHOLD = 6;
  *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
  *  (see {@link resolveVerifyGate}); this is just the fallback verb. */
 export const VERIFY_GATE_VERB = 'build_assembly_plan';
+/** Node wall-clock cap for the verify EXECUTE node. The default 600s node timeout is sized for
+ *  a code node; a CAD assembly build (load vendor STEP parts → build subassemblies → run
+ *  geometry/DOF/clearance gates) legitimately runs longer, and the L4 dogfood hit the 600s
+ *  kill mid-build. 20min gives heavy assemblies room while still bounding a true runaway. */
+export const VERIFY_EXEC_TIMEOUT_MS = 1_200_000;
 /** The build123d MCP server key (its FastMCP name — `FastMCP("bsync-cad")`, registered in
  *  build123d-ocp-mcp/.mcp.json). A Claude Code node addresses its tools as
  *  `mcp__bsync-cad__<verb>`. Confirmed against the live MCP in L4. */
@@ -1010,6 +1015,9 @@ export async function runLeaf(
     leafId: leaf.id,
     epicId,
     permissionMode: 'bypassPermissions',
+    // The execute node runs a heavy CAD build — give it a longer wall-clock cap (L4: the
+    // default 600s killed it mid-build). Other verify nodes use the default.
+    ...(kind === 'driveexec' ? { timeoutMs: VERIFY_EXEC_TIMEOUT_MS } : {}),
   });
 
   /**
