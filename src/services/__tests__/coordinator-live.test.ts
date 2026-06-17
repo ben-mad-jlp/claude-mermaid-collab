@@ -134,7 +134,7 @@ describe('resolveWorkerProfile', () => {
       expect(new Set(toks).size).toBe(toks.length);
       // project-context + the cad pack's domain context BOTH composed in.
       expect(p.contextPrompt).toContain('build123d repo: run pytest'); // project-context
-      expect(p.contextPrompt).toContain('a script that runs is not a part that exists'); // cad pack
+      expect(p.contextPrompt).toContain('a script that RUNS is not a part that EXISTS'); // cad pack
     });
 
     it('primary pack comes first in the composed context', () => {

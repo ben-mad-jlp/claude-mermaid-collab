@@ -3,7 +3,7 @@ import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config';
-import { getStatus, recordSessionProvider } from './session-status-store';
+import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { summarize as summarizeLedger } from './worker-ledger';
@@ -32,7 +32,7 @@ import {
   recordResume,
   resetBreakerStreak,
 } from './headless-breaker';
-import { resolveProfile, resolveProvider, type AgentProfile } from '../config/agent-profiles';
+import { resolveProfile, type AgentProfile } from '../config/agent-profiles';
 import type { ProviderId } from '../agent/worker-agent';
 import { resolveManifestPacks } from '../config/tech-packs';
 import {
@@ -52,23 +52,8 @@ import {
 // Claude adapter — they were MOVED there (regexes byte-for-byte unchanged), and
 // coordinator-live keeps re-exporting them so existing importers (fleet-status,
 // tmux-reaper) and tests resolve them from here exactly as before.
-import { resolveWorkerAgent, resolveGrokAgent, resolveAnthropicCoreAgent } from '../agent/registry';
+import { resolveWorkerAgent } from '../agent/registry';
 import { getConfig } from './config-service';
-
-/** Per-project opt-in for the in-process Claude worker (worker-core) vs the legacy
- *  `claude` CLI. Allowlist via CLAUDE_CORE_PROJECTS (comma-sep paths/basenames); the
- *  CLAUDE_IN_PROCESS=1 ENV var is a dev-only global override. Default off → CLI. */
-function claudeInProcessEnabledFor(project: string): boolean {
-  if (process.env.CLAUDE_IN_PROCESS === '1') return true;
-  const list = getConfig('CLAUDE_CORE_PROJECTS', '') ?? '';
-  if (!list.trim()) return false;
-  const base = project.split('/').pop();
-  return list
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .some((p) => p === project || p === base);
-}
 import {
   agentAliveInSubtree,
   CLAUDE_COMM_MATCHER,
@@ -85,20 +70,6 @@ export { isClaudeTuiPresent, detectPermissionPrompt, extractRequestedTool };
 
 /** The single claude WorkerAgent (registry floor). Resolved once — stateless. */
 const workerAgent = resolveWorkerAgent('claude');
-
-/** PAW P3 dispatch record: the resolved { provider, model } a todo was dispatched
- *  with. In-memory (intentionally — like the pool registry, no DB), keyed by todo
- *  id, so the fleet read-model can surface which provider/model ran a lane without
- *  a todo-schema migration. DORMANT today: provider is always 'claude'. */
-export interface DispatchRecord { provider: ProviderId; model?: string }
-const dispatchByTodo = new Map<string, DispatchRecord>();
-function recordDispatch(todoId: string, rec: DispatchRecord): void {
-  dispatchByTodo.set(todoId, rec);
-}
-/** The dispatch's resolved provider/model for a todo, or undefined if none ran. */
-export function getDispatch(todoId: string): DispatchRecord | undefined {
-  return dispatchByTodo.get(todoId);
-}
 
 /** Run a subprocess ASYNC and await it — NEVER block the single-threaded sidecar
  *  event loop with spawnSync (bug 944408c2: the coordinator/watchdog runs in the
