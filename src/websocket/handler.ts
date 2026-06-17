@@ -130,7 +130,8 @@ export type WSMessage =
   | { type: 'peer_registry'; peers: Array<{ serverId: string; baseUrl: string }> }
   | { type: 'browser_frame'; session: string; data: string; meta: {
       offsetTop: number; pageScaleFactor: number; deviceWidth: number;
-      deviceHeight: number; timestamp?: number } }
+      deviceHeight: number; timestamp?: number; sentAt?: number } }
+  | { type: 'browser_input_ack'; session: string; inputId: number }
   /**
    * Inbound panel → server → CDP input event.
    * Mouse/scroll coords are normalized frame fractions [0,1] relative to the
@@ -143,7 +144,10 @@ export type WSMessage =
       event?: 'down' | 'up' | 'move' | 'click'; button?: 'left' | 'middle' | 'right';
       deltaX?: number; deltaY?: number;
       key?: string; text?: string; code?: string; modifiers?: number;
-      keyType?: 'keyDown' | 'keyUp' | 'char' }
+      keyType?: 'keyDown' | 'keyUp' | 'char';
+      /** Optional client correlation id — when present the server acks after dispatch
+       *  (input round-trip latency instrumentation, 9b8adcea). */
+      inputId?: number }
   | { type: 'browser_resize'; session: string;
       width: number; height: number; deviceScaleFactor?: number }
   | { type: 'browser_quality'; session: string;
@@ -287,7 +291,16 @@ export class WebSocketHandler {
           console.warn('[ws] rejected peer_registry from non-loopback remote:', ws.remoteAddress);
         }
       } else if (data.type === 'browser_input') {
-        this.onBrowserInput?.(data);
+        // Ack after dispatch when the client tagged an inputId (RTT instrumentation,
+        // 9b8adcea). onBrowserInput may be sync or async; await either, then echo.
+        const inputId = data.inputId;
+        if (inputId != null) {
+          Promise.resolve(this.onBrowserInput?.(data))
+            .then(() => this.broadcastBrowserInputAck(data.session, inputId))
+            .catch(() => { /* dispatch failed — no ack, client just won't sample */ });
+        } else {
+          this.onBrowserInput?.(data);
+        }
       } else if (data.type === 'browser_resize') {
         this.onBrowserResize?.(data);
       } else if (data.type === 'browser_quality') {
@@ -492,9 +505,20 @@ export class WebSocketHandler {
     meta: { offsetTop: number; pageScaleFactor: number; deviceWidth: number;
             deviceHeight: number; timestamp?: number };
   }): void {
+    // `sentAt` = wall-clock at emit (latency instrumentation, 9b8adcea). On a LOCAL
+    // owned-Chrome the client and server share a clock, so client-paint-time − sentAt
+    // is the frame-delivery+decode latency. (CDP's meta.timestamp is a monotonic
+    // capture clock, not comparable to the client's Date.now.)
     this.broadcastToChannel(`browser:${session}`, {
-      type: 'browser_frame', session, data: frame.data, meta: frame.meta,
+      type: 'browser_frame', session, data: frame.data, meta: { ...frame.meta, sentAt: Date.now() },
     });
+  }
+
+  /** Ack a client input after it was dispatched to CDP — lets the client measure
+   *  input round-trip latency (mousedown → dispatch ack). Echoed to the session's
+   *  browser channel with the client-supplied correlation id. */
+  broadcastBrowserInputAck(session: string, inputId: number): void {
+    this.broadcastToChannel(`browser:${session}`, { type: 'browser_input_ack', session, inputId });
   }
 
   getConnectionCount(): number {
