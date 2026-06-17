@@ -13,16 +13,13 @@ import { PhasePipelineStrip, RECIPE_PHASES, PHASE_LABEL } from './fleet/PhasePip
 import type { RecipePhase } from './fleet/PhasePipelineStrip';
 import { GrokTranscript } from '@/components/terminal/GrokTranscript';
 import { TieringEditor } from '@/components/settings/TieringEditor';
-import { WorkerRunSummary } from './WorkerRunSummary';
 import { WorkerRunStrip } from './WorkerRunStrip';
 import { ProposedChangesCard } from './ProposedChangesCard';
 
 /**
  * TodoWorkerPanel — the always-on worker section for a selected todo. Shows the LIVE
- * LaneCallout while a lane is running; otherwise falls back to the durable, ledger-backed
- * WorkerRunSummary (which renders an empty state when the todo has never been worked). So
- * the "what ran, on which model, at what cost" record is visible whether or not a worker
- * is currently active.
+ * LaneCallout while a worker-fabric lane is running. The durable "what ran" record is the
+ * headless WorkerRunStrip below (the deprecated tmux-worker WorkerRunSummary panel was removed).
  */
 export const TodoWorkerPanel: React.FC<{
   todoId: string;
@@ -40,11 +37,7 @@ export const TodoWorkerPanel: React.FC<{
   );
   return (
     <>
-      {live ? (
-        <LaneCallout todoId={todoId} project={project} serverId={serverId} />
-      ) : (
-        <WorkerRunSummary todoId={todoId} project={project} />
-      )}
+      {live && <LaneCallout todoId={todoId} project={project} serverId={serverId} />}
       {/* Headless leaf-executor run (no lane / no session) — orthogonal source, always
           rendered (self-suppresses to a quiet placeholder when the todo never ran headless). */}
       <WorkerRunStrip leafId={todoId} isActive={isActive} />

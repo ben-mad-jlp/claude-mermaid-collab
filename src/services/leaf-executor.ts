@@ -34,7 +34,8 @@ import { recordNode, setLeafInflight, clearLeafInflight } from './worker-ledger'
  *  floor so floor ledger rows are byte-identical. */
 export type LeafNodeKind =
   | 'blueprint' | 'implement' | 'review' // floor (unchanged)
-  | 'research' | 'wimplement' | 'verify' | 'fix'; // waves (P5)
+  | 'research' | 'wimplement' | 'verify' | 'fix' // waves (P5)
+  | 'driveplan' | 'driveexec' | 'report'; // verify pipeline (epic f5c7fc46)
 
 /**
  * P5 — structured size manifest the BLUEPRINT node emits as a trailing ```json
@@ -115,6 +116,11 @@ export interface LeafExecutorDeps {
    *  Optional `?.` keeps the floor working even if unwired (→ undefined → null
    *  manifest → FLOOR, the fail-safe default). */
   readBlueprint?: (cwd: string, leaf: Todo) => Promise<string | undefined>;
+  /** Verify pipeline seam (epic f5c7fc46): read back a worktree-relative artifact (the
+   *  authored plan, the verb's raw result) so the gate parses the verb's TRUE output rather
+   *  than the model's prose. Default reads `path.join(cwd, relPath)` via fs; tests inject
+   *  text directly. Optional `?.` keeps the code path working unwired. */
+  readArtifact?: (cwd: string, relPath: string) => Promise<string | undefined>;
   /** Persist the just-written blueprint as a durable collab document and link it to
    *  the leaf todo (per ATTEMPT, so failed attempts survive). Best-effort: a throw
    *  must NEVER break the run. Returns the created doc id (telemetry only). Optional
@@ -177,6 +183,16 @@ export const REVISE_REUSE_CAP = 1;
 export const FILE_THRESHOLD = 4;
 export const TASK_THRESHOLD = 6;
 
+/** Verify pipeline (epic f5c7fc46): the HARDCODED deterministic gate verb. L3 (e9ce8693)
+ *  makes this a pluggable {verb, command}; L2 hardcodes build_assembly_plan (the build123d
+ *  driver T1–T13 built — the thing T14 dogfoods). The execute node is constrained to this
+ *  single MCP tool so the LLM invokes the verb but authors nothing. */
+export const VERIFY_GATE_VERB = 'build_assembly_plan';
+/** The MCP-namespaced tool name driveexec is allowlisted to. The exact build123d server
+ *  namespace is finalized against the live MCP in L4 (e7273aa4); kept as one const so the
+ *  L3 pluggable-gate change has a single call site to generalize. */
+export const VERIFY_GATE_MCP_TOOL = `mcp__build123d__${VERIFY_GATE_VERB}`;
+
 /** Per-node model + tool allowlist (blueprint §3). Bash is read-only by prompt
  *  convention (the CLI has no RO-bash flag). The space-separated list is passed
  *  straight to `--allowedTools` by the P1 invoker. */
@@ -189,11 +205,31 @@ const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string }
   wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
   verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash' }, // read + bash-tsc
   fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
+  // verify pipeline (epic f5c7fc46): plan authors an AssemblyBuildPlan; driveexec is
+  // CONSTRAINED to the single deterministic gate verb (invokes, authors nothing); report
+  // writes+commits findings and files one session-todo per finding.
+  driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash' },
+  driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}` },
+  report: { model: 'sonnet', allowedTools: 'Read Write Edit Grep Glob Bash mcp__mermaid__add_session_todo' },
 };
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
 function blueprintPath(leaf: Todo): string {
   return `.collab/leaf-blueprints/${leaf.id}.md`;
+}
+
+/** Verify pipeline artifacts (epic f5c7fc46), all worktree-relative. The plan node writes
+ *  the AssemblyBuildPlan; the execute node writes the verb's raw result; the report node
+ *  writes the committed findings report. The first two are read back deterministically so
+ *  the gate parses the verb's TRUE output, not the model's prose. */
+function verifyPlanPath(leaf: Todo): string {
+  return `.collab/leaf-verify/${leaf.id}.plan.json`;
+}
+function verifyResultPath(leaf: Todo): string {
+  return `.collab/leaf-verify/${leaf.id}.result.json`;
+}
+function verifyReportPath(leaf: Todo): string {
+  return `docs/verify/${leaf.id}.report.md`;
 }
 
 /** Build the inline prompt for a node kind (clones the LOGIC of vibe-blueprint /
@@ -261,9 +297,77 @@ export function buildNodePrompt(
         '`VERDICT: FAIL — <reason>`  (otherwise)',
       ].join('\n');
     default:
-      // Wave kinds (research/wimplement/verify/fix) are built by buildWavePrompt,
-      // never here. Keeps this switch exhaustive over the widened LeafNodeKind.
+      // Wave kinds (research/wimplement/verify/fix) are built by buildWavePrompt, verify
+      // kinds by buildVerifyPrompt — never here. Keeps this switch exhaustive over the
+      // widened LeafNodeKind.
       throw new Error(`buildNodePrompt: unsupported floor kind "${kind}"`);
+  }
+}
+
+/** Build the inline prompt for a VERIFY-pipeline node (epic f5c7fc46). Three kinds:
+ *  - driveplan: LLM authors an AssemblyBuildPlan (plan ONLY — no build, no code).
+ *  - driveexec: constrained to the single deterministic gate verb — invokes it with the
+ *    plan VERBATIM and captures the raw result (authors nothing).
+ *  - report: writes + commits a findings .md and files one session-todo per finding.
+ *  Self-contained strings (reference nothing in skills/), mirroring buildNodePrompt. */
+export function buildVerifyPrompt(
+  kind: 'driveplan' | 'driveexec' | 'report',
+  leaf: Todo,
+  /** driveexec/report: the authored plan JSON, inlined so the node never re-derives it. */
+  planText?: string,
+  /** report: the gate's FAILED-verdict reasons (one finding each); empty ⇒ clean pass. */
+  gateFindings?: string,
+): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+  const planFile = verifyPlanPath(leaf);
+  const resultFile = verifyResultPath(leaf);
+  const reportFile = verifyReportPath(leaf);
+  switch (kind) {
+    case 'driveplan':
+      return [
+        'You are the PLAN node for a VERIFY/dogfood leaf. You author a structured verify PLAN',
+        'ONLY — you do NOT build anything, drive any CAD verb, or write code.',
+        `Title: ${title}`,
+        `Description: ${description}`,
+        'Read whatever you need to understand the target (Read/Grep/Glob, Bash for inspection only).',
+        `Author a single AssemblyBuildPlan — the input schema of the \`${VERIFY_GATE_VERB}\` verb — for`,
+        `the target described above and WRITE it as JSON to \`${planFile}\`.`,
+        `It must be a complete, self-contained plan the deterministic \`${VERIFY_GATE_VERB}\` verb can`,
+        'execute in ONE call: the parts, the connections/joints, and the geometry/DOF/clearance',
+        'checks to assert. Do not leave placeholders.',
+        '',
+        'ALSO emit the COMPLETE plan JSON as your FINAL reply message, verbatim, so the executor has',
+        'it even if the file read fails. Output ONLY the plan (write the file AND emit the full JSON).',
+      ].join('\n');
+    case 'driveexec':
+      return [
+        `You are the EXECUTE node. Your ONLY job: call the deterministic \`${VERIFY_GATE_VERB}\` MCP`,
+        'verb with the EXACT plan below and capture its raw result. Author NOTHING, do not modify the',
+        'plan, do not build anything yourself, make exactly ONE verb call.',
+        planText
+          ? `=== ASSEMBLY BUILD PLAN (${leaf.id}) START ===\n${planText}\n=== PLAN END ===`
+          : `Read the plan JSON at \`${planFile}\` and use it verbatim.`,
+        `Call \`${VERIFY_GATE_VERB}\` with that plan. Then WRITE the verb's COMPLETE raw JSON result`,
+        `(every geometry / DOF / clearance verdict, verbatim, no edits, no commentary) to`,
+        `\`${resultFile}\`. Also echo that same raw JSON as your final message. Do NOT interpret,`,
+        'summarize, or "fix" the result — the executor parses it.',
+      ].join('\n');
+    case 'report':
+      return [
+        'You are the REPORT node for a verify/dogfood leaf. The deterministic gate has already run.',
+        planText ? `The plan that was executed:\n${planText}` : '',
+        gateFindings && gateFindings.trim()
+          ? `The gate reported these FAILED verdicts — each is a finding:\n--- FINDINGS ---\n${gateFindings}\n--- END FINDINGS ---`
+          : 'The gate reported a CLEAN result (all geometry/DOF/clearance verdicts passed).',
+        `Read \`${resultFile}\` for the raw verdicts if present, then WRITE a findings report (markdown)`,
+        `to \`${reportFile}\`: what was verified, the overall verdict, and each finding with enough`,
+        'detail to act on (and how to reproduce). This committed report IS the deliverable.',
+        'For EACH distinct finding, file one session-todo via the collab MCP tool',
+        '`mcp__mermaid__add_session_todo` (title = the finding, description = detail + repro) if that',
+        'tool is available; if it is not, list the would-be todos as a section in the report instead.',
+        'Do NOT edit any source code. Your only outputs are the committed report and the filed findings.',
+      ].filter(Boolean).join('\n');
   }
 }
 
@@ -428,6 +532,80 @@ function stripSentinelFmt(text: string): string {
 export function parseVerdict(text: string | undefined): 'pass' | 'fail' {
   if (!text) return 'fail';
   return /^\s*VERDICT:\s*PASS\b/im.test(stripSentinelFmt(text)) ? 'pass' : 'fail';
+}
+
+/** The verify pipeline's domain-gate verdict (epic f5c7fc46), derived purely from the
+ *  deterministic verb's raw JSON result. Three outcomes:
+ *  - 'pass'  — verdict(s) present, all clean.
+ *  - 'fail'  — verdict(s) present, at least one explicit failure → real findings to report.
+ *  - 'error' — no usable verdict (empty / unparseable / no geometry-dof-clearance signal):
+ *              an INFRA failure (verb crashed or wasn't run), NOT a finding → park blocked. */
+export interface VerifyGateVerdict {
+  status: 'pass' | 'fail' | 'error';
+  reasons: string[];
+}
+
+/** Strip a leading ```json (or bare ```) fence and trailing ``` a model often wraps JSON in. */
+function unfenceJson(text: string): string {
+  const t = text.trim();
+  const fenced = t.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i);
+  return (fenced ? fenced[1] : t).trim();
+}
+
+/** Parse the deterministic gate verb's raw result into a {@link VerifyGateVerdict}. Pure +
+ *  unit-testable. Tolerant of markdown-fenced JSON. Reads the standard geometry/dof/clearance
+ *  verdict shape (each an object carrying one of valid/passed/ok/success); a top-level
+ *  error/ok:false/success:false is also a failure. No verdict found at all ⇒ 'error'
+ *  (fail-safe: we never call an unverified result a pass). */
+export function parseVerifyGate(resultText: string | undefined): VerifyGateVerdict {
+  if (!resultText || !resultText.trim()) {
+    return { status: 'error', reasons: ['verify-gate: empty verb result'] };
+  }
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(unfenceJson(resultText)) as Record<string, unknown>;
+  } catch {
+    return { status: 'error', reasons: ['verify-gate: unparseable verb result (not JSON)'] };
+  }
+  if (!raw || typeof raw !== 'object') {
+    return { status: 'error', reasons: ['verify-gate: verb result is not a JSON object'] };
+  }
+  const reasons: string[] = [];
+  let sawVerdict = false;
+  const VERDICT_KEYS = ['valid', 'passed', 'ok', 'success'] as const;
+  const reasonOf = (node: Record<string, unknown>): string | undefined => {
+    const r = node.reason ?? node.message;
+    if (typeof r === 'string') return r;
+    if (Array.isArray(node.errors) && node.errors.length) return node.errors.join('; ');
+    return undefined;
+  };
+  // Top-level explicit failure (a verb that errored outright).
+  if (typeof raw.error === 'string' && raw.error) reasons.push(`verb error: ${raw.error}`);
+  for (const k of VERDICT_KEYS) {
+    if (k in raw) {
+      sawVerdict = true;
+      if (raw[k] === false) reasons.push(`gate failed${reasonOf(raw) ? `: ${reasonOf(raw)}` : ''}`);
+    }
+  }
+  // Per-domain verdicts.
+  for (const label of ['geometry', 'dof', 'clearance'] as const) {
+    const node = raw[label];
+    if (node == null || typeof node !== 'object') continue;
+    const obj = node as Record<string, unknown>;
+    for (const k of VERDICT_KEYS) {
+      if (k in obj) {
+        sawVerdict = true;
+        if (obj[k] === false) reasons.push(`${label} failed${reasonOf(obj) ? `: ${reasonOf(obj)}` : ''}`);
+      }
+    }
+  }
+  if (!sawVerdict) {
+    return {
+      status: 'error',
+      reasons: reasons.length ? reasons : ['verify-gate: no geometry/dof/clearance verdict in verb result'],
+    };
+  }
+  return { status: reasons.length ? 'fail' : 'pass', reasons };
 }
 
 /** True when a verify node reported a clean tsc result. Tolerant of markdown wrapping
@@ -735,14 +913,120 @@ export async function runLeaf(
     return null; // all clean → caller runs the leaf REVIEW node
   };
 
+  /** Verify-pipeline NodeSpec (epic f5c7fc46) — mirrors buildSpec but uses buildVerifyPrompt. */
+  const buildVerifySpec = (
+    kind: 'driveplan' | 'driveexec' | 'report',
+    cwd: string,
+    planText?: string,
+    gateFindings?: string,
+  ): NodeSpec => ({
+    prompt: buildVerifyPrompt(kind, leaf, planText, gateFindings),
+    model: NODE_PROFILE[kind].model,
+    allowedTools: NODE_PROFILE[kind].allowedTools,
+    cwd,
+    leafId: leaf.id,
+    epicId,
+    permissionMode: 'bypassPermissions',
+  });
+
+  /**
+   * VERIFY pipeline (epic f5c7fc46): plan(LLM authors AssemblyBuildPlan) → execute(node
+   * constrained to the deterministic gate verb, captures raw result) → gate(executor parses
+   * the verb's TRUE verdicts) → report(LLM writes+commits findings, files one todo each).
+   * The LLM authors + reports (both safe, committable) but is OUT of the stateful execution
+   * loop — the deterministic verb does the CAD (Grok's key point). The deliverable is a
+   * COMMITTED report, so it reuses the SAME mergeToEpic/complete machinery as the code path
+   * (no no-commit escape hatch). A failing DOMAIN gate is not an executor failure — it is the
+   * finding the leaf exists to surface, so it still reports + accepts; only an INFRA error
+   * (verb crashed / no parseable verdict) parks blocked. The hardcoded verb becomes a
+   * pluggable {verb, command} in L3. Spends 3–4 nodes through the shared budget/runNode.
+   */
+  const runVerifyPipeline = async (): Promise<LeafRunResult> => {
+    state.attempt = 1; // single pass (no fresh-worktree retry loop) — telemetry shows attempts=1
+    const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+    const cwd = wt.path;
+
+    // 1. PLAN — author the AssemblyBuildPlan. One in-place retry on a failed node (mirrors
+    //    the code path's blueprint retry) before parking.
+    let plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd));
+    if (plan.rateLimited) return pausedResult('driveplan', plan);
+    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    if (!plan.ok) {
+      plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd));
+      if (plan.rateLimited) return pausedResult('driveplan', plan);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    }
+    if (!plan.ok) return parkBlocked('verify-plan-node-failed');
+
+    // Read the plan artifact back (deterministic source); fall back to the node's final text.
+    const planFromFile = await deps.readArtifact?.(cwd, verifyPlanPath(leaf)).catch(() => undefined);
+    const planText = planFromFile && planFromFile.trim() ? planFromFile : plan.text;
+    if (!planText || !planText.trim()) return parkBlocked('verify-plan-empty');
+
+    // 2. EXECUTE — node constrained to the deterministic verb; captures its raw result.
+    const exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, planText));
+    if (exec.rateLimited) return pausedResult('driveexec', exec);
+    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    if (!exec.ok) return parkBlocked('verify-execute-node-failed');
+
+    // 3. GATE — parse the verb's TRUE verdicts from the result artifact (not the prose).
+    const resultFromFile = await deps.readArtifact?.(cwd, verifyResultPath(leaf)).catch(() => undefined);
+    const resultText = resultFromFile && resultFromFile.trim() ? resultFromFile : exec.text;
+    const gate = parseVerifyGate(resultText);
+    // INFRA error (verb crashed / no parseable verdict) is NOT a finding → park blocked.
+    if (gate.status === 'error') return parkBlocked(gate.reasons[0] ?? 'verify-gate-error', 'fail');
+    // 'pass' or 'fail' (real domain findings) both proceed to the report node.
+
+    // 4. REPORT — write + commit the findings .md, file one session-todo per finding.
+    const report = await runNode(
+      'report',
+      buildVerifySpec('report', cwd, planText, gate.reasons.join('\n')),
+    );
+    if (report.rateLimited) return pausedResult('report', report);
+    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    if (!report.ok) return parkBlocked('verify-report-node-failed');
+
+    const gateVerdict: 'pass' | 'fail' = gate.status === 'pass' ? 'pass' : 'fail';
+
+    // COMMIT-SHAPED DELIVERABLE: merge the worktree (the committed report) onto the epic
+    // branch BEFORE proposing acceptance, exactly like the code path, so the gate's
+    // work-committed re-verify sees committed work. The verify leaf's success is "it verified
+    // and reported" — a failing DOMAIN gate is captured in the report + filed findings, not a
+    // rejected leaf.
+    try {
+      await deps.mergeToEpic(sessionKey, epicId, `verify: ${leaf.title ?? leaf.id}`, leaf.id);
+    } catch (e) {
+      return parkBlocked(
+        `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
+        gateVerdict,
+      );
+    }
+    const g = await deps.complete(project, leaf.id, 'accepted');
+    const effective = g.effective ?? 'accepted';
+    const reason =
+      effective === 'pending' ? 'gate-pending'
+      : effective === 'rejected' ? 'gate-rejected'
+      : undefined;
+    recordOutcome(effective, gateVerdict, {
+      reason,
+      pendingReason: g.pendingReason,
+      gateReasons: g.gateReasons,
+    });
+    return {
+      outcome: effective,
+      attempts: state.attempt,
+      nodesSpent: state.nodesSpent,
+      ...(reason ? { reason } : {}),
+    };
+  };
+
   // EXECUTION-MODE DISPATCH (epic f5c7fc46): a 'verify' leaf runs the non-code dogfood
-  // pipeline (plan → deterministic build_assembly_plan → domain gate → committed report),
-  // NOT the code authoring loop below. L1 ships the dispatch with a STUB; the verify
-  // pipeline lands in L2. Until then a verify leaf parks blocked with a clear reason
-  // rather than being force-fit into blueprint→implement→tsc — that mis-execution (vacuous
-  // "TSC: CLEAN" on a CAD task) is exactly the build123d T14 failure this epic fixes.
+  // pipeline above (plan → deterministic build_assembly_plan → domain gate → committed
+  // report), NOT the code authoring loop below — force-fitting it into blueprint→implement→
+  // tsc is exactly the build123d T14 failure this epic fixes (vacuous "TSC: CLEAN" on a CAD
+  // task). L1 dispatched to a stub; L2 lands the real pipeline.
   if (leafExecutionMode(leaf) === 'verify') {
-    return parkBlocked('verify-mode: pipeline not yet implemented (epic f5c7fc46 L2)');
+    return runVerifyPipeline();
   }
 
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
@@ -952,6 +1236,17 @@ export async function makeLeafExecutorDeps(
         return await fs.readFile(path.join(cwd, blueprintPath(lf)), 'utf8');
       } catch {
         return undefined; // missing/unreadable ⇒ FLOOR fail-safe
+      }
+    },
+    // Verify pipeline (epic f5c7fc46): read back any worktree-relative artifact (plan JSON,
+    // verb result JSON). Missing/unreadable ⇒ undefined (caller falls back to node text).
+    readArtifact: async (cwd, relPath) => {
+      try {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        return await fs.readFile(path.join(cwd, relPath), 'utf8');
+      } catch {
+        return undefined;
       }
     },
     startNodesSpent,
