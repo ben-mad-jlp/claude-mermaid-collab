@@ -16,6 +16,8 @@ import {
   leafExecutionMode,
   parseVerifyGate,
   buildVerifyPrompt,
+  resolveVerifyGate,
+  verbMcpTool,
   VERIFY_GATE_VERB,
   FILE_THRESHOLD,
   TASK_THRESHOLD,
@@ -981,5 +983,88 @@ describe('runVerifyPipeline (epic f5c7fc46 L2)', () => {
     const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
     await runLeaf('proj', makeLeaf({ type: 'backend' }), deps);
     expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('build_assembly_plan'))).toBe(false);
+  });
+});
+
+// ── Verify gate pluggability (epic f5c7fc46 L3) ──────────────────────────────
+
+describe('resolveVerifyGate (pluggable {verb, command})', () => {
+  it('defaults every verify type to the build_assembly_plan verb, no command', () => {
+    expect(resolveVerifyGate(makeLeaf({ type: 'verify' }))).toEqual({ verb: VERIFY_GATE_VERB });
+    expect(resolveVerifyGate(makeLeaf({ type: 'cad-dogfood' }))).toEqual({ verb: VERIFY_GATE_VERB });
+  });
+});
+
+describe('verbMcpTool', () => {
+  it('namespaces a verb to its build123d MCP tool', () => {
+    expect(verbMcpTool('build_assembly_plan')).toBe('mcp__build123d__build_assembly_plan');
+    expect(verbMcpTool('check_graph_drift')).toBe('mcp__build123d__check_graph_drift');
+  });
+});
+
+describe('buildVerifyPrompt honors a non-default verb (L3)', () => {
+  it('plan + exec prompts reference the passed verb', () => {
+    const plan = buildVerifyPrompt('driveplan', makeLeaf(), undefined, undefined, 'check_graph_drift');
+    expect(plan).toContain('check_graph_drift');
+    const exec = buildVerifyPrompt('driveexec', makeLeaf(), 'PLAN', undefined, 'check_graph_drift');
+    expect(exec).toContain('check_graph_drift');
+  });
+});
+
+describe('runVerifyPipeline command-gate composition (L3)', () => {
+  /** Verify deps whose config resolves WITH a command gate and whose runCommandGate returns a
+   *  scripted verdict — so the composition path is genuinely exercised. */
+  function makeCmdGateDeps(opts: {
+    resultJson: string;
+    command: string;
+    cmd: { ran: boolean; ok: boolean; output: string };
+  }) {
+    const base = makeVerifyDeps({ resultJson: opts.resultJson });
+    const calls: string[] = [];
+    base.deps.resolveVerifyGate = () => ({ verb: VERIFY_GATE_VERB, command: opts.command });
+    base.deps.runCommandGate = async (_cwd, command) => { calls.push(command); return opts.cmd; };
+    return { deps: base.deps, spies: base.spies, calls };
+  }
+
+  it('clean verb gate + passing command → accepts; command ran in the worktree', async () => {
+    const { deps, calls } = makeCmdGateDeps({
+      resultJson: JSON.stringify({ geometry: { valid: true } }),
+      command: 'pytest -q',
+      cmd: { ran: true, ok: true, output: 'all pass' },
+    });
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(calls).toEqual(['pytest -q']);
+  });
+
+  it('clean verb gate but FAILING command → still accepts; the command failure is a finding', async () => {
+    const { deps, spies } = makeCmdGateDeps({
+      resultJson: JSON.stringify({ geometry: { valid: true } }),
+      command: 'pytest -q',
+      cmd: { ran: true, ok: false, output: '2 failed' },
+    });
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.reportFindings.some((p) => p.includes('command gate failed') && p.includes('pytest -q'))).toBe(true);
+  });
+
+  it('command that could not RUN (ran:false) → INFRA failure → BLOCKED, no report', async () => {
+    const { deps, spies } = makeCmdGateDeps({
+      resultJson: JSON.stringify({ geometry: { valid: true } }),
+      command: 'pytest -q',
+      cmd: { ran: false, ok: false, output: 'command not found' },
+    });
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('add_session_todo'))).toBe(false);
+  });
+
+  it('driveexec is allowlisted to the RESOLVED verb (non-default)', async () => {
+    const base = makeVerifyDeps({ resultJson: JSON.stringify({ geometry: { valid: true } }) });
+    base.deps.resolveVerifyGate = () => ({ verb: 'check_graph_drift' });
+    await runLeaf('proj', makeLeaf({ type: 'verify' }), base.deps);
+    const exec = base.spies.invokeSpecs.find((s) => (s.allowedTools ?? '').includes('check_graph_drift'));
+    expect(exec).toBeDefined();
+    expect(exec!.allowedTools).toContain('mcp__build123d__check_graph_drift');
   });
 });

@@ -121,6 +121,15 @@ export interface LeafExecutorDeps {
    *  than the model's prose. Default reads `path.join(cwd, relPath)` via fs; tests inject
    *  text directly. Optional `?.` keeps the code path working unwired. */
   readArtifact?: (cwd: string, relPath: string) => Promise<string | undefined>;
+  /** L3 verify command-gate seam (epic f5c7fc46 e9ce8693): run a {@link VerifyGateConfig.command}
+   *  shell gate (e.g. `pytest -q`) in the worktree. `ran:false` ⇒ the command could not execute
+   *  (spawn error / missing tool) → INFRA failure → park blocked; `ran:true, ok:false` ⇒ the gate
+   *  ran and failed → a FINDING composed into the report. Default spawns via the shell; tests
+   *  inject a verdict. Optional `?.` — only invoked when a config declares a command. */
+  runCommandGate?: (cwd: string, command: string) => Promise<{ ran: boolean; ok: boolean; output: string }>;
+  /** L3: resolve the verify gate config (verb + optional command) for a leaf. Default
+   *  {@link resolveVerifyGate}; injected in tests to exercise command-gate composition. */
+  resolveVerifyGate?: (leaf: Todo) => VerifyGateConfig;
   /** Persist the just-written blueprint as a durable collab document and link it to
    *  the leaf todo (per ATTEMPT, so failed attempts survive). Best-effort: a throw
    *  must NEVER break the run. Returns the created doc id (telemetry only). Optional
@@ -183,15 +192,22 @@ export const REVISE_REUSE_CAP = 1;
 export const FILE_THRESHOLD = 4;
 export const TASK_THRESHOLD = 6;
 
-/** Verify pipeline (epic f5c7fc46): the HARDCODED deterministic gate verb. L3 (e9ce8693)
- *  makes this a pluggable {verb, command}; L2 hardcodes build_assembly_plan (the build123d
- *  driver T1–T13 built — the thing T14 dogfoods). The execute node is constrained to this
- *  single MCP tool so the LLM invokes the verb but authors nothing. */
+/** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
+ *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
+ *  T14 dogfoods). The execute node is constrained to the resolved verb's MCP tool so the LLM
+ *  invokes it but authors nothing. L3 (e9ce8693) makes the gate a pluggable {verb, command}
+ *  (see {@link resolveVerifyGate}); this is just the fallback verb. */
 export const VERIFY_GATE_VERB = 'build_assembly_plan';
-/** The MCP-namespaced tool name driveexec is allowlisted to. The exact build123d server
- *  namespace is finalized against the live MCP in L4 (e7273aa4); kept as one const so the
- *  L3 pluggable-gate change has a single call site to generalize. */
-export const VERIFY_GATE_MCP_TOOL = `mcp__build123d__${VERIFY_GATE_VERB}`;
+/** Map a gate verb to the MCP-namespaced tool the execute node is allowlisted to. The exact
+ *  build123d server namespace is finalized against the live MCP in L4 (e7273aa4); kept as one
+ *  function so every call site generalizes together. */
+export function verbMcpTool(verb: string): string {
+  return `mcp__build123d__${verb}`;
+}
+/** The default verb's MCP tool — NODE_PROFILE.driveexec's static allowlist fallback. The
+ *  pipeline recomputes the allowlist per-leaf from the resolved config (so a non-default verb
+ *  is allowlisted correctly); this keeps the profile table total. */
+export const VERIFY_GATE_MCP_TOOL = verbMcpTool(VERIFY_GATE_VERB);
 
 /** Per-node model + tool allowlist (blueprint §3). Bash is read-only by prompt
  *  convention (the CLI has no RO-bash flag). The space-separated list is passed
@@ -317,6 +333,9 @@ export function buildVerifyPrompt(
   planText?: string,
   /** report: the gate's FAILED-verdict reasons (one finding each); empty ⇒ clean pass. */
   gateFindings?: string,
+  /** L3: the resolved deterministic gate verb the plan/execute nodes target. Defaults to the
+   *  build_assembly_plan fallback so existing callers/tests are unaffected. */
+  verb: string = VERIFY_GATE_VERB,
 ): string {
   const title = leaf.title ?? leaf.id;
   const description = leaf.description ?? '(no description)';
@@ -331,9 +350,9 @@ export function buildVerifyPrompt(
         `Title: ${title}`,
         `Description: ${description}`,
         'Read whatever you need to understand the target (Read/Grep/Glob, Bash for inspection only).',
-        `Author a single AssemblyBuildPlan — the input schema of the \`${VERIFY_GATE_VERB}\` verb — for`,
+        `Author a single AssemblyBuildPlan — the input schema of the \`${verb}\` verb — for`,
         `the target described above and WRITE it as JSON to \`${planFile}\`.`,
-        `It must be a complete, self-contained plan the deterministic \`${VERIFY_GATE_VERB}\` verb can`,
+        `It must be a complete, self-contained plan the deterministic \`${verb}\` verb can`,
         'execute in ONE call: the parts, the connections/joints, and the geometry/DOF/clearance',
         'checks to assert. Do not leave placeholders.',
         '',
@@ -342,13 +361,13 @@ export function buildVerifyPrompt(
       ].join('\n');
     case 'driveexec':
       return [
-        `You are the EXECUTE node. Your ONLY job: call the deterministic \`${VERIFY_GATE_VERB}\` MCP`,
+        `You are the EXECUTE node. Your ONLY job: call the deterministic \`${verb}\` MCP`,
         'verb with the EXACT plan below and capture its raw result. Author NOTHING, do not modify the',
         'plan, do not build anything yourself, make exactly ONE verb call.',
         planText
           ? `=== ASSEMBLY BUILD PLAN (${leaf.id}) START ===\n${planText}\n=== PLAN END ===`
           : `Read the plan JSON at \`${planFile}\` and use it verbatim.`,
-        `Call \`${VERIFY_GATE_VERB}\` with that plan. Then WRITE the verb's COMPLETE raw JSON result`,
+        `Call \`${verb}\` with that plan. Then WRITE the verb's COMPLETE raw JSON result`,
         `(every geometry / DOF / clearance verdict, verbatim, no edits, no commentary) to`,
         `\`${resultFile}\`. Also echo that same raw JSON as your final message. Do NOT interpret,`,
         'summarize, or "fix" the result — the executor parses it.',
@@ -518,6 +537,30 @@ export function shouldUseFloor(m: LeafSizeManifest | null): boolean {
 export function leafExecutionMode(leaf: Todo): 'code' | 'verify' {
   const t = (leaf.type ?? '').toLowerCase();
   return t === 'verify' || t === 'cad-dogfood' || t === 'dogfood' ? 'verify' : 'code';
+}
+
+/** The verify pipeline's domain gate, made PLUGGABLE in L3 (epic f5c7fc46 e9ce8693). A gate
+ *  is a deterministic VERB (an MCP tool the execute node calls — its returned geometry/DOF/
+ *  clearance verdicts are parsed by {@link parseVerifyGate}) and/or an optional COMMAND (a
+ *  shell gate, e.g. `pytest -q`, composed AFTER the verb gate). This is the single seam other
+ *  verify configs extend through: cartographer spec-sync (verb: check_graph_drift), asset-gen
+ *  fitness, a pure-pytest dogfood — each lands as a CONFIG here with ZERO new dispatch in
+ *  runVerifyPipeline (the hygiene that keeps a future recipe-registry extraction cheap). */
+export interface VerifyGateConfig {
+  /** The deterministic MCP verb the execute node invokes. Defaults to {@link VERIFY_GATE_VERB}. */
+  verb: string;
+  /** Optional shell command gate run in the worktree AFTER the verb gate; its non-zero exit is
+   *  a FINDING (not an executor failure), composed into the report alongside the verb verdicts. */
+  command?: string;
+}
+
+/** Resolve a verify leaf's gate config. L3 keys off `leaf.type`; today every verify type maps
+ *  to the build_assembly_plan verb (no command), so this is behavior-identical to L2 — the
+ *  POINT is the extension seam, not new routing. Add a case here (not new pipeline code) to
+ *  introduce a new verify gate. Pure + unit-testable. */
+export function resolveVerifyGate(leaf: Todo): VerifyGateConfig {
+  // (future) switch on (leaf.type ?? '').toLowerCase() to pick verb/command per domain.
+  return { verb: VERIFY_GATE_VERB };
 }
 
 /** Strip the markdown wrapping a model often adds around a sentinel line — the prompts
@@ -913,16 +956,23 @@ export async function runLeaf(
     return null; // all clean → caller runs the leaf REVIEW node
   };
 
-  /** Verify-pipeline NodeSpec (epic f5c7fc46) — mirrors buildSpec but uses buildVerifyPrompt. */
+  /** Verify-pipeline NodeSpec (epic f5c7fc46) — mirrors buildSpec but uses buildVerifyPrompt
+   *  and threads the resolved gate `verb` into both the prompt and (for driveexec) the per-leaf
+   *  allowlist, so a non-default verb is referenced AND tool-allowlisted correctly (L3). */
   const buildVerifySpec = (
     kind: 'driveplan' | 'driveexec' | 'report',
     cwd: string,
+    verb: string,
     planText?: string,
     gateFindings?: string,
   ): NodeSpec => ({
-    prompt: buildVerifyPrompt(kind, leaf, planText, gateFindings),
+    prompt: buildVerifyPrompt(kind, leaf, planText, gateFindings, verb),
     model: NODE_PROFILE[kind].model,
-    allowedTools: NODE_PROFILE[kind].allowedTools,
+    // driveexec is constrained to the RESOLVED verb's MCP tool (not the static default).
+    allowedTools:
+      kind === 'driveexec'
+        ? `Read Write Bash ${verbMcpTool(verb)}`
+        : NODE_PROFILE[kind].allowedTools,
     cwd,
     leafId: leaf.id,
     epicId,
@@ -938,21 +988,24 @@ export async function runLeaf(
    * COMMITTED report, so it reuses the SAME mergeToEpic/complete machinery as the code path
    * (no no-commit escape hatch). A failing DOMAIN gate is not an executor failure — it is the
    * finding the leaf exists to surface, so it still reports + accepts; only an INFRA error
-   * (verb crashed / no parseable verdict) parks blocked. The hardcoded verb becomes a
-   * pluggable {verb, command} in L3. Spends 3–4 nodes through the shared budget/runNode.
+   * (verb crashed / no parseable verdict) parks blocked. L3: the gate is a PLUGGABLE
+   * {verb, command} ({@link resolveVerifyGate}) — the verb result AND an optional shell
+   * command gate (e.g. pytest) compose into the findings. Spends 3–4 nodes through the
+   * shared budget/runNode.
    */
   const runVerifyPipeline = async (): Promise<LeafRunResult> => {
     state.attempt = 1; // single pass (no fresh-worktree retry loop) — telemetry shows attempts=1
+    const cfg = (deps.resolveVerifyGate ?? resolveVerifyGate)(leaf); // L3: pluggable {verb, command}
     const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
     const cwd = wt.path;
 
     // 1. PLAN — author the AssemblyBuildPlan. One in-place retry on a failed node (mirrors
     //    the code path's blueprint retry) before parking.
-    let plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd));
+    let plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd, cfg.verb));
     if (plan.rateLimited) return pausedResult('driveplan', plan);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!plan.ok) {
-      plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd));
+      plan = await runNode('driveplan', buildVerifySpec('driveplan', cwd, cfg.verb));
       if (plan.rateLimited) return pausedResult('driveplan', plan);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
@@ -963,8 +1016,8 @@ export async function runLeaf(
     const planText = planFromFile && planFromFile.trim() ? planFromFile : plan.text;
     if (!planText || !planText.trim()) return parkBlocked('verify-plan-empty');
 
-    // 2. EXECUTE — node constrained to the deterministic verb; captures its raw result.
-    const exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, planText));
+    // 2. EXECUTE — node constrained to the resolved verb; captures its raw result.
+    const exec = await runNode('driveexec', buildVerifySpec('driveexec', cwd, cfg.verb, planText));
     if (exec.rateLimited) return pausedResult('driveexec', exec);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!exec.ok) return parkBlocked('verify-execute-node-failed');
@@ -975,18 +1028,30 @@ export async function runLeaf(
     const gate = parseVerifyGate(resultText);
     // INFRA error (verb crashed / no parseable verdict) is NOT a finding → park blocked.
     if (gate.status === 'error') return parkBlocked(gate.reasons[0] ?? 'verify-gate-error', 'fail');
-    // 'pass' or 'fail' (real domain findings) both proceed to the report node.
+    // 'pass' or 'fail' (real domain findings) both proceed; the command gate composes below.
+    const findings = [...gate.reasons];
+
+    // 3b. COMMAND GATE (L3, optional) — run the config's shell gate in the worktree, composed
+    //     AFTER the verb gate. A spawn failure (ran:false) is INFRA → park blocked; a non-zero
+    //     exit (ran:true, ok:false) is a FINDING folded into the report alongside the verdicts.
+    if (cfg.command) {
+      const cmd = await deps.runCommandGate?.(cwd, cfg.command);
+      if (!cmd) return parkBlocked(`verify-command-gate-unwired: ${cfg.command}`, 'fail');
+      if (!cmd.ran) return parkBlocked(`verify-command-gate-failed-to-run: ${cfg.command}`, 'fail');
+      if (!cmd.ok) findings.push(`command gate failed: \`${cfg.command}\`\n${cmd.output.slice(0, 2000)}`);
+    }
 
     // 4. REPORT — write + commit the findings .md, file one session-todo per finding.
     const report = await runNode(
       'report',
-      buildVerifySpec('report', cwd, planText, gate.reasons.join('\n')),
+      buildVerifySpec('report', cwd, cfg.verb, planText, findings.join('\n')),
     );
     if (report.rateLimited) return pausedResult('report', report);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!report.ok) return parkBlocked('verify-report-node-failed');
 
-    const gateVerdict: 'pass' | 'fail' = gate.status === 'pass' ? 'pass' : 'fail';
+    // Overall verdict: clean ONLY if BOTH the verb gate passed AND no command-gate finding.
+    const gateVerdict: 'pass' | 'fail' = findings.length === 0 ? 'pass' : 'fail';
 
     // COMMIT-SHAPED DELIVERABLE: merge the worktree (the committed report) onto the epic
     // branch BEFORE proposing acceptance, exactly like the code path, so the gate's
@@ -1249,6 +1314,20 @@ export async function makeLeafExecutorDeps(
         return undefined;
       }
     },
+    // L3 command-gate (epic f5c7fc46): run the config's shell gate in the worktree. A spawn
+    // failure (missing tool) ⇒ ran:false (infra → block); a non-zero exit ⇒ ran:true/ok:false
+    // (a finding). Output is captured (stdout+stderr) for the report.
+    runCommandGate: async (cwd, command) => {
+      try {
+        const { spawnSync } = await import('node:child_process');
+        const r = spawnSync(command, { cwd, shell: true, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+        if (r.error) return { ran: false, ok: false, output: String(r.error.message ?? r.error) };
+        return { ran: true, ok: r.status === 0, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+      } catch (e) {
+        return { ran: false, ok: false, output: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    resolveVerifyGate,
     startNodesSpent,
     // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at
     // the call site). Writes a collab document scoped to a fixed `leaf-blueprints`
