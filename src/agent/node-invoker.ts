@@ -266,7 +266,13 @@ export function parseNodeJson(stdout: string): {
  *  7. Stamp authMode, return NodeResult.
  */
 export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
-  const start = performance.now();
+  // WALL-CLOCK start (Date.now), NOT performance.now: the monotonic clock PAUSES while
+  // the process is suspended (macOS App Nap / sleep), so a node that the OS napped for
+  // 16 min then the wall-clock timeout killed reported durationMs≈47s — wildly under the
+  // real lifetime and self-contradicting the "timed out after 600000ms" label (the build123d
+  // T14 overnight case). Wall time counts suspend, so durationMs now reflects reality and
+  // agrees with the timeout. (We never sub-ms-profile a node here; ms wall is the right unit.)
+  const start = Date.now();
   const authMode = resolveAuthMode();
 
   // HALT + ALARM contract: if the active auth is not the subscription, refuse to
@@ -281,7 +287,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       ok: false,
       exitCode: -1,
       stdout: '',
-      durationMs: Math.round(performance.now() - start),
+      durationMs: Math.round(Date.now() - start),
       rateLimited: false,
       authMode,
       parseError: msg,
@@ -307,7 +313,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       ok: false,
       exitCode: -1,
       stdout: '',
-      durationMs: Math.round(performance.now() - start),
+      durationMs: Math.round(Date.now() - start),
       rateLimited: false,
       authMode,
       parseError: `spawn failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -336,7 +342,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
   const exitCode = await proc.exited;
   if (timer) clearTimeout(timer);
 
-  const durationMs = Math.round(performance.now() - start);
+  const durationMs = Math.round(Date.now() - start);
 
   if (timedOut) {
     return {
