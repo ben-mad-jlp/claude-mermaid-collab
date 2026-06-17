@@ -29,6 +29,7 @@ import { specCoverage, decideRequirement, type RequirementDecision } from '../se
 import { landEpic, getWorktreeManager } from '../services/coordinator-live.ts';
 import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt } from '../services/deploy-service.ts';
 import { systemStatus } from '../services/system-status.ts';
+import { execFileSync } from 'node:child_process';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
@@ -317,13 +318,33 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const lastSelfLandAt = getLastSelfLandAt();
       const selfLandPending = lastSelfLandAt != null && (liveStartedMs == null || lastSelfLandAt > liveStartedMs);
       const gate = selfDeployEligibility(project);
-      // Stale = either the version-string drift fired OR a self-land post-dates
-      // the running binary. The banner shows when stale AND we can act on it.
-      const stale = !!status.deploy.drift || selfLandPending;
+      // Staleness for the banner is NOT system-status `drift`: that counts ALL
+      // uncommitted paths including UNTRACKED scratch (leaf-blueprints, daemon-*.ts),
+      // which would keep the banner lit forever even right after a clean deploy.
+      // The banner means "the deployed binary doesn't reflect the committed source":
+      // a version bump, a self-land post-dating the build, or MODIFIED TRACKED files
+      // (real uncommitted code) — untracked junk is excluded.
+      const versionDrift =
+        status.deploy.liveVersion != null &&
+        status.deploy.repoVersion != null &&
+        status.deploy.liveVersion !== status.deploy.repoVersion;
+      let modifiedTrackedCount = 0;
+      try {
+        const out = execFileSync('git', ['-C', project, 'status', '--porcelain', '--untracked-files=no'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        modifiedTrackedCount = out.split('\n').filter((l) => l.trim().length > 0).length;
+      } catch {
+        modifiedTrackedCount = 0;
+      }
+      const stale = versionDrift || selfLandPending || modifiedTrackedCount > 0;
       return Response.json({
         ...status.deploy,
         selfLandPending,
         lastSelfLandAt,
+        versionDrift,
+        modifiedTrackedCount,
         stale,
         canDeploy: gate.eligible,
         deployBlockedReason: gate.eligible ? null : gate.reason,

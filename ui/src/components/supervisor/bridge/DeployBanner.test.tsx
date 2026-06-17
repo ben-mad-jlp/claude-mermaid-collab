@@ -22,6 +22,7 @@ function status(over: Partial<DeployStatus>): DeployStatus {
     livePid: 1, liveVersion: '5.101.24', liveStartedAt: '2026-06-17T19:00:00Z',
     repoVersion: '5.101.24', repoHead: 'abc1234', uncommittedCount: 0,
     drift: false, selfLandPending: false, lastSelfLandAt: null,
+    versionDrift: false, modifiedTrackedCount: 0,
     stale: false, canDeploy: true, deployBlockedReason: null, ...over,
   };
 }

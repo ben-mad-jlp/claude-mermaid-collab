@@ -72,7 +72,11 @@ export const DeployBanner: React.FC<DeployBannerProps> = ({ project, serverScope
 
   const reason = status.selfLandPending
     ? 'an epic landed after this build started'
-    : 'the running build differs from the repo';
+    : status.versionDrift
+      ? `live v${status.liveVersion ?? '?'} vs repo v${status.repoVersion ?? '?'}`
+      : status.modifiedTrackedCount > 0
+        ? `${status.modifiedTrackedCount} uncommitted change${status.modifiedTrackedCount === 1 ? '' : 's'} in the repo`
+        : 'the running build differs from the repo';
 
   return (
     <div

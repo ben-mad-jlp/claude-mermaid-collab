@@ -40,6 +40,8 @@ export interface DeployStatus {
   drift: boolean | null;
   selfLandPending: boolean;
   lastSelfLandAt: number | null;
+  versionDrift: boolean;
+  modifiedTrackedCount: number;
   stale: boolean;
   canDeploy: boolean;
   deployBlockedReason: string | null;
