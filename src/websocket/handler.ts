@@ -143,15 +143,23 @@ export type WSMessage =
       event?: 'down' | 'up' | 'move' | 'click'; button?: 'left' | 'middle' | 'right';
       deltaX?: number; deltaY?: number;
       key?: string; text?: string; code?: string; modifiers?: number;
-      keyType?: 'keyDown' | 'keyUp' | 'char' };
+      keyType?: 'keyDown' | 'keyUp' | 'char' }
+  | { type: 'browser_resize'; session: string;
+      width: number; height: number; deviceScaleFactor?: number }
+  | { type: 'browser_quality'; session: string;
+      quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number };
 
 export type BrowserInputMsg = Extract<WSMessage, { type: 'browser_input' }>;
+export type BrowserResizeMsg  = Extract<WSMessage, { type: 'browser_resize' }>;
+export type BrowserQualityMsg = Extract<WSMessage, { type: 'browser_quality' }>;
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
   private onConnectionsChanged: ((n: number) => void) | null = null;
   private onChannelSubscriptionChange: ((channel: string, count: number) => void) | null = null;
   private onBrowserInput: ((msg: BrowserInputMsg) => void) | null = null;
+  private onBrowserResize: ((msg: BrowserResizeMsg) => void) | null = null;
+  private onBrowserQuality: ((msg: BrowserQualityMsg) => void) | null = null;
   private agentDispatcher: AgentDispatcherLike | null = null;
 
   setOnConnectionsChanged(cb: (n: number) => void): void {
@@ -173,6 +181,9 @@ export class WebSocketHandler {
   setOnBrowserInput(cb: (msg: BrowserInputMsg) => void): void {
     this.onBrowserInput = cb;
   }
+
+  setOnBrowserResize(cb: (msg: BrowserResizeMsg) => void): void { this.onBrowserResize = cb; }
+  setOnBrowserQuality(cb: (msg: BrowserQualityMsg) => void): void { this.onBrowserQuality = cb; }
 
   private countChannelSubscribers(channel: string): number {
     const key = `channel:${channel}`;
@@ -277,6 +288,10 @@ export class WebSocketHandler {
         }
       } else if (data.type === 'browser_input') {
         this.onBrowserInput?.(data);
+      } else if (data.type === 'browser_resize') {
+        this.onBrowserResize?.(data);
+      } else if (data.type === 'browser_quality') {
+        this.onBrowserQuality?.(data);
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);

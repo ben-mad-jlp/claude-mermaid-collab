@@ -155,6 +155,19 @@ export function StreamedViewport({
     let mounted = true;
     let sub: { unsubscribe(): void } | null = null;
 
+    const reconn = client.onConnect(() => {
+      client.subscribe('browser:' + session);
+      const c = canvasRef.current;
+      if (c && c.clientWidth > 0) {
+        client.send({
+          type: 'browser_resize', session,
+          width: Math.round(c.clientWidth),
+          height: Math.round(c.clientHeight),
+          deviceScaleFactor: Math.min(window.devicePixelRatio || 1, 2),
+        });
+      }
+    });
+
     client.connect().then(() => {
       if (!mounted) return;
       client.subscribe('browser:' + session);
@@ -175,17 +188,73 @@ export function StreamedViewport({
 
     return () => {
       mounted = false;
+      reconn.unsubscribe();
       sub?.unsubscribe();
       client.unsubscribe('browser:' + session);
       // Do NOT call client.disconnect() — it's a shared client.
     };
   }, [session, server?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const client = getFrameClient(server);
+    let raf = 0;
+    const report = () => {
+      raf = 0;
+      const w = Math.round(canvas.clientWidth);
+      const h = Math.round(canvas.clientHeight);
+      if (w > 0 && h > 0) {
+        client.send({
+          type: 'browser_resize', session, width: w, height: h,
+          deviceScaleFactor: Math.min(window.devicePixelRatio || 1, 2),
+        });
+      }
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(report); };
+    const ro = new ResizeObserver(schedule);
+    ro.observe(canvas);
+    schedule();
+    return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, [session, server?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <canvas
-      ref={canvasRef}
-      tabIndex={0}
-      className="flex-1 w-full h-full object-contain bg-black outline-none"
-    />
+    <div className="relative flex-1 min-h-0">
+      <canvas
+        ref={canvasRef}
+        tabIndex={0}
+        className="absolute inset-0 w-full h-full object-contain bg-black outline-none"
+      />
+      <div className="absolute top-1 right-1 flex items-center gap-1 opacity-60 hover:opacity-100 text-2xs">
+        <select
+          aria-label="Stream quality"
+          onChange={(e) =>
+            getFrameClient(server).send({
+              type: 'browser_quality', session, quality: Number(e.target.value),
+            })
+          }
+          defaultValue="60"
+          className="bg-black/60 text-white rounded px-1 py-0.5"
+        >
+          <option value="40">Low</option>
+          <option value="60">Med</option>
+          <option value="85">High</option>
+        </select>
+        <select
+          aria-label="Stream fps"
+          onChange={(e) =>
+            getFrameClient(server).send({
+              type: 'browser_quality', session, everyNthFrame: Number(e.target.value),
+            })
+          }
+          defaultValue="1"
+          className="bg-black/60 text-white rounded px-1 py-0.5"
+        >
+          <option value="1">High fps</option>
+          <option value="2">Med fps</option>
+          <option value="4">Low fps</option>
+        </select>
+      </div>
+    </div>
   );
 }
