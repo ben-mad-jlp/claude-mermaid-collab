@@ -854,10 +854,12 @@ export interface ReleaseResult {
 }
 
 /**
- * Reclaim expired claims. A claim whose lease elapsed is returned to 'ready'
- * and its retryCount bumped — UNLESS that pushes it past MAX_CLAIM_RETRIES, in
- * which case it is parked 'blocked' (a stuck/failing worker shouldn't be
- * respawned forever) so the coordinator can escalate it for a human.
+ * Reclaim expired claims. A claim whose lease elapsed is cleared (the row
+ * re-derives claimable) and its retryCount bumped — UNLESS that pushes it past
+ * MAX_CLAIM_RETRIES, in which case it is parked via heldAt/heldReason (a stuck/
+ * failing worker shouldn't be respawned forever) so the coordinator can escalate
+ * it for a human. Stored status is the non-derived 'planned' in both cases —
+ * readiness/hold are DERIVED from the cleared claim / heldAt, not the enum.
  */
 export function releaseExpiredClaims(project: string, now: string = nowIso()): Promise<ReleaseResult> {
   return withLock(project, () => {
@@ -873,14 +875,18 @@ export function releaseExpiredClaims(project: string, now: string = nowIso()): P
     if (expired.length === 0) return { released: [], exhausted: [] };
     const ts = nowIso();
     // On expiry: clear the claim and bump retryCount (re-derives claimable). Past
-    // the retry cap, PARK via heldAt/heldReason='retry-exhausted' (the new honest
-    // stored "blocked") instead of writing status='blocked'. ONE write per row.
+    // the retry cap, PARK via heldAt/heldReason='retry-exhausted' (the honest
+    // stored hold). Neither writes the derived 'ready'/'blocked' enum — readiness
+    // is derived by claimability, so the stored status stays the non-derived
+    // 'planned' and the decision fields carry the real state. ONE write per row.
+    // (cleanup-605d6fc0: was status='ready'/'blocked' — behavior-neutral, since
+    // claimReason ignores those enum values; this just stops the status lying.)
     const toReady = db.prepare(
-      `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
+      `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     );
     const toHeld = db.prepare(
-      `UPDATE todos SET status='blocked', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason='retry-exhausted',
+      `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason='retry-exhausted',
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     );
     const released: string[] = [];
@@ -929,14 +935,17 @@ export function reclaimNow(project: string, id: string): Promise<'ready' | 'bloc
     if (!hasClaim && row.status !== 'in_progress') return null;
     const exhausted = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES;
     const next: 'ready' | 'blocked' = exhausted ? 'blocked' : 'ready';
+    // cleanup-605d6fc0: store the non-derived 'planned' + decision fields, never
+    // the derived 'ready'/'blocked' enum (behavior-neutral — claimReason ignores
+    // those values; the return label below still uses them for caller back-compat).
     if (exhausted) {
       db.prepare(
-        `UPDATE todos SET status='blocked', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason='retry-exhausted',
+        `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason='retry-exhausted',
          retryCount=retryCount+1, updatedAt=? WHERE id=?`
       ).run(nowIso(), nowIso(), id);
     } else {
       db.prepare(
-        `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
+        `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
          retryCount=retryCount+1, updatedAt=? WHERE id=?`
       ).run(nowIso(), id);
     }
@@ -962,8 +971,12 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
+    // cleanup-605d6fc0: store 'planned' (non-derived) + clear any hold, never the
+    // derived 'ready' enum. Behavior-neutral: the row re-derives claimable from its
+    // (still-set) approvedAt + cleared claim. The WHERE still keys on the stored
+    // 'in_progress' lock, which IS authoritative (kept in lockstep with claim).
     const res = db.prepare(
-      `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
+      `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL,
        updatedAt=? WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
     ).run(nowIso(), id);
     // NO capacity kick here (S3 soak finding): releaseClaim's callers are all NO-PROGRESS
@@ -1174,9 +1187,15 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // pass below skips rejected todos), so it never silently re-claims and
     // re-fails. Only accepted/pending/null completions move to 'done'.
     if (accept === 'rejected') {
-      // Not done → completedBy cleared (mirrors completedAt).
+      // Not done → completedBy cleared (mirrors completedAt). cleanup-605d6fc0:
+      // store the non-derived 'planned' (not the derived 'blocked' enum) + the
+      // stored acceptanceStatus='rejected' fact. Behavior-neutral here. NOTE: a
+      // self-rejected todo is held out of the claimable set by NOTHING today —
+      // claimReason checks DEP rejection but not a row's OWN acceptanceStatus, and
+      // the old unblock-pass skip was deleted in S4. Tracked separately as a
+      // claimability-predicate gap (rejected ⇒ not-claimable).
       db.prepare(
-        `UPDATE todos SET status='blocked', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
+        `UPDATE todos SET status='planned', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
           ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
       ).run(accept, ts, id);
     } else {
