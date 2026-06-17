@@ -15,6 +15,7 @@ import { MarkdownPreview } from './MarkdownPreview';
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
 import { derivedStatus, buildById } from '@/lib/claimability';
+import { WorkerRunStrip } from '@/components/supervisor/bridge/WorkerRunStrip';
 
 function shortSlug(blueprintId: string): string {
   const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
@@ -72,6 +73,9 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
   const [draftDesc, setDraftDesc] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Expand the worker-ledger run (per-node steps + each node's output) for this
+  // leaf — the closest thing to the executor's transcript. leafId === todo.id.
+  const [showRun, setShowRun] = useState(false);
 
   // Sibling sessions in this project — for the assignee picker.
   const [siblings, setSiblings] = useState<string[]>([]);
@@ -438,13 +442,35 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                 return (
                   <span className="inline-flex items-center gap-1.5">
                     <span className="text-gray-400 dark:text-gray-500">Executor</span>
-                    <span className="font-medium text-gray-700 dark:text-gray-300 truncate max-w-[180px]">
-                      {executor}
-                    </span>
+                    {/* Click-through to the worker-ledger run (per-node steps +
+                        outputs) — the run is keyed by leafId === todo.id. */}
+                    <button
+                      type="button"
+                      data-testid="executor-run-toggle"
+                      onClick={() => setShowRun((v) => !v)}
+                      className="font-medium text-accent-700 dark:text-accent-300 hover:underline truncate max-w-[180px]"
+                      title="Show the executor run (worker-ledger steps + output)"
+                    >
+                      {executor}{showRun ? ' ▾' : ' ▸'}
+                    </button>
                   </span>
                 );
               })()}
             </div>
+
+            {/* Executor run ledger — the leaf's per-node steps, models, verdicts and
+                each node's final message (the closest thing to the SDK session
+                transcript; headless `claude -p` leaves no .jsonl). */}
+            {showRun && (
+              <div className="mt-3">
+                <WorkerRunStrip
+                  leafId={todo.id}
+                  isActive={!!todo.claim || todo.status === 'in_progress'}
+                  project={currentSession?.project}
+                  serverId={currentSession?.serverId ?? ''}
+                />
+              </div>
+            )}
 
             <div className="mt-5 border-t border-gray-100 dark:border-gray-800 pt-5">
               {currentDesc.trim() ? (
