@@ -120,6 +120,30 @@ describe('PlanKanban', () => {
     ];
     render(<PlanKanban todos={todos} showCompleted={false} onClearCompleted={vi.fn()} />);
     expect(screen.queryByTestId('clear-completed-bucket')).toBeNull();
+    expect(screen.queryByTestId('clear-completed-orphans')).toBeNull();
+  });
+
+  it('shows "Clear completed" on the orphan lane and fires onClearCompleted(null)', () => {
+    const orphans = [
+      todo({ id: 'O1', status: 'done', completed: true }),
+      todo({ id: 'O2', status: 'ready' }),
+    ];
+    const onClear = vi.fn();
+    render(<PlanKanban todos={orphans} showCompleted onClearCompleted={onClear} />);
+    const btn = screen.getByTestId('clear-completed-orphans');
+    fireEvent.click(btn);
+    expect(onClear).toHaveBeenCalledWith(null);
+  });
+
+  it('does NOT show any clear button on a cohesive (non-bucket) epic with done children', () => {
+    const todos = [
+      todo({ id: 'E', title: 'Cohesive Feature' }),
+      todo({ id: 'E1', status: 'done', completed: true, parentId: 'E' }),
+      todo({ id: 'E2', status: 'ready', parentId: 'E' }),
+    ];
+    render(<PlanKanban todos={todos} showCompleted onClearCompleted={vi.fn()} />);
+    expect(screen.queryByTestId('clear-completed-bucket')).toBeNull();
+    expect(screen.queryByTestId('clear-completed-orphans')).toBeNull();
   });
 
   it('tags a bottleneck with the transitive unblocks count', () => {

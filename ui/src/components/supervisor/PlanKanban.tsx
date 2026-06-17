@@ -27,8 +27,9 @@ export interface PlanKanbanProps {
   onSelectTodo?: (todo: SessionTodo) => void;
   /** Controlled by the parent (PlanPanel) so Kanban/List/Graph share one toggle. */
   showCompleted: boolean;
-  /** Clear (hard-delete) a bucket epic's completed children — Inbox housekeeping. */
-  onClearCompleted?: (epicId: string) => void;
+  /** Clear (hard-delete) a lane's completed children — Inbox/orphan housekeeping.
+   *  `epicId === null` ⇒ the synthetic "No epic" (orphan) lane. */
+  onClearCompleted?: (epicId: string | null) => void;
 }
 
 /**
@@ -277,19 +278,26 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   <span className="text-success-600 dark:text-success-400 font-medium">✓ complete</span>
                 )}
               </span>
-              {/* Bucket-epic housekeeping (#3): clear out finished ad-hoc items so the
-                  Inbox doesn't accumulate forever. Only on bucket epics with done kids. */}
-              {onClearCompleted && lane.epic && isBucketEpic(lane.epic.title) && lane.counts.done > 0 && (
-                <button
-                  type="button"
-                  data-testid="clear-completed-bucket"
-                  onClick={() => onClearCompleted(lane.epic!.id)}
-                  title={`Permanently delete the ${lane.counts.done} completed item(s) in this bucket`}
-                  className="shrink-0 px-1.5 py-0.5 text-3xs rounded text-gray-500 dark:text-gray-400 hover:bg-danger-50 hover:text-danger-600 dark:hover:bg-danger-900/30 dark:hover:text-danger-300 transition-colors"
-                >
-                  Clear completed ({lane.counts.done})
-                </button>
-              )}
+              {/* Housekeeping: clear finished ad-hoc items from bucket (Inbox) epics and
+                  the synthetic orphan ("No epic") lane. Cohesive epics are not clearable. */}
+              {(() => {
+                const clearableEpicId =
+                  lane.epic && isBucketEpic(lane.epic.title) ? lane.epic.id
+                  : lane.epic === null ? null
+                  : undefined;
+                const canClear = onClearCompleted && clearableEpicId !== undefined && lane.counts.done > 0;
+                return canClear ? (
+                  <button
+                    type="button"
+                    data-testid={lane.epic ? 'clear-completed-bucket' : 'clear-completed-orphans'}
+                    onClick={() => onClearCompleted!(clearableEpicId!)}
+                    title={`Permanently delete the ${lane.counts.done} completed item(s) in this lane`}
+                    className="shrink-0 px-1.5 py-0.5 text-3xs rounded text-gray-500 dark:text-gray-400 hover:bg-danger-50 hover:text-danger-600 dark:hover:bg-danger-900/30 dark:hover:text-danger-300 transition-colors"
+                  >
+                    Clear completed ({lane.counts.done})
+                  </button>
+                ) : null;
+              })()}
             </header>
             <div className="overflow-x-auto p-1.5">
               <div className="flex gap-2 items-start">

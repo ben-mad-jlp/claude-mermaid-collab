@@ -223,16 +223,32 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
       .filter((g) => showCompleted || !g.completed);
   }, [todos, waveMap, showCompleted]);
 
-  // Housekeeping (#3): hard-delete a bucket epic's completed children so the Inbox
-  // doesn't accumulate forever. Confirmed (destructive); batch-delete then reload once.
-  const handleClearCompleted = async (epicId: string) => {
+  // Housekeeping: hard-delete completed children from a bucket epic (epicId is a string)
+  // or the synthetic orphan lane (epicId === null). Confirmed; batch-delete then reload.
+  const handleClearCompleted = async (epicId: string | null) => {
     const TERM = new Set(['done', 'dropped']);
-    const done = todos.filter((t) => t.parentId === epicId && TERM.has(t.status));
+    let done: SessionTodo[];
+    let label: string;
+    if (epicId === null) {
+      const byId = new Map(todos.map((t) => [t.id, t]));
+      const epicIds = new Set(
+        todos.filter((t) => t.parentId != null && byId.has(t.parentId)).map((t) => t.parentId!),
+      );
+      done = todos.filter(
+        (t) =>
+          TERM.has(t.status) &&
+          !epicIds.has(t.id) &&
+          !(t.parentId != null && byId.has(t.parentId)),
+      );
+      label = 'the No-epic lane';
+    } else {
+      done = todos.filter((t) => t.parentId === epicId && TERM.has(t.status));
+      label = `"${todos.find((t) => t.id === epicId)?.title ?? 'this epic'}"`;
+    }
     if (done.length === 0) return;
-    const epicTitle = todos.find((t) => t.id === epicId)?.title ?? 'this epic';
     if (
       !window.confirm(
-        `Permanently delete ${done.length} completed item${done.length === 1 ? '' : 's'} from "${epicTitle}"?\n\nThis removes them from the plan and cannot be undone.`,
+        `Permanently delete ${done.length} completed item${done.length === 1 ? '' : 's'} from ${label}?\n\nThis removes them from the plan and cannot be undone.`,
       )
     )
       return;
