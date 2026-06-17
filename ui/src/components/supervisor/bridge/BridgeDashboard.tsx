@@ -14,6 +14,7 @@ import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { TodoDetailView } from '@/components/editors/TodoDetailView';
 import type { SessionTodo } from '@/types/sessionTodo';
+import { isClaimable, buildById } from '@/lib/claimability';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useEventStreamStore } from '@/stores/eventStreamStore';
@@ -356,7 +357,10 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   }, [todos]);
 
   const readyCount = useMemo(
-    () => todos.filter((t) => t.status === 'ready' && !t.claimedBy).length,
+    () => {
+      const byId = buildById(todos);
+      return todos.filter((t) => isClaimable(t, byId)).length;
+    },
     [todos],
   );
 

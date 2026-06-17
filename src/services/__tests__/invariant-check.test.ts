@@ -89,9 +89,10 @@ describe('findViolations', () => {
     expect(findViolations([epic, sub, land]).filter((x) => x.kind === 'stranded-epic')).toEqual([]);
   });
 
-  test('epic still planned with a ready child is flagged', () => {
+  test('epic still planned with a CLAIMABLE child is flagged', () => {
     const epic = todo({ id: 'e1', title: '[EPIC] x', status: 'planned' });
-    const child = todo({ id: 'c1', title: 'c', parentId: 'e1', status: 'ready' });
+    // De-conflate (b2c858d4): "ready" = derived isClaimable → the child must be approved+unblocked.
+    const child = todo({ id: 'c1', title: 'c', parentId: 'e1', status: 'ready', approvedAt: '2026-01-01T00:00:00Z' });
     const land = todo({ id: 'l1', title: '[LAND] x → master', parentId: 'e1' });
     const v = findViolations([epic, child, land]);
     expect(v.find((x) => x.kind === 'epic-planned-ready-child' && x.todoId === 'e1')).toBeTruthy();

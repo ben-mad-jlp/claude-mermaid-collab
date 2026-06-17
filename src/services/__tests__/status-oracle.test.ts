@@ -47,21 +47,11 @@ const ALLOWLIST: AllowEntry[] = [
   //     (post-translation input-edge), reading the requested param, not a stored row. Stays.
   { file: 'src/services/todo-store.ts', count: 1, reason: 'write-side: resetTodo kick on requested status==="ready" (unheld input edge), not a derived read' },
 
-  // (A) LEGACY invariant check — the epic-planned-ready-child invariant intentionally reads
-  //     a child's enum. Orthogonal to the claim model; not a readiness derivation. Stays.
-  { file: 'src/services/invariant-check.ts', count: 1, reason: 'legacy epic-planned-ready-child invariant intentionally reads child.status==="ready"' },
-
-  // (B) S5-TAIL — coordinator-core still keys claim selection on status==='ready'. Migrate to
-  //     isClaimable/claimReason; remove when S5-tail lands.
-  { file: 'src/services/coordinator-core.ts', count: 1, reason: 'S5-tail: daemon-core still reads status==="ready"; migrate to isClaimable — remove when S5-tail lands' },
-
-  // (B) S5-TAIL — funnel.ts byId-absent single-todo fallback (documented in funnel.ts):
-  //     2 matches (ready + blocked legacy-enum fallbacks). Remove when callers thread byId.
-  { file: 'ui/src/components/supervisor/bridge/funnel.ts', count: 3, reason: 'S5-tail: byId-absent legacy-enum fallback (ready + blocked) + the blocked-fallback explanatory comment — remove when callers thread byId' },
-
-  // (B) S5-TAIL — BridgeDashboard readyCount still reads status==='ready'. Migrate to isClaimable;
-  //     remove when S5-tail lands.
-  { file: 'ui/src/components/supervisor/bridge/BridgeDashboard.tsx', count: 1, reason: 'S5-tail: readyCount reads status==="ready"; migrate to isClaimable — remove when S5-tail lands' },
+  // (A) funnel.ts byId-absent single-todo fallback (documented in funnel.ts): the per-row color
+  //     helpers (statusTint/statusDot) call bucketTodo WITHOUT a byId map (no dep graph for a
+  //     glyph), so they fall back to the legacy enum for COLOR ONLY — funnel delegates to
+  //     claimReason whenever byId is supplied. 2 reads (ready+blocked) + 1 explanatory comment.
+  { file: 'ui/src/components/supervisor/bridge/funnel.ts', count: 3, reason: 'byId-absent legacy-enum color fallback (ready+blocked) + the explanatory comment; delegates to claimReason when byId is supplied' },
 
   // NOTE on comment-only matches: a few files contain the literal `status==='ready'` inside
   // explanatory COMMENTS (e.g. ui/src/lib/claimability.ts, funnel.ts blocked-fallback comment).

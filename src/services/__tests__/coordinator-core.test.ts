@@ -27,6 +27,16 @@ function makeTodo(overrides: Partial<Todo> & { id: string; status: Todo['status'
     claimedAt: null,
     claimLeaseMs: null,
     retryCount: 0,
+    // De-conflate (b2c858d4) decision fields. Mirror the S1 backfill: a row in a
+    // post-approval status is approved; pre-run statuses are not. `claim` defaults null
+    // (in-flight is set explicitly via the `claim` struct in the lease tests).
+    approvedAt: ['ready', 'blocked', 'in_progress', 'done', 'dropped'].includes(
+      (overrides.status as string),
+    ) ? '2024-01-01T00:00:00.000Z' : null,
+    approvedBy: null,
+    heldAt: null,
+    heldReason: null,
+    claim: null,
     ...overrides,
   } as Todo;
 }
@@ -54,10 +64,12 @@ describe('planCoordinatorTick', () => {
 
   test('container guard: a ready PARENT with a non-terminal child is NOT claimed', () => {
     const epic = makeTodo({ id: 'epic', status: 'ready', dependsOn: [] });
-    const child = makeTodo({ id: 'c1', status: 'in_progress', parentId: 'epic' });
+    // Genuinely in-flight child: claim != null (in the de-conflate model in_progress ≡ claim).
+    const child = makeTodo({ id: 'c1', status: 'in_progress', parentId: 'epic',
+      claim: { by: 'w', token: 't', at: NOW, leaseMs: 60 * 60 * 1000 } });
     const plan = planCoordinatorTick([epic, child], NOW);
     expect(plan.toClaim).not.toContain('epic'); // container, never claimed
-    expect(plan.toClaim).not.toContain('c1');    // child is in_progress, not ready
+    expect(plan.toClaim).not.toContain('c1');    // child is in-flight (has a claim), not claimable
   });
 
   test('container guard: a ready parent whose children are ALL terminal IS claimable', () => {
@@ -88,31 +100,31 @@ describe('planCoordinatorTick', () => {
     expect(plan.toClaim).not.toContain('a');
   });
 
-  test('ready todo with an unknown dep id → in toClaim (unknown ignored)', () => {
+  test('ready todo with an unknown dep id → NOT in toClaim (de-conflate: unknown dep is unsatisfied)', () => {
+    // Behavior change (b2c858d4): claimability.depSatisfied requires the dep be a KNOWN done
+    // row — an unknown/unresolvable dep id now blocks (deps-pending), it is no longer ignored.
     const todo = makeTodo({ id: 'a', status: 'ready', dependsOn: ['nonexistent'] });
     const plan = planCoordinatorTick([todo], NOW);
-    expect(plan.toClaim).toContain('a');
+    expect(plan.toClaim).not.toContain('a');
   });
 
-  test('in_progress with expired lease → in toRelease', () => {
-    const claimedAt = '2024-06-01T11:00:00.000Z'; // 1 hour ago
-    const claimLeaseMs = 30 * 60 * 1000; // 30 min lease
-    const todo = makeTodo({ id: 'b', status: 'in_progress', claimedAt, claimLeaseMs });
+  test('in-flight claim with expired lease → in toRelease', () => {
+    const claim = { by: 'coordinator', token: 't', at: '2024-06-01T11:00:00.000Z', leaseMs: 30 * 60 * 1000 }; // expired 30m ago
+    const todo = makeTodo({ id: 'b', status: 'in_progress', claim });
     const plan = planCoordinatorTick([todo], NOW);
     expect(plan.toRelease).toContain('b');
     expect(plan.toClaim).not.toContain('b');
   });
 
-  test('in_progress with unexpired lease → NOT in toRelease', () => {
-    const claimedAt = '2024-06-01T11:45:00.000Z'; // 15 min ago
-    const claimLeaseMs = 30 * 60 * 1000; // 30 min lease
-    const todo = makeTodo({ id: 'b', status: 'in_progress', claimedAt, claimLeaseMs });
+  test('in-flight claim with unexpired lease → NOT in toRelease', () => {
+    const claim = { by: 'coordinator', token: 't', at: '2024-06-01T11:45:00.000Z', leaseMs: 30 * 60 * 1000 }; // 15m ago
+    const todo = makeTodo({ id: 'b', status: 'in_progress', claim });
     const plan = planCoordinatorTick([todo], NOW);
     expect(plan.toRelease).not.toContain('b');
   });
 
-  test('in_progress with null claimLeaseMs → NOT in toRelease', () => {
-    const todo = makeTodo({ id: 'b', status: 'in_progress', claimedAt: '2024-01-01T00:00:00.000Z', claimLeaseMs: null });
+  test('no claim → NOT in toRelease', () => {
+    const todo = makeTodo({ id: 'b', status: 'in_progress', claim: null });
     const plan = planCoordinatorTick([todo], NOW);
     expect(plan.toRelease).not.toContain('b');
   });

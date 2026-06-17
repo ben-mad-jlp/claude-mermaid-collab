@@ -1,6 +1,7 @@
 import type { Todo, TodoStatus } from './todo-store';
 import { listTodos } from './todo-store';
 import { recordSupervisorAudit } from './supervisor-store';
+import { isClaimable } from './claimability';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -118,9 +119,11 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
       });
     }
 
-    // 3. epic-planned-ready-child — epic still 'planned' but has a 'ready' child.
+    // 3. epic-planned-ready-child — epic still 'planned' but has a CLAIMABLE child.
+    // De-conflate (b2c858d4): "ready" is derived now, so test the child via isClaimable
+    // (the single predicate) rather than the legacy materialized status enum.
     if (isEpicTodo(t) && t.status === 'planned') {
-      const readyChild = (childrenOf.get(t.id) ?? []).find((c) => c.status === 'ready');
+      const readyChild = (childrenOf.get(t.id) ?? []).find((c) => isClaimable(c, byId));
       if (readyChild) {
         violations.push({
           kind: 'epic-planned-ready-child',
