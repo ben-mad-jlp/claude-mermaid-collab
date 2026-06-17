@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { existsSync, unlinkSync } from 'fs';
-import { mkdir, writeFile, rename, unlink, readdir, readFile, open } from 'fs/promises';
+import { mkdir, writeFile, rename, unlink, readdir, readFile, open, rm } from 'fs/promises';
 import { Socket } from 'net';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -90,6 +90,29 @@ export function deriveSessionId(project: string, session: string): string {
   return createHash('sha1').update(project + '\0' + session).digest('hex').slice(0, 12);
 }
 
+/**
+ * Steal a STALE instance lock whose owner is provably dead — the hot-swap case:
+ * the supervisor SIGKILL'd the old sidecar, but proper-lockfile keeps its lock
+ * "fresh" (mtime < staleness window), so an immediate respawn would hit ELOCKED
+ * and refuse to start. We read the recorded owner pid; if it's dead (or there's
+ * no record behind the lock at all), remove proper-lockfile's lock dir + the
+ * stale record so a fresh acquire succeeds. A LIVE owner returns false → the
+ * caller throws the genuine duplicate error. Best-effort; never throws.
+ */
+async function stealStaleInstanceLock(sessionId: string, paths: DiscoveryPaths): Promise<boolean> {
+  try {
+    const raw = await readFile(paths.instanceFile(sessionId), 'utf8');
+    const rec = JSON.parse(raw) as Instance;
+    if (typeof rec.pid === 'number' && isPidAlive(rec.pid)) return false; // genuine live duplicate
+  } catch {
+    /* no/unreadable record behind the lock → treat as a steal-able orphan */
+  }
+  // proper-lockfile locks `<file>` by creating the directory `<file>.lock`.
+  await rm(paths.lockFile(sessionId) + '.lock', { recursive: true, force: true }).catch(() => {});
+  await unlink(paths.instanceFile(sessionId)).catch(() => {});
+  return true;
+}
+
 /** Atomically write an instance record and acquire its exclusive lockfile; throws on duplicate. */
 export async function writeInstance(inst: Instance, paths: DiscoveryPaths = getDiscoveryPaths()): Promise<void> {
   if (lockReleaseMap.has(inst.sessionId)) {
@@ -106,11 +129,19 @@ export async function writeInstance(inst: Instance, paths: DiscoveryPaths = getD
     release = await lock(paths.lockFile(inst.sessionId), { realpath: false, retries: 0 });
   } catch (err: unknown) {
     if (err && typeof err === 'object' && (err as { code?: string }).code === 'ELOCKED') {
-      throw new Error(
-        `Duplicate instance for sessionId ${inst.sessionId} — another mermaid-collab server is already running for this (project, session)`
-      );
+      // The lock is held. If its owner is a DEAD predecessor (hot-swap respawn
+      // racing the SIGKILL'd old sidecar's still-fresh lock), steal it and retry
+      // once; a LIVE owner is a real duplicate and still throws.
+      if (await stealStaleInstanceLock(inst.sessionId, paths)) {
+        release = await lock(paths.lockFile(inst.sessionId), { realpath: false, retries: 0 });
+      } else {
+        throw new Error(
+          `Duplicate instance for sessionId ${inst.sessionId} — another mermaid-collab server is already running for this (project, session)`
+        );
+      }
+    } else {
+      throw err;
     }
-    throw err;
   }
   lockReleaseMap.set(inst.sessionId, release);
 

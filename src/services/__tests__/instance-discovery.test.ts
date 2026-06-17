@@ -8,6 +8,7 @@ import { lock } from 'proper-lockfile';
 import {
   getDiscoveryPaths,
   readInstances,
+  writeInstance,
   isPidAlive,
   isPortListening,
   type Instance,
@@ -96,6 +97,46 @@ describe('readInstances reaping', () => {
       const live = await readInstances(paths);
       expect(live.map((i) => i.sessionId)).toContain('liveone01');
       expect(existsSync(paths.instanceFile('liveone01'))).toBe(true);
+    } finally {
+      await release();
+    }
+  });
+});
+
+describe('writeInstance hot-swap stale-lock steal (49e3c1f6)', () => {
+  beforeEach(async () => {
+    home = join(tmpdir(), 'mc-inst-' + Math.random().toString(36).slice(2));
+    paths = getDiscoveryPaths(home);
+    await mkdir(paths.instancesDir, { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
+
+  const inst = (sessionId: string, pid: number): Instance => ({
+    version: 1, sessionId, port: 9011, project: '/repo', session: 's',
+    pid, startedAt: new Date().toISOString(), serverVersion: '0',
+  });
+
+  it('steals a stale lock whose owner pid is DEAD (hot-swap respawn) and registers', async () => {
+    // Simulate a SIGKILL'd predecessor: a record with a dead pid + a held lock.
+    await writeRecord({ sessionId: 'hs-dead-01', pid: DEAD_PID });
+    const release = await lock(paths.lockFile('hs-dead-01'), { realpath: false, retries: 0 });
+    try {
+      // The respawn must NOT throw — it steals the orphan lock and registers.
+      await writeInstance(inst('hs-dead-01', process.pid), paths);
+      expect(existsSync(paths.instanceFile('hs-dead-01'))).toBe(true);
+    } finally {
+      await release().catch(() => { /* stolen out from under us — expected */ });
+    }
+  });
+
+  it('still throws Duplicate when the lock owner is ALIVE (genuine conflict)', async () => {
+    // A live owner (this process pid) — must NOT be stolen.
+    await writeRecord({ sessionId: 'hs-live-01', pid: process.pid });
+    const release = await lock(paths.lockFile('hs-live-01'), { realpath: false, retries: 0 });
+    try {
+      await expect(writeInstance(inst('hs-live-01', process.pid), paths)).rejects.toThrow(/Duplicate instance/);
     } finally {
       await release();
     }
