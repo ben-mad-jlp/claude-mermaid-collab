@@ -1,5 +1,6 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
+import { isClaimable } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -438,6 +439,90 @@ function withLock<T>(project: string, fn: () => T | Promise<T>): Promise<T> {
 
 const nowIso = () => new Date().toISOString();
 
+/**
+ * De-conflate S3 — the WRITE-SIDE translation seam, living in the store mutator so
+ * it covers EVERY surface (HTTP routes, MCP tools, scripts) at one chokepoint.
+ *
+ * `ready`/`blocked`/`in_progress` are now DERIVED facts (claimability.ts), so a
+ * caller hand-setting one of those as a stored status is incoherent. This rewrites
+ * such a status-write into the equivalent DECISION-write and returns:
+ *   - storedStatus: the value actually persisted to `status` (never a derived one)
+ *   - decision overrides for approvedAt/approvedBy/heldAt/heldReason (undefined =
+ *     "leave caller/existing value unchanged"; null = "clear")
+ *
+ * Mapping (MANUAL STATUS WRITES table):
+ *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; keep status as-is/'planned'
+ *   blocked            → hold:    heldAt=now, heldReason='manual';            keep status as-is/'planned'
+ *   in_progress        → REJECT (throw) — a human inventing a claim is nonsensical
+ *   planned|backlog|todo→ un-approve/park: approvedAt=null;                   status='planned'
+ *   done|dropped       → real lifecycle move; unchanged
+ *
+ * Throws TranslatedInProgressError on an attempt to hand-set in_progress.
+ */
+export class ManualInProgressError extends Error {
+  constructor() {
+    super("cannot set status='in_progress' directly — claims are created by the daemon via claimTodo, not by a manual status write");
+    this.name = 'ManualInProgressError';
+  }
+}
+
+interface StatusTranslation {
+  storedStatus: TodoStatus;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  heldAt?: string | null;
+  heldReason?: string | null;
+}
+
+/**
+ * Translate a requested status into (storedStatus + decision overrides).
+ * `requested` is the status the caller asked for; `currentStatus` is the existing
+ * row's status (so a derived-value write can leave it as-is rather than forcing it).
+ * `approvedBy` is an optional audit handle for the approve verb.
+ */
+function translateStatusWrite(
+  requested: TodoStatus,
+  currentStatus: TodoStatus,
+  approvedBy?: string | null,
+): StatusTranslation {
+  const ts = nowIso();
+  switch (requested) {
+    case 'ready':
+      // "approve to run" — identical to the Planner's approve verb. Never store the
+      // derived 'ready'; never leave it on a TERMINAL status (an un-complete routes
+      // through 'ready' and must move the row off 'done'/'dropped' back to 'planned'
+      // so it re-derives claimable). Otherwise keep the existing pre-terminal status.
+      return {
+        storedStatus: (currentStatus === 'ready' || currentStatus === 'done' || currentStatus === 'dropped')
+          ? 'planned' : currentStatus,
+        approvedAt: ts,
+        ...(approvedBy != null ? { approvedBy } : {}),
+        heldAt: null,
+        heldReason: null,
+      };
+    case 'blocked':
+      // "hold this" — the only honest manual blocked. Never store 'blocked'.
+      return {
+        storedStatus: currentStatus === 'blocked' ? 'planned' : currentStatus,
+        heldAt: ts,
+        heldReason: 'manual',
+      };
+    case 'in_progress':
+      throw new ManualInProgressError();
+    case 'planned':
+    case 'backlog':
+    case 'todo':
+      // Pre-approval / pre-run values — NOT derived, so stored verbatim. They
+      // represent "un-approved / parked pre-run", so clear the approval decision.
+      return { storedStatus: requested, approvedAt: null };
+    case 'done':
+    case 'dropped':
+    default:
+      // real lifecycle move — unchanged.
+      return { storedStatus: requested };
+  }
+}
+
 /** Minimal default actor handle for a human completion when the caller didn't
  *  supply one. Opaque attribution string (B1) — host-scoped, not an identity. */
 function defaultActorHandle(): string {
@@ -576,12 +661,22 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
     const ord = maxOrd == null ? 10 : maxOrd + 10;
     const id = crypto.randomUUID();
     const ts = nowIso();
-    const status = input.status ?? 'todo';
+    // De-conflate S3 — WRITE-SIDE TRANSLATION SEAM (create path). A create that asks
+    // for a derived status (ready/blocked/in_progress) is a decision, not a stored
+    // status: translate to approvedAt/heldAt and persist the non-derived status.
+    const requested = input.status ?? 'todo';
+    const tr = translateStatusWrite(requested, 'planned'); // no prior status on create
+    const status = tr.storedStatus;
+    const approvedAt = tr.approvedAt !== undefined ? tr.approvedAt : null;
+    const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
+    const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
+    const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, executedBySession, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        sessionName, executedBySession, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe,
+        approvedAt, approvedBy, heldAt, heldReason)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -591,10 +686,12 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      approvedAt, approvedBy, heldAt, heldReason
     );
-    // EVENT-DRIVEN: a directly-created claimable todo → kick the orchestrator now.
-    if (status === 'ready') fireOrchestratorKick(`todo-created-ready:${id.slice(0, 8)}`);
+    // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
+    // → kick the orchestrator now (best-effort latency; the interval scan is the net).
+    if (approvedAt != null) fireOrchestratorKick(`todo-created-approved:${id.slice(0, 8)}`);
     return getTodo(project, id)!;
   });
 }
@@ -604,17 +701,40 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
 
-    // Reconcile status <-> completed.
-    let status = patch.status ?? existing.status;
-    if (patch.completed === true) status = 'done';
+    // De-conflate S3 — WRITE-SIDE TRANSLATION SEAM. A caller setting `status` to a
+    // now-DERIVED value (ready/blocked/in_progress) is expressing a DECISION, not a
+    // stored status. Translate it to a decision-write (approvedAt/heldAt) here, the
+    // one chokepoint covering HTTP + MCP + scripts. in_progress is rejected outright.
+    let requestedStatus = patch.status ?? existing.status;
+    if (patch.completed === true) requestedStatus = 'done';
     // BUG c4f9f170: un-completing a `done` todo (completed:false) must NOT drop it
-    // to `todo`. The Orchestrator daemon only claims `ready`, so a `todo` landing
-    // STRANDS the worker's already-committed work forever (it never re-surfaces to
-    // a claimable state). An EXPLICIT patch.status always wins (e.g. a conflicted
-    // merge-back parks it `blocked` for a human); otherwise an un-done todo returns
-    // to `ready` so the daemon can re-claim and re-integrate the committed lane work.
+    // to `todo`. An un-done todo returns to claimable (we route it through 'ready',
+    // which the seam below translates to an approve so the daemon re-claims it).
     if (patch.completed === false && existing.status === 'done' && patch.status === undefined) {
-      status = 'ready';
+      requestedStatus = 'ready';
+    }
+    // Decision-axis overrides: start from any EXPLICIT patch values (the Planner /
+    // decision writers set approvedAt/heldAt directly), then let the status-write
+    // translation layer on top when the caller used the status enum instead.
+    let approvedAt: string | null = patch.approvedAt !== undefined ? patch.approvedAt : existing.approvedAt;
+    let approvedBy: string | null = patch.approvedBy !== undefined ? patch.approvedBy : existing.approvedBy;
+    let heldAt: string | null = patch.heldAt !== undefined ? patch.heldAt : existing.heldAt;
+    let heldReason: string | null = patch.heldReason !== undefined ? patch.heldReason : existing.heldReason;
+
+    let status: TodoStatus;
+    // Only translate when the caller actually expressed a status intent (patch.status
+    // or the completed:false→ready rescue). A patch that touches only OTHER fields
+    // must leave status untouched and NOT mint a spurious decision.
+    const callerSetStatus = patch.status !== undefined || patch.completed !== undefined;
+    if (callerSetStatus) {
+      const tr = translateStatusWrite(requestedStatus, existing.status, patch.approvedBy);
+      status = tr.storedStatus;
+      if (tr.approvedAt !== undefined) approvedAt = tr.approvedAt;
+      if (tr.approvedBy !== undefined) approvedBy = tr.approvedBy;
+      if (tr.heldAt !== undefined) heldAt = tr.heldAt;
+      if (tr.heldReason !== undefined) heldReason = tr.heldReason;
+    } else {
+      status = existing.status;
     }
     const completedAt = status === 'done' ? (existing.completedAt ?? nowIso()) : null;
 
@@ -663,17 +783,22 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.prepare(
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
         dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
+        approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
         completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
       next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
+      approvedAt, approvedBy, heldAt, heldReason,
       completedAt, completedBy, nowIso(), id
     );
-    // EVENT-DRIVEN: a todo just became claimable → ask the orchestrator to tick now
-    // (instead of waiting up to a full interval). Only on the transition INTO ready.
-    if (status === 'ready' && existing.status !== 'ready') {
-      fireOrchestratorKick(`todo-ready:${id.slice(0, 8)}`);
+    // EVENT-DRIVEN (S3) — retargeted to the INPUT edges that can newly make some
+    // todo claimable. Approval going null→non-null is the 'approved' input kick;
+    // clearing a hold (heldAt non-null→null) is the 'unheld' input kick.
+    if (existing.approvedAt == null && approvedAt != null) {
+      fireOrchestratorKick(`approved:${id.slice(0, 8)}`);
+    } else if (existing.heldAt != null && heldAt == null) {
+      fireOrchestratorKick(`unheld:${id.slice(0, 8)}`);
     }
     return getTodo(project, id)!;
   });
@@ -699,13 +824,19 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     const db = openDb(project);
     const token = crypto.randomUUID();
     const now = nowIso();
-    // CAS claim: the atomic guard stays IDENTICAL (status='ready' AND claimToken
-    // IS NULL); writeClaim's 5-column lockstep is folded inline so the set is one
-    // atomic write. claim JSON kept in sync with the 4 legacy columns.
+    // CAS claim (S3): the atomic guard is NARROWED to the new decision model and is
+    // SUBORDINATE to isClaimable (optimistic-concurrency, NEVER a second definition
+    // of eligibility — the daemon already filtered via isClaimable/listReadyTodos;
+    // this WHERE only re-checks the race-prone fields at write time). writeClaim's
+    // 5-column lockstep is folded inline so the set is one atomic write.
+    //   claim IS NULL            — not already in-flight
+    //   status NOT IN done/dropped — not terminal
+    //   approvedAt IS NOT NULL    — Planner-approved
+    //   heldAt IS NULL            — not held
     const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs } satisfies ClaimStruct);
     const res = db.prepare(
       `UPDATE todos SET status='in_progress', claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, claim=?, updatedAt=?
-       WHERE id=? AND status='ready' AND claimToken IS NULL`
+       WHERE id=? AND claim IS NULL AND status NOT IN ('done','dropped') AND approvedAt IS NOT NULL AND heldAt IS NULL`
     ).run(claimedBy, token, now, leaseMs, claimJson, now, id);
     return res.changes === 1 ? getTodo(project, id) : null;
   });
@@ -732,25 +863,31 @@ export function releaseExpiredClaims(project: string, now: string = nowIso()): P
   return withLock(project, () => {
     const db = openDb(project);
     const nowMs = new Date(now).getTime();
-    const rows = db.query(
-      `SELECT id, claimedAt, claimLeaseMs, retryCount FROM todos WHERE status='in_progress' AND claimToken IS NOT NULL AND claimLeaseMs IS NOT NULL`
-    ).all() as Array<{ id: string; claimedAt: string; claimLeaseMs: number; retryCount: number }>;
-    const expired = rows.filter((r) => new Date(r.claimedAt).getTime() + r.claimLeaseMs < nowMs);
+    // S3: read the claim via readClaim (the orphan-aware accessor) rather than the
+    // raw legacy columns. A row is expired iff it carries a claim whose lease elapsed.
+    const rows = db.query(`SELECT * FROM todos WHERE status NOT IN ('done','dropped')`).all() as TodoRow[];
+    const expired = rows
+      .map((r) => ({ r, c: readClaim(r) }))
+      .filter((x): x is { r: TodoRow; c: ClaimStruct } => x.c != null
+        && new Date(x.c.at).getTime() + x.c.leaseMs < nowMs);
     if (expired.length === 0) return { released: [], exhausted: [] };
     const ts = nowIso();
+    // On expiry: clear the claim and bump retryCount (re-derives claimable). Past
+    // the retry cap, PARK via heldAt/heldReason='retry-exhausted' (the new honest
+    // stored "blocked") instead of writing status='blocked'. ONE write per row.
     const toReady = db.prepare(
       `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     );
-    const toBlocked = db.prepare(
-      `UPDATE todos SET status='blocked', ${CLAIM_CLEAR_SQL},
+    const toHeld = db.prepare(
+      `UPDATE todos SET status='blocked', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason='retry-exhausted',
        retryCount=retryCount+1, updatedAt=? WHERE id=?`
     );
     const released: string[] = [];
     const exhausted: string[] = [];
     db.transaction(() => {
-      for (const r of expired) {
-        if ((r.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES) { toBlocked.run(ts, r.id); exhausted.push(r.id); }
+      for (const { r } of expired) {
+        if ((r.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES) { toHeld.run(ts, ts, r.id); exhausted.push(r.id); }
         else { toReady.run(ts, r.id); released.push(r.id); }
       }
     })();
@@ -759,55 +896,58 @@ export function releaseExpiredClaims(project: string, now: string = nowIso()): P
 }
 
 /**
- * Force-reclaim a specific in_progress claim REGARDLESS of lease — for a worker
- * detected hard-dead (its tmux session is gone), so we don't wait out the full
- * lease. Same retry-cap semantics as releaseExpiredClaims: → 'ready', or
- * 'blocked' once MAX_CLAIM_RETRIES is exceeded. Returns the new status, or null
- * if the todo wasn't a live claim.
+ * De-conflate S3 — the MERGED force-reclaim. The old reclaimClaim (guarded on
+ * `claimToken IS NOT NULL`) and reclaimOrphan (any in_progress row) collapse to
+ * one function: with the single `claim` struct there is no half-claimed row to
+ * distinguish, so an orphan ≡ a row whose claim (read via readClaim) is non-null
+ * past its lease, OR a row left in_progress with NO live claim at all. Both are
+ * "reclaim now, regardless of lease". The 19b097a1 ~9h stuck-leaf gap (in_progress
+ * + claimToken NULL) is rescued here, not silently skipped.
+ *
+ * Reclaims ANY non-terminal row carrying a claim (or stranded in_progress without
+ * one) and applies the retry-cap: → cleared claim (re-derives claimable) on a
+ * normal reclaim, or → heldAt + heldReason='retry-exhausted' once MAX_CLAIM_RETRIES
+ * is exceeded. Returns 'ready' (claim cleared) / 'blocked' (held), or null if the
+ * row wasn't a reclaimable claim.
+ *
+ * NOTE: returns the legacy 'ready'|'blocked' labels for back-compat with callers —
+ * 'ready' means "claim cleared, will re-derive claimable" and 'blocked' means
+ * "parked via heldAt", matching the new decision model.
  */
-export function reclaimClaim(project: string, id: string): Promise<'ready' | 'blocked' | null> {
+export function reclaimNow(project: string, id: string): Promise<'ready' | 'blocked' | null> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
     const row = db.query(
-      `SELECT retryCount FROM todos WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
-    ).get(id) as { retryCount: number } | undefined;
+      `SELECT * FROM todos WHERE id=?`
+    ).get(id) as TodoRow | undefined;
     if (!row) return null;
-    const next: 'ready' | 'blocked' = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES ? 'blocked' : 'ready';
-    db.prepare(
-      `UPDATE todos SET status=?, ${CLAIM_CLEAR_SQL},
-       retryCount=retryCount+1, updatedAt=? WHERE id=?`
-    ).run(next, nowIso(), id);
+    // Reclaimable iff it carries a (live or orphaned) claim, or is stranded
+    // in_progress without one. Terminal rows are never reclaimed.
+    if (row.status === 'done' || row.status === 'dropped') return null;
+    const hasClaim = readClaim(row) != null;
+    if (!hasClaim && row.status !== 'in_progress') return null;
+    const exhausted = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES;
+    const next: 'ready' | 'blocked' = exhausted ? 'blocked' : 'ready';
+    if (exhausted) {
+      db.prepare(
+        `UPDATE todos SET status='blocked', ${CLAIM_CLEAR_SQL}, heldAt=?, heldReason='retry-exhausted',
+         retryCount=retryCount+1, updatedAt=? WHERE id=?`
+      ).run(nowIso(), nowIso(), id);
+    } else {
+      db.prepare(
+        `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
+         retryCount=retryCount+1, updatedAt=? WHERE id=?`
+      ).run(nowIso(), id);
+    }
     return next;
   });
 }
 
-/**
- * Force-reclaim an ORPHANED in_progress todo — one left in_progress with NO live
- * claim: claimedBy/claimToken NULL (e.g. wiped by a daemon restart), or a claim
- * past its lease whose worker is gone. Unlike reclaimClaim, this does NOT require
- * `claimToken IS NOT NULL`: an orphan's defining trait is the ABSENCE of a claim,
- * so reclaimClaim silently no-ops on exactly the rows the orphan reaper must
- * rescue (the 19b097a1 ~9h stuck-leaf gap). Same retry-cap semantics as
- * reclaimClaim: → 'ready', or 'blocked' once MAX_CLAIM_RETRIES is exceeded.
- * Returns the new status, or null if the row wasn't in_progress.
- */
-export function reclaimOrphan(project: string, id: string): Promise<'ready' | 'blocked' | null> {
-  return withLock(project, () => {
-    assertProjectLocal(project);
-    const db = openDb(project);
-    const row = db.query(
-      `SELECT retryCount FROM todos WHERE id=? AND status='in_progress'`
-    ).get(id) as { retryCount: number } | undefined;
-    if (!row) return null;
-    const next: 'ready' | 'blocked' = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES ? 'blocked' : 'ready';
-    db.prepare(
-      `UPDATE todos SET status=?, ${CLAIM_CLEAR_SQL},
-       retryCount=retryCount+1, updatedAt=? WHERE id=?`
-    ).run(next, nowIso(), id);
-    return next;
-  });
-}
+/** Back-compat aliases (S3): both legacy names now route to the single merged
+ *  reclaimNow. Kept so coordinator-live's call sites need no change. */
+export const reclaimClaim = reclaimNow;
+export const reclaimOrphan = reclaimNow;
 
 /**
  * Release a claim WITHOUT a retry penalty — for a todo the coordinator claimed
@@ -826,6 +966,8 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
       `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
        updatedAt=? WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
     ).run(nowIso(), id);
+    // EVENT-DRIVEN (S3): freeing a claim restores capacity → 'capacity' input edge.
+    if (res.changes > 0) fireOrchestratorKick(`capacity:${id.slice(0, 8)}`);
     return res.changes > 0;
   });
 }
@@ -847,13 +989,14 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
  * CLAIM path — never from the graph.
  */
 export function listReadyTodos(project: string): Todo[] {
+  // S3: readiness is no longer the materialized `ready` enum value — it is DERIVED
+  // by the single isClaimable predicate (claimability.ts) over the in-memory map of
+  // ALL todos. isClaimable already folds in the agent-vs-human split, approval/hold
+  // gates, and the dep-satisfied check (incl. dep-rejected), so this is the whole
+  // claimable set modulo the daemon-side live probe (claimGuard).
   const all = listTodos(project, { includeCompleted: true });
   const byId = new Map(all.map((t) => [t.id, t]));
-  return all.filter((t) => {
-    if (t.status !== 'ready') return false;
-    if (t.assigneeKind !== 'agent') return false; // human todos are not coordinator-claimable
-    return (t.dependsOn ?? []).every((depId) => depSatisfied(byId.get(depId)));
-  });
+  return all.filter((t) => isClaimable(t, byId));
 }
 
 export interface CreateGateInput {
@@ -901,9 +1044,18 @@ export async function createGate(project: string, input: CreateGateInput): Promi
     decisionRef: input.decisionRef ?? null,
   });
   const nextDeps = [...(work.dependsOn ?? []), gate.id];
-  // Park the work-todo blocked behind the gate (unless already terminal).
-  const status: TodoStatus = work.status === 'done' || work.status === 'dropped' ? work.status : 'blocked';
-  const workTodo = await updateTodo(project, input.workTodoId, { dependsOn: nextDeps, status });
+  // S3: parking behind a gate is NO LONGER a manual hold — the OPEN gate dep makes
+  // the work-todo deps-pending (DERIVED), which holds it out of the claimable set
+  // until the gate is done. We must NOT write status:'blocked' here: the seam would
+  // translate that to heldAt='manual', and completing the gate would not clear that
+  // hold (the unblock pass doesn't touch heldAt) — stranding the work-todo. Instead
+  // ADD the dep and APPROVE the work-todo (status:'ready' → approvedAt), so the
+  // moment the gate completes it re-derives claimable on the same tick. A terminal
+  // work-todo is left untouched.
+  const patch: UpdateTodoPatch = work.status === 'done' || work.status === 'dropped'
+    ? { dependsOn: nextDeps }
+    : { dependsOn: nextDeps, status: 'ready' };
+  const workTodo = await updateTodo(project, input.workTodoId, patch);
   return { gate, workTodo };
 }
 
@@ -1064,10 +1216,12 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       rolledUp.push(parentId);
       parentId = parent.parentId;
     }
-    // EVENT-DRIVEN: a completing dep just unblocked dependents to `ready` (these
-    // promotions go through direct SQL, not updateTodo, so they bypass the kick
-    // there) → ask the orchestrator to tick now instead of waiting an interval.
-    if (promoted.length > 0) fireOrchestratorKick(`deps-unblocked:${id.slice(0, 8)}`);
+    // EVENT-DRIVEN (S3): the completing todo just went TERMINAL (done/dropped) — the
+    // one mutation that can flip a DEPENDENT's deps-satisfied false→true. This is the
+    // 'dep-terminal' input edge; fire it whenever this todo reached a terminal status
+    // (not only when the still-materialized fan-out promoted something — that fan-out
+    // is removed in S4, leaving this kick as the sole dependent-wake signal).
+    if (accept !== 'rejected') fireOrchestratorKick(`dep-terminal:${id.slice(0, 8)}`);
     return { completed: getTodo(project, id)!, promoted, rolledUp };
   });
 }
@@ -1203,13 +1357,23 @@ export function resetTodo(
     // targetProject (so the worker spawned with cwd=tracking repo and the gate ran
     // in the wrong place) can be corrected in the same call. undefined → leave it.
     const setTarget = targetProject !== undefined ? ', targetProject=?' : '';
+    // S3: a reset to 'ready' is the 'unheld' input edge — clear any hold and ensure
+    // the todo is approved so it re-derives claimable. We translate the requested
+    // status through the seam: 'ready' → approve + clear hold + store 'planned'.
+    const tr = translateStatusWrite(status, existing.status);
+    const storedStatus = tr.storedStatus;
+    const approvedAt = tr.approvedAt !== undefined ? tr.approvedAt : existing.approvedAt;
+    const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : existing.approvedBy;
+    const heldAt = tr.heldAt !== undefined ? tr.heldAt : null; // reset always clears the hold
+    const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
     const stmt = db.prepare(
       `UPDATE todos SET status=?, retryCount=0, acceptanceStatus=NULL,
         ${CLAIM_CLEAR_SQL},
+        approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
         completedAt=NULL, completedBy=NULL${setTarget}, updatedAt=? WHERE id=?`
     );
-    if (targetProject !== undefined) stmt.run(status, targetProject, nowIso(), id);
-    else stmt.run(status, nowIso(), id);
+    if (targetProject !== undefined) stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), id);
+    else stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), id);
     // Re-promoting a blocked/rejected todo SUPERSEDES any escalation it raised (rejected
     // / parked / blocker / blueprint-failed) — the work is being re-attempted, so those
     // are stale. Auto-resolve them (matching by todoId + the lane session) so the project
@@ -1218,9 +1382,10 @@ export function resetTodo(
     // blocks the unstick.
     try { resolveEscalationsForTodo(project, id, existing.sessionName ? [existing.sessionName] : []); }
     catch { /* best-effort — escalation cleanup must never break the reset */ }
-    // EVENT-DRIVEN: a steward reset back to `ready` should be claimed now, not on
-    // the next interval (direct SQL above bypasses the updateTodo kick).
-    if (status === 'ready') fireOrchestratorKick(`todo-reset:${id.slice(0, 8)}`);
+    // EVENT-DRIVEN (S3): a steward reset back to `ready` clears the hold and approves
+    // → the 'unheld' input edge. Kick now instead of waiting an interval (direct SQL
+    // above bypasses the updateTodo kick).
+    if (status === 'ready') fireOrchestratorKick(`unheld:${id.slice(0, 8)}`);
     return getTodo(project, id)!;
   });
 }

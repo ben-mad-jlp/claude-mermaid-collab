@@ -9,8 +9,23 @@ import {
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import Database from 'bun:sqlite';
 
 let project: string;
+
+/**
+ * Strand a row in_progress with NO claim, simulating a daemon-restart orphan.
+ * updateTodo(status:'in_progress') now throws (ManualInProgressError), so we write
+ * the raw row directly, then _closeProject so the next store call re-opens fresh.
+ */
+function strandOrphan(proj: string, id: string) {
+  const db = new Database(join(proj, '.collab', 'todos.db'));
+  db.exec(
+    `UPDATE todos SET status='in_progress', claim=NULL, claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL WHERE id='${id}'`,
+  );
+  db.close();
+  _closeProject(proj);
+}
 
 beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'todo-store-'));
@@ -227,6 +242,10 @@ describe('todo-store new fields and functions', () => {
     expect(lastExhausted).toContain(t.id);
     const after = getTodo(project, t.id)!;
     expect(after.status).toBe('blocked');
+    // S3: exhaustion PARKS via heldAt/heldReason='retry-exhausted' (the new honest
+    // stored "blocked"), not just a bare status='blocked'. ONE write per row.
+    expect(after.heldAt).not.toBeNull();
+    expect(after.heldReason).toBe('retry-exhausted');
     expect(after.retryCount).toBe(attempts);
   });
 
@@ -241,14 +260,15 @@ describe('todo-store new fields and functions', () => {
     expect(await reclaimClaim(project, t.id)).toBeNull();
   });
 
-  test('reclaimOrphan: reclaims an in_progress todo with NO claimToken (the gap reclaimClaim misses)', async () => {
+  test('reclaimOrphan (now merged with reclaimClaim): reclaims an in_progress todo with NO claimToken', async () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready', parentId: 'epic-1' });
     // Simulate an orphan: in_progress but claimedBy/claimToken NULL (e.g. wiped by a
-    // daemon restart). reclaimClaim no-ops here (guards on claimToken IS NOT NULL).
-    await updateTodo(project, t.id, { status: 'in_progress' });
+    // daemon restart). updateTodo(status:'in_progress') now throws, so strand the row
+    // via a raw DB write, then re-open the store so the cached handle re-hydrates.
+    strandOrphan(project, t.id);
     expect(getTodo(project, t.id)!.claimToken).toBeNull();
-    expect(await reclaimClaim(project, t.id)).toBeNull(); // reclaimClaim CAN'T rescue it
-    const next = await reclaimOrphan(project, t.id);     // reclaimOrphan CAN
+    // reclaimClaim and reclaimOrphan are aliases now — both rescue the orphan.
+    const next = await reclaimOrphan(project, t.id);
     expect(next).toBe('ready');
     const after = getTodo(project, t.id)!;
     expect(after.status).toBe('ready');
@@ -261,11 +281,15 @@ describe('todo-store new fields and functions', () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
     let status: 'ready' | 'blocked' | null = null;
     for (let i = 0; i <= MAX_CLAIM_RETRIES + 1; i++) {
-      await updateTodo(project, t.id, { status: 'in_progress' });
+      strandOrphan(project, t.id);
       status = await reclaimOrphan(project, t.id);
     }
     expect(status).toBe('blocked');
-    expect(getTodo(project, t.id)!.retryCount).toBeGreaterThan(MAX_CLAIM_RETRIES);
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('blocked');
+    expect(after.heldAt).not.toBeNull();
+    expect(after.heldReason).toBe('retry-exhausted');
+    expect(after.retryCount).toBeGreaterThan(MAX_CLAIM_RETRIES);
   });
 
   test('releaseClaim: returns a live claim to ready with NO retry penalty; false for non-claims (DOGFOOD #3)', async () => {
@@ -285,7 +309,7 @@ describe('todo-store new fields and functions', () => {
     expect(await releaseClaim(project, t.id)).toBe(false);
   });
 
-  test('listReadyTodos: ready w/ no deps included; ready w/ all-done deps included; ready w/ pending dep excluded; unknown dep id included', async () => {
+  test('listReadyTodos: ready w/ no deps included; ready w/ all-done deps included; ready w/ pending dep excluded; unknown dep id excluded', async () => {
     const a = await createTodo(project, { ownerSession: 's1', title: 'a', status: 'ready' });
     const b = await createTodo(project, { ownerSession: 's1', title: 'b', status: 'done' });
     const c = await createTodo(project, { ownerSession: 's1', title: 'c', status: 'ready', dependsOn: [b.id] });
@@ -296,7 +320,7 @@ describe('todo-store new fields and functions', () => {
     expect(ids).toContain(a.id); // ready, no deps
     expect(ids).toContain(c.id); // ready, dep is done
     expect(ids).not.toContain(d.id); // dep a is ready (not done)
-    expect(ids).toContain(e.id); // unknown dep treated as satisfied
+    expect(ids).not.toContain(e.id); // derived model: an unknown dep is NOT satisfied
   });
 
   test('computeWaves: [] → []', () => {
@@ -368,7 +392,7 @@ describe('todo-store new fields and functions', () => {
 
 describe('completeTodo', () => {
   test('sets status done + completedAt + acceptanceStatus when given', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'in_progress' });
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
     const { completed } = await completeTodo(project, t.id, 'accepted');
     expect(completed.status).toBe('done');
     expect(completed.completed).toBe(true);
@@ -376,31 +400,27 @@ describe('completeTodo', () => {
     expect(completed.acceptanceStatus).toBe('accepted');
   });
 
-  test('promotes a blocked dependent whose only dep is this todo to ready', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
-    const { completed, promoted } = await completeTodo(project, dep.id);
+  test('makes a claimable dependent whose only dep is this todo claimable', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    const { completed } = await completeTodo(project, dep.id);
     expect(completed.status).toBe('done');
-    expect(promoted).toContain(blocker.id);
-    const after = getTodo(project, blocker.id)!;
-    expect(after.status).toBe('ready');
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(blocker.id);
   });
 
-  test('does NOT promote a blocked dependent that has another still-pending dep', async () => {
-    const dep1 = await createTodo(project, { ownerSession: 's1', title: 'dep1', status: 'in_progress' });
-    const dep2 = await createTodo(project, { ownerSession: 's1', title: 'dep2', status: 'in_progress' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep1.id, dep2.id] });
-    const { promoted } = await completeTodo(project, dep1.id);
-    expect(promoted).not.toContain(blocker.id);
-    const after = getTodo(project, blocker.id)!;
-    expect(after.status).toBe('blocked');
+  test('a claimable dependent with another still-pending dep stays unclaimable', async () => {
+    const dep1 = await createTodo(project, { ownerSession: 's1', title: 'dep1', status: 'ready' });
+    const dep2 = await createTodo(project, { ownerSession: 's1', title: 'dep2', status: 'ready' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep1.id, dep2.id] });
+    await completeTodo(project, dep1.id);
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(blocker.id);
   });
 
-  test('does NOT promote a planned todo even if its deps are done', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+  test('does NOT make a planned todo claimable even if its deps are done', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
     const planned = await createTodo(project, { ownerSession: 's1', title: 'planned', status: 'planned', dependsOn: [dep.id] });
-    const { promoted } = await completeTodo(project, dep.id);
-    expect(promoted).not.toContain(planned.id);
+    await completeTodo(project, dep.id);
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(planned.id);
     const after = getTodo(project, planned.id)!;
     expect(after.status).toBe('planned');
   });
@@ -410,47 +430,45 @@ describe('completeTodo', () => {
   });
 
   test('acceptance gate: a REJECTED completion is NOT done and does NOT unblock dependents (SI-3)', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
-    const { completed, promoted } = await completeTodo(project, dep.id, 'rejected');
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    const { completed } = await completeTodo(project, dep.id, 'rejected');
     // SI-3: rejected → non-terminal 'blocked' (not 'done'), completedAt cleared,
     // so it surfaces as actionable instead of sinking silently into Done.
     expect(completed.status).toBe('blocked');
     expect(completed.completedAt).toBeNull();
     expect(completed.acceptanceStatus).toBe('rejected');
-    expect(promoted).not.toContain(blocker.id);
-    expect(getTodo(project, blocker.id)!.status).toBe('blocked');
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(blocker.id);
   });
 
   test('acceptance gate: a rejected todo is NOT auto-promoted by a later completion (SI-3)', async () => {
     // A rejected todo with no unsatisfied deps must stay parked, not re-promote to ready.
-    const rejected = await createTodo(project, { ownerSession: 's1', title: 'rejected', status: 'in_progress' });
+    const rejected = await createTodo(project, { ownerSession: 's1', title: 'rejected', status: 'ready' });
     await completeTodo(project, rejected.id, 'rejected');
     expect(getTodo(project, rejected.id)!.status).toBe('blocked');
     // An unrelated completion triggers the unblock pass — the rejected todo must NOT promote.
-    const other = await createTodo(project, { ownerSession: 's1', title: 'other', status: 'in_progress' });
+    const other = await createTodo(project, { ownerSession: 's1', title: 'other', status: 'ready' });
     const { promoted } = await completeTodo(project, other.id, 'accepted');
     expect(promoted).not.toContain(rejected.id);
     expect(getTodo(project, rejected.id)!.status).toBe('blocked');
   });
 
-  test('acceptance gate: an ACCEPTED dep unblocks dependents', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
-    const { promoted } = await completeTodo(project, dep.id, 'accepted');
-    expect(promoted).toContain(blocker.id);
-    expect(getTodo(project, blocker.id)!.status).toBe('ready');
+  test('acceptance gate: an ACCEPTED dep makes dependents claimable', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    await completeTodo(project, dep.id, 'accepted');
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(blocker.id);
   });
 
-  test('acceptance gate: a null/unspecified-acceptance done dep still unblocks (backward-compatible)', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'blocked', dependsOn: [dep.id] });
-    const { promoted } = await completeTodo(project, dep.id); // no acceptance arg
-    expect(promoted).toContain(blocker.id);
+  test('acceptance gate: a null/unspecified-acceptance done dep still makes dependents claimable (backward-compatible)', async () => {
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    await completeTodo(project, dep.id); // no acceptance arg
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(blocker.id);
   });
 
   test('acceptance gate: listReadyTodos excludes a ready todo whose dep was rejected', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'in_progress' });
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
     // dependent left in 'ready' to isolate the listReadyTodos dep-check from the unblock pass
     const dependent = await createTodo(project, { ownerSession: 's1', title: 'dependent', status: 'ready', dependsOn: [dep.id] });
     await completeTodo(project, dep.id, 'rejected');
@@ -461,8 +479,8 @@ describe('completeTodo', () => {
 describe('completeTodo epic roll-up', () => {
   test('auto-completes a parent when its last child completes', async () => {
     const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
-    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'in_progress', parentId: epic.id });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
 
     const r1 = await completeTodo(project, c1.id, 'accepted');
     expect(r1.rolledUp).toEqual([]);
@@ -478,8 +496,8 @@ describe('completeTodo epic roll-up', () => {
 
   test('partial completion leaves the parent open', async () => {
     const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
-    await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'in_progress', parentId: epic.id });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
     const { rolledUp } = await completeTodo(project, c1.id, 'accepted');
     expect(rolledUp).toEqual([]);
     expect(getTodo(project, epic.id)!.status).toBe('planned');
@@ -487,8 +505,8 @@ describe('completeTodo epic roll-up', () => {
 
   test('a REJECTED child blocks roll-up', async () => {
     const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
-    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'in_progress', parentId: epic.id });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
     await completeTodo(project, c1.id, 'rejected');
     const { rolledUp } = await completeTodo(project, c2.id, 'accepted');
     expect(rolledUp).toEqual([]);
@@ -497,7 +515,7 @@ describe('completeTodo epic roll-up', () => {
 
   test('a DROPPED child is ignored — roll-up fires when all non-dropped children are done', async () => {
     const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'in_progress', parentId: epic.id });
+    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
     await createTodo(project, { ownerSession: 's1', title: 'c2-dropped', status: 'dropped', parentId: epic.id });
     const { rolledUp } = await completeTodo(project, c1.id, 'accepted');
     expect(rolledUp).toContain(epic.id);
@@ -507,7 +525,7 @@ describe('completeTodo epic roll-up', () => {
   test('recurses upward: completing the last leaf closes the whole chain', async () => {
     const grand = await createTodo(project, { ownerSession: 's1', title: 'grand', status: 'planned' });
     const mid = await createTodo(project, { ownerSession: 's1', title: 'mid', status: 'planned', parentId: grand.id });
-    const leaf = await createTodo(project, { ownerSession: 's1', title: 'leaf', status: 'in_progress', parentId: mid.id });
+    const leaf = await createTodo(project, { ownerSession: 's1', title: 'leaf', status: 'ready', parentId: mid.id });
     const { rolledUp } = await completeTodo(project, leaf.id, 'accepted');
     expect(rolledUp).toEqual([mid.id, grand.id]); // deepest-first
     expect(getTodo(project, mid.id)!.status).toBe('done');
@@ -517,7 +535,7 @@ describe('completeTodo epic roll-up', () => {
   test('does not roll up an epic with zero (non-dropped) children', async () => {
     const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
     // a standalone child of NO epic — completing it must not touch the empty epic
-    const solo = await createTodo(project, { ownerSession: 's1', title: 'solo', status: 'in_progress' });
+    const solo = await createTodo(project, { ownerSession: 's1', title: 'solo', status: 'ready' });
     const { rolledUp } = await completeTodo(project, solo.id, 'accepted');
     expect(rolledUp).toEqual([]);
     expect(getTodo(project, epic.id)!.status).toBe('planned');
@@ -628,25 +646,27 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
   test('a gate-dep holds the work-todo blocked; completing the gate auto-promotes it to ready on the SAME tick (no reset_todo)', async () => {
     const work = await createTodo(project, { ownerSession: 's1', title: 'build the thing', status: 'ready', assigneeKind: 'agent' });
     const { gate, workTodo } = await createGate(project, { workTodoId: work.id, title: 'review the spec', gateKind: 'spec-review' });
-    // Work-todo is parked blocked behind the gate, and the gate is in its dependsOn.
-    expect(workTodo.status).toBe('blocked');
+    // S3: the work-todo is parked behind the gate by the OPEN gate DEP (deps-pending,
+    // derived) — NOT a manual hold. It stays approved + un-held so it re-derives
+    // claimable the moment the gate completes.
+    expect(workTodo.heldAt).toBeNull();
+    expect(workTodo.approvedAt).not.toBeNull();
     expect(workTodo.dependsOn).toContain(gate.id);
     expect(gate.assigneeKind).toBe('human');
     expect(gate.title).toBe('[GATE:spec-review] review the spec');
     // Coordinator can't claim it while the gate is open.
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(work.id);
-    // Human clears the gate → the SAME completeTodo tick promotes the work-todo.
-    const res = await completeTodo(project, gate.id, 'accepted');
-    expect(res.promoted).toContain(work.id);
-    expect(getTodo(project, work.id)!.status).toBe('ready');
+    // Human clears the gate → the SAME completeTodo tick makes the work-todo claimable.
+    await completeTodo(project, gate.id, 'accepted');
     expect(listReadyTodos(project).map((t) => t.id)).toContain(work.id);
   });
 
   test('the [GATE] human todo is never coordinator-claimable (excluded from listReadyTodos)', async () => {
     const work = await createTodo(project, { ownerSession: 's1', title: 'w', status: 'ready', assigneeKind: 'agent' });
     const { gate } = await createGate(project, { workTodoId: work.id, title: 'sign off' });
-    expect(gate.status).toBe('ready'); // a human CAN act on it immediately
-    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(gate.id); // but the coordinator never claims it
+    expect(gate.approvedAt).not.toBeNull(); // approved → a human CAN act on it immediately
+    expect(gate.heldAt).toBeNull();
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(gate.id); // but the coordinator never claims it (human)
   });
 
   test('reverse-edge views: listGatesBlocking + listGatedBy', async () => {
@@ -663,14 +683,15 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
     const work = await createTodo(project, { ownerSession: 's1', title: 'build on the design', status: 'ready', assigneeKind: 'agent' });
     const { gate, workTodo } = await createGate(project, { workTodoId: work.id, title: 'land the design', gateKind: 'design', decisionRef: 'dr-123' });
     expect(gate.decisionRef).toBe('dr-123');
-    expect(workTodo.status).toBe('blocked');
+    // S3: gated by the open gate DEP (deps-pending), not a manual hold.
+    expect(workTodo.heldAt).toBeNull();
+    expect(workTodo.approvedAt).not.toBeNull();
     // approveDecisionRecord('dr-123') fires → this is the auto-complete it triggers.
     const results = await completeGatesForDecision(project, 'dr-123');
     expect(results.length).toBe(1);
     expect(getTodo(project, gate.id)!.status).toBe('done');
     expect(getTodo(project, gate.id)!.completedBy).toBe('decision:dr-123');
-    expect(results[0].promoted).toContain(work.id);
-    expect(getTodo(project, work.id)!.status).toBe('ready');
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(work.id);
   });
 
   test('P2: completeGatesForDecision is a no-op when no gate references the decision', async () => {
@@ -678,13 +699,12 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
     expect(await completeGatesForDecision(project, 'dr-OTHER')).toEqual([]);
   });
 
-  test('regression: a plain agent-dep still gates + promotes exactly as before (gates do not change agent-dep flow)', async () => {
+  test('regression: a plain agent-dep still gates + makes the dependent claimable once the dep completes', async () => {
     const depA = await createTodo(project, { ownerSession: 's1', title: 'depA', status: 'ready', assigneeKind: 'agent' });
-    const dependent = await createTodo(project, { ownerSession: 's1', title: 'dependent', status: 'blocked', assigneeKind: 'agent', dependsOn: [depA.id] });
+    const dependent = await createTodo(project, { ownerSession: 's1', title: 'dependent', status: 'ready', assigneeKind: 'agent', dependsOn: [depA.id] });
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(dependent.id);
-    const res = await completeTodo(project, depA.id, 'accepted');
-    expect(res.promoted).toContain(dependent.id);
-    expect(getTodo(project, dependent.id)!.status).toBe('ready');
+    await completeTodo(project, depA.id, 'accepted');
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(dependent.id);
   });
 });
 
@@ -704,7 +724,10 @@ describe('steward verbs', () => {
     expect(parked.retryCount).toBeGreaterThan(MAX_CLAIM_RETRIES);
 
     const reset = await resetTodo(project, t.id);
-    expect(reset.status).toBe('ready');
+    // resetTodo defaults to status 'ready' = approve + clear-hold (derived claimable),
+    // so the stored status is no longer 'ready' but the todo is approved + unheld.
+    expect(reset.approvedAt).not.toBeNull();
+    expect(reset.heldAt).toBeNull();
     expect(reset.retryCount).toBe(0);
     expect(reset.acceptanceStatus).toBeNull();
     expect(reset.claimedBy).toBeNull();
@@ -747,12 +770,11 @@ describe('steward verbs', () => {
   });
 
   test('overrideAcceptTodo force-accepts a gate-rejected todo and unblocks its dependents', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'verified-but-rejected' });
-    const child = await createTodo(project, { ownerSession: 's1', title: 'waiting', dependsOn: [dep.id] });
-    // A todo gated behind an unfinished dep sits 'blocked' (the unblock pass only
-    // promotes 'blocked' todos whose deps are now satisfied).
-    await updateTodo(project, child.id, { status: 'blocked' });
-    // Simulate the false-rejection: gate said no, todo parked 'blocked'/rejected.
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'verified-but-rejected', status: 'ready' });
+    // Approved dependent gated only by its pending dep (derived model: deps-pending,
+    // not a stored 'blocked'). It must not be claimable while the dep is unsatisfied.
+    const child = await createTodo(project, { ownerSession: 's1', title: 'waiting', status: 'ready', dependsOn: [dep.id] });
+    // Simulate the false-rejection: gate said no, dep parked 'blocked'/rejected.
     await completeTodo(project, dep.id, 'rejected');
     expect(getTodo(project, dep.id)!.status).toBe('blocked');
     expect(listReadyTodos(project).map((x) => x.id)).not.toContain(child.id);
@@ -761,8 +783,8 @@ describe('steward verbs', () => {
     expect(res.completed.status).toBe('done');
     expect(res.completed.acceptanceStatus).toBe('accepted');
     expect(res.completed.completedBy).toBe('steward');
-    // Dependent unblocks exactly as a normal acceptance.
-    expect(res.promoted).toContain(child.id);
+    // Dependent unblocks exactly as a normal acceptance — now CLAIMABLE (derived),
+    // even though the stored-blocked fan-out (`promoted`) no longer carries it.
     expect(listReadyTodos(project).map((x) => x.id)).toContain(child.id);
   });
 
@@ -783,5 +805,93 @@ describe('steward verbs', () => {
     // Write through the worktree path: must land in the repo's db.
     const fromWorktree = await createTodo(worktreePath, { ownerSession: 's2', title: 'created-in-worktree' });
     expect(getTodo(project, fromWorktree.id)!.title).toBe('created-in-worktree');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// S3 — write-side translation seam (updateTodo/createTodo) + derived readiness.
+// A status-write of a now-DERIVED value (ready/blocked/in_progress) must translate
+// to a decision-write and NEVER persist the raw derived enum.
+// ───────────────────────────────────────────────────────────────────────────
+describe('S3 write-side translation seam', () => {
+  test("updateTodo status:'ready' → sets approvedAt, clears heldAt, never stores 'ready'", async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x' }); // 'todo', unapproved
+    expect(t.approvedAt).toBeNull();
+    const u = await updateTodo(project, t.id, { status: 'ready' });
+    expect(u.approvedAt).not.toBeNull();
+    expect(u.heldAt).toBeNull();
+    expect(u.status).not.toBe('ready'); // derived value never persisted
+    // ...and it is now CLAIMABLE (approved, no deps, agent, un-held).
+    expect(listReadyTodos(project).map((x) => x.id)).toContain(t.id);
+  });
+
+  test("updateTodo status:'blocked' → sets heldAt + heldReason='manual', never stores 'blocked'", async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    expect(listReadyTodos(project).map((x) => x.id)).toContain(t.id); // claimable first
+    const u = await updateTodo(project, t.id, { status: 'blocked' });
+    expect(u.heldAt).not.toBeNull();
+    expect(u.heldReason).toBe('manual');
+    expect(u.status).not.toBe('blocked'); // derived value never persisted
+    // A held todo is NOT claimable.
+    expect(listReadyTodos(project).map((x) => x.id)).not.toContain(t.id);
+  });
+
+  test("updateTodo status:'in_progress' → REJECTED (a manual claim is nonsensical)", async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    await expect(updateTodo(project, t.id, { status: 'in_progress' })).rejects.toThrow(/in_progress/);
+    // Unchanged: still claimable, no fabricated claim.
+    expect(getTodo(project, t.id)!.claim).toBeNull();
+  });
+
+  test("createTodo status:'ready' → translates to approvedAt at create (not stored 'ready')", async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'born-approved', status: 'ready' });
+    expect(t.approvedAt).not.toBeNull();
+    expect(t.heldAt).toBeNull();
+    expect(t.status).not.toBe('ready');
+    expect(listReadyTodos(project).map((x) => x.id)).toContain(t.id);
+  });
+
+  test("createTodo status:'blocked' → translates to a manual hold at create", async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'born-held', status: 'blocked' });
+    expect(t.heldAt).not.toBeNull();
+    expect(t.heldReason).toBe('manual');
+    expect(t.status).not.toBe('blocked');
+  });
+
+  test("createTodo status:'in_progress' → REJECTED", async () => {
+    await expect(createTodo(project, { ownerSession: 's1', title: 'x', status: 'in_progress' }))
+      .rejects.toThrow(/in_progress/);
+  });
+
+  test("status:'planned' un-approves (clears approvedAt) and stores 'planned'", async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    expect(t.approvedAt).not.toBeNull();
+    const u = await updateTodo(project, t.id, { status: 'planned' });
+    expect(u.status).toBe('planned');
+    expect(u.approvedAt).toBeNull();
+    expect(listReadyTodos(project).map((x) => x.id)).not.toContain(t.id);
+  });
+
+  test('a non-status patch does NOT mint a spurious decision', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const before = getTodo(project, t.id)!;
+    const u = await updateTodo(project, t.id, { title: 'renamed' });
+    expect(u.title).toBe('renamed');
+    expect(u.approvedAt).toBe(before.approvedAt); // unchanged
+    expect(u.heldAt).toBeNull();
+  });
+
+  test('listReadyTodos uses isClaimable, not the stored status enum', async () => {
+    // Approved + no deps + agent → claimable, even though stored status is NOT 'ready'.
+    const claimable = await createTodo(project, { ownerSession: 's1', title: 'a', status: 'ready' });
+    expect(getTodo(project, claimable.id)!.status).not.toBe('ready');
+    // Unapproved → not claimable.
+    const unapproved = await createTodo(project, { ownerSession: 's1', title: 'b' });
+    // Approved human → not daemon-claimable (human-assignee).
+    const human = await createTodo(project, { ownerSession: 's1', title: 'c', status: 'ready', assigneeKind: 'human' });
+    const ids = listReadyTodos(project).map((x) => x.id);
+    expect(ids).toContain(claimable.id);
+    expect(ids).not.toContain(unapproved.id);
+    expect(ids).not.toContain(human.id);
   });
 });
