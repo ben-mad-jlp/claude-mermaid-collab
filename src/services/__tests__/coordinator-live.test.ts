@@ -42,7 +42,7 @@ mock.module('../todo-store', () => ({
   reclaimOrphan: async () => null,
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -63,6 +63,21 @@ process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-coord-live-s
 // under /tmp instead of littering the repo cwd. Basenames are preserved so
 // tmuxBaseName slugs (and name assertions) are unchanged.
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'mc-coord-live-projects-'));
+
+describe('isHeadlessLeaf — non-code leaf exclusion', () => {
+  const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', ...(over as any) }) as Todo;
+  it('excludes reviewer-type leaves (L7 no-commit reversal) — they go the legacy/human path', () => {
+    expect(isHeadlessLeaf(base({ type: 'reviewer' }), TEST_ROOT)).toBe(false);
+  });
+  it('excludes human-owned, [EPIC], and [GATE] leaves', () => {
+    expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ title: '[EPIC] x' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ title: '[GATE] x' }), TEST_ROOT)).toBe(false);
+  });
+  it('admits an ordinary agent code leaf', () => {
+    expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), TEST_ROOT)).toBe(true);
+  });
+});
 
 describe('makeCoordinatorDeps', () => {
   it('returns an object with all required function properties', () => {

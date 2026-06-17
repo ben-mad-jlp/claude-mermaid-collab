@@ -551,6 +551,13 @@ export function leafExecutorEnabled(): boolean {
 export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   if (todo.assigneeKind === 'human') return false;
   if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return false;
+  // NON-CODE leaves don't fit the code executor: a 'reviewer' leaf's deliverable is a
+  // judgment, not a commit, so it produces NO work on the epic branch and the
+  // work-committed re-verify (accepted ⇒ commit on branch) wrongly reverses its accept
+  // to 'ready' (the L7 completeness-review case). Keep reviewer leaves out of the headless
+  // path — they go the legacy/human route. (A code 'review' NODE inside the executor is
+  // unrelated; this is the leaf TYPE.)
+  if (todo.type === 'reviewer') return false;
   // Leaf = no child todos parented to it in the tracking work-graph.
   const hasChildren = listTodos(project, {}).some((t) => t.parentId === todo.id);
   return !hasChildren;
