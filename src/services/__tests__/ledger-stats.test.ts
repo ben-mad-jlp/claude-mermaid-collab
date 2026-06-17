@@ -68,6 +68,30 @@ describe('getLeafRun', () => {
     expect(run!.authModes).toEqual({ subscription: 5 });
   });
 
+  test('re-run: scopes to the latest run only', () => {
+    // Run 1: blueprint + implement + terminal (rejected). ts in ms.
+    node({ leafId: 'L1', ts: 1_000, nodeKind: 'blueprint', model: 'opus', durationMs: 100 });
+    node({ leafId: 'L1', ts: 2_000, nodeKind: 'implement', durationMs: 200 });
+    node({ leafId: 'L1', ts: 3_000, nodeKind: 'outcome', model: '', nodesSpent: 0, verdict: 'fail', leafOutcome: 'rejected' });
+    // Run 2: starts well after RUN_GAP_MS (120s) — blueprint + implement + review + accepted.
+    const t = 3_000 + 200_000;
+    node({ leafId: 'L1', ts: t,          nodeKind: 'blueprint', model: 'opus', durationMs: 100 });
+    node({ leafId: 'L1', ts: t + 1_000,  nodeKind: 'implement', durationMs: 200 });
+    node({ leafId: 'L1', ts: t + 2_000,  nodeKind: 'review', model: 'opus', durationMs: 50 });
+    node({ leafId: 'L1', ts: t + 3_000,  nodeKind: 'outcome', model: '', nodesSpent: 0, verdict: 'pass', leafOutcome: 'accepted' });
+
+    const run = getLeafRun('L1');
+    expect(run).not.toBeNull();
+    // Only run 2's 3 node rows — run 1 excluded.
+    expect(run!.nodes.map((n) => n.nodeKind)).toEqual(['blueprint', 'implement', 'review']);
+    expect(run!.nodesSpent).toBe(3);
+    expect(run!.attempts).toBe(1);            // one blueprint in run 2
+    expect(run!.wallClockMs).toBe(3_000);     // (t+3000) − t, NOT spanning run 1
+    expect(run!.reviewVerdict).toBe('pass');  // run 2 terminal, not run 1's 'fail'
+    expect(run!.finalOutcome).toBe('accepted');
+    expect(run!.authModes).toEqual({ subscription: 3 });
+  });
+
   test('rate-limited count + null for unknown leaf', () => {
     node({ leafId: 'L2', ts: 100, nodeKind: 'blueprint', model: 'opus', rateLimited: true });
     const run = getLeafRun('L2');
