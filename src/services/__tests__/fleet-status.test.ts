@@ -35,19 +35,9 @@ mock.module('../todo-store', () => ({
       targetProject: '/repo',
     },
   ],
-}));
-
-mock.module('../tmux-naming', () => ({
-  tmuxBaseName: (_project: string, worker: string) => `mc-${worker}`,
-}));
-
-// tmux is "alive" + Claude actively working, so the state branch is exercised
-// without any real spawn (procSnapshot/tmux calls still run but their result is
-// irrelevant to lastActivity, which is computed before the tmux branch).
-mock.module('../coordinator-live', () => ({
-  claudeAliveInSubtree: () => true,
-  isClaudeTuiPresent: () => true,
-  detectPermissionPrompt: () => ({ isPermission: false, tool: null }),
+  // worker-ledger (imported by fleet-status for listLeafInflight) transitively
+  // imports getTodo — provide a stub so the mocked module is import-complete.
+  getTodo: () => null,
 }));
 
 mock.module('../session-status-store', () => ({
@@ -55,6 +45,10 @@ mock.module('../session-status-store', () => ({
 }));
 
 const { getFleetStatus } = await import('../fleet-status');
+// P7: liveness for headless leaf lanes is the real leaf_inflight signal. Drive it
+// through the actual ledger (self-cleaning per test) rather than mocking worker-ledger
+// globally — its many exports are used across the import graph.
+const { setLeafInflight, clearLeafInflight } = await import('../worker-ledger');
 
 describe('getFleetStatus lastActivity', () => {
   it('uses the real session-status heartbeat and is STABLE across polls (no render-time restamp)', () => {
@@ -77,6 +71,29 @@ describe('getFleetStatus lastActivity', () => {
 
     expect(poll1.entries[0].lastActivity).toBe(CLAIMED_AT_MS);
     expect(poll2.entries[0].lastActivity).toBe(CLAIMED_AT_MS); // stable across polls
+  });
+});
+
+describe('getFleetStatus worker state (P7 — headless leaf liveness via leaf_inflight)', () => {
+  it("reports 'working' + the live node when the lane has a leaf_inflight row", () => {
+    heartbeat = HEARTBEAT;
+    setLeafInflight({ leafId: 'todo-1', project: '/repo', nodeKind: 'implement' });
+    try {
+      const status = getFleetStatus('/repo', HEARTBEAT + 1_000);
+      expect(status.entries[0].state).toBe('working');
+      expect(status.entries[0].leafNode).toBe('implement');
+      expect(status.summary.working).toBe(1);
+    } finally {
+      clearLeafInflight('todo-1');
+    }
+  });
+
+  it("reports 'idle' (not 'no_tmux') when no leaf is currently in-flight", () => {
+    heartbeat = HEARTBEAT;
+    clearLeafInflight('todo-1'); // ensure no in-flight row
+    const status = getFleetStatus('/repo', HEARTBEAT + 1_000);
+    expect(status.entries[0].state).toBe('idle');
+    expect(status.summary.deadOrGone).toBe(0); // headless lanes never read as dead/no_tmux
   });
 });
 

@@ -12,27 +12,25 @@
  * what the coordinator acts on.
  */
 import { listTodos } from './todo-store';
-import { tmuxBaseName } from './tmux-naming';
-import { mux, argvLs, argvHasSession, argvListPanesPanePid, argvCapturePane, argvPsUidComm } from './session-mux/index.ts';
-import { resolveWorkerAgent, getGrokHarnessForInspection } from '../agent/registry';
+import { mux, argvLs, argvPsUidComm } from './session-mux/index.ts';
+import { getGrokHarnessForInspection } from '../agent/registry';
+import { listLeafInflight } from './worker-ledger';
 import { getStatus } from './session-status-store';
 import type { ProviderId } from '../agent/worker-agent';
 import { DEFAULT_PROVIDER_ID } from '../agent/worker-agent';
 
-// PAW P1: the same pane-scrape liveness the watchdog uses, resolved through the
-// WorkerAgent registry (claude-only) so this read-model and the coordinator stay
-// byte-identical. (Was: direct imports of claudeAliveInSubtree / isClaudeTuiPresent
-// / detectPermissionPrompt from coordinator-live.)
-const workerAgent = resolveWorkerAgent('claude');
-
-/** Coarse worker state, derived from tmux liveness + Claude PID + pane content. */
+/** Coarse worker state. P7: daemon workers are HEADLESS leaf-executor lanes (in-process
+ *  `claude -p`, no tmux), so liveness is the `leaf_inflight` signal — a row per leaf
+ *  actively running a node — NOT a tmux pane. The tmux-derived states (no_tmux/
+ *  dead_shell/permission) are retained in the union for back-compat but no longer
+ *  produced for the worker fleet now that the tmux worker lane is retired. */
 export type WorkerState =
-  | 'no_tmux' // claim held but the tmux session is gone → reapDeadClaims will reclaim
-  | 'dead_shell' // tmux alive but Claude exited (bare shell) → 63a59bd6 escalates
-  | 'permission' // Claude alive, blocked on a Claude Code permission prompt
-  | 'working' // Claude alive and actively working (spinner / interrupt hint)
-  | 'idle' // Claude alive at its prompt, not visibly working (may be a stall)
-  | 'unknown'; // liveness couldn't be determined (no pane pid / no ps snapshot)
+  | 'no_tmux' // legacy (tmux worker lane retired) — no longer produced
+  | 'dead_shell' // legacy (tmux worker lane retired) — no longer produced
+  | 'permission' // legacy (tmux worker lane retired) — no longer produced
+  | 'working' // actively running a node (leaf_inflight row present, or grok harness alive)
+  | 'idle' // claimed lane with no in-flight node right now (between nodes / not executing)
+  | 'unknown'; // liveness couldn't be determined
 
 export interface FleetEntry {
   todoId: string;
@@ -56,6 +54,9 @@ export interface FleetEntry {
   overLease: boolean;
   retryCount: number;
   state: WorkerState;
+  /** When state is 'working' on a headless leaf lane, the node it is running
+   *  (blueprint | implement | review | research | fix | …) from leaf_inflight. */
+  leafNode?: string | null;
   /**
    * The lane's REAL last-activity timestamp (ms epoch), or null if none is known.
    * This is what the UI card timer reads — it must be a persisted/derived value
@@ -179,37 +180,13 @@ function mcTmuxSessionCount(): number | null {
   }
 }
 
-function tmuxAlive(tmux: string): boolean {
-  try {
-    return Bun.spawnSync(mux.cmd(argvHasSession(tmux)), { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0;
-  } catch {
-    return true; // uncertain → assume alive (don't mislabel as gone)
-  }
-}
-
-function tmuxPanePid(tmux: string): number | null {
-  try {
-    const p = Bun.spawnSync(mux.cmd(argvListPanesPanePid(tmux)), { stdout: 'pipe', stderr: 'ignore' });
-    const first = (p.stdout?.toString() ?? '').split('\n').map((l) => l.trim()).filter(Boolean)[0];
-    const n = Number(first);
-    return Number.isInteger(n) && n > 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
-function capturePane(tmux: string): string {
-  try {
-    return Bun.spawnSync(mux.cmd(argvCapturePane(tmux)), { stdout: 'pipe', stderr: 'ignore' }).stdout?.toString() ?? '';
-  } catch {
-    return '';
-  }
-}
-
 /** Snapshot the live fleet for a project: every in-progress todo with its worker,
  *  elapsed time, lease headroom, and derived health state. */
 export function getFleetStatus(project: string, now: number = Date.now()): FleetStatus {
   const snap = procSnapshot();
+  // P7: liveness for headless leaf-executor lanes — a row per leaf currently running a
+  // node (keyed by leafId === todoId). One query for the whole pass.
+  const inflightByLeaf = new Map(listLeafInflight({ project }).map((r) => [r.leafId, r]));
   const entries: FleetEntry[] = [];
   for (const t of listTodos(project, { status: 'in_progress' })) {
     // Epics/containers have no worker — skip rows that were never claimed.
@@ -222,7 +199,6 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
     // always carries one.
     const worker = t.sessionName;
     if (!worker) continue;
-    const tmux = tmuxBaseName(project, worker);
     const claimedAtMs = t.claimedAt ? Date.parse(t.claimedAt) : null;
     const claimedAtValid = claimedAtMs != null && !Number.isNaN(claimedAtMs) ? claimedAtMs : null;
     const elapsedMs = claimedAtValid != null ? now - claimedAtValid : null;
@@ -240,32 +216,23 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
     const leaseRemainingMs =
       elapsedMs != null && t.claimLeaseMs != null ? t.claimLeaseMs - elapsedMs : null;
 
+    // LANE LIVENESS (P7): every daemon worker lane is now IN-PROCESS — a headless
+    // leaf-executor lane (claude -p) or, for a grok-pinned lane, the GrokOwnHarness
+    // loop. Neither has a tmux pane to scrape, so liveness comes from the in-process
+    // signals: leaf_inflight (a row while a leaf runs a node) and the grok harness.
+    // A lane actively running a node → 'working' (surface the node); otherwise 'idle'
+    // (between nodes / not currently executing — a genuinely dead lane ages out via
+    // the orphan reaper, not this read-model).
     let state: WorkerState;
-    let blockedOnTool: string | null | undefined;
-    if (provider === 'grok-build') {
-      // A grok lane runs IN-PROCESS with no tmux by design, so the tmux-absence
-      // branch below would mis-classify a live lane as 'no_tmux' (→ hidden/dead).
-      // Derive liveness from the GrokOwnHarness loop instead: the lane Map is keyed
-      // by the worker/pool session name (the same `worker` key here). No tmux, so
-      // never capturePane / dead_shell / no_tmux for grok.
-      const harness = getGrokHarnessForInspection();
-      state = harness.isAlive(worker) ? 'working' : 'idle';
-    } else if (!tmuxAlive(tmux)) {
-      state = 'no_tmux';
+    let leafNode: string | null | undefined;
+    const inflight = inflightByLeaf.get(t.id);
+    if (inflight) {
+      state = 'working';
+      leafNode = inflight.nodeKind ?? null;
+    } else if (provider === 'grok-build') {
+      state = getGrokHarnessForInspection().isAlive(worker) ? 'working' : 'idle';
     } else {
-      const panePid = tmuxPanePid(tmux);
-      const claudeAlive = snap && panePid != null ? workerAgent.isAgentAliveInSubtree(panePid, snap.byPid) : null;
-      const pane = capturePane(tmux);
-      if (claudeAlive === false && !workerAgent.isTuiPresent(pane)) {
-        state = 'dead_shell';
-      } else if (claudeAlive === null) {
-        state = 'unknown';
-      } else {
-        const perm = workerAgent.detectPermissionPrompt(pane);
-        if (perm.isPermission) { state = 'permission'; blockedOnTool = perm.tool; }
-        else if (workerAgent.isActivelyWorking(pane)) state = 'working';
-        else state = 'idle';
-      }
+      state = 'idle';
     }
 
     entries.push({
@@ -284,7 +251,7 @@ export function getFleetStatus(project: string, now: number = Date.now()): Fleet
       state,
       lastActivity,
       provider,
-      ...(blockedOnTool !== undefined ? { blockedOnTool } : {}),
+      ...(leafNode !== undefined ? { leafNode } : {}),
     });
   }
 
