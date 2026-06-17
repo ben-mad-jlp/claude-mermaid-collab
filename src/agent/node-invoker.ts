@@ -15,7 +15,23 @@
  * conformance pattern.
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+
 export type AuthMode = 'subscription' | 'api' | 'unknown';
+
+/**
+ * Append a node's raw stream-json transcript to the per-leaf file, preceded by a
+ * synthetic boundary marker so the reader can split the file back into nodes.
+ * Best-effort: a transcript-write failure must NEVER fail the node.
+ */
+function captureTranscript(path: string, label: string, stdout: string, meta: { exitCode: number; durationMs: number }): void {
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    const boundary = JSON.stringify({ type: 'node-boundary', label, at: new Date().toISOString(), ...meta });
+    appendFileSync(path, boundary + '\n' + (stdout.endsWith('\n') ? stdout : stdout + '\n'));
+  } catch { /* transcript is observability — never block the run on it */ }
+}
 
 /** One bounded headless `claude -p` invocation. */
 export interface NodeSpec {
@@ -34,6 +50,12 @@ export interface NodeSpec {
   /** Ledger correlation (optional but recommended). */
   leafId?: string;
   epicId?: string;
+  /** If set, the raw stream-json transcript for this node is appended to this file
+   *  (best-effort; never fails the node). The leaf-executor points all of a leaf's
+   *  nodes at one per-leaf file so the run reads as a single transcript. */
+  transcriptPath?: string;
+  /** Label for the node-boundary marker written into the transcript (e.g. 'plan'). */
+  transcriptLabel?: string;
   /** Permission mode override. Default 'bypassPermissions' (no human to approve, headless). */
   permissionMode?: 'bypassPermissions' | 'acceptEdits' | 'default' | 'plan' | 'auto' | 'dontAsk';
 }
@@ -113,7 +135,11 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
   const argv: string[] = [
     'claude',
     '-p',
-    '--output-format', 'json',
+    // stream-json (requires --verbose) emits the full turn-by-turn transcript as
+    // JSONL, ending in the SAME result object json-format gave. We capture that
+    // stream as the per-leaf transcript; parseNodeJson reads the final result line.
+    '--output-format', 'stream-json',
+    '--verbose',
     '--no-session-persistence',
     '--permission-mode', spec.permissionMode ?? 'bypassPermissions',
   ];
@@ -228,28 +254,58 @@ export function parseNodeJson(stdout: string): {
   apiErrorStatus?: number;
   parseError?: string;
 } {
-  try {
-    const j = JSON.parse(stdout) as ClaudeJsonResult;
-    const usage: NodeUsage = {
-      inputTokens: j.usage?.input_tokens,
-      outputTokens: j.usage?.output_tokens,
-      costUsd: j.total_cost_usd,
-      numTurns: j.num_turns,
-    };
-    return {
-      text: typeof j.result === 'string' ? j.result : undefined,
-      usage,
-      isError: j.is_error === true,
-      subtype: j.subtype,
-      apiErrorStatus: typeof j.api_error_status === 'number' ? j.api_error_status : undefined,
-    };
-  } catch (e) {
+  // Two accepted shapes, parsed identically once the result object is in hand:
+  //   (a) --output-format json        → stdout IS the single result object.
+  //   (b) --output-format stream-json → stdout is JSONL; the LAST {"type":"result"}
+  //       line is the same result object (the rest are the captured transcript).
+  // Back-compatible: try (a) first, fall back to scanning for the result line.
+  const j = extractResultObject(stdout);
+  if (j == null) {
     return {
       text: stdout,
       isError: false,
-      parseError: e instanceof Error ? e.message : String(e),
+      parseError: 'no parseable result object in node output',
     };
   }
+  const usage: NodeUsage = {
+    inputTokens: j.usage?.input_tokens,
+    outputTokens: j.usage?.output_tokens,
+    costUsd: j.total_cost_usd,
+    numTurns: j.num_turns,
+  };
+  return {
+    text: typeof j.result === 'string' ? j.result : undefined,
+    usage,
+    isError: j.is_error === true,
+    subtype: j.subtype,
+    apiErrorStatus: typeof j.api_error_status === 'number' ? j.api_error_status : undefined,
+  };
+}
+
+/**
+ * Pull the result object out of either a single-JSON (`--output-format json`) or a
+ * JSONL stream (`--output-format stream-json`). For the stream, the final
+ * `{"type":"result",...}` line carries the same fields as the json-format output.
+ */
+function extractResultObject(stdout: string): ClaudeJsonResult | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  // (a) whole stdout is one JSON object.
+  try {
+    const j = JSON.parse(trimmed) as ClaudeJsonResult;
+    if (j && typeof j === 'object') return j;
+  } catch { /* fall through to JSONL scan */ }
+  // (b) JSONL — scan from the end for the last `type:'result'` line.
+  const lines = trimmed.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || line[0] !== '{') continue;
+    try {
+      const obj = JSON.parse(line) as ClaudeJsonResult & { type?: string };
+      if (obj && obj.type === 'result') return obj;
+    } catch { /* keep scanning */ }
+  }
+  return null;
 }
 
 /**
@@ -343,6 +399,12 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
   if (timer) clearTimeout(timer);
 
   const durationMs = Math.round(Date.now() - start);
+
+  // Persist the raw stream-json transcript (best-effort) — captured even on a
+  // timeout, since the partial transcript is the most useful thing to inspect.
+  if (spec.transcriptPath) {
+    captureTranscript(spec.transcriptPath, spec.transcriptLabel ?? 'node', stdout, { exitCode, durationMs });
+  }
 
   if (timedOut) {
     return {

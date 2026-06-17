@@ -20,6 +20,7 @@
  * executor is NEVER run against a live leaf in tests.
  */
 
+import { join } from 'node:path';
 import type { Todo } from './todo-store';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { WorktreeManager } from '../agent/worktree-manager';
@@ -251,6 +252,17 @@ const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string }
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
 function blueprintPath(leaf: Todo): string {
   return `.collab/leaf-blueprints/${leaf.id}.md`;
+}
+
+/**
+ * Absolute path of a leaf's per-run stream-json transcript, under the TRACKING
+ * project (stable; the reader endpoint resolves the same path). Every node of the
+ * leaf appends here with a boundary marker, so the file reads as one transcript
+ * across the leaf's plan→build→verify→report chain (and across retries). Exported
+ * so the reader route resolves the identical path.
+ */
+export function leafTranscriptPath(project: string, leafId: string): string {
+  return join(project, '.collab', 'leaf-transcripts', `${leafId}.jsonl`);
 }
 
 /** Verify pipeline artifacts (epic f5c7fc46), all worktree-relative. The plan node writes
@@ -891,6 +903,8 @@ export async function runLeaf(
     leafId: leaf.id,
     epicId,
     permissionMode: 'bypassPermissions',
+    transcriptPath: leafTranscriptPath(project, leaf.id),
+    transcriptLabel: kind,
   });
 
   /** Per-task/per-file wave NodeSpec — mirrors buildSpec but uses buildWavePrompt. */
@@ -907,6 +921,8 @@ export async function runLeaf(
     leafId: leaf.id,
     epicId,
     permissionMode: 'bypassPermissions',
+    transcriptPath: leafTranscriptPath(project, leaf.id),
+    transcriptLabel: `${kind}:${target.ref}`,
   });
 
   /**

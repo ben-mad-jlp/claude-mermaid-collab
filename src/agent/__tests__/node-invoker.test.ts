@@ -16,11 +16,14 @@ import {
 const base: NodeSpec = { prompt: 'hello', cwd: '/tmp/x' };
 
 describe('buildNodeArgv', () => {
-  it('always headless json, no-session-persistence, bypassPermissions, never --bare', () => {
+  it('always headless stream-json (+verbose, for the transcript), no-session-persistence, bypassPermissions, never --bare', () => {
     const argv = buildNodeArgv(base);
     expect(argv[0]).toBe('claude');
     expect(argv).toContain('-p');
-    expect(argv).toEqual(expect.arrayContaining(['--output-format', 'json']));
+    // stream-json so the full transcript is captured; the final result line is the
+    // same object json-format gave (parseNodeJson reads it).
+    expect(argv).toEqual(expect.arrayContaining(['--output-format', 'stream-json']));
+    expect(argv).toContain('--verbose');
     expect(argv).toContain('--no-session-persistence');
     expect(argv).toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions']));
     expect(argv).not.toContain('--bare');
@@ -86,6 +89,28 @@ describe('parseNodeJson', () => {
   });
   it('flags is_error', () => {
     expect(parseNodeJson(JSON.stringify({ result: 'x', is_error: true })).isError).toBe(true);
+  });
+  it('extracts the result from a stream-json (JSONL) transcript — the final type:result line', () => {
+    const transcript = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1' }),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } }),
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } }),
+      JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'DONE', num_turns: 3, total_cost_usd: 0.02, usage: { input_tokens: 7, output_tokens: 9 } }),
+    ].join('\n');
+    const p = parseNodeJson(transcript);
+    expect(p.text).toBe('DONE');
+    expect(p.isError).toBe(false);
+    expect(p.usage?.numTurns).toBe(3);
+    expect(p.usage?.inputTokens).toBe(7);
+  });
+  it('stream-json: surfaces is_error + api_error_status from the result line', () => {
+    const transcript = [
+      JSON.stringify({ type: 'assistant', message: { content: [] } }),
+      JSON.stringify({ type: 'result', subtype: 'error', is_error: true, api_error_status: 429 }),
+    ].join('\n');
+    const p = parseNodeJson(transcript);
+    expect(p.isError).toBe(true);
+    expect(p.apiErrorStatus).toBe(429);
   });
   it('returns parseError + raw text on non-json', () => {
     const p = parseNodeJson('not json');

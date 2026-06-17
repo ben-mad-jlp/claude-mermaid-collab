@@ -2903,6 +2903,36 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/leaf-executor/transcript/:leafId?project=&limit=
+  // The per-leaf SDK-session transcript (a8785f3d): the raw stream-json the headless
+  // `claude -p` nodes emitted, captured to .collab/leaf-transcripts/<leafId>.jsonl
+  // (one file across the leaf's plan→build→verify→report chain, node-boundary markers
+  // between). Parses the JSONL into structured entries the viewer renders. Plain read,
+  // no ws; { ran:false } when no transcript exists yet.
+  {
+    const m = path.match(/^\/api\/leaf-executor\/transcript\/([^/]+)$/);
+    if (m && req.method === 'GET') {
+      const leafId = decodeURIComponent(m[1]);
+      const project = url.searchParams.get('project');
+      if (!project) return Response.json({ leafId, ran: false });
+      const { leafTranscriptPath } = await import('../services/leaf-executor');
+      const file = leafTranscriptPath(project, leafId);
+      const { existsSync, readFileSync } = await import('node:fs');
+      if (!existsSync(file)) return Response.json({ leafId, ran: false });
+      let raw = '';
+      try { raw = readFileSync(file, 'utf8'); } catch { return Response.json({ leafId, ran: false }); }
+      const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+      const limit = Math.min(Number(url.searchParams.get('limit') ?? '4000') || 4000, 8000);
+      const truncated = lines.length > limit;
+      const slice = truncated ? lines.slice(-limit) : lines;
+      const entries = slice.map((l) => {
+        try { return JSON.parse(l) as Record<string, unknown>; }
+        catch { return { type: 'unparsed', raw: l } as Record<string, unknown>; }
+      });
+      return Response.json({ leafId, ran: true, entries, truncated, totalLines: lines.length });
+    }
+  }
+
   // GET /api/leaf-executor/blueprint/:leafId?project=
   // The per-todo "Proposed changes" source (PAW): reads the durable blueprint doc the
   // leaf-executor persisted (link.blueprintId) and re-decodes its trailing ```json size

@@ -16,6 +16,7 @@ import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
 import { derivedStatus, buildById } from '@/lib/claimability';
 import { WorkerRunStrip } from '@/components/supervisor/bridge/WorkerRunStrip';
+import { LeafTranscript } from '@/components/supervisor/bridge/LeafTranscript';
 
 function shortSlug(blueprintId: string): string {
   const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
@@ -76,6 +77,8 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
   // Expand the worker-ledger run (per-node steps + each node's output) for this
   // leaf — the closest thing to the executor's transcript. leafId === todo.id.
   const [showRun, setShowRun] = useState(false);
+  // Expand the FULL per-leaf SDK-session transcript (captured stream-json).
+  const [showTranscript, setShowTranscript] = useState(false);
 
   // Sibling sessions in this project — for the assignee picker.
   const [siblings, setSiblings] = useState<string[]>([]);
@@ -453,6 +456,15 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                     >
                       {executor}{showRun ? ' ▾' : ' ▸'}
                     </button>
+                    <button
+                      type="button"
+                      data-testid="executor-transcript-toggle"
+                      onClick={() => setShowTranscript((v) => !v)}
+                      className="text-2xs text-gray-500 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-300"
+                      title="Show the full SDK-session transcript (captured stream-json)"
+                    >
+                      transcript{showTranscript ? ' ▾' : ' ▸'}
+                    </button>
                   </span>
                 );
               })()}
@@ -467,6 +479,17 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                   leafId={todo.id}
                   isActive={!!todo.claim || todo.status === 'in_progress'}
                   project={currentSession?.project}
+                  serverId={currentSession?.serverId ?? ''}
+                />
+              </div>
+            )}
+
+            {/* Full per-leaf SDK-session transcript (captured stream-json). */}
+            {showTranscript && currentSession?.project && (
+              <div className="mt-3">
+                <LeafTranscript
+                  leafId={todo.id}
+                  project={currentSession.project}
                   serverId={currentSession?.serverId ?? ''}
                 />
               </div>
