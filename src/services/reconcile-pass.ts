@@ -30,10 +30,12 @@ import {
   getSupervisedLaunchProject,
 } from './supervisor-store.ts';
 import { listTodos, getTodo, sweepEpicRollups } from './todo-store.ts';
+import { isClaimable } from './claimability.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND } from './coordinator-live.ts';
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
 import { deriveLiveness } from './session-runtime.ts';
+import { assertClaimInvariants } from './invariant-check.ts';
 
 // ---------------------------------------------------------------------------
 // Rate-limit state (module-level, survives the process lifetime)
@@ -68,14 +70,16 @@ function isSessionIdle(project: string, session: string, now: number): boolean {
   return liveness === 'idle';
 }
 
-/** True when a session has at least one `ready` todo it OWNS or is assigned to. */
+/** True when a session has at least one CLAIMABLE todo it OWNS or is assigned to.
+ *  De-conflate (b2c858d4): readiness is DERIVED — the old `{status:'ready'}` filter is stale
+ *  (ready work is now stored status='planned'+approvedAt), so derive via isClaimable over the
+ *  full work-graph (byId needed for dep resolution). */
 function hasReadyWork(project: string, session: string): boolean {
-  // Check todos owned by this session
-  const owned = listTodos(project, { ownerSession: session, status: 'ready' });
-  if (owned.length > 0) return true;
-  // Check todos assigned to this session
-  const assigned = listTodos(project, { assigneeSession: session, status: 'ready' });
-  return assigned.length > 0;
+  const all = listTodos(project, { includeCompleted: true });
+  const byId = new Map(all.map((t) => [t.id, t]));
+  return all.some(
+    (t) => (t.ownerSession === session || t.assigneeSession === session) && isClaimable(t, byId),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +212,24 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] epic-rollup sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3a. S6 INVARIANT-ASSERT (sweep-as-net): assert the new-model structural
+  // invariants (claim ⟺ in-flight; no terminal-with-claim; held never holds a
+  // live claim; epic-rollup consistency) and ALARM (console.warn + supervisor
+  // audit) on any violation. ASSERT-only — NEVER mutates/repairs, and explicitly
+  // does NOT rewrite the shadow enum. The old "fix missed fan-outs" job is gone:
+  // readiness is derived, so there is nothing to materialize. In steady state
+  // this finds nothing. Best-effort; never aborts the pass.
+  // -------------------------------------------------------------------------
+  try {
+    assertClaimInvariants(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] invariant-assert failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }

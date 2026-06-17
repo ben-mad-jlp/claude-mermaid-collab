@@ -15,6 +15,7 @@ import { GrokTranscript } from '@/components/terminal/GrokTranscript';
 import { TieringEditor } from '@/components/settings/TieringEditor';
 import { WorkerRunStrip } from './WorkerRunStrip';
 import { ProposedChangesCard } from './ProposedChangesCard';
+import { apiFetch } from '@/lib/api';
 
 /**
  * TodoWorkerPanel — the always-on worker section for a selected todo. Shows the LIVE
@@ -39,11 +40,14 @@ export const TodoWorkerPanel: React.FC<{
     <>
       {live && <LaneCallout todoId={todoId} project={project} serverId={serverId} />}
       {/* Headless leaf-executor run (no lane / no session) — orthogonal source, always
-          rendered (self-suppresses to a quiet placeholder when the todo never ran headless). */}
-      <WorkerRunStrip leafId={todoId} isActive={isActive} />
+          rendered (self-suppresses to a quiet placeholder when the todo never ran headless).
+          serverId + project MUST be threaded so the fetch hits the per-server backend that
+          owns the worker-ledger (desktop/multi-server) — a bare fetch hits the UI origin and
+          the panel stays empty (the bug this fixes). */}
+      <WorkerRunStrip leafId={todoId} isActive={isActive} project={project} serverId={serverId} />
       {/* Durable per-attempt blueprint manifest — the files the leaf proposes to create/edit.
           Sibling of WorkerRunStrip (compose, 00c8adb9); self-suppresses when no blueprint. */}
-      <ProposedChangesCard leafId={todoId} project={project} />
+      <ProposedChangesCard leafId={todoId} project={project} serverId={serverId} />
     </>
   );
 };
@@ -98,7 +102,7 @@ export const LaneCallout: React.FC<{
             type="button"
             title="Stop this worker lane (aborts the run)"
             onClick={async () => {
-              await fetch('/api/worker-lane/abort', {
+              await apiFetch(serverId, '/api/worker-lane/abort', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ session: lane.session }),

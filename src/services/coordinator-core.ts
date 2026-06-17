@@ -1,4 +1,5 @@
 import type { Todo } from './todo-store';
+import { isClaimable } from './claimability';
 
 export interface CoordinatorTickPlan {
   toClaim: string[];   // ready todo ids whose deps are all done — claimable now
@@ -95,8 +96,7 @@ export function shouldPulseReap(
 }
 
 export function planCoordinatorTick(todos: Todo[], now: string): CoordinatorTickPlan {
-  const statusById = new Map(todos.map((t) => [t.id, t.status]));
-  const acceptById = new Map(todos.map((t) => [t.id, t.acceptanceStatus]));
+  const byId = new Map(todos.map((t) => [t.id, t]));
   const nowMs = new Date(now).getTime();
   const toClaim: string[] = [];
   const toRelease: string[] = [];
@@ -109,23 +109,15 @@ export function planCoordinatorTick(todos: Todo[], now: string): CoordinatorTick
     if (t.parentId && t.status !== 'done' && t.status !== 'dropped') openChildParents.add(t.parentId);
   }
   for (const t of todos) {
-    if (t.status === 'ready') {
-      if (t.assigneeKind === 'human') continue; // human-owned — the daemon never claims it (park-from-daemon)
-      if (openChildParents.has(t.id)) continue; // container — never claim
-      // Mirror todo-store.depSatisfied: a dep satisfies only when 'done' AND not
-      // rejected. A rejected dep (SI-3) never silently satisfies its dependents.
-      // An unknown dep id is external → treated as satisfied.
-      const depsDone = (t.dependsOn ?? []).every((d) => {
-        const s = statusById.get(d);
-        if (s === undefined) return true;
-        return s === 'done' && acceptById.get(d) !== 'rejected';
-      });
-      if (depsDone) toClaim.push(t.id);
-    } else if (t.status === 'in_progress') {
-      if (t.claimedAt != null && t.claimLeaseMs != null &&
-          new Date(t.claimedAt).getTime() + t.claimLeaseMs < nowMs) {
-        toRelease.push(t.id);
-      }
+    // De-conflate (b2c858d4): claimability via the SINGLE predicate — isClaimable covers
+    // approved + unblocked + agent + deps-satisfied (incl. the rejected-dep rule and the
+    // unknown-dep-is-not-satisfied rule). The container guard is the only EXTRA daemon-launch
+    // constraint layered on top.
+    if (isClaimable(t, byId) && !openChildParents.has(t.id)) {
+      toClaim.push(t.id);
+    } else if (t.claim != null) {
+      // in-flight ≡ claim != null → release once the lease has elapsed.
+      if (new Date(t.claim.at).getTime() + t.claim.leaseMs < nowMs) toRelease.push(t.id);
     }
   }
   return { toClaim, toRelease };

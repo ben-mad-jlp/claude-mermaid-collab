@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { MarkdownPreview } from './MarkdownPreview';
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
+import { derivedStatus, buildById } from '@/lib/claimability';
 
 function shortSlug(blueprintId: string): string {
   const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
@@ -60,9 +61,8 @@ export interface TodoDetailViewProps {
 }
 
 export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
-  const todo = useSessionStore((s) => s.sessionTodos.find((t) => t.id === todoId)) as
-    | SessionTodo
-    | undefined;
+  const allTodos = useSessionStore((s) => s.sessionTodos);
+  const todo = allTodos.find((t) => t.id === todoId) as SessionTodo | undefined;
   const currentSession = useSessionStore((s) => s.currentSession);
   const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
   const selectDocument = useSessionStore((s) => s.selectDocument);
@@ -123,6 +123,22 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
       setError(err instanceof Error ? err.message : 'Failed to update status.');
     }
   }, [todo, currentSession, upsertSessionTodo]);
+
+  // Decision writes go through the SAME `changeStatus` chokepoint: the store
+  // mutator translates status-writes of the now-DERIVED values into decision
+  // writes (epic b2c858d4) — status:'ready'→approvedAt (+clear heldAt),
+  // status:'blocked'→heldAt, status:'planned'→clear approvedAt. The UI sets
+  // INTENT; the system derives the fact (shown read-only below).
+  const approved = !!todo?.approvedAt;
+  const held = !!todo?.heldAt;
+  const toggleApprove = useCallback(() => {
+    // approve → ready; un-approve → planned (only when not held)
+    void changeStatus(approved ? 'planned' : 'ready');
+  }, [approved, changeStatus]);
+  const toggleHold = useCallback(() => {
+    // hold → blocked; release hold → ready (re-derives claimable if eligible)
+    void changeStatus(held ? 'ready' : 'blocked');
+  }, [held, changeStatus]);
 
   // Unstick a wedged todo: server-side resetTodo clears the claim/lease/retry/
   // acceptance state and re-queues it `ready` so the Orchestrator can claim it again.
@@ -188,6 +204,28 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
 
   const status: TodoStatus = todo.status ?? (todo.completed ? 'done' : 'todo');
 
+  // READ-ONLY derived fact (epic b2c858d4) — rendered VERBATIM from the single
+  // predicate, never re-derived here. e.g. "ready" / "blocked" / "in_progress".
+  const derived = derivedStatus(todo, buildById(allTodos));
+  const derivedReadable: Record<string, string> = {
+    ready: 'ready',
+    blocked: held ? 'on hold' : 'blocked',
+    in_progress: 'in progress',
+    planned: 'planned',
+    done: 'done',
+    dropped: 'dropped',
+  };
+  // Lifecycle moves a human may set directly. The derived values
+  // ready/blocked/in_progress are NOT offered — they are computed, not stored.
+  const LIFECYCLE: { value: TodoStatus; label: string }[] = [
+    { value: 'planned', label: 'Planned' },
+    { value: 'done', label: 'Done' },
+    { value: 'dropped', label: 'Dropped' },
+  ];
+  // The lifecycle select reflects only terminal/planned; derived rows show 'planned'.
+  const lifecycleValue: TodoStatus =
+    status === 'done' || status === 'dropped' ? status : 'planned';
+
   // Shared chrome-less control styling so status/assignee read as plain text.
   const plainControl =
     'shrink-0 bg-transparent border-none rounded px-1 py-0.5 text-sm text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600';
@@ -213,16 +251,56 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
           className={`shrink-0 w-2 h-2 rounded-full ${statusDot(status)}`}
           aria-hidden="true"
         />
-        <select
-          value={status}
-          onChange={(e) => changeStatus(e.target.value as TodoStatus)}
-          aria-label="Status"
-          className={`${plainControl} max-w-[140px] truncate`}
+        {/* Decision controls (epic b2c858d4): Approve + Hold are INTENT toggles
+            that write approvedAt/heldAt via the store's translation seam; the
+            lifecycle select sets only real lifecycle moves. ready/blocked/
+            in_progress are DERIVED and shown read-only beside them — never set
+            raw. */}
+        <button
+          type="button"
+          data-testid="todo-detail-approve"
+          aria-pressed={approved}
+          onClick={toggleApprove}
+          title={approved ? 'Approved to run — click to un-approve' : 'Approve this todo to run'}
+          className={`shrink-0 px-2 py-0.5 text-xs rounded border ${
+            approved
+              ? 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30'
+              : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
         >
-          {(Object.keys(STATUS_LABEL) as TodoStatus[]).map((s) => (
-            <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+          {approved ? '✓ Approved' : 'Approve'}
+        </button>
+        <button
+          type="button"
+          data-testid="todo-detail-hold"
+          aria-pressed={held}
+          onClick={toggleHold}
+          title={held ? 'On hold — click to release' : 'Hold this todo (prevents claiming)'}
+          className={`shrink-0 px-2 py-0.5 text-xs rounded border ${
+            held
+              ? 'border-warning-400 text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/30'
+              : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+          }`}
+        >
+          {held ? '⏸ Held' : 'Hold'}
+        </button>
+        <select
+          value={lifecycleValue}
+          onChange={(e) => changeStatus(e.target.value as TodoStatus)}
+          aria-label="Lifecycle"
+          className={`${plainControl} max-w-[120px] truncate`}
+        >
+          {LIFECYCLE.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
+        <span
+          data-testid="todo-detail-derived"
+          title="Derived state (computed, not editable)"
+          className="shrink-0 text-xs text-gray-400 dark:text-gray-500"
+        >
+          now: {derivedReadable[derived] ?? derived}
+        </span>
         <select
           value={todo.assigneeSession ?? ''}
           onChange={(e) => changeAssignee(e.target.value)}
@@ -253,7 +331,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
         {/* Edit controls — pushed right and kept together as a shrink-0 cluster
             that wraps to its own line rather than overflowing. */}
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          {!editing && (status === 'in_progress' || status === 'blocked') && (
+          {!editing && (derived === 'in_progress' || derived === 'blocked') && (
             <button
               data-testid="todo-detail-reset"
               onClick={resetStuck}

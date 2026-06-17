@@ -28,6 +28,8 @@ import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components
 import { useFleetShortcuts } from '@/components/layout/useFleetShortcuts';
 import { useBridgeOrderStore, applyBridgeOrder } from '@/stores/bridgeOrderStore';
 import { isOrchestratorSession } from '@/lib/liveness';
+import { derivedStatus, buildById } from '@/lib/claimability';
+import type { SessionTodo } from '@/types/sessionTodo';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
 import { SessionCleanup } from '@/components/supervisor/SessionCleanup';
 import { useUIStore } from '@/stores/uiStore';
@@ -96,20 +98,24 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
  */
 /** At-a-glance plan stats for a project's work-graph todos (open work only). */
 const TERMINAL_TODO = new Set(['done', 'dropped']);
-export function projectPlanStats(todos: Array<{ status: string }>): {
+// inProgress/blocked/ready are DERIVED via the single predicate (epic b2c858d4),
+// read VERBATIM from derivedStatus — never off the shadow `status` enum.
+export function projectPlanStats(todos: SessionTodo[]): {
   open: number;
   inProgress: number;
   blocked: number;
   ready: number;
   idleWithWork: boolean;
 } {
+  const byId = buildById(todos);
   let open = 0, inProgress = 0, blocked = 0, ready = 0;
   for (const t of todos) {
     if (TERMINAL_TODO.has(t.status)) continue;
     open += 1;
-    if (t.status === 'in_progress') inProgress += 1;
-    else if (t.status === 'blocked') blocked += 1;
-    else if (t.status === 'ready') ready += 1;
+    const d = derivedStatus(t, byId);
+    if (d === 'in_progress') inProgress += 1;
+    else if (d === 'blocked') blocked += 1;
+    else if (d === 'ready') ready += 1;
   }
   // Ready work queued but nothing actively running it → "parked".
   return { open, inProgress, blocked, ready, idleWithWork: ready > 0 && inProgress === 0 };

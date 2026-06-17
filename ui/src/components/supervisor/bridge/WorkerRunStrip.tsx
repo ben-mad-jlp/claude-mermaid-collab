@@ -14,6 +14,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
+import { apiFetch } from '@/lib/api';
 
 interface LeafNode {
   nodeKind: string | null; // 'blueprint'|'implement'|'review'|null
@@ -125,7 +126,7 @@ function dotClass(node: LeafNode, isLast: boolean, isActive: boolean, hasTermina
   return 'bg-gray-300 dark:bg-gray-600 animate-pulse';
 }
 
-export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; project?: string }> = ({ leafId, isActive, project }) => {
+export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; project?: string; serverId?: string }> = ({ leafId, isActive, project, serverId = '' }) => {
   const [data, setData] = useState<LeafRunResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refetchNonce, setRefetchNonce] = useState(0);
@@ -138,7 +139,7 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; proje
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/leaf-executor/run/${encodeURIComponent(leafId)}`)
+    apiFetch(serverId, `/api/leaf-executor/run/${encodeURIComponent(leafId)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d: LeafRunResponse | null) => {
         if (!cancelled) setData(d);
@@ -152,13 +153,13 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; proje
     return () => {
       cancelled = true;
     };
-  }, [leafId, refetchNonce]);
+  }, [leafId, serverId, refetchNonce]);
 
   // Inflight fetch — rides the same refetchNonce so it shares the gated poll and ws nudge.
   useEffect(() => {
     let cancelled = false;
     const qs = project ? `?project=${encodeURIComponent(project)}` : '';
-    fetch(`/api/leaf-executor/daemon${qs}`)
+    apiFetch(serverId, `/api/leaf-executor/daemon${qs}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { inflight?: InflightLeaf[] } | null) => {
         if (!cancelled) setInflight(d?.inflight?.find((r) => r.leafId === leafId) ?? null);
@@ -169,7 +170,7 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; proje
     return () => {
       cancelled = true;
     };
-  }, [leafId, project, refetchNonce]);
+  }, [leafId, project, serverId, refetchNonce]);
 
   // Ticking elapsed: compute from startedAt each second so the counter advances between polls.
   useEffect(() => {

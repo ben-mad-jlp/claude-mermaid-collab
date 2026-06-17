@@ -7,6 +7,7 @@ import { PlanPanel } from './PlanPanel';
 import { ConstraintPeerChips } from './ConstraintPeerChips';
 import { SplitPane } from '@/components/layout/SplitPane';
 import TodoDetailView from '@/components/editors/TodoDetailView';
+import { isClaimable, buildById } from '@/lib/claimability';
 
 /**
  * PlanWorkspace — the PLAN mode surface (Control-UI vision §4).
@@ -19,9 +20,6 @@ import TodoDetailView from '@/components/editors/TodoDetailView';
  * (the Bridge/Plan project selector), falling back to the current session's
  * project so the workspace is never empty mid-session.
  */
-
-// Statuses eligible for the Planner to promote to `ready` (mirrors PlannerView).
-const PROMOTABLE = new Set(['backlog', 'todo', 'planned']);
 
 function projectBasename(project: string): string {
   return project.split('/').filter(Boolean).pop() ?? project;
@@ -51,8 +49,13 @@ export const PlanWorkspace: React.FC = () => {
   }, [serverScope, project]);
 
   const todos = todosByProject[project] ?? [];
-  const awaiting = useMemo(() => todos.filter((t) => PROMOTABLE.has(t.status)), [todos]);
-  const readyCount = todos.filter((t) => t.status === 'ready').length;
+  // PROMOTABLE = pure-approval membership: anything not yet approved is what the
+  // Planner can approve (epic b2c858d4). Approval is the only axis the Planner
+  // writes; readiness is then DERIVED by the predicate.
+  const awaiting = useMemo(() => todos.filter((t) => t.approvedAt == null), [todos]);
+  const byId = useMemo(() => buildById(todos), [todos]);
+  const readyCount = todos.filter((t) => isClaimable(t, byId)).length;
+  void readyCount;
 
   const approvePlan = async () => {
     if (!project || awaiting.length === 0) return;

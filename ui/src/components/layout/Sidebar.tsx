@@ -121,7 +121,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <SupervisorPanel currentProject={currentSession?.project} currentSession={currentSession?.name} />
         <SubscriptionsPanel currentProject={currentSession?.project} />
         <ArtifactTree />
-        {/* SERVERS / peers — global, pinned at the bottom per the wireframe */}
+      </div>
+      {/* SERVERS / peers — global, pinned at the BOTTOM of the column (outside the
+          scroll area) so it's always visible regardless of how much sits above it. */}
+      <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 max-h-[40%] overflow-y-auto">
         <ServersTreeSection />
       </div>
     </aside>

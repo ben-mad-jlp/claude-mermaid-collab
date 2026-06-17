@@ -33,6 +33,10 @@ export interface NeedsYouZoneProps {
   onSelectTodo?: (todo: SessionTodo) => void;
   /** Render body-only (no card chrome / header) for use inside a tab panel. */
   embedded?: boolean;
+  /** All-clear copy. Defaults to the escalation phrasing; the Land tab overrides it. */
+  emptyLabel?: string;
+  /** 'escalation' (red) or 'land' (blue, positive). Forwarded to the inbox chrome. */
+  variant?: 'escalation' | 'land';
 }
 
 export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
@@ -42,6 +46,8 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
   onJump,
   onSelectTodo,
   embedded,
+  emptyLabel = 'All clear — nothing needs you',
+  variant = 'escalation',
 }) => {
   const open = selectOpenEscalations(escalations, { kind: 'project', project });
 
@@ -60,10 +66,10 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
     open.length === 0 && !hasLingeringAiResolved ? (
       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
         <span className="text-success-500" aria-hidden="true">✓</span>
-        <span>All clear — nothing needs you</span>
+        <span>{emptyLabel}</span>
       </div>
     ) : (
-      <BridgeEscalationInbox escalations={open} serverScope={serverScope} onJump={onJump} project={project} onSelectTodo={onSelectTodo} />
+      <BridgeEscalationInbox escalations={open} serverScope={serverScope} variant={variant} bare={embedded} onJump={onJump} project={project} onSelectTodo={onSelectTodo} />
     );
 
   if (embedded) return <div data-testid="needs-you-zone" data-needs-you={open.length}>{body}</div>;

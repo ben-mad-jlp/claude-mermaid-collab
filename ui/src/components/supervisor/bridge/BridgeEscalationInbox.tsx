@@ -51,6 +51,11 @@ const TriageLifecycleBadge: React.FC<{ escalation: Escalation }> = ({ escalation
 export interface BridgeEscalationInboxProps {
   escalations: Escalation[];
   serverScope: string;
+  /** 'escalation' (red, "needs you") or 'land' (blue, positive "ready to land"). */
+  variant?: 'escalation' | 'land';
+  /** Drop the card container + header chrome and render just the list (the tab
+   *  already shows the title + count). Used when embedded in a Bridge tab. */
+  bare?: boolean;
   onJump?: (project: string, session: string) => void;
   /** When set, recently AI-resolved escalations for this project linger briefly
    *  with their outcome (fd934fb7) instead of silently vanishing. Omit to hide the
@@ -66,10 +71,13 @@ const TERMINAL_TODO = new Set(['done', 'dropped']);
 export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   escalations,
   serverScope,
+  variant = 'escalation',
+  bare = false,
   onJump,
   project,
   onSelectTodo,
 }) => {
+  const isLand = variant === 'land';
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
@@ -115,27 +123,39 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   return (
     <div
       data-testid="bridge-escalation-inbox"
-      className={`rounded-lg border p-3 space-y-3 ${
-        open.length > 0
-          ? 'border-danger-300 dark:border-danger-700 bg-danger-50/60 dark:bg-danger-900/20'
-          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
-      }`}
+      className={
+        bare
+          ? 'space-y-3'
+          : `rounded-lg border p-3 space-y-3 ${
+              open.length === 0
+                ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
+                : isLand
+                  ? 'border-info-300 dark:border-info-700 bg-info-50/60 dark:bg-info-900/20'
+                  : 'border-danger-300 dark:border-danger-700 bg-danger-50/60 dark:bg-danger-900/20'
+            }`
+      }
     >
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">⚠ Escalation Inbox</span>
-        <span
-          className={`text-2xs font-bold px-1.5 rounded-full ${
-            open.length > 0 ? 'bg-danger-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
-          }`}
-        >
-          {open.length}
-        </span>
-      </div>
+      {!bare && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{isLand ? '⬇ Ready to Land' : '⚠ Escalation Inbox'}</span>
+          <span
+            className={`text-2xs font-bold px-1.5 rounded-full ${
+              open.length === 0
+                ? 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
+                : isLand
+                  ? 'bg-info-500 text-white'
+                  : 'bg-danger-500 text-white'
+            }`}
+          >
+            {open.length}
+          </span>
+        </div>
+      )}
 
       {open.length === 0 ? (
-        <p className="text-2xs text-gray-500 dark:text-gray-400">✓ No open escalations — all clear.</p>
+        bare ? null : <p className="text-2xs text-gray-500 dark:text-gray-400">{isLand ? '✓ Nothing to land — all merged.' : '✓ No open escalations — all clear.'}</p>
       ) : (
-        <div className="space-y-2 max-h-72 overflow-y-auto">
+        <div className={bare ? 'space-y-2' : 'space-y-2 max-h-72 overflow-y-auto'}>
           {open.map((e) => {
             const hasOptions = !!e.options && e.options.length > 0;
             const todo = e.todoId ? todoById.get(e.todoId) : undefined;
@@ -272,10 +292,16 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                     <button
                       type="button"
                       onClick={() => void landEpic(serverScope, e.project, e.id)}
-                      className="px-2 py-1 text-2xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-2xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
                       title="Re-derive land-readiness server-side, then merge this epic onto master"
                     >
-                      🚀 Land
+                      {/* download glyph = 'ship to master' — the same icon the project
+                          cards + Land tab use (replaces the old rocket). */}
+                      <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path d="M10 2a1 1 0 011 1v7.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 10.586V3a1 1 0 011-1z" />
+                        <path d="M3 14a1 1 0 011 1v1a1 1 0 001 1h10a1 1 0 001-1v-1a1 1 0 112 0v1a3 3 0 01-3 3H5a3 3 0 01-3-3v-1a1 1 0 011-1z" />
+                      </svg>
+                      Land
                     </button>
                     <button
                       type="button"

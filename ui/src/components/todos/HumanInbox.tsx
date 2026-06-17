@@ -18,6 +18,7 @@
 import React from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { selectHumanInbox } from './humanInboxSelectors';
+import { claimReason, buildById } from '@/lib/claimability';
 
 export interface HumanInboxProps {
   /** Already project-scoped todos (e.g. todosByProject[project]). */
@@ -38,6 +39,9 @@ function shortSlug(s: string): string {
 
 export const HumanInbox: React.FC<HumanInboxProps> = ({ todos, onClaim, onComplete, onOpen, embedded }) => {
   const items = selectHumanInbox(todos);
+  // byId over the full project list so the claim-gate can read claimReason —
+  // the SINGLE actionability predicate (epic b2c858d4), never the status enum.
+  const byId = buildById(todos);
 
   return (
     <div
@@ -61,7 +65,8 @@ export const HumanInbox: React.FC<HumanInboxProps> = ({ todos, onClaim, onComple
       ) : (
         <ul className="flex flex-col gap-1.5">
           {items.map((t) => {
-            const inProgress = t.status === 'in_progress';
+            const inProgress = t.claim != null; // in_progress ≡ claim != null
+            const claimable = claimReason(t, byId) === 'human-assignee';
             return (
               <li
                 key={t.id}
@@ -97,7 +102,7 @@ export const HumanInbox: React.FC<HumanInboxProps> = ({ todos, onClaim, onComple
                 </div>
 
                 <div className="mt-1.5 flex items-center justify-end gap-2">
-                  {t.status === 'ready' && (
+                  {claimable && (
                     <button
                       type="button"
                       data-testid="human-inbox-claim"

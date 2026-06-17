@@ -36,6 +36,17 @@ export interface SessionTodo {
   acceptanceStatus?: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy?: string | null;
   retryCount?: number;
+  // De-conflated work-graph decision fields (epic b2c858d4). `status`'s
+  // ready/blocked/in_progress values are now DERIVED — read them via the
+  // claimability predicate (ui/src/lib/claimability.ts), never inline.
+  /** ISO. Written ONLY by the Planner. Null = not approved. */
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  /** ISO. Written by Steward/human (+ lease-exhaustion). Null = not held. */
+  heldAt?: string | null;
+  heldReason?: string | null;
+  /** ONE collapsed in_progress struct. in_progress ≡ claim != null. */
+  claim?: { by: string; token: string; at: string; leaseMs: number } | null;
   /** Opaque actor handle recorded when a HUMAN todo is completed (B1). */
   completedBy?: string | null;
   /**

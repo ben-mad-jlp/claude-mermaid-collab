@@ -1,5 +1,7 @@
 import type { Todo, TodoStatus } from './todo-store';
 import { listTodos } from './todo-store';
+import { recordSupervisorAudit } from './supervisor-store';
+import { isClaimable } from './claimability';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -16,7 +18,6 @@ import { listTodos } from './todo-store';
  *                            (a383bc2c — every epic ends with a land leaf).
  *  - epic-planned-ready-child an [EPIC] still 'planned' that has a 'ready' child.
  *  - broken-depends-on       dependsOn points at a missing or dropped todo.
- *  - blocked-on-nothing      status 'blocked' but every dependsOn target is done.
  *
  * Epics and land leaves are identified by their title prefix ([EPIC] / [LAND]),
  * matching coordinator-live's isEpicTodo and the planner's land-leaf convention.
@@ -26,8 +27,7 @@ export type InvariantKind =
   | 'orphan'
   | 'stranded-epic'
   | 'epic-planned-ready-child'
-  | 'broken-depends-on'
-  | 'blocked-on-nothing';
+  | 'broken-depends-on';
 
 export interface InvariantViolation {
   kind: InvariantKind;
@@ -119,9 +119,11 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
       });
     }
 
-    // 3. epic-planned-ready-child — epic still 'planned' but has a 'ready' child.
+    // 3. epic-planned-ready-child — epic still 'planned' but has a CLAIMABLE child.
+    // De-conflate (b2c858d4): "ready" is derived now, so test the child via isClaimable
+    // (the single predicate) rather than the legacy materialized status enum.
     if (isEpicTodo(t) && t.status === 'planned') {
-      const readyChild = (childrenOf.get(t.id) ?? []).find((c) => c.status === 'ready');
+      const readyChild = (childrenOf.get(t.id) ?? []).find((c) => isClaimable(c, byId));
       if (readyChild) {
         violations.push({
           kind: 'epic-planned-ready-child',
@@ -152,18 +154,9 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
       }
     }
 
-    // 5. blocked-on-nothing — 'blocked' but every dep is done.
-    if (t.status === 'blocked') {
-      const deps = (t.dependsOn ?? []).map((id) => byId.get(id)).filter((d): d is Todo => !!d);
-      if (deps.length > 0 && deps.every((d) => d.status === 'done')) {
-        violations.push({
-          kind: 'blocked-on-nothing',
-          todoId: t.id,
-          title: t.title,
-          reason: 'status is blocked but all dependsOn targets are done',
-        });
-      }
-    }
+    // 5. (S4, epic b2c858d4) blocked-on-nothing — REMOVED. 'blocked' is no longer a
+    // materialized readiness state; readiness is derived by claimability, so a 'blocked' enum
+    // value whose deps are all done is just legacy noise the predicate ignores, not a violation.
   }
 
   return violations;
@@ -173,4 +166,151 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
 export function checkInvariants(project: string): InvariantViolation[] {
   const todos = listTodos(project, { includeCompleted: true });
   return findViolations(todos);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// S6 — Sweep-as-net: ASSERT the new-model structural invariants (don't repair).
+//
+// The de-conflate refactor (epic b2c858d4) moved truth into the stored decisions
+// (approvedAt / heldAt / claim) and DERIVES readiness, so the old sweep that
+// "fixed missed fan-outs" has nothing to fix. We repurpose the sweep into an
+// invariant-ASSERT pass: it surfaces any row whose structural invariants are
+// violated and ALARMS (console.warn + a supervisor audit entry) — it NEVER
+// mutates/repairs, and it EXPLICITLY does not cosmetically rewrite the shadow
+// enum (writing status='ready'/'blocked' would re-create a trustable lying
+// value). Unmigrated readers use derivedStatus; in steady state this finds
+// nothing.
+//
+// Invariants asserted (claim/decision structural model):
+//  - claim-implies-in-flight : claim != null ⇒ row not terminal (done/dropped).
+//  - terminal-with-claim     : status in (done,dropped) ⇒ claim == null.
+//  - held-with-claim         : heldAt != null ⇒ claim == null (a held row must
+//                              never hold a live claim — it was never auto-claimed).
+//  - epic-rollup             : a non-terminal epic whose non-dropped children are
+//                              ALL done+accepted should already be rolled up; if it
+//                              is not, the real rollup (sweepEpicRollups) missed it
+//                              — assert, do not roll up here.
+//
+// Note: the first two invariants are logically the same edge (claim ⟺ in-flight),
+// asserted from both directions so the alarm names the exact failing shape.
+// ───────────────────────────────────────────────────────────────────────────
+
+export type ClaimInvariantKind =
+  | 'claim-implies-in-flight'
+  | 'terminal-with-claim'
+  | 'held-with-claim'
+  | 'epic-rollup-missed';
+
+export interface ClaimInvariantViolation {
+  kind: ClaimInvariantKind;
+  todoId: string;
+  title: string;
+  reason: string;
+}
+
+/** Audit kind used for S6 invariant alarms (so they're queryable in the audit trail). */
+export const CLAIM_INVARIANT_AUDIT_KIND = 'invariant-assert';
+
+/**
+ * Pure assert pass over a Todo[] — returns the structural-invariant violations only.
+ * No DB access, no mutation. ASSERT-only: callers ALARM on a non-empty result.
+ */
+export function findClaimInvariantViolations(todos: Todo[]): ClaimInvariantViolation[] {
+  const violations: ClaimInvariantViolation[] = [];
+
+  // children grouped by parentId for the epic-rollup assertion.
+  const childrenOf = new Map<string, Todo[]>();
+  for (const t of todos) {
+    if (t.parentId) {
+      const arr = childrenOf.get(t.parentId) ?? [];
+      arr.push(t);
+      childrenOf.set(t.parentId, arr);
+    }
+  }
+
+  for (const t of todos) {
+    const terminal = isTerminal(t.status);
+    const hasClaim = t.claim != null;
+
+    // claim ⟺ in-flight, asserted from both directions.
+    if (hasClaim && terminal) {
+      violations.push({
+        kind: 'claim-implies-in-flight',
+        todoId: t.id,
+        title: t.title,
+        reason: `terminal todo (status='${t.status}') still holds a live claim (claim != null)`,
+      });
+    }
+    if (terminal && hasClaim) {
+      violations.push({
+        kind: 'terminal-with-claim',
+        todoId: t.id,
+        title: t.title,
+        reason: `status in (done,dropped) must imply claim == null, but claim is set`,
+      });
+    }
+
+    // held-never-auto-claimed: a held row must never hold a live claim.
+    if (t.heldAt != null && hasClaim) {
+      violations.push({
+        kind: 'held-with-claim',
+        todoId: t.id,
+        title: t.title,
+        reason: `held todo (heldAt set, reason='${t.heldReason ?? ''}') holds a live claim — a held row must never be auto-claimed`,
+      });
+    }
+
+    // epic-rollup consistency: assert the real rollup didn't miss a fully-settled epic.
+    if (!terminal) {
+      const children = childrenOf.get(t.id)?.filter((c) => c.status !== 'dropped') ?? [];
+      if (
+        children.length > 0 &&
+        children.every((c) => c.status === 'done' && c.acceptanceStatus === 'accepted')
+      ) {
+        violations.push({
+          kind: 'epic-rollup-missed',
+          todoId: t.id,
+          title: t.title,
+          reason: `non-terminal epic whose ${children.length} non-dropped child(ren) are ALL done+accepted — rollup missed it`,
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * DB-backed S6 assert pass — load the project's work-graph, assert the structural
+ * claim/decision invariants, and ALARM (console.warn + supervisor audit) on any
+ * violation. NEVER mutates. Returns the violations (also used by tests). In steady
+ * state returns []. Best-effort: an audit-write failure never throws.
+ */
+export function assertClaimInvariants(project: string): ClaimInvariantViolation[] {
+  const todos = listTodos(project, { includeCompleted: true });
+  const violations = findClaimInvariantViolations(todos);
+  if (violations.length === 0) return violations;
+
+  for (const v of violations) {
+    console.warn(`[invariant-assert] ${v.kind} on ${v.todoId} (${v.title}): ${v.reason}`);
+    try {
+      recordSupervisorAudit({
+        kind: CLAIM_INVARIANT_AUDIT_KIND,
+        project,
+        session: 'coordinator',
+        detail: JSON.stringify({
+          source: 'invariant-assert',
+          invariant: v.kind,
+          todoId: v.todoId,
+          reason: v.reason,
+        }),
+      });
+    } catch (err) {
+      console.warn(
+        `[invariant-assert] audit write failed for ${v.todoId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return violations;
 }

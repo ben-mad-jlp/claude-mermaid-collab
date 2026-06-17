@@ -189,7 +189,15 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         status?: import('../services/todo-store.ts').TodoStatus;
       };
       if (!project || !id) return jsonError('project and id are required', 400);
-      const todo = await updateTodo(project, id, status ? { status } : {});
+      // De-conflate S3: the Planner approves by writing the DECISION axis
+      // (approvedAt/approvedBy), not the derived `ready` status. status==='ready'
+      // means "approve to run"; updateTodo's write-side seam also translates a raw
+      // status:'ready' the same way, but the Planner writes approvedAt directly with
+      // its audit handle, and the seam fires kick('approved') on the null→non-null.
+      let patch: import('../services/todo-store.ts').UpdateTodoPatch = {};
+      if (status === 'ready') patch = { approvedAt: new Date().toISOString(), approvedBy: 'planner' };
+      else if (status) patch = { status };
+      const todo = await updateTodo(project, id, patch);
       return Response.json({ todo });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);

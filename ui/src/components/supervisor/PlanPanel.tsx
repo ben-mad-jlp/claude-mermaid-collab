@@ -8,6 +8,7 @@ import { PlanTotalsBar } from './PlanTotals';
 import { isBucketEpic } from './bucketEpic';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
 import { bucketTodo, STATUS_STYLE } from './bridge/funnel';
+import { derivedStatus, buildById } from '@/lib/claimability';
 
 /**
  * PCS Phase 5 / Bridge P6 — the project Plan, backed by the UNIFIED work-graph
@@ -138,8 +139,10 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
 
-  const inProgress = todos.filter((t) => t.status === 'in_progress').length;
-  const blocked = todos.filter((t) => t.status === 'blocked').length;
+  // Derived via the single predicate (epic b2c858d4), not the shadow enum.
+  const byIdAll = useMemo(() => buildById(todos), [todos]);
+  const inProgress = todos.filter((t) => derivedStatus(t, byIdAll) === 'in_progress').length;
+  const blocked = todos.filter((t) => derivedStatus(t, byIdAll) === 'blocked').length;
 
   // Epic-grouped, sorted tree for list mode: top-level items (no parent in set)
   // sorted by the plan order, each followed by its children (also sorted).

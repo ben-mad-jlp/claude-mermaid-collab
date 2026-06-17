@@ -45,10 +45,22 @@ describe('TodoDetailView header layout', () => {
     expect(screen.getByTestId('todo-detail-header').className).toContain('flex-wrap');
   });
 
-  it('the status select is shrink-0 and width-capped', () => {
+  it('the lifecycle select is shrink-0 and width-capped', () => {
     render(<TodoDetailView todoId="T1" />);
-    const status = screen.getByLabelText('Status');
-    expect(status.className).toContain('shrink-0');
-    expect(status.className).toContain('max-w-');
+    const lifecycle = screen.getByLabelText('Lifecycle');
+    expect(lifecycle.className).toContain('shrink-0');
+    expect(lifecycle.className).toContain('max-w-');
+  });
+
+  it('exposes Approve/Hold intent toggles and a read-only derived state (epic b2c858d4)', () => {
+    render(<TodoDetailView todoId="T1" />);
+    expect(screen.getByTestId('todo-detail-approve')).toBeTruthy();
+    expect(screen.getByTestId('todo-detail-hold')).toBeTruthy();
+    // Derived label shown read-only; it must NOT offer ready/blocked/in_progress
+    // as a raw lifecycle option.
+    expect(screen.getByTestId('todo-detail-derived').textContent).toMatch(/^now:/);
+    const lifecycle = screen.getByLabelText('Lifecycle') as HTMLSelectElement;
+    const opts = Array.from(lifecycle.options).map((o) => o.value);
+    expect(opts).toEqual(['planned', 'done', 'dropped']);
   });
 });

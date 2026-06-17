@@ -15,6 +15,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
+import { apiFetch } from '@/lib/api';
 
 interface BlueprintManifest {
   filesToCreate: string[];
@@ -28,9 +29,10 @@ interface BlueprintResponse {
   manifest?: BlueprintManifest;
 }
 
-export const ProposedChangesCard: React.FC<{ leafId: string; project: string }> = ({
+export const ProposedChangesCard: React.FC<{ leafId: string; project: string; serverId?: string }> = ({
   leafId,
   project,
+  serverId = '',
 }) => {
   const [manifest, setManifest] = useState<BlueprintManifest | null>(null);
   const [refetchNonce, setRefetchNonce] = useState(0);
@@ -39,7 +41,8 @@ export const ProposedChangesCard: React.FC<{ leafId: string; project: string }> 
   // nonce bump (ws nudge). No poll — the manifest is static once the blueprint is written.
   useEffect(() => {
     let cancelled = false;
-    fetch(
+    apiFetch(
+      serverId,
       `/api/leaf-executor/blueprint/${encodeURIComponent(leafId)}?project=${encodeURIComponent(project)}`,
     )
       .then((r) => (r.ok ? r.json() : null))
@@ -53,7 +56,7 @@ export const ProposedChangesCard: React.FC<{ leafId: string; project: string }> 
     return () => {
       cancelled = true;
     };
-  }, [leafId, project, refetchNonce]);
+  }, [leafId, project, serverId, refetchNonce]);
 
   // ws nudge (only refresh path): the existing `session_todos_updated` broadcast already
   // reaches the Bridge. Bump the nonce on any such event → triggers the refetch. NO new event.

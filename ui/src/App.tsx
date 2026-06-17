@@ -41,6 +41,8 @@ import { useWatchEvents } from '@/hooks/useWatchEvents';
 import { useStatusSync } from '@/hooks/useStatusSync';
 import { useServers } from '@/contexts/ServerContext';
 import { getWebSocketClient } from '@/lib/websocket';
+import { logConn } from '@/stores/connectionLogStore';
+import { ConnectingConsole } from '@/components/connection/ConnectingConsole';
 import { useShallow } from 'zustand/react/shallow';
 import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
@@ -133,25 +135,6 @@ class ErrorBoundary extends React.Component<
     return this.props.children;
   }
 }
-
-/**
- * Loading Overlay Component
- * Displays a loading spinner while content is being loaded
- */
-const LoadingOverlay: React.FC<{ show: boolean }> = ({ show }) => {
-  if (!show) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-8">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-info-600"></div>
-          <p className="text-gray-900 dark:text-white">Loading...</p>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 /**
  * Main App Component
@@ -484,7 +467,7 @@ const App: React.FC = () => {
   );
 
   // WebSocket for real-time updates
-  const { isConnected, isConnecting } = useWebSocket();
+  const { isConnected, isConnecting, error: wsError } = useWebSocket();
 
   const [isVscodeConnected, setIsVscodeConnected] = React.useState(false);
   useEffect(() => {
@@ -529,11 +512,14 @@ const App: React.FC = () => {
     // Subscribe to updates when connected
     if (isConnected) {
       client.subscribe('ide');
+      logConn('subscribe channel "ide"', 'ok');
     }
     if (isConnected && currentSession) {
       client.subscribe('updates');
+      logConn('subscribe channel "updates"', 'ok');
       // Restore any cached UI state on reconnection
       restoreUIState();
+      logConn('restoring cached UI state', 'info', `${currentSession.project}/${currentSession.name}`);
     }
 
     // Handle incoming messages with incremental updates (Item 2 & 9)
@@ -1322,8 +1308,10 @@ const App: React.FC = () => {
 
   // Load sessions and projects on mount
   useEffect(() => {
-    loadSessions();
-    loadProjects();
+    logConn('fetching sessions', 'pending');
+    Promise.resolve(loadSessions()).then(() => logConn('sessions loaded', 'ok')).catch(() => logConn('sessions failed', 'error'));
+    logConn('fetching projects', 'pending');
+    Promise.resolve(loadProjects()).then(() => logConn('projects loaded', 'ok')).catch(() => logConn('projects failed', 'error'));
   }, [loadSessions, loadProjects]);
 
   // Auto-select first session only on initial load (not when user clears session)
@@ -1867,8 +1855,11 @@ const App: React.FC = () => {
         {/* Question Panel Overlay */}
         {currentQuestion && <QuestionPanel />}
 
-        {/* Loading Overlay */}
-        <LoadingOverlay show={isLoading} />
+        {/* Connecting console — read-only log of what the client does while
+            connecting/reconnecting to the server. Hides once connected. This replaces
+            the old full-screen loading spinner overlay entirely; in-pane loading falls
+            back to the inline placeholder in renderMainContent. */}
+        <ConnectingConsole show={(isConnecting || !!wsError) && !isConnected} error={wsError} />
 
         {/* Session Cleanup Dialog */}
         {cleanupSession && (

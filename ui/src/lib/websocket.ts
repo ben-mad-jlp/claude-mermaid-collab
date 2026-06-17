@@ -13,6 +13,8 @@
  * - Question events from Claude
  */
 
+import { logConn } from '@/stores/connectionLogStore';
+
 /**
  * Message structure for WebSocket communication
  */
@@ -145,15 +147,19 @@ export class WebSocketClient {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        logConn('opening socket', 'pending', this.url);
         this.socket = new WebSocket(this.url);
 
         // Connection established
         this.socket.onopen = () => {
           this.reconnectAttempts = 0;
           this.isIntentionallyClosed = false;
+          logConn('socket open', 'ok');
 
           // Send any pending messages
+          const queued = this.pendingMessages.length;
           this.flushPendingMessages();
+          if (queued > 0) logConn('flushed queued messages', 'info', `${queued}`);
 
           // Notify listeners
           this.connectHandlers.forEach((handler) => handler());
@@ -195,14 +201,17 @@ export class WebSocketClient {
 
         // Connection closed
         this.socket.onclose = () => {
+          logConn('connection closed', this.isIntentionallyClosed ? 'info' : 'error');
           this.onConnectionClosed();
         };
 
         // Error occurred
         this.socket.onerror = (error) => {
           console.error('WebSocket error:', error);
+          logConn('socket error', 'error');
         };
       } catch (error) {
+        logConn('connect failed', 'error', error instanceof Error ? error.message : String(error));
         reject(error);
       }
     });
@@ -345,6 +354,7 @@ export class WebSocketClient {
     console.log(
       `WebSocket reconnection scheduled in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
     );
+    logConn('reconnect scheduled', 'pending', `attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
 
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
