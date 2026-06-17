@@ -1,7 +1,7 @@
 {
   "name": "mermaid-collab-desktop",
   "private": true,
-  "version": "5.101.24",
+  "version": "5.101.25",
   "description": "mermaid-collab native desktop app (Electron)",
   "main": "out/main/index.js",
   "scripts": {
