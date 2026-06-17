@@ -1182,15 +1182,15 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // Budget gate first: over the daily cap → claim nothing for this project today.
       if (overDailyBudget(project)) return [];
       let claimable = await bp1FilterStrandedFoundations(project, await filterClaimable(todos));
-      // P3 headless circuit-breaker: while the per-process cap window is open, hold
-      // HEADLESS leaves out of the claimable set (mirrors the probe-gate filter
-      // above). This avoids the claim→release spin a launch-time gate alone would
-      // cause. tmux/legacy lanes are untouched — only node-invoker spawns are gated.
-      if (breakerOpen()) {
-        claimable = claimable.filter(
-          (t) => !isHeadlessLeaf(t, project),
-        );
-      }
+      // S4 (epic b2c858d4): the daemon can ONLY launch HEADLESS LEAVES (node-invoker spawns).
+      // A non-headless-leaf that is isClaimable (e.g. an [EPIC]/[GATE] left status='ready') would
+      // otherwise be claimed → launchWorker rejects (excl: epic-or-gate) → released every tick —
+      // pure churn, and a livelock when any release fires a kick. Pre-filter so it's NEVER
+      // claimed. (Defense-in-depth with dropping the releaseClaim capacity-kick.)
+      claimable = claimable.filter((t) => isHeadlessLeaf(t, project));
+      // P3 headless circuit-breaker: while the per-process cap window is open, hold ALL headless
+      // leaves out too (the only thing left after the filter) — claim nothing this window.
+      if (breakerOpen()) return [];
       return claimable;
     },
     // Wrapped to record coordinator lifecycle events into the supervisor audit

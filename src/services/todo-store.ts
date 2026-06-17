@@ -1185,21 +1185,13 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
           ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
       ).run(ts, actor, accept, ts, id);
     }
-    // Unblock pass: any 'blocked' todo whose every (known) dep is satisfied
-    // (done AND not rejected) → 'ready'. A rejected dep does NOT unblock, and a
-    // todo that is itself rejected stays parked until a human clears it.
-    const all = listTodos(project, { includeCompleted: true });
-    const byId = new Map(all.map((t) => [t.id, t]));
+    // S4 (epic b2c858d4): the blocked→ready FAN-OUT is DELETED. Readiness is no longer
+    // materialized — it is derived by claimability.isClaimable every tick, so there is nothing
+    // to fan out and nothing to miss (the "strand in blocked" class is gone by construction).
+    // Dependents become claimable automatically on the next derive; the dep-terminal kick below
+    // (+ the interval scan) re-pick them up promptly. `promoted` stays in the return shape for
+    // callers but is now always empty (nothing is materialized here).
     const promoted: string[] = [];
-    for (const t of all) {
-      if (t.status !== 'blocked') continue;
-      if (t.acceptanceStatus === 'rejected') continue;
-      const depsDone = (t.dependsOn ?? []).every((d) => depSatisfied(byId.get(d)));
-      if (depsDone) {
-        db.prepare(`UPDATE todos SET status='ready', updatedAt=? WHERE id=?`).run(nowIso(), t.id);
-        promoted.push(t.id);
-      }
-    }
     // Epic roll-up: when this completion leaves a parent epic with every
     // (non-dropped) child done, close the parent too — and recurse upward, since
     // a parent may itself be a child. A rejected or still-open child blocks the

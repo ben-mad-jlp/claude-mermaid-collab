@@ -16,7 +16,6 @@ import { listTodos } from './todo-store';
  *                            (a383bc2c — every epic ends with a land leaf).
  *  - epic-planned-ready-child an [EPIC] still 'planned' that has a 'ready' child.
  *  - broken-depends-on       dependsOn points at a missing or dropped todo.
- *  - blocked-on-nothing      status 'blocked' but every dependsOn target is done.
  *
  * Epics and land leaves are identified by their title prefix ([EPIC] / [LAND]),
  * matching coordinator-live's isEpicTodo and the planner's land-leaf convention.
@@ -26,8 +25,7 @@ export type InvariantKind =
   | 'orphan'
   | 'stranded-epic'
   | 'epic-planned-ready-child'
-  | 'broken-depends-on'
-  | 'blocked-on-nothing';
+  | 'broken-depends-on';
 
 export interface InvariantViolation {
   kind: InvariantKind;
@@ -152,18 +150,9 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
       }
     }
 
-    // 5. blocked-on-nothing — 'blocked' but every dep is done.
-    if (t.status === 'blocked') {
-      const deps = (t.dependsOn ?? []).map((id) => byId.get(id)).filter((d): d is Todo => !!d);
-      if (deps.length > 0 && deps.every((d) => d.status === 'done')) {
-        violations.push({
-          kind: 'blocked-on-nothing',
-          todoId: t.id,
-          title: t.title,
-          reason: 'status is blocked but all dependsOn targets are done',
-        });
-      }
-    }
+    // 5. (S4, epic b2c858d4) blocked-on-nothing — REMOVED. 'blocked' is no longer a
+    // materialized readiness state; readiness is derived by claimability, so a 'blocked' enum
+    // value whose deps are all done is just legacy noise the predicate ignores, not a violation.
   }
 
   return violations;
