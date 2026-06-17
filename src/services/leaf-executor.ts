@@ -246,6 +246,7 @@ export function buildNodePrompt(
           : `Read the blueprint at \`${bp}\` — ONLY that exact file (ignore any other blueprint in the directory) — and the files it references, then implement it FULLY.`,
         'Do not stub or leave TODOs. Do NOT run the acceptance gate or report completion —',
         'the executor drives the gate. Just make the edits the blueprint specifies.',
+        'If you spot-check compilation, run tsc ONLY from the repo root via `npx tsc --noEmit -p tsconfig.json` (the PROJECT config) — NEVER `tsc <file>` on a bare path, which drops the project lib/options and yields false errors.',
       ].filter(Boolean).join('\n');
     case 'review':
       return [
@@ -254,6 +255,7 @@ export function buildNodePrompt(
           ? `Compare the working tree against THIS leaf's blueprint, inlined below (do NOT read any other blueprint file — ignore strays in shared dirs):\n\n=== BLUEPRINT (${leaf.id}) START ===\n${blueprintText}\n=== BLUEPRINT END ===`
           : `Compare the working tree against the blueprint at \`${bp}\` (ONLY that exact file).`,
         'Decide if the work is complete and correct (it compiles, satisfies the blueprint, no obvious bugs).',
+        'To check compilation, run tsc ONLY from the repo root via `npx tsc --noEmit -p tsconfig.json` (the PROJECT config) — NEVER `tsc <file>` on a bare path; a bare-file run drops the project lib/options and produces false errors (e.g. TS2339 on readonly arrays). Code that fails ONLY under a bare-file run is NOT a real failure.',
         'End your reply with EXACTLY one line, nothing after it:',
         '`VERDICT: PASS`  (if complete and correct)',
         '`VERDICT: FAIL — <reason>`  (otherwise)',
