@@ -30,6 +30,8 @@ interface SessionEntry {
   client: any;
   subscribers: Set<ScreencastSink>;
   starting?: Promise<void>;
+  viewport?: { width: number; height: number; deviceScaleFactor: number };
+  config?: { quality: number; maxWidth: number; maxHeight: number; everyNthFrame: number };
 }
 
 export class ScreencastService {
@@ -96,13 +98,65 @@ export class ScreencastService {
       try { await client.Page.screencastFrameAck({ sessionId: params.sessionId }); } catch {}
     });
 
-    await client.Page.startScreencast({
-      format: 'jpeg',
-      quality: this.opts.quality,
-      maxWidth: this.opts.maxWidth,
-      maxHeight: this.opts.maxHeight,
-      everyNthFrame: this.opts.everyNthFrame,
-    });
+    if (entry.viewport) {
+      await client.Emulation.setDeviceMetricsOverride({
+        width: entry.viewport.width,
+        height: entry.viewport.height,
+        deviceScaleFactor: entry.viewport.deviceScaleFactor,
+        mobile: false,
+      }).catch(() => {});
+    }
+    await client.Page.startScreencast(this.screencastParams(entry));
+  }
+
+  private screencastParams(entry: SessionEntry) {
+    const c = entry.config;
+    return {
+      format: 'jpeg' as const,
+      quality: c?.quality ?? this.opts.quality,
+      maxWidth: c?.maxWidth ?? entry.viewport?.width ?? this.opts.maxWidth,
+      maxHeight: c?.maxHeight ?? entry.viewport?.height ?? this.opts.maxHeight,
+      everyNthFrame: c?.everyNthFrame ?? this.opts.everyNthFrame,
+    };
+  }
+
+  async setViewport(sessionName: string, vp: { width: number; height: number; deviceScaleFactor?: number }): Promise<void> {
+    const entry = this.sessions.get(sessionName);
+    if (!entry) return;
+    const next = {
+      width: Math.max(1, Math.round(vp.width)),
+      height: Math.max(1, Math.round(vp.height)),
+      deviceScaleFactor: vp.deviceScaleFactor && vp.deviceScaleFactor > 0 ? vp.deviceScaleFactor : 1,
+    };
+    const cur = entry.viewport;
+    if (cur && cur.width === next.width && cur.height === next.height && cur.deviceScaleFactor === next.deviceScaleFactor) return;
+    entry.viewport = next;
+    if (entry.client && !entry.starting) await this.restartScreencast(sessionName).catch(() => {});
+  }
+
+  async setQuality(sessionName: string, q: { quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number }): Promise<void> {
+    const entry = this.sessions.get(sessionName);
+    if (!entry) return;
+    entry.config = {
+      quality: q.quality ?? entry.config?.quality ?? this.opts.quality,
+      maxWidth: q.maxWidth ?? entry.config?.maxWidth ?? this.opts.maxWidth,
+      maxHeight: q.maxHeight ?? entry.config?.maxHeight ?? this.opts.maxHeight,
+      everyNthFrame: Math.max(1, q.everyNthFrame ?? entry.config?.everyNthFrame ?? this.opts.everyNthFrame),
+    };
+    if (entry.client && !entry.starting) await this.restartScreencast(sessionName).catch(() => {});
+  }
+
+  private async restartScreencast(sessionName: string): Promise<void> {
+    const entry = this.sessions.get(sessionName);
+    if (!entry?.client) return;
+    await entry.client.Page.stopScreencast().catch(() => {});
+    if (entry.viewport) {
+      await entry.client.Emulation.setDeviceMetricsOverride({
+        width: entry.viewport.width, height: entry.viewport.height,
+        deviceScaleFactor: entry.viewport.deviceScaleFactor, mobile: false,
+      }).catch(() => {});
+    }
+    await entry.client.Page.startScreencast(this.screencastParams(entry));
   }
 
   private async stopScreencast(sessionName: string): Promise<void> {

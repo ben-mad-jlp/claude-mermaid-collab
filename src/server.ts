@@ -289,6 +289,16 @@ if (screencastService) {
       console.error(`mermaid-collab: browser_input dispatch failed for ${msg.session} —`, err);
     }
   });
+
+  wsHandler.setOnBrowserResize((msg) => {
+    screencastService!.setViewport(msg.session, {
+      width: msg.width, height: msg.height, deviceScaleFactor: msg.deviceScaleFactor,
+    }).catch((err: unknown) => console.error(`mermaid-collab: browser_resize failed for ${msg.session} —`, err));
+  });
+  wsHandler.setOnBrowserQuality((msg) => {
+    screencastService!.setQuality(msg.session, msg).catch((err: unknown) =>
+      console.error(`mermaid-collab: browser_quality failed for ${msg.session} —`, err));
+  });
 }
 
 const sweeper = new BindingSweeper();

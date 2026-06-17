@@ -9,6 +9,7 @@ const mockUnsubscribe = vi.fn();
 const mockOnMessage = vi.fn();
 const mockConnect = vi.fn().mockResolvedValue(undefined);
 let messageHandler: ((msg: unknown) => void) | null = null;
+let connectHandler: (() => void) | null = null;
 
 const mockSend = vi.fn();
 
@@ -21,6 +22,10 @@ const mockClient = {
     messageHandler = handler;
     return { unsubscribe: mockOnMessage };
   }),
+  onConnect: vi.fn((handler: () => void) => {
+    connectHandler = handler;
+    return { unsubscribe: vi.fn() };
+  }),
 };
 
 vi.mock('@/lib/serverFrameWs', () => ({
@@ -30,11 +35,17 @@ vi.mock('@/lib/serverFrameWs', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   messageHandler = null;
+  connectHandler = null;
   mockClient.onMessage.mockImplementation((handler: (msg: unknown) => void) => {
     messageHandler = handler;
     return { unsubscribe: mockOnMessage };
   });
+  mockClient.onConnect.mockImplementation((handler: () => void) => {
+    connectHandler = handler;
+    return { unsubscribe: vi.fn() };
+  });
   mockConnect.mockResolvedValue(undefined);
+  vi.stubGlobal('ResizeObserver', vi.fn(() => ({ observe: vi.fn(), disconnect: vi.fn() })));
 });
 
 afterEach(() => {
@@ -134,6 +145,38 @@ describe('StreamedViewport', () => {
     });
 
     expect(metaRef.current).toBeNull();
+  });
+
+  it('sends browser_resize on mount', async () => {
+    const rafQueue: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafQueue.push(cb); return rafQueue.length; });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    const { container } = render(<StreamedViewport session="sess-resize" />);
+    await act(async () => { await Promise.resolve(); });
+
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement;
+    Object.defineProperty(canvas, 'clientWidth',  { value: 800, configurable: true });
+    Object.defineProperty(canvas, 'clientHeight', { value: 600, configurable: true });
+
+    act(() => { rafQueue.forEach(cb => cb(0)); });
+
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'browser_resize', session: 'sess-resize', width: 800, height: 600 })
+    );
+  });
+
+  it('re-subscribes on WS reconnect via onConnect handler', async () => {
+    render(<StreamedViewport session="sess-reconn" />);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(mockSubscribe).toHaveBeenCalledWith('browser:sess-reconn');
+    const callsBefore = mockSubscribe.mock.calls.length;
+
+    act(() => { connectHandler?.(); });
+
+    expect(mockSubscribe.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(mockSubscribe).toHaveBeenLastCalledWith('browser:sess-reconn');
   });
 });
 
