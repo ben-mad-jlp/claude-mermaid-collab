@@ -1496,17 +1496,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // partition and the tmux name agree.
       const poolProject = todo.targetProject ?? project;
 
-      // PAW P3: resolve the worker PROVIDER (manual selection, ships DORMANT).
-      // Precedence session.provider → profile.provider → 'claude'. With nothing
-      // pinned this is ALWAYS 'claude' (pass-through), so the pool tags slots
-      // `<type>-claude-<slot>` exactly as before. A session pin (set via the
-      // ProviderSelector, stored on the session-status row) routes the lane to a
-      // provider-tagged slot instead. No automatic cost routing, no spend caps.
-      const launchProfile = resolveProfile(todo.type, todo.targetProject ?? project);
-      const sessionPin = todo.sessionName
-        ? getStatus(project, todo.sessionName)?.provider ?? null
-        : null;
-      const provider: ProviderId = resolveProvider(launchProfile, todo, { provider: sessionPin });
+      // P7 PHASE 2: the tmux CLI lane and the in-process grok-build/anthropic-core harnesses
+      // are RETIRED — the headless leaf-executor (below) is the sole worker path. The pool
+      // slot registry is still provider-tagged for lane-name back-compat, so pin a constant
+      // 'claude' tag. (Collapsing the pool to a bare per-project concurrency limiter is a
+      // later P7 step.)
+      const provider: ProviderId = 'claude';
 
       let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type, provider);
       if (!poolName) {
@@ -1583,226 +1578,29 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         }
       }
 
-      // P7 PHASE-2 COVERAGE PROBE: we only reach here (the legacy tmux lane) when the
-      // executor is OFF, or the claimed todo is NOT a headless leaf. Before the tmux
-      // lane is deleted we must PROVE that — with the executor default-on — every claim
-      // that still falls through is an EXPECTED non-work exclusion (human/epic/gate/
-      // reviewer/parent), never a genuine work leaf that would strand. Log exactly that.
-      // Read-only; no behaviour change. (Skipped when the flag is off — that's the
-      // intentional escape hatch, not a coverage gap.)
-      if (leafExecutorEnabled()) {
-        recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, coverage: 'tmux-fallback-claim', reason: headlessExclusionReason(todo, project) ?? 'unknown', type: todo.type ?? null, title: (todo.title ?? '').slice(0, 80) }) });
-      }
-
-      // CROSS-PROJECT (SEAM·collab): the todo lives in `project` (the tracking
-      // store where it was claimed) but may be IMPLEMENTED in a different repo.
-      // Spawn the worker with cwd = the target repo so its edits land there and
-      // the gate (below) can see them; resolve the worker profile from the target
-      // repo's manifest too. All claim/store/supervised bookkeeping stays on the
-      // tracking `project` — that's where the todo + lease live.
-      const targetProject = todo.targetProject ?? project;
-      let { allowedTools, invokeSkill, model, runtimeMode, contextPrompt } = resolveWorkerProfile(todo, targetProject);
-
-      // When the implementation target differs from the tracking project, the
-      // worker's cwd is the target repo but its todo (get_todo/complete_todo +
-      // friction note) lives in the tracking project — tell it so it reports to
-      // the right store instead of defaulting every collab call to its cwd.
-      if (targetProject !== project) {
-        const note =
-          `\n\nCROSS-PROJECT TODO: this todo is TRACKED in the collab project ${project}, but its ` +
-          `implementation TARGET is your current working directory (${targetProject}). Make all code ` +
-          `edits here in ${targetProject}. For collab todo operations — get_todo, complete_todo, and the ` +
-          `.collab/attempts friction note — use project=${project} (the tracking project), NOT your cwd.`;
-        contextPrompt = (contextPrompt ?? '') + note;
-      }
-
-      // BSYNC SESSION ISOLATION (SEAM·both): a CAD worker must not use bsync's
-      // default in-memory session — concurrent CAD lanes would stomp each other's
-      // live assembly. Derive a stable, unique session_id from (project, lane,
-      // todo) and tell the worker to pass it on every bsync call. Keyed on the
-      // tracking `project` + lane `poolName` + todo id so it is reproducible on
-      // resume and distinct per concurrent worker.
-      if (isCadTodo(todo)) {
-        const bsyncSessionId = deriveBsyncSessionId(project, poolName, todo.id);
-        contextPrompt = (contextPrompt ?? '') + bsyncSessionContextNote(bsyncSessionId);
-      }
-
-      // 2b. DOGFOOD #5 isolation: when enabled, run this worker in a fresh git
-      //     worktree branched off ITS EPIC's accumulation branch (FBPE P2 — so it
-      //     sees all prior accepted work for that epic) instead of the shared
-      //     working tree. cwd becomes the worktree path. Best-effort: if worktree
-      //     setup fails (e.g. non-git repo), fall back to the shared-tree behavior
-      //     rather than dropping the todo.
-      let launchCwd: string | undefined;
-      if (workerIsolationEnabled()) {
-        try {
-          const wm = getWorktreeManager(targetProject);
-          // Resolve the epic by walking parentId in the TRACKING project (work-graph).
-          const epicId = resolveEpicId(todo, project);
-          const epic = await wm.ensureEpic(epicId, targetProject);
-          if (epic) {
-            // DEFECT 1 — under isolation each lane worktree is per-todo: pass
-            // `fresh` so a cached worktree from a prior todo is torn down (never
-            // reused with its stale branch). Branch off the epic's accumulation
-            // branch TIP so the lane sees all prior accepted work for this epic;
-            // ensureEpic just materialised the branch, so it exists. (If it
-            // somehow doesn't, ensure() falls back to the detected base branch.)
-            const wt = await wm.ensure(poolName, { baseBranch: epic.branch, fresh: true });
-            launchCwd = wt.path;
-          }
-        } catch (e) {
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, isolation: 'worktree-setup-failed', reason: e instanceof Error ? e.message : String(e) }) });
-        }
-      }
-
-      // SAFETY VALVE 2 — cold-start concurrency cap (944408c2): bound simultaneous
-      // worker cold-starts so a wave can't storm the sidecar with N heavy claude
-      // spawns + MCP load at once. At cap → defer (release the claim; re-claimable
-      // next tick once an in-flight spawn finishes). Counts only REAL spawn attempts
-      // (after all the deferrals above), so a wave of N todos with cap=2 spawns in
-      // waves of 2 instead of all at once.
-      if (coldStartsFor(poolProject) >= MAX_COLD_STARTS) {
-        try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-        recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'cold-start-cap', inFlight: coldStartsFor(poolProject), cap: MAX_COLD_STARTS, released: true }) });
-        return false;
-      }
-
-      // 3. Spawn or reuse the pool session (idempotent — ensureSession reuses a
-      //    live, bound session), then send the worker skill into it. Profile
-      //    params still drive tools/model/runtimeMode. cwd = the worktree (under
-      //    isolation) or the target repo. Stamp the attempt (for backoff) and count
-      //    it against the cold-start cap until the spawn finishes.
-      lastSpawnAttempt.set(todo.id, Date.now());
-      incColdStarts(poolProject);
-      // PAW P1/P4: route the spawn through the WorkerAgent registry. ONE branch —
-      // when the resolved provider is 'grok-build', go through the conformance-gated
-      // GrokOwnHarness (an in-process AI SDK loop; resolveGrokAgent() throws unless it
-      // passes conformance). Otherwise the UNTOUCHED Claude tmux path (claude-only
-      // floor): the adapter wraps the exact ensureSession + runTodoInSession path so
-      // `ready` / `reason` / `tmux` carry today's semantics — ensure-then-(if
-      // ready)-dispatch. The grok handle has the SAME shape, so the bookkeeping below
-      // (markBusy / recordDispatch / supervised) is shared; completion for BOTH lanes
-      // funnels through the MCP complete_todo verb → handleWorkerComplete →
-      // resolveCompletion (gate + work-committed re-verify) — never a model self-report.
-      // NO SILENT GROK→CLAUDE FALLBACK (in-process-mcp fix): for a grok-pinned
-      // todo, resolveGrokAgent() throws unless the GrokOwnHarness passes
-      // conformance. We must NOT swallow that and fall through to the Claude
-      // default agent — a grok-pinned todo running on Claude is a silent
-      // provider swap. Resolve grok in its OWN guarded block; on failure release
-      // the claim and ESCALATE (blocker), then bail — never reassign to Claude.
-      let launchAgent: typeof workerAgent;
-      if (provider === 'grok-build') {
-        try {
-          launchAgent = resolveGrokAgent();
-        } catch (e) {
-          decColdStarts(poolProject);
-          try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-          const reasonText = e instanceof Error ? e.message : String(e);
-          try {
-            createEscalation({
-              project,
-              session: poolName,
-              kind: 'blocker',
-              todoId: todo.id,
-              questionText:
-                `Grok worker launch FAILED for "${todo.title ?? todo.id}" — this todo is pinned to ` +
-                `the 'grok-build' provider but resolveGrokAgent() threw: ${reasonText}. The claim has ` +
-                `been released and the todo NOT reassigned to a Claude worker (no silent provider swap). ` +
-                `Resolve the grok harness issue and retry, re-pin the provider, or drop the pin.`,
-            });
-          } catch { /* escalation is best-effort; the released claim already parks the todo */ }
-          recordSupervisorAudit({ kind: 'escalate', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, reason: 'grok-resolve-failed', error: reasonText, released: true }) });
-          return false;
-        }
-      } else if (provider === 'claude' && claudeInProcessEnabledFor(project)) {
-        // PARALLEL-RUN: route claude todos to the in-process worker-core harness instead
-        // of the legacy CLI. On any resolve issue, FALL BACK to the CLI claude worker —
-        // same provider, proven runtime — so this is never a hard fail, never a swap.
-        try {
-          launchAgent = resolveAnthropicCoreAgent();
-        } catch (e) {
-          launchAgent = workerAgent;
-          recordSupervisorAudit({ kind: 'escalate', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, reason: 'anthropic-core-resolve-failed-fell-back-to-cli', error: e instanceof Error ? e.message : String(e) }) });
-        }
-      } else {
-        launchAgent = workerAgent;
-      }
-      let handle: { ready: boolean; tmux?: string; sent?: boolean; reason?: string } = { ready: false };
-      let started = false;
-      let reason: string | undefined;
+      // P7 PHASE 2 — TMUX LANE RETIRED. The headless leaf-executor above is the SOLE
+      // worker path; the legacy tmux CLI spawn and the in-process grok-build/anthropic-core
+      // harnesses have been deleted. Reaching here means a CLAIMED todo is NOT a headless
+      // leaf — which, for claimable WORK, isHeadlessLeaf coverage proved should not happen
+      // (EPIC/GATE/human/reviewer/parent are never claimed as work). Fail SAFE: release the
+      // claim and escalate a blocker rather than silently dropping it. (No tmux lane remains
+      // to fall back to; the LEAF_EXECUTOR escape hatch is retired with it.)
+      try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+      const exclReason = headlessExclusionReason(todo, project) ?? 'unknown';
       try {
-        handle = await launchAgent.launch({ project: targetProject, session: poolName, allowedTools, model, runtimeMode, contextPrompt, cwd: launchCwd, invokeSkill });
-        started = handle.ready;
-        reason = handle.reason;
-      } finally {
-        decColdStarts(poolProject);
-      }
-      const ok = started && reason === undefined;
-
-      // NO SILENT GROK→CLAUDE FALLBACK (in-process-mcp fix): a grok-pinned launch
-      // that returns ready:false must ESCALATE rather than leave the claim to be
-      // re-claimed (where the same grok pin would loop) or, worse, run on Claude.
-      // Release the claim + file a blocker; the Claude path is unchanged.
-      if (!ok && provider === 'grok-build') {
-        try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-        try {
-          createEscalation({
-            project,
-            session: poolName,
-            kind: 'blocker',
-            todoId: todo.id,
-            questionText:
-              `Grok worker launch FAILED for "${todo.title ?? todo.id}" — this todo is pinned to the ` +
-              `'grok-build' provider but the harness returned not-ready (reason: ${reason ?? 'unknown'}). ` +
-              `The claim has been released and the todo NOT reassigned to a Claude worker (no silent ` +
-              `provider swap). Resolve the grok launch issue and retry, re-pin, or drop the pin.`,
-          });
-        } catch { /* escalation is best-effort; the released claim already parks the todo */ }
-        recordSupervisorAudit({ kind: 'escalate', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, reason: 'grok-launch-not-ready', launchReason: reason, released: true }) });
-        return false;
-      }
-
-      if (ok) {
-        // Record the backing tmux so reapDeadSlots can free this slot on the
-        // worker's death regardless of the todo's eventual status.
-        markBusy(poolProject, poolName, todo.id, handle.tmux ?? tmuxBaseName(targetProject, poolName));
-        // PAW P3: record the dispatch's resolved { provider, model } so the watch
-        // card / fleet-status can surface WHICH provider ran this lane. DORMANT
-        // today (provider is always 'claude'), but persisting it now means the
-        // surfacing is in place the moment a real pin is set. Pinned on the
-        // session-status row (the slice the watch card reads); model goes into the
-        // in-memory dispatch record below for the fleet read-model.
-        try { recordSessionProvider(project, poolName, provider); } catch { /* best-effort surfacing */ }
-        recordDispatch(todo.id, { provider, model });
-        // Claim continues under the pool session name (todo.sessionName = poolName)
-        // so reclaim/lease semantics and the dead-claim reaper key off it.
-        // executedBySession pins the durable executor (the worker lane).
-        try { await updateTodo(project, todo.id, { sessionName: poolName, executedBySession: poolName }); } catch { /* spawn already succeeded; lease covers any inconsistency */ }
-        // POOL-2: auto-subscribe the pool session into the supervisor's Watching
-        // list so a card appears. Idempotent (addSupervised INSERT OR IGNORE on PK,
-        // addWatchedProject no-ops when watched) — safe to re-run when a warm pool
-        // session takes a second todo.
-        // BUGFIX (2e07d1c5): record the supervised row under the project the tmux
-        // session actually lives in (targetProject), NOT the tracking project.
-        // The tmux is created as tmuxBaseName(targetProject, poolName) (ensureSession
-        // above + markBusy), and /api/ide/create-terminal derives the tmux name from
-        // the supervised row's project — so for cross-project workers (targetProject
-        // != project) the tracking project produced a different name and clicking the
-        // card opened an empty shell instead of attaching. For the common same-project
-        // case targetProject === project, so this is a no-op there.
-        try {
-          // Record the launch project (targetProject) so create-terminal derives
-          // the SAME tmux name this worker was launched under. tmux was created
-          // via ensureSession({ project: targetProject }) → tmuxBaseName(
-          // targetProject, poolName); without this the supervised row carried the
-          // tracking project and create-terminal attached to the wrong/empty tmux
-          // (cross-project only). addSupervised stores null when targetProject==project.
-          addSupervised(project, poolName, 'spawn', '', targetProject);
-          addWatchedProject(project);
-        } catch { /* watching registration is best-effort; spawn already succeeded */ }
-      }
-      recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, type, started: ok, reason }) });
-      return ok;
+        createEscalation({
+          project,
+          session: poolName,
+          kind: 'blocker',
+          todoId: todo.id,
+          questionText:
+            `No worker lane for "${todo.title ?? todo.id}": the tmux worker lane was retired (P7) and ` +
+            `the headless leaf-executor only runs headless work leaves. This todo is not one (${exclReason}). ` +
+            `Re-scope it as a headless work leaf, split it under an epic, or handle it manually.`,
+        });
+      } catch { /* escalation is best-effort; the released claim already parks the todo */ }
+      recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, started: false, reason: 'tmux-retired-not-headless-leaf', excl: exclReason, released: true }) });
+      return false;
     },
     reapDeadClaims: async (project: string): Promise<{ reclaimed: string[]; exhausted: string[] }> => {
       const reclaimed: string[] = [];
