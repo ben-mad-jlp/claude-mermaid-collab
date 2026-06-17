@@ -27,6 +27,24 @@ export interface WatchedProject {
   addedAt: number;
 }
 
+/** Deploy-drift read-model for the self-deploy banner. From
+ *  GET /api/supervisor/deploy-status. `stale` = version drift OR a self-land
+ *  that post-dates the running binary; `canDeploy` mirrors the server gates. */
+export interface DeployStatus {
+  livePid: number | null;
+  liveVersion: string | null;
+  liveStartedAt: string | null;
+  repoVersion: string | null;
+  repoHead: string | null;
+  uncommittedCount: number | null;
+  drift: boolean | null;
+  selfLandPending: boolean;
+  lastSelfLandAt: number | null;
+  stale: boolean;
+  canDeploy: boolean;
+  deployBlockedReason: string | null;
+}
+
 /** A collab/epic/* branch carrying commits not yet landed on master (accepted
  *  work stranded off-master). From GET /api/supervisor/unlanded-epics. */
 export interface UnlandedEpic {
@@ -415,6 +433,13 @@ interface SupervisorState {
    *  master. Server re-derives readiness, merges, removes the epic, resolves the
    *  card. Returns the server outcome (landed / conflict / rejected). */
   landEpic: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; landed: boolean; conflict?: boolean; reason: string }>;
+  /** Human-gated self-deploy of the running sidecar (STRICTLY SEPARATE from land).
+   * Server hard-gates self-project; the deploy is detached and will kill+relaunch
+   * the sidecar, so this resolves immediately and the UI should then poll for the
+   * new live version. */
+  deploySelf: (serverId: string, project: string) => Promise<{ ok: boolean; started: boolean; reason: string; logPath?: string }>;
+  /** Read the deploy-drift status for the banner (live version, staleness, gate). */
+  fetchDeployStatus: (serverId: string, project: string) => Promise<DeployStatus | null>;
   /** Orch P2: confirm an inline Grok suggestion → server re-validates the proof
    *  gate then applies the verb. Returns the server result message. */
   confirmSuggestion: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; reason: string }>;
@@ -796,6 +821,23 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       conflict: result.conflict,
       reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed'),
     };
+  },
+
+  deploySelf: async (serverId, project) => {
+    const res = await invoke(serverId, '/api/supervisor/deploy', 'POST', { project });
+    const result = (res?.body as { ok?: boolean; started?: boolean; reason?: string; logPath?: string }) ?? {};
+    return {
+      ok: !!result.ok,
+      started: !!result.started,
+      reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed'),
+      logPath: result.logPath,
+    };
+  },
+
+  fetchDeployStatus: async (serverId, project) => {
+    const res = await invoke(serverId, `/api/supervisor/deploy-status?project=${encodeURIComponent(project)}`, 'GET');
+    if (!res?.ok || !res.body) return null;
+    return res.body as DeployStatus;
   },
 
   confirmSuggestion: async (serverId, project, id) => {
