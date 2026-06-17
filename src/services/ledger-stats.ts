@@ -87,11 +87,35 @@ function isOutcomeMarker(r: { nodeKind?: string | null }): boolean {
   return r.nodeKind === 'outcome';
 }
 
+/** Inter-row gap (ms) that marks a re-run boundary. Matches the ad-hoc watcher
+ *  heuristic seen in L4/L6 monitoring. */
+const RUN_GAP_MS = 120_000;
+
+/**
+ * Given a leaf's rows in ASCENDING chronological order (ts,id), return only the
+ * rows belonging to the LATEST run. A new run begins at the row immediately after
+ * either (a) a terminal outcome marker that is NOT the final row (a prior run's
+ * terminal), or (b) an inter-row gap >= RUN_GAP_MS. The run start is the index just
+ * after the LAST such boundary; if none, all rows are one run.
+ */
+function latestRunRows<T extends { ts: number; nodeKind?: string | null }>(asc: T[]): T[] {
+  if (asc.length <= 1) return asc;
+  let start = 0;
+  for (let i = 1; i < asc.length; i++) {
+    const prev = asc[i - 1];
+    const gap = asc[i].ts - prev.ts;
+    if (isOutcomeMarker(prev) || gap >= RUN_GAP_MS) start = i;
+  }
+  return asc.slice(start);
+}
+
 /** Per-leaf run view. Returns null when no rows exist for the leaf. */
 export function getLeafRun(leafId: string): LeafRunStats | null {
   // Ascending chronological order (queryLedger returns newest-first).
-  const rows = queryLedger({ leafId, limit: 2000 }).slice().reverse();
-  if (rows.length === 0) return null;
+  const allRows = queryLedger({ leafId, limit: 2000 }).slice().reverse();
+  if (allRows.length === 0) return null;
+  // Scope to the latest run only — a re-run leaf must not conflate prior runs.
+  const rows = latestRunRows(allRows);
 
   const markers = rows.filter(isOutcomeMarker);
   const nodeRows = rows.filter((r) => !isOutcomeMarker(r));
@@ -285,11 +309,11 @@ export function listLeafRuns(
   }
   const out: LeafRunSummary[] = [];
   for (const [leafId, group] of byLeaf) {
-    const markers = group.filter(isOutcomeMarker);
-    const nodeRows = group.filter((r) => !isOutcomeMarker(r));
-    // queryLedger returns newest-first, so the LATEST marker is the max-ts one (NOT
-    // markers[last], which is the oldest). A re-run leaf must report its newest outcome.
-    const lastMarker = [...markers].sort((a, b) => a.ts - b.ts).pop();
+    const asc = [...group].sort((a, b) => a.ts - b.ts);
+    const run = latestRunRows(asc);                 // newest run only
+    const markers = run.filter(isOutcomeMarker);
+    const nodeRows = run.filter((r) => !isOutcomeMarker(r));
+    const lastMarker = markers[markers.length - 1]; // run is ascending → last is newest
     let terminal: LeafRunStats['terminal'] = null;
     if (lastMarker?.outcomeDetail) { try { terminal = JSON.parse(lastMarker.outcomeDetail); } catch { terminal = null; } }
     out.push({
@@ -300,9 +324,9 @@ export function listLeafRuns(
       reviewVerdict: (lastMarker?.verdict as 'pass' | 'fail' | undefined) ?? null,
       reason: terminal?.reason ?? terminal?.pendingReason ?? null,
       pathTaken: terminal?.pathTaken ?? null,
-      lastTs: Math.max(...group.map((r) => r.ts)),
+      lastTs: Math.max(...run.map((r) => r.ts)),
       nodesSpent: nodeRows.reduce((s, r) => s + (r.nodesSpent ?? 0), 0) || nodeRows.length,
-      costUsd: group.reduce((s, r) => s + (r.costUsd ?? 0), 0),
+      costUsd: run.reduce((s, r) => s + (r.costUsd ?? 0), 0),
     });
   }
   out.sort((a, b) => b.lastTs - a.lastTs);
