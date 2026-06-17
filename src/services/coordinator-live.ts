@@ -568,6 +568,20 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   return !hasChildren;
 }
 
+/** P7 Phase-2 coverage probe: WHY is `todo` not a headless leaf? Returns the
+ *  exclusion reason (the inverse of isHeadlessLeaf, in the same order), or null
+ *  when it IS headless. Used only to LOG tmux-fallback claims while the executor is
+ *  default-on, so we can prove — before deleting the tmux lane — that every claim
+ *  that still falls through is an EXPECTED non-work exclusion (human/epic/gate/
+ *  reviewer/parent) and never a genuine work leaf that would strand. Pure/read-only. */
+export function headlessExclusionReason(todo: Todo, project: string): string | null {
+  if (todo.assigneeKind === 'human') return 'human';
+  if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return 'epic-or-gate';
+  if (todo.type === 'reviewer') return 'reviewer';
+  if (listTodos(project, {}).some((t) => t.parentId === todo.id)) return 'has-children';
+  return null;
+}
+
 // One WorktreeManager per target-repo root (memoised). Records + worktrees live
 // under <repo>/.collab/agent-sessions to match the AgentSessionRegistry default,
 // so launchWorker (ensure) and completeTodo (merge-back) key off the same store.
@@ -1567,6 +1581,17 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             questionText: `Leaf-executor failed for "${todo.title ?? todo.id}": ${e instanceof Error ? e.message : String(e)}` });
           return false;
         }
+      }
+
+      // P7 PHASE-2 COVERAGE PROBE: we only reach here (the legacy tmux lane) when the
+      // executor is OFF, or the claimed todo is NOT a headless leaf. Before the tmux
+      // lane is deleted we must PROVE that — with the executor default-on — every claim
+      // that still falls through is an EXPECTED non-work exclusion (human/epic/gate/
+      // reviewer/parent), never a genuine work leaf that would strand. Log exactly that.
+      // Read-only; no behaviour change. (Skipped when the flag is off — that's the
+      // intentional escape hatch, not a coverage gap.)
+      if (leafExecutorEnabled()) {
+        recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, coverage: 'tmux-fallback-claim', reason: headlessExclusionReason(todo, project) ?? 'unknown', type: todo.type ?? null, title: (todo.title ?? '').slice(0, 80) }) });
       }
 
       // CROSS-PROJECT (SEAM·collab): the todo lives in `project` (the tracking
