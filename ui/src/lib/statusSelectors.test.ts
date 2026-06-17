@@ -3,6 +3,7 @@ import type { Escalation } from '@/stores/supervisorStore';
 import {
   selectOpenEscalations,
   selectOpenEscalationCount,
+  selectEscalationKindCounts,
   selectLiveness,
   selectSessionStatus,
   type StatusScope,
@@ -107,6 +108,33 @@ describe('selectOpenEscalationCount — parity with selectOpenEscalations', () =
 
   it('tolerates a non-array slice', () => {
     expect(selectOpenEscalationCount(undefined as unknown as Escalation[], FLEET)).toBe(0);
+  });
+});
+
+// ── selectEscalationKindCounts — land-ready split from blockers ────────────────
+
+describe('selectEscalationKindCounts', () => {
+  const KINDS: Escalation[] = [
+    { ...esc('projA', 'a1', 'open', 'k1'), kind: 'blocker' } as Escalation,
+    { ...esc('projA', 'a2', 'open', 'k2'), kind: 'decision' } as Escalation,
+    { ...esc('projA', 'a3', 'open', 'k3'), kind: 'epic-ready-to-land' } as Escalation,
+    { ...esc('projA', 'a4', 'open', 'k4'), kind: 'epic-ready-to-land' } as Escalation,
+    { ...esc('projA', 'a5', 'resolved', 'k5'), kind: 'blocker' } as Escalation, // not open → excluded
+    { ...esc('projB', 'b1', 'open', 'k6'), kind: 'blocker' } as Escalation, // other project
+  ];
+
+  it('splits land-ready from blockers and ignores resolved + out-of-scope', () => {
+    const c = selectEscalationKindCounts(KINDS, PROJ_A);
+    expect(c).toEqual({ blockers: 2, landReady: 2, total: 4 });
+  });
+
+  it('total stays in parity with selectOpenEscalationCount', () => {
+    const c = selectEscalationKindCounts(KINDS, PROJ_A);
+    expect(c.total).toBe(selectOpenEscalationCount(KINDS, PROJ_A));
+  });
+
+  it('tolerates a non-array slice', () => {
+    expect(selectEscalationKindCounts(undefined as unknown as Escalation[], FLEET)).toEqual({ blockers: 0, landReady: 0, total: 0 });
   });
 });
 

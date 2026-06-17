@@ -1,5 +1,6 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
+import { resolveEscalationsForTodo } from './supervisor-store';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
@@ -1010,6 +1011,14 @@ export function resetTodo(
     );
     if (targetProject !== undefined) stmt.run(status, targetProject, nowIso(), id);
     else stmt.run(status, nowIso(), id);
+    // Re-promoting a blocked/rejected todo SUPERSEDES any escalation it raised (rejected
+    // / parked / blocker / blueprint-failed) — the work is being re-attempted, so those
+    // are stale. Auto-resolve them (matching by todoId + the lane session) so the project
+    // doesn't keep reading 'paused on escalation' (stale red) while the daemon rebuilds it.
+    // Mirrors completeTodo's accept-time resolveEscalationsForTodo; best-effort, never
+    // blocks the unstick.
+    try { resolveEscalationsForTodo(project, id, existing.sessionName ? [existing.sessionName] : []); }
+    catch { /* best-effort — escalation cleanup must never break the reset */ }
     // EVENT-DRIVEN: a steward reset back to `ready` should be claimed now, not on
     // the next interval (direct SQL above bypasses the updateTodo kick).
     if (status === 'ready') fireOrchestratorKick(`todo-reset:${id.slice(0, 8)}`);
