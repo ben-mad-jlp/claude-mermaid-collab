@@ -405,6 +405,17 @@ export function shouldUseFloor(m: LeafSizeManifest | null): boolean {
   );
 }
 
+/** Which EXECUTION SHAPE a leaf runs (epic f5c7fc46). 'code' (default) is the proven
+ *  blueprint→implement/waves→tsc-review AUTHORING pipeline; 'verify' is the non-code
+ *  dogfood pipeline (plan → deterministic driver verb → domain gate → committed report).
+ *  Keyed off the leaf's `type`: a 'verify'/'cad-dogfood'/'dogfood' type → verify; else
+ *  code. THIN dispatch, deliberately NOT a recipe registry (YAGNI — only two real shapes;
+ *  see the recipe-space analysis in doc executor-recipe-registry-design). Pure. */
+export function leafExecutionMode(leaf: Todo): 'code' | 'verify' {
+  const t = (leaf.type ?? '').toLowerCase();
+  return t === 'verify' || t === 'cad-dogfood' || t === 'dogfood' ? 'verify' : 'code';
+}
+
 /** Strip the markdown wrapping a model often adds around a sentinel line — the prompts
  *  SHOW the sentinels in backticks, so the model echoes the backticks (and sometimes
  *  bold or quotes). A line-anchored regex then misses the sentinel and a clean/pass
@@ -723,6 +734,16 @@ export async function runLeaf(
 
     return null; // all clean → caller runs the leaf REVIEW node
   };
+
+  // EXECUTION-MODE DISPATCH (epic f5c7fc46): a 'verify' leaf runs the non-code dogfood
+  // pipeline (plan → deterministic build_assembly_plan → domain gate → committed report),
+  // NOT the code authoring loop below. L1 ships the dispatch with a STUB; the verify
+  // pipeline lands in L2. Until then a verify leaf parks blocked with a clear reason
+  // rather than being force-fit into blueprint→implement→tsc — that mis-execution (vacuous
+  // "TSC: CLEAN" on a CAD task) is exactly the build123d T14 failure this epic fixes.
+  if (leafExecutionMode(leaf) === 'verify') {
+    return parkBlocked('verify-mode: pipeline not yet implemented (epic f5c7fc46 L2)');
+  }
 
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
   // iteration (no surgical reuse of the prior attempt's edits — that's P6).

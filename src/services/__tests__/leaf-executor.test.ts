@@ -13,6 +13,7 @@ import {
   buildNodePrompt,
   parseSizeManifest,
   shouldUseFloor,
+  leafExecutionMode,
   FILE_THRESHOLD,
   TASK_THRESHOLD,
   NODE_BUDGET,
@@ -448,6 +449,20 @@ describe('parseSizeManifest (fail-safe = null)', () => {
     const m = parseSizeManifest(block(noTasks));
     expect(m).not.toBeNull();
     expect(m!.tasks).toEqual([]);
+  });
+});
+
+describe('leafExecutionMode (epic f5c7fc46 — thin code/verify dispatch)', () => {
+  const mk = (type: string | null): Todo => ({ id: 't', type } as unknown as Todo);
+  it("verify/cad-dogfood/dogfood types → 'verify' (case-insensitive)", () => {
+    expect(leafExecutionMode(mk('verify'))).toBe('verify');
+    expect(leafExecutionMode(mk('cad-dogfood'))).toBe('verify');
+    expect(leafExecutionMode(mk('Dogfood'))).toBe('verify');
+  });
+  it("everything else (incl. backend/ui/null) → 'code' (default, proven path)", () => {
+    expect(leafExecutionMode(mk('backend'))).toBe('code');
+    expect(leafExecutionMode(mk('ui'))).toBe('code');
+    expect(leafExecutionMode(mk(null))).toBe('code');
   });
 });
 
