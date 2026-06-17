@@ -828,6 +828,15 @@ describe('parseVerifyGate (PlanReport — nested node gates)', () => {
     expect(r.status).toBe('pass');
   });
 
+  it('tolerates prose AROUND the JSON (the driveexec echo shape)', () => {
+    // The live driveexec node wraps the PlanReport in commentary + a fence + a trailer.
+    const echo = 'Raw PlanReport result:\n\n```json\n' + PLAN_CLEAN + '\n```\n\n**Execution note:** invoked via sys.path shim.';
+    expect(parseVerifyGate(echo).status).toBe('pass');
+    // unfenced, prose on both sides → outermost-braces fallback
+    const bare = 'Here it is: ' + PLAN_CLEAN + ' — done.';
+    expect(parseVerifyGate(bare).status).toBe('pass');
+  });
+
   it('top-level plan error (with halt) → fail', () => {
     const r = parseVerifyGate(planReport([], { ok: false, error: 'plan invalid: dangling dep', halted_at: 'n3' }));
     expect(r.status).toBe('fail');

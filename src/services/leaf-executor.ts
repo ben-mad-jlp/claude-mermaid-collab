@@ -609,11 +609,18 @@ export interface VerifyGateVerdict {
   reasons: string[];
 }
 
-/** Strip a leading ```json (or bare ```) fence and trailing ``` a model often wraps JSON in. */
+/** Extract the JSON object from a node's echoed result, tolerant of surrounding prose. The
+ *  driveexec node often wraps the PlanReport in commentary ("Raw result:", a ```json fence,
+ *  an "Execution note:" trailer), so a whole-string fence match is too strict. Prefer a fenced
+ *  block anywhere; else fall back to the outermost {...}. */
 function unfenceJson(text: string): string {
   const t = text.trim();
-  const fenced = t.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i);
-  return (fenced ? fenced[1] : t).trim();
+  const fenced = t.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (fenced && fenced[1].includes('{')) return fenced[1].trim();
+  const first = t.indexOf('{');
+  const last = t.lastIndexOf('}');
+  if (first >= 0 && last > first) return t.slice(first, last + 1);
+  return t;
 }
 
 /** Parse build_assembly_plan's raw PlanReport result into a {@link VerifyGateVerdict}. Pure +
