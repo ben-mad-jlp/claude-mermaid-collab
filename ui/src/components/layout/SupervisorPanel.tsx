@@ -91,6 +91,39 @@ export function projectHeaderBg(status: SessionCardData['status']): string {
  * every lane's heartbeat in lockstep (the bug this fixes). Non-worker lanes (no
  * fleet claim) keep the generic last-activity behaviour.
  */
+/** At-a-glance plan stats for a project's work-graph todos (open work only). */
+const TERMINAL_TODO = new Set(['done', 'dropped']);
+export function projectPlanStats(todos: Array<{ status: string }>): {
+  open: number;
+  inProgress: number;
+  blocked: number;
+  ready: number;
+  idleWithWork: boolean;
+} {
+  let open = 0, inProgress = 0, blocked = 0, ready = 0;
+  for (const t of todos) {
+    if (TERMINAL_TODO.has(t.status)) continue;
+    open += 1;
+    if (t.status === 'in_progress') inProgress += 1;
+    else if (t.status === 'blocked') blocked += 1;
+    else if (t.status === 'ready') ready += 1;
+  }
+  // Ready work queued but nothing actively running it → "parked".
+  return { open, inProgress, blocked, ready, idleWithWork: ready > 0 && inProgress === 0 };
+}
+
+/** Compact relative age, e.g. 45s / 12m / 3h / 6d. Empty for unknown. */
+export function relAge(ms: number, now: number = Date.now()): string {
+  if (!ms || !Number.isFinite(ms)) return '';
+  const s = Math.max(0, Math.floor((now - ms) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
 export interface SupervisorPanelProps {
   currentProject?: string;
   currentSession?: string;
@@ -164,6 +197,8 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const setActiveProject = useUIStore((s) => s.setActiveProject);
   const setMode = useUIStore((s) => s.setMode);
 
+  const todosByProject = useSupervisorStore((s) => s.todosByProject);
+  const loadProjectTodos = useSupervisorStore((s) => s.loadProjectTodos);
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const sessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
@@ -213,6 +248,15 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const serverIconById = useMemo(() => buildServerIconMap(servers), [servers]);
   const serverLabelById = useMemo(() => buildServerLabelMap(servers), [servers]);
   const activeServerIcon = (activeId ? serverIconById.get(activeId) : undefined) ?? serverIconById.get('local');
+
+  // Lazily load each watched project's work-graph todos so the rows can show plan
+  // stats (open/in-progress/blocked + idle-with-work). One fetch per project on the
+  // watched-set changing — cached in todosByProject; this index isn't live-critical.
+  useEffect(() => {
+    for (const w of watchedProjects) {
+      if (w.project) void loadProjectTodos(serverScope, w.project);
+    }
+  }, [watchedProjects, serverScope, loadProjectTodos]);
 
   // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are not
   // user projects — never list them in the Bridge tree.
@@ -411,7 +455,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           onClick={() => setCollapsed((c) => !c)}
           className="flex-1 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
-          <span>Bridge</span>
+          <span>Projects</span>
           <span className="ml-1 text-gray-400 dark:text-gray-500 font-normal">{byProject.length}</span>
           <svg className={`w-3 h-3 ml-auto text-gray-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -422,7 +466,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
           className="px-2 py-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           title="Clean up stale sessions & orphan tmuxes"
         >
-          🧹
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+            <line x1="10" y1="11" x2="10" y2="17" />
+            <line x1="14" y1="11" x2="14" y2="17" />
+          </svg>
         </button>
         {onOpenSupervisorView && (
           <button
@@ -467,8 +516,29 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               const isVisibleSession = (s: SupervisedSession, idx: number) =>
                 isOrchestratorSession(s.session) || cards[idx].status !== 'unknown';
               const visibleCount = projSessions.filter(isVisibleSession).length;
+              // Plan stats (open work) + most-recent session activity for the sub-line.
+              const stats = projectPlanStats(todosByProject[project] ?? []);
+              const lastActive = cards.reduce(
+                (m, c) => Math.max(m, (c as { lastUpdate?: number }).lastUpdate ?? 0),
+                0,
+              );
               const projName = projectLabels[project] ?? (project.split('/').filter(Boolean).pop() ?? project);
               const isActive = activeProject === project;
+              // Full hover legend — spells out every indicator (symbol + label + total)
+              // so the card is legible to someone who hasn't memorised the glyphs.
+              const legend = [
+                projName,
+                escalationCount > 0 ? `▲${escalationCount}  escalation${escalationCount === 1 ? '' : 's'} need you` : null,
+                visibleCount > 0 ? `${visibleCount}λ  live session${visibleCount === 1 ? '' : 's'}` : null,
+                stats.open > 0 ? `${stats.open}  open todo${stats.open === 1 ? '' : 's'}` : null,
+                stats.inProgress > 0 ? `${stats.inProgress} ▶  in progress` : null,
+                stats.blocked > 0 ? `${stats.blocked} ⊘  blocked` : null,
+                stats.idleWithWork ? `⚠ parked  ${stats.ready} ready todo${stats.ready === 1 ? '' : 's'} queued, but nothing is running them` : null,
+                lastActive > 0 ? `last active ${relAge(lastActive)} ago (${new Date(lastActive).toLocaleString()})` : null,
+              ]
+                .filter(Boolean)
+                .join('\n');
+              const hasIndicators = escalationCount > 0 || visibleCount > 0 || stats.open > 0 || lastActive > 0;
               return (
                 <div key={project} className={i > 0 ? 'mt-2' : ''}>
                   {/* Per-project row: click the name → activate the Bridge for this
@@ -488,48 +558,64 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     }}
                     className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-gray-800 dark:text-gray-100 ${projectHeaderBg(combined)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
                   >
-                    <button
-                      type="button"
-                      data-bridge-project={project}
-                      onClick={() => handleSelectProject(project)}
-                      title={`Open ${projName} in the Bridge`}
-                      className="flex-1 min-w-0 flex items-center gap-2 text-left"
-                    >
-                      <span className="flex-shrink-0">
-                        <ClaudePixAvatar status={combined} />
-                      </span>
-                      {/* Orchestrator level dot (replaces the old coordinator dot) —
-                          colored by level with an outline; hover shows the level. */}
-                      <OrchestratorLevelBadge project={project} />
-                      <span className="truncate" title={project}>{projName}</span>
-                      {escalationCount > 0 && (
-                        <span data-testid="supervisor-project-badge" className="shrink-0 text-3xs font-bold text-danger-600 dark:text-danger-400">
-                          ▲{escalationCount > 99 ? '99+' : escalationCount}
-                        </span>
+                    {/* Avatar (status) stays at the left as the project's identity. */}
+                    <span className="flex-shrink-0">
+                      <ClaudePixAvatar status={combined} />
+                    </span>
+                    {/* Right column: row 1 = level dot + name; row 2 = all indicators.
+                        The whole column carries the spelled-out legend on hover. */}
+                    <div className="flex-1 min-w-0 flex flex-col gap-0.5" title={legend}>
+                      {/* Row 1 — identity only. */}
+                      <div className="flex items-center gap-1.5">
+                        {/* Orchestrator level dot — colored by level; hover shows the level. */}
+                        <OrchestratorLevelBadge project={project} />
+                        <button
+                          type="button"
+                          data-bridge-project={project}
+                          onClick={() => handleSelectProject(project)}
+                          title={`Open ${projName} in the Bridge`}
+                          className="flex-1 min-w-0 truncate text-left"
+                        >
+                          {projName}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="supervisor-project-remove"
+                          title={`Remove ${projName} from the Bridge`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Remove "${projName}" from the Bridge?\n\nStops watching + supervising its sessions; files on disk are untouched.`)) {
+                              void handleRemoveProjectRow(project);
+                            }
+                          }}
+                          className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded text-gray-500 hover:text-danger-600"
+                        >
+                          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                      {/* Row 2 — every signal: escalations, sessions, plan progress, parked
+                          pip, last-active. (Full labels are in the card's hover legend.) */}
+                      {hasIndicators && (
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 text-3xs font-normal text-gray-500 dark:text-gray-400">
+                          {escalationCount > 0 && (
+                            <span data-testid="supervisor-project-badge" className="font-bold text-danger-600 dark:text-danger-400">
+                              ▲{escalationCount > 99 ? '99+' : escalationCount}
+                            </span>
+                          )}
+                          {visibleCount > 0 && (
+                            <span className="text-accent-600 dark:text-accent-400 font-semibold">{visibleCount}λ</span>
+                          )}
+                          {stats.open > 0 && <span>{stats.open} open</span>}
+                          {stats.inProgress > 0 && <span className="text-info-600 dark:text-info-400">{stats.inProgress}▶</span>}
+                          {stats.blocked > 0 && <span className="text-warning-600 dark:text-warning-400">{stats.blocked}⊘</span>}
+                          {stats.idleWithWork && <span className="text-warning-600 dark:text-warning-400">⚠ parked</span>}
+                          {lastActive > 0 && <span className="ml-auto tabular-nums">{relAge(lastActive)}</span>}
+                        </div>
                       )}
-                      <span className="text-gray-500 dark:text-gray-400 font-normal">{visibleCount}</span>
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="supervisor-project-remove"
-                      title={`Remove ${projName} from the Bridge`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Remove "${projName}" from the Bridge?\n\nStops watching + supervising its sessions; files on disk are untouched.`)) {
-                          void handleRemoveProjectRow(project);
-                        }
-                      }}
-                      className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded text-gray-500 hover:text-danger-600"
-                    >
-                      <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                      </svg>
-                    </button>
+                    </div>
                   </div>
-                  {/* Per-project session cards removed (option 2): the Bridge tree is now
-                      a pure project index. Live sessions are read in the Watching panel and
-                      the Bridge Workers tab; the count badge on the row remains the at-a-
-                      glance "N sessions" read. */}
                 </div>
               );
             })

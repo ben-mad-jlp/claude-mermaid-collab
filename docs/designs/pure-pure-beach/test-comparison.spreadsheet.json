@@ -1,0 +1,56 @@
+{
+  "columns": [
+    {
+      "id": "col_feature",
+      "name": "Feature",
+      "type": "text"
+    },
+    {
+      "id": "col_priority",
+      "name": "Priority",
+      "type": "number"
+    },
+    {
+      "id": "col_done",
+      "name": "Done",
+      "type": "boolean"
+    }
+  ],
+  "rows": [
+    {
+      "id": "row_1",
+      "cells": {
+        "col_feature": "Spreadsheet CRUD",
+        "col_priority": 1,
+        "col_done": true
+      }
+    },
+    {
+      "id": "row_2",
+      "cells": {
+        "col_feature": "MCP Tools",
+        "col_priority": 2,
+        "col_done": true
+      }
+    },
+    {
+      "id": "row_3",
+      "cells": {
+        "col_feature": "Browser Editor",
+        "col_priority": 3,
+        "col_done": true
+      }
+    },
+    {
+      "id": "row_4",
+      "cells": {
+        "col_feature": "CSV Export",
+        "col_priority": 5,
+        "col_done": false
+      }
+    }
+  ],
+  "aggregates": {
+    "col_priority": "AVG"
+  }
+}

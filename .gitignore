@@ -43,3 +43,6 @@ Thumbs.db
 /scratch/
 /extensions/vscode/*.vsix
 .worktrees/
+
+# redundant npm lockfile — root installs with bun (see CI build-windows)
+/package-lock.json

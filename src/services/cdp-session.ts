@@ -316,3 +316,12 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
 export function listActiveSessions(): string[] {
   return Array.from(tabRegistry.keys());
 }
+
+/**
+ * The CDP targetId currently registered for a session, or undefined if no tab
+ * is open. Used by the screencast service (streamed-panel mode) to attach a
+ * long-lived CDP client to the same target the browser_* tools drive.
+ */
+export function getSessionTarget(sessionName: string): string | undefined {
+  return tabRegistry.get(sessionName);
+}

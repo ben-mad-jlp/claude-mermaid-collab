@@ -1107,14 +1107,41 @@ export class WorktreeManager {
         onProgress,
       );
       if (mergeRes.code !== 0) {
-        // Conflict — abort so the checkout is pristine; the master ref is NEVER
-        // advanced below, so master stays exactly where it was.
-        await this.runGit(wtPath, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({
-          code: 0,
-          stdout: '',
-          stderr: '',
-        }));
-        return { landed: false, conflict: true, reason: 'epic-merge-conflict' };
+        // A conflict confined to (auto-generated) LOCKFILES is the most common land
+        // blocker when an epic touched dependencies — and it's spurious: regenerating
+        // resolves it. Auto-resolve by taking the EPIC side ('theirs' in this merge —
+        // its deps are the intended new state) and completing the merge. Any NON-lockfile
+        // conflict aborts untouched (master never advances).
+        const conflictedRes = await this.runGit(
+          wtPath,
+          ['diff', '--name-only', '--diff-filter=U'],
+          QUICK_TIMEOUT_MS,
+        ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+        const conflicted = conflictedRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+        const isLockfile = (f: string) =>
+          /(^|\/)(bun\.lock|bun\.lockb|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/.test(f);
+        const lockfileOnly = conflicted.length > 0 && conflicted.every(isLockfile);
+
+        const abortAndFail = async (reason: string): Promise<LandResult> => {
+          await this.runGit(wtPath, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({ code: 0, stdout: '', stderr: '' }));
+          return { landed: false, conflict: true, reason };
+        };
+
+        if (!lockfileOnly) return await abortAndFail('epic-merge-conflict');
+
+        onProgress?.('stdout', `land: auto-resolving lockfile-only conflict (epic side): ${conflicted.join(', ')}\n`);
+        for (const f of conflicted) {
+          const co = await this.runGit(wtPath, ['checkout', '--theirs', '--', f], QUICK_TIMEOUT_MS)
+            .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+          const add = await this.runGit(wtPath, ['add', '--', f], QUICK_TIMEOUT_MS)
+            .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+          if (co.code !== 0 || add.code !== 0) return await abortAndFail('epic-merge-conflict:lockfile-resolve-failed');
+        }
+        // Complete the in-progress merge with the resolved lockfiles.
+        const commitRes = await this.runGit(wtPath, ['commit', '--no-edit'], timeoutMs, onProgress)
+          .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+        if (commitRes.code !== 0) return await abortAndFail('epic-merge-conflict:lockfile-commit-failed');
+        // Fall through to the sha + ref-advance below — the merge is now complete.
       }
 
       const shaRes = await this.runGit(wtPath, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
