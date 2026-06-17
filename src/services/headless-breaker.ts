@@ -80,6 +80,16 @@ export function resetBreaker(): void {
   pausedLeaves.clear();
 }
 
+/** Reset ONLY the exponential-backoff streak (consecutiveTrips) so the NEXT trip
+ *  starts from BASE_BACKOFF_MS again. Unlike resetBreaker(), this leaves the current
+ *  `openUntil` hold AND the pausedLeaves registry intact — call it on a healthy signal
+ *  (an ACCEPTED leaf) where the account is demonstrably serving requests again, without
+ *  disturbing other leaves still legitimately paused on the cap. */
+export function resetBreakerStreak(): void {
+  consecutiveTrips = 0;
+  firstTrippedAt = 0;
+}
+
 /** Record a paused leaf for bookkeeping + exhaustion tracking. The actual
  *  re-dispatch rides the ordinary claim loop (the todo is released back to `ready`
  *  on pause); this registry records `firstTrippedAt` for the exhaustion sweep and

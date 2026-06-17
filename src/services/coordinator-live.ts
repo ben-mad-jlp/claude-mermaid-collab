@@ -29,6 +29,7 @@ import {
   pausedLeavesFor,
   breakerExhausted,
   recordResume,
+  resetBreakerStreak,
 } from './headless-breaker';
 import { resolveProfile, resolveProvider, type AgentProfile } from '../config/agent-profiles';
 import type { ProviderId } from '../agent/worker-agent';
@@ -1484,6 +1485,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // A non-paused outcome means the leaf made progress past the cap (or never
           // hit one) — clear any stale paused record so a future pause starts clean.
           recordResume(project, todo.id);
+          // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
+          // backoff STREAK (not the whole breaker) so the next isolated cap starts at
+          // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.
+          if (res.outcome === 'accepted') resetBreakerStreak();
           return res.outcome === 'accepted';
         } catch (e) {
           try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
