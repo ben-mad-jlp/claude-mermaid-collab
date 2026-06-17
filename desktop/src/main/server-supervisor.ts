@@ -579,7 +579,13 @@ export class ServerSupervisor {
    * (attached mode) — we must not kill a server we didn't spawn.
    */
   async hotSwapRestart(): Promise<boolean> {
-    if (this.attached || this.stopped || this.port == null) return false;
+    // No-op when we don't own the child: in attached mode we never spawned it, so
+    // there's nothing of ours to swap (the deploy script falls back to a full
+    // relaunch, which re-spawns under a fresh supervisor that DOES own it).
+    if (this.attached || this.stopped || this.port == null) {
+      console.log(`[hot-swap] declined — ${this.attached ? 'attached (not our child)' : this.stopped ? 'stopped' : 'no port'}`);
+      return false;
+    }
     const port = this.port;
     this.respawning = true;
     try {
@@ -589,17 +595,32 @@ export class ServerSupervisor {
         try { this.spawnImpl('taskkill', ['/pid', String(pid), '/T', '/F'], {}); } catch { /* ignore */ }
       }
       this.child = null;
-      // Wait for the old sidecar to actually release the port (≤3s) so the
-      // respawn can bind — probe until health stops answering.
-      for (let i = 0; i < 30; i++) {
+      // Wait for the old sidecar to actually release the port (≤5s) so the respawn
+      // can bind — probe until health stops answering.
+      for (let i = 0; i < 50; i++) {
         if (!(await this.probeHealth(port, 300))) break;
         await new Promise((r) => setTimeout(r, 100));
       }
       this.unhealthyForMs = 0;
       this.spawnChild(port);
-      await this.waitForHealth(port);
-      return true;
-    } catch {
+      // Poll for health OURSELVES (don't reuse waitForHealth — it SIGTERMs the child
+      // on timeout, which would kill a slow-but-fine cold-starting compiled binary).
+      // Generous budget: a freshly-built mc-server cold start (Bun warmup + registry
+      // backfill) can take ~45-60s. On failure we leave the child for the liveness
+      // watchdog and return false so the script falls back.
+      const deadline = Date.now() + (this.opts.healthTimeoutMs ?? HEALTH_TIMEOUT_MS) + 30_000;
+      while (Date.now() < deadline) {
+        if (await this.probeHealth(port, 1500)) {
+          console.log('[hot-swap] new sidecar healthy — window survived');
+          this.startHealthWatchdog();
+          return true;
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      console.log('[hot-swap] new sidecar did not reach health in budget — falling back');
+      return false;
+    } catch (e) {
+      console.log(`[hot-swap] error: ${e instanceof Error ? e.message : String(e)}`);
       return false;
     } finally {
       this.respawning = false;
