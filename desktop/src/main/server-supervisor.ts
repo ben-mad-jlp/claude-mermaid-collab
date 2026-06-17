@@ -579,11 +579,22 @@ export class ServerSupervisor {
    * (attached mode) — we must not kill a server we didn't spawn.
    */
   async hotSwapRestart(): Promise<boolean> {
+    // File-based diagnostics — the packaged app's main-process console isn't easily
+    // captured, so append the hot-swap trace to a stable log the operator can tail.
+    const hsLog = (m: string) => {
+      const line = `[${new Date().toISOString()}] [hot-swap] ${m}`;
+      console.log(line);
+      try {
+        const dir = path.join(os.homedir(), '.mermaid-collab', 'deploy-logs');
+        fs.mkdirSync(dir, { recursive: true });
+        fs.appendFileSync(path.join(dir, 'hot-swap.log'), line + '\n');
+      } catch { /* best-effort */ }
+    };
     // No-op when we don't own the child: in attached mode we never spawned it, so
     // there's nothing of ours to swap (the deploy script falls back to a full
     // relaunch, which re-spawns under a fresh supervisor that DOES own it).
     if (this.attached || this.stopped || this.port == null) {
-      console.log(`[hot-swap] declined — ${this.attached ? 'attached (not our child)' : this.stopped ? 'stopped' : 'no port'}`);
+      hsLog(`declined — ${this.attached ? 'attached (not our child)' : this.stopped ? 'stopped' : 'no port'}`);
       return false;
     }
     const port = this.port;
@@ -602,6 +613,7 @@ export class ServerSupervisor {
         await new Promise((r) => setTimeout(r, 100));
       }
       this.unhealthyForMs = 0;
+      hsLog(`old child (pid ${pid ?? '?'}) killed; spawning new sidecar on :${port}`);
       this.spawnChild(port);
       // Poll for health OURSELVES (don't reuse waitForHealth — it SIGTERMs the child
       // on timeout, which would kill a slow-but-fine cold-starting compiled binary).
@@ -611,16 +623,16 @@ export class ServerSupervisor {
       const deadline = Date.now() + (this.opts.healthTimeoutMs ?? HEALTH_TIMEOUT_MS) + 30_000;
       while (Date.now() < deadline) {
         if (await this.probeHealth(port, 1500)) {
-          console.log('[hot-swap] new sidecar healthy — window survived');
+          hsLog('new sidecar healthy — window survived');
           this.startHealthWatchdog();
           return true;
         }
         await new Promise((r) => setTimeout(r, 500));
       }
-      console.log('[hot-swap] new sidecar did not reach health in budget — falling back');
+      hsLog(`new sidecar did not reach health within budget (child exited? stderr tail: ${this.stderrTail.join(' | ').slice(-400)})`);
       return false;
     } catch (e) {
-      console.log(`[hot-swap] error: ${e instanceof Error ? e.message : String(e)}`);
+      hsLog(`error: ${e instanceof Error ? e.message : String(e)}`);
       return false;
     } finally {
       this.respawning = false;
