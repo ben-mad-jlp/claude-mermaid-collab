@@ -10,6 +10,7 @@ process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(path.join(os.tmpdir(), 'mc-bp1-
 
 import { bp1FilterStrandedFoundations, getWorktreeManager } from '../coordinator-live';
 import { createTodo, completeTodo, getTodo } from '../todo-store';
+import { setOrchestratorLevel } from '../orchestrator-config';
 
 /**
  * BP1 — a ready dependent must NOT be claimed while its foundation is
@@ -48,6 +49,8 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
   });
 
   it('drops a dependent whose done foundation is stranded, then admits it once the foundation lands', async () => {
+    // BP1 only runs at `drive` (where the daemon auto-lands the epic to integration).
+    setOrchestratorLevel(repo, 'drive');
     const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 test', status: 'in_progress' });
     const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation leaf', parentId: epic.id, status: 'in_progress' });
     const dependent = await createTodo(repo, {
@@ -81,6 +84,24 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // Now the foundation is reachable → the dependent is admitted.
     const admitted = await bp1FilterStrandedFoundations(repo, [dep]);
     expect(admitted.map((t) => t.id)).toContain(dependent.id);
+  });
+
+  it('BELOW DRIVE (build): does NOT block — a stranded-vs-integration foundation is the NORMAL on-epic-branch state', async () => {
+    // The build123d build_assembly_plan stall: at `build` there is no auto-land, so a
+    // done+accepted foundation's commit lives on the epic branch, not integration.
+    // BP1 must NOT flag that as stranded (else the whole wave blocks forever).
+    setOrchestratorLevel(repo, 'build');
+    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 build-level', status: 'in_progress' });
+    const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation', parentId: epic.id, status: 'in_progress' });
+    const dependent = await createTodo(repo, {
+      ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [foundation.id],
+    });
+    await completeTodo(repo, foundation.id, 'accepted'); // done; commit on epic branch only
+
+    const dep = getTodo(repo, dependent.id)!;
+    const out = await bp1FilterStrandedFoundations(repo, [dep]);
+    expect(out.map((t) => t.id)).toContain(dependent.id); // admitted below drive
+    setOrchestratorLevel(repo, 'drive'); // restore for the failsafe case below
   });
 
   it('FAIL-SAFE: a dependent whose done dep carries no commit is admitted (indeterminate)', async () => {

@@ -769,6 +769,18 @@ export async function acceptTimeAncestorGate(
 // integration ref / no commit) is treated as satisfied — uncertainty never blocks.
 export async function bp1FilterStrandedFoundations(project: string, todos: Todo[]): Promise<Todo[]> {
   if (todos.length === 0) return todos;
+  // BUILD-LEVEL FIX (mirrors OI-1 acceptTimeAncestorGate's skip-below-drive): the
+  // integration-reachability test only makes sense where the daemon AUTO-LANDS the epic
+  // to integration — i.e. at `drive`. BELOW drive there is NO auto-land, so a done
+  // foundation's commit legitimately lives on its epic accumulation branch and NEVER
+  // reaches the integration ref; checking commitOnIntegration there flags EVERY done
+  // dependency as "stranded" and blocks the whole wave forever (the dependent is dropped
+  // every tick and never claimed — observed live on build123d build_assembly_plan: T2
+  // blocked on a done+accepted T1 whose commit was on the epic branch, not origin/<int>).
+  // The dependent's lane branches off the epic-branch TIP, so an on-epic-branch foundation
+  // IS already visible to it; and a foundation that never reached the epic branch is
+  // caught at accept time by reopenStrandedAccept (which runs at every level). Skip below drive.
+  if (levelRank(getOrchestratorLevel(project)) < levelRank('drive')) return todos;
   const out: Todo[] = [];
   for (const t of todos) {
     let foundationStranded = false;
