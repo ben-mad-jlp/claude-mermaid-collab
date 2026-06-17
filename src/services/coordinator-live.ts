@@ -541,7 +541,11 @@ export function workerIsolationEnabled(): boolean {
  *  ⇒ production behaviour is byte-identical (the legacy tmux launch path runs).
  *  Mirrors the workerIsolationEnabled / registry env-flag idiom. */
 export function leafExecutorEnabled(): boolean {
-  const v = (process.env.LEAF_EXECUTOR ?? 'off').trim().toLowerCase();
+  // P7: the headless leaf-executor is now the DEFAULT worker path (proven across the
+  // browser epic + leaf-executor backlog + bugfix inbox; the legacy tmux lane is
+  // deprecated and slated for removal). Unset ⇒ ON. Explicit `LEAF_EXECUTOR=off`
+  // remains an escape hatch back to the tmux path until that code is deleted.
+  const v = (process.env.LEAF_EXECUTOR ?? 'on').trim().toLowerCase();
   return v === '1' || v === 'on' || v === 'true';
 }
 
