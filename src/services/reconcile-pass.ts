@@ -34,6 +34,7 @@ import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND } fro
 import { sendTmuxKeys } from './tmux-send.ts';
 import { getStatus } from './session-status-store.ts';
 import { deriveLiveness } from './session-runtime.ts';
+import { assertClaimInvariants } from './invariant-check.ts';
 
 // ---------------------------------------------------------------------------
 // Rate-limit state (module-level, survives the process lifetime)
@@ -208,6 +209,24 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] epic-rollup sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3a. S6 INVARIANT-ASSERT (sweep-as-net): assert the new-model structural
+  // invariants (claim ⟺ in-flight; no terminal-with-claim; held never holds a
+  // live claim; epic-rollup consistency) and ALARM (console.warn + supervisor
+  // audit) on any violation. ASSERT-only — NEVER mutates/repairs, and explicitly
+  // does NOT rewrite the shadow enum. The old "fix missed fan-outs" job is gone:
+  // readiness is derived, so there is nothing to materialize. In steady state
+  // this finds nothing. Best-effort; never aborts the pass.
+  // -------------------------------------------------------------------------
+  try {
+    assertClaimInvariants(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] invariant-assert failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
