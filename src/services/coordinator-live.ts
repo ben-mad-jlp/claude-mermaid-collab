@@ -45,7 +45,6 @@ import {
   markIdle,
   removeSlot,
   reapDeadSlots,
-  restoreBusySlot,
 } from './worker-pool';
 // PAW P1: route the worker spawn + pane-scrape liveness through the WorkerAgent
 // registry (claude-only today). The pane detectors below are RE-EXPORTED from the
@@ -244,42 +243,11 @@ export function claudeAliveInSubtree(rootPid: number, snap: Map<number, { childr
  * (defaults to every orchestrator-tracked project). Returns the restored tmux
  * names. Run once at sidecar startup BEFORE the orchestrator's first build pass.
  */
-export async function reconcileWorkerPoolFromLiveSessions(
-  projects?: string[],
-): Promise<{ restored: string[] }> {
-  let live: Set<string>;
-  try {
-    live = new Set((await mux.list()).map((s) => s.name));
-  } catch {
-    return { restored: [] };
-  }
-  if (live.size === 0) return { restored: [] };
-
-  const projectPaths = projects ?? listOrchestratorProjects().map((p) => p.project);
-  const restored: string[] = [];
-  for (const project of projectPaths) {
-    let todos: Todo[];
-    try {
-      todos = listTodos(project, { status: 'in_progress' });
-    } catch {
-      continue;
-    }
-    for (const t of todos) {
-      // Only lanes the daemon launched (a pool sessionName) map to a slot; an
-      // interactive/role session has no slot and its name won't parse.
-      if (!t.sessionName) continue;
-      const targetProject = t.targetProject ?? project;
-      const tmux = tmuxBaseName(targetProject, t.sessionName);
-      if (!live.has(tmux)) continue; // worker died across the restart → leave for the reaper
-      const slot = restoreBusySlot(targetProject, t.sessionName, t.id, tmux);
-      if (slot) restored.push(tmux);
-    }
-  }
-  if (restored.length > 0) {
-    console.log(`[pool-reconcile] restored ${restored.length} busy slot(s) from live sessions: ${restored.join(', ')}`);
-  }
-  return { restored };
-}
+// P7: reconcileWorkerPoolFromLiveSessions (restart-time rebuild of busy pool slots
+// from live tmux worker sessions) was deleted with the tmux worker lane — a headless
+// leaf runs in-process and cannot survive a restart to be reconciled (an interrupted
+// leaf orphans → reapOrphanedLeaves). The interactive-terminal tmux sessions are not
+// worker lanes and were never reconciled here.
 
 /** Is a `claude` process alive in this tmux pane's process subtree? Returns
  *  true/false, or null when it can't be determined (no pane pid / no ps snapshot)

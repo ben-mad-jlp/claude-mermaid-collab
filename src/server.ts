@@ -147,16 +147,10 @@ try {
 // projects each tick and dispatches build/reconcile by per-project level.
 // Per-project autoStartCoordinator boot loops are no longer needed here.
 if (MERMAID_AUTO_START_COORDINATOR) {
-  // P3 (fe153cdd): rebuild the in-memory worker-pool registry from live tmux
-  // sessions ∩ claimed todos BEFORE the first build pass, so a restart doesn't
-  // spawn a duplicate worker into an already-occupied lane (or orphan a live one).
-  try {
-    const { reconcileWorkerPoolFromLiveSessions } = await import('./services/coordinator-live.js');
-    const { restored } = await reconcileWorkerPoolFromLiveSessions();
-    if (restored.length > 0) console.log(`🧩 Worker-pool restart-reconcile: restored ${restored.length} busy slot(s)`);
-  } catch (err) {
-    console.error(`mermaid-collab: worker-pool reconcile failed — ${err instanceof Error ? err.message : String(err)}`);
-  }
+  // P7: the worker-pool restart-reconcile (rebuild busy slots from live tmux
+  // sessions) is retired with the tmux worker lane — a headless leaf runs IN-PROCESS,
+  // so it cannot survive a sidecar restart to be reconciled; a leaf interrupted by a
+  // restart becomes an orphan that reapOrphanedLeaves reclaims. Nothing to rebuild.
   try {
     const { startOrchestrator } = await import('./services/orchestrator-live.js');
     startOrchestrator();
