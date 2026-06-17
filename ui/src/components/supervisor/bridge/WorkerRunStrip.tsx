@@ -55,6 +55,16 @@ interface LeafRunResponse {
   reviewVerdict?: 'pass' | 'fail' | null;
 }
 
+interface InflightLeaf {
+  leafId: string;
+  nodeKind: string | null;
+  model: string | null;
+  attempt: number | null;
+  startedAt: number;
+  elapsedMs: number;
+  stale: boolean;
+}
+
 const POLL_MS = 2500;
 
 const NODE_LABEL: Record<string, string> = {
@@ -70,7 +80,10 @@ const NODE_LABEL: Record<string, string> = {
 function fmtDuration(ms: number | null | undefined): string {
   if (ms == null) return '';
   if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60000);
+  const s = Math.round((ms % 60000) / 1000);
+  return `${m}m${s}s`;
 }
 
 function outcomeBadge(outcome: LeafRunResponse['finalOutcome']): { text: string; cls: string } {
@@ -112,11 +125,13 @@ function dotClass(node: LeafNode, isLast: boolean, isActive: boolean, hasTermina
   return 'bg-gray-300 dark:bg-gray-600 animate-pulse';
 }
 
-export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = ({ leafId, isActive }) => {
+export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean; project?: string }> = ({ leafId, isActive, project }) => {
   const [data, setData] = useState<LeafRunResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refetchNonce, setRefetchNonce] = useState(0);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [inflight, setInflight] = useState<InflightLeaf | null>(null);
+  const [elapsed, setElapsed] = useState(0);
 
   // Fetch (mirrors WorkerRunSummary's cancelled-flag shape). Re-runs on leafId change and
   // on any nonce bump (ws nudge or gated poll).
@@ -138,6 +153,34 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = (
       cancelled = true;
     };
   }, [leafId, refetchNonce]);
+
+  // Inflight fetch — rides the same refetchNonce so it shares the gated poll and ws nudge.
+  useEffect(() => {
+    let cancelled = false;
+    const qs = project ? `?project=${encodeURIComponent(project)}` : '';
+    fetch(`/api/leaf-executor/daemon${qs}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { inflight?: InflightLeaf[] } | null) => {
+        if (!cancelled) setInflight(d?.inflight?.find((r) => r.leafId === leafId) ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setInflight(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [leafId, project, refetchNonce]);
+
+  // Ticking elapsed: compute from startedAt each second so the counter advances between polls.
+  useEffect(() => {
+    if (!inflight) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(Date.now() - inflight.startedAt);
+    const id = setInterval(() => setElapsed(Date.now() - inflight.startedAt), 1000);
+    return () => clearInterval(id);
+  }, [inflight]);
 
   // ws nudge (primary): the existing `session_todos_updated` broadcast already reaches the
   // Bridge. Bump the nonce on any such event → triggers the refetch above. NO new event type.
@@ -200,6 +243,30 @@ export const WorkerRunStrip: React.FC<{ leafId: string; isActive: boolean }> = (
           </span>
         )}
       </div>
+
+      {inflight && (
+        <div
+          data-testid="run-inflight"
+          className="px-3 py-1.5 flex items-center gap-2 border-b border-gray-200/70 dark:border-gray-700/70"
+        >
+          <span
+            className={`h-2 w-2 rounded-full shrink-0 animate-pulse ${
+              inflight.stale ? 'bg-amber-500' : 'bg-accent-500'
+            }`}
+          />
+          <span className={`text-2xs font-medium ${inflight.stale ? 'text-amber-600 dark:text-amber-400' : 'text-gray-700 dark:text-gray-200'}`}>
+            Running {NODE_LABEL[inflight.nodeKind ?? ''] ?? inflight.nodeKind ?? 'node'}
+          </span>
+          {inflight.model && (
+            <span className="text-3xs text-gray-400 dark:text-gray-500 truncate max-w-[7rem]" title={inflight.model}>
+              · {inflight.model}
+            </span>
+          )}
+          <span className="ml-auto text-2xs tabular-nums text-gray-500 dark:text-gray-400">
+            {fmtDuration(elapsed)}
+          </span>
+        </div>
+      )}
 
       {data?.ran ? (
         <div className="px-3 py-2.5">
