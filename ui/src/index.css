@@ -337,6 +337,15 @@ body {
   animation: status-pulse 2s infinite ease-in-out;
 }
 
+/* Gentle whale bob for the connecting console brand mark. */
+@keyframes whale-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.animate-bounce-slow {
+  animation: whale-bob 2s ease-in-out infinite;
+}
+
 /* Card-level pulse: amber background fade for active sessions */
 @keyframes card-pulse-amber {
   0%, 100% { background-color: rgb(253 230 138); }

@@ -26,6 +26,8 @@ import { isOrchestratorSession } from '@/lib/liveness';
 import { useSessionStatuses } from '@/hooks/useSessionStatuses';
 import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
 import { NeedsYouZone } from './NeedsYouZone';
+import { InflightPanel } from './InflightPanel';
+import { projectPlanStats } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
 import { selectHumanInbox } from '@/components/todos/humanInboxSelectors';
@@ -365,11 +367,24 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     [escalations, project],
   );
   const openEscalationCount = openEscalations.length;
+  // Split the open escalations the way the project cards do: land-ready (a positive
+  // "ship to master" prompt → its own Land tab) vs blockers (genuine "needs you").
+  const landEscalations = useMemo(
+    () => openEscalations.filter((e) => e.kind === 'epic-ready-to-land'),
+    [openEscalations],
+  );
+  const blockerEscalations = useMemo(
+    () => openEscalations.filter((e) => e.kind !== 'epic-ready-to-land'),
+    [openEscalations],
+  );
   const liveCount = useMemo(
     () => projectSubs.filter((s) => s.status === 'active').length,
     [projectSubs],
   );
   const inflightCount = useMemo(() => funnelCounts(excludeEpics(todos)).inflight, [todos]);
+  // Same plan stats the project cards show (open / in-progress / blocked / parked),
+  // so the Bridge top totals and the left-column card never disagree.
+  const planStats = useMemo(() => projectPlanStats(todos), [todos]);
 
   const projectStreamEvents = useMemo(
     () => streamEvents.filter((e) => !e.project || e.project === project),
@@ -388,7 +403,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'todos' | 'workers' | 'stream' | 'executor' | 'detail'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'todos' | 'workers' | 'stream' | 'executor' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -435,7 +450,12 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           <CommandBar
             liveCount={liveCount}
             inflightCount={inflightCount}
-            needsYouCount={openEscalationCount}
+            needsYouCount={blockerEscalations.length}
+            landReadyCount={landEscalations.length}
+            openCount={planStats.open}
+            inProgressCount={planStats.inProgress}
+            blockedCount={planStats.blocked}
+            parked={planStats.idleWithWork}
             serverScope={serverScope}
             project={project}
             onRefresh={onManualRefresh}
@@ -465,7 +485,9 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
               <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col flex-1 min-h-[18rem] min-w-0">
                 <div className="shrink-0 flex items-stretch border-b border-gray-200 dark:border-gray-700 overflow-x-auto min-w-0">
                   {([
-                    { key: 'escalations', label: 'Escalations', count: openEscalationCount, loud: true },
+                    { key: 'escalations', label: 'Escalations', count: blockerEscalations.length, loud: true },
+                    { key: 'land', label: 'Land', count: landEscalations.length, info: true },
+                    { key: 'inflight', label: 'In-flight', count: inflightCount, info: true },
                     { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
                     { key: 'workers', label: 'Workers', count: workerSubs.length },
                     { key: 'stream', label: 'Stream' },
@@ -473,7 +495,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     ...((selectedTodoId || selectedEpic)
                       ? [{ key: 'detail' as const, label: selectedEpic ? 'Epic' : 'Todo', closable: true }]
                       : []),
-                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; closable?: boolean }>).map((t) => (
+                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; info?: boolean; closable?: boolean }>).map((t) => (
                     <button
                       key={t.key}
                       type="button"
@@ -488,7 +510,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     >
                       {t.label}
                       {t.count != null && t.count > 0 && (
-                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
+                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : t.info ? 'text-info-700 dark:text-info-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
                       )}
                       {t.closable && (
                         <span
@@ -505,7 +527,13 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto">
                   {bridgeTab === 'escalations' && (
-                    <div className="p-2"><NeedsYouZone embedded escalations={escalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
+                    <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
+                  )}
+                  {bridgeTab === 'land' && (
+                    <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>
+                  )}
+                  {bridgeTab === 'inflight' && (
+                    <div className="p-2"><InflightPanel todos={todos} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
                   )}
                   {bridgeTab === 'todos' && (
                     <div className="p-2">

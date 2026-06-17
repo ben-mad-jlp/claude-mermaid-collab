@@ -59,7 +59,7 @@ export function generateSessionName(): string {
  * the request to the per-server backend process. In a browser the request is
  * routed through `/srv/<id>/...` (server-id-prefixed reverse proxy).
  */
-async function apiFetch(serverId: string, path: string, init: RequestInit = {}): Promise<Response> {
+export async function apiFetch(serverId: string, path: string, init: RequestInit = {}): Promise<Response> {
   const mc = (window as any).mc;
   if (mc?.invokeOnServer && serverId) {
     const method = init.method || 'GET';

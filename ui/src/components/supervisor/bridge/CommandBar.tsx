@@ -15,6 +15,13 @@ export interface CommandBarProps {
   liveCount: number;
   inflightCount: number;
   needsYouCount: number;
+  /** Epics ready to land (positive prompt) — shown with a download glyph, not red. */
+  landReadyCount?: number;
+  /** Plan stats mirrored from the project card: open / in-progress / blocked / parked. */
+  openCount?: number;
+  inProgressCount?: number;
+  blockedCount?: number;
+  parked?: boolean;
   /** Routing scope (kept for API compatibility). */
   serverScope: string;
   /** Active project. */
@@ -27,6 +34,11 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   liveCount,
   inflightCount,
   needsYouCount,
+  landReadyCount = 0,
+  openCount = 0,
+  inProgressCount = 0,
+  blockedCount = 0,
+  parked = false,
   project,
   onRefresh,
 }) => {
@@ -74,9 +86,10 @@ export const CommandBar: React.FC<CommandBarProps> = ({
         )}
       </div>
 
-      {/* Row 2 — glanceable FLEET pulse (absorbed AlertRibbon), moved below the
-          identity row so the numbers read as a dedicated status line. */}
-      <div data-testid="bridge-glance" className="mt-1.5 flex items-center gap-3 text-xs">
+      {/* Row 2 — glanceable totals. Mirrors the left-column project card's row-2
+          indicators (same glyphs + colors) so the Bridge top line and the card
+          never disagree: ● live · in-flight · ▲ needs-you · ⬇ to-land · open · ▶ · ⊘ · ⚠ parked. */}
+      <div data-testid="bridge-glance" className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
         <span className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
           <span className="text-success-500" aria-hidden="true">●</span>
           {liveCount} live
@@ -90,6 +103,20 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           <span aria-hidden="true">▲</span>
           {needsYouCount} needs you
         </span>
+        {landReadyCount > 0 && (
+          <span className="flex items-center gap-1 font-semibold text-info-700 dark:text-info-400" title={`${landReadyCount} epic${landReadyCount === 1 ? '' : 's'} ready to land`}>
+            {/* download glyph = 'ready to ship to master' — matches the project card + Land tab */}
+            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M10 2a1 1 0 011 1v7.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 10.586V3a1 1 0 011-1z" />
+              <path d="M3 14a1 1 0 011 1v1a1 1 0 001 1h10a1 1 0 001-1v-1a1 1 0 112 0v1a3 3 0 01-3 3H5a3 3 0 01-3-3v-1a1 1 0 011-1z" />
+            </svg>
+            {landReadyCount} to land
+          </span>
+        )}
+        {openCount > 0 && <span className="text-gray-600 dark:text-gray-300">{openCount} open</span>}
+        {inProgressCount > 0 && <span className="text-info-700 dark:text-info-400">{inProgressCount}▶</span>}
+        {blockedCount > 0 && <span className="text-warning-700 dark:text-warning-400">{blockedCount}⊘</span>}
+        {parked && <span className="text-warning-700 dark:text-warning-400">⚠ parked</span>}
       </div>
     </div>
   );
