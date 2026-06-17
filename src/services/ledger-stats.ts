@@ -33,6 +33,11 @@ export interface LeafNodeStat {
   exitCode: number | null;
   durationMs: number | null;
   rateLimited: boolean | null;
+  /** Why a node FAILED, when it did — the killed/timeout/parse message recorded on the
+   *  ledger row (e.g. "node timed out after 600000ms (killed)"). null on a clean node.
+   *  This is the field that explains a blueprint-node-failed / blocked leaf; without it
+   *  exitCode alone (143=SIGTERM) doesn't say WHY the node was killed. */
+  parseError?: string | null;
   ts: number;
   verdict?: string | null;
   inputTokens?: number | null; // context size in (a tiny value flags a starved node)
@@ -127,6 +132,7 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     exitCode: r.exitCode ?? null,
     durationMs: r.durationMs ?? null,
     rateLimited: r.rateLimited ?? null,
+    parseError: r.parseError ?? null,
     ts: r.ts,
     verdict: r.verdict ?? null,
     inputTokens: r.inputTokens ?? null,

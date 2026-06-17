@@ -39,6 +39,19 @@ afterEach(() => {
 });
 
 describe('getLeafRun', () => {
+  test('surfaces per-node parseError + exitCode (the why behind a blocked leaf)', () => {
+    // A blueprint node killed by timeout — exitCode 143 (SIGTERM) + the parseError
+    // message. Exactly the T14 case: leaf_inspect must show WHY, not just 143.
+    node({
+      leafId: 'LX', ts: 1000, nodeKind: 'blueprint', model: 'opus',
+      exitCode: 143, durationMs: 47000, parseError: 'node timed out after 600000ms (killed)',
+    });
+    const run = getLeafRun('LX');
+    expect(run).not.toBeNull();
+    expect(run!.nodes[0].exitCode).toBe(143);
+    expect(run!.nodes[0].parseError).toBe('node timed out after 600000ms (killed)');
+  });
+
   test('chronological order, attempts, nodesSpent/budget, wall-clock, verdict', () => {
     // A 2-attempt run: 2 blueprints (each starts an attempt) + impl + review, then
     // a terminal outcome marker carrying verdict+outcome.
