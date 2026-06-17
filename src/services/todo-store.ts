@@ -966,8 +966,12 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
       `UPDATE todos SET status='ready', ${CLAIM_CLEAR_SQL},
        updatedAt=? WHERE id=? AND status='in_progress' AND claimToken IS NOT NULL`
     ).run(nowIso(), id);
-    // EVENT-DRIVEN (S3): freeing a claim restores capacity → 'capacity' input edge.
-    if (res.changes > 0) fireOrchestratorKick(`capacity:${id.slice(0, 8)}`);
+    // NO capacity kick here (S3 soak finding): releaseClaim's callers are all NO-PROGRESS
+    // releases — the launch-reject path for a claimable-but-not-headless-leaf (epic/gate) and
+    // the respawn-backoff deferral — so kicking re-ticks → re-claims the same unlaunchable row
+    // → releases → kicks, a tight livelock. Genuine capacity-free re-pickup is covered by
+    // completeTodo's dep-terminal kick (a worker finishing IS the real capacity event) and the
+    // interval scan; per the design, kicks are a pure latency optimization, never correctness.
     return res.changes > 0;
   });
 }
