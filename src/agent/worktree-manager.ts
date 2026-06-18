@@ -956,7 +956,20 @@ export class WorktreeManager {
       if (await exists(`refs/heads/${h}`)) return h;
       if (await exists(h)) return h;
     }
-    // 2. origin/HEAD symbolic target → e.g. "origin/main".
+    // 2. LOCAL main / master — preferred over the remote default because this is a
+    // local-first product and the daemon LANDS locally (landEpicToMaster operates on
+    // the local branch). Resolving integration to a REMOTE ref (origin/HEAD) diverges
+    // from where work is actually integrated: a leaf merged to local `main` but not
+    // pushed reads as "not reachable from origin/main" → its accept loops (OI-1) and
+    // its dependents silently strand (bp1). It also defends against a misconfigured
+    // origin/HEAD pointing at a stale feature branch (observed on build123d:
+    // origin/HEAD → phase3-selectors-live-rules while work lives on main). The
+    // reachability check and the land must agree on the SAME local ref.
+    for (const cand of ['main', 'master']) {
+      if (await exists(`refs/heads/${cand}`)) return cand;
+    }
+    // 3. origin/HEAD symbolic target → e.g. "origin/main" (remote-integration setups
+    // with no local default checked out).
     const sym = await this.runGit(
       this.opts.projectRoot,
       ['symbolic-ref', '--short', '--quiet', 'refs/remotes/origin/HEAD'],
@@ -965,10 +978,6 @@ export class WorktreeManager {
     if (sym.code === 0 && sym.stdout.trim()) {
       const remoteRef = sym.stdout.trim(); // "origin/main"
       if (await exists(`refs/remotes/${remoteRef}`)) return remoteRef;
-    }
-    // 3. local main / master.
-    for (const cand of ['main', 'master']) {
-      if (await exists(`refs/heads/${cand}`)) return cand;
     }
     // 4. literal fallback (matches the rest of the codebase's default).
     return 'master';

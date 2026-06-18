@@ -864,6 +864,22 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
         if (reachable === false) {
           foundationStranded = true;
           recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ todoId: t.id, depId, intRef, bp1: 'blocked-stranded-foundation' }) });
+          // DURABLE FIX: never strand SILENTLY. A done+accepted foundation whose commit
+          // isn't reachable from integration (e.g. salvaged/committed out-of-band without
+          // the Collab-Todo trailer the merge-back stamps) would otherwise drop EVERY
+          // dependent from the claimable set on every tick, forever, with NO signal —
+          // exactly how Epic A's A2/A3 sat dead behind a done A1. Surface it ONCE (the
+          // (project,session,questionText) dedup + the stable per-foundation text keep it
+          // to a single card) so a human re-integrates/stamps the foundation. Best-effort.
+          try {
+            createEscalation({
+              project,
+              session: 'bp1-stranded-foundation',
+              todoId: depId,
+              kind: 'assumption-invalidated',
+              questionText: `Dependents are blocked at \`drive\`: foundation todo ${depId} is done+accepted, but its commit is NOT reachable from ${intRef} (no Collab-Todo trailer on the integration branch — e.g. the work landed out-of-band). Its dependents can't be claimed until it's integrated. Fix: re-land the foundation to ${intRef} (stamping its trailer), or drop the project to \`build\` to build dependents on the epic branch instead.`,
+            });
+          } catch { /* never block the claim pass on escalation bookkeeping */ }
           break;
         }
       } catch {
