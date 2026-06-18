@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { TodoDetailView } from './TodoDetailView';
 import { useSessionStore } from '@/stores/sessionStore';
 import type { SessionTodo } from '@/types/sessionTodo';
@@ -45,22 +45,33 @@ describe('TodoDetailView header layout', () => {
     expect(screen.getByTestId('todo-detail-header').className).toContain('flex-wrap');
   });
 
-  it('the lifecycle select is shrink-0 and width-capped', () => {
+  it('shows the derived state as a single read-only badge (no raw lifecycle select)', () => {
     render(<TodoDetailView todoId="T1" />);
-    const lifecycle = screen.getByLabelText('Lifecycle');
-    expect(lifecycle.className).toContain('shrink-0');
-    expect(lifecycle.className).toContain('max-w-');
+    // default todo: stored status 'ready' but approvedAt unset → derives 'planned'
+    const status = screen.getByTestId('todo-detail-status');
+    expect(status.textContent?.toLowerCase()).toContain('planned');
+    // menu is closed until the badge is clicked
+    expect(screen.queryByTestId('todo-detail-status-menu')).toBeNull();
+    // the old raw lifecycle select is gone
+    expect(screen.queryByLabelText('Lifecycle')).toBeNull();
   });
 
-  it('exposes Approve/Hold intent toggles and a read-only derived state (epic b2c858d4)', () => {
+  it('the status menu offers approve + lifecycle writes, never raw ready/blocked/in_progress (epic b2c858d4)', () => {
     render(<TodoDetailView todoId="T1" />);
+    fireEvent.click(screen.getByTestId('todo-detail-status'));
+    const menu = screen.getByTestId('todo-detail-status-menu');
     expect(screen.getByTestId('todo-detail-approve')).toBeTruthy();
+    const labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map(
+      (b) => (b.textContent ?? '').toLowerCase(),
+    );
+    expect(labels.some((l) => l.includes('done'))).toBe(true);
+    expect(labels.some((l) => l.includes('drop'))).toBe(true);
+    // derived values are NEVER offered as raw set-able options
+    expect(labels.some((l) => l === 'ready' || l === 'blocked' || l === 'in progress' || l === 'in_progress')).toBe(false);
+  });
+
+  it('exposes a Hold intent toggle separate from the status badge', () => {
+    render(<TodoDetailView todoId="T1" />);
     expect(screen.getByTestId('todo-detail-hold')).toBeTruthy();
-    // Derived label shown read-only; it must NOT offer ready/blocked/in_progress
-    // as a raw lifecycle option.
-    expect(screen.getByTestId('todo-detail-derived').textContent).toMatch(/^now:/);
-    const lifecycle = screen.getByLabelText('Lifecycle') as HTMLSelectElement;
-    const opts = Array.from(lifecycle.options).map((o) => o.value);
-    expect(opts).toEqual(['planned', 'done', 'dropped']);
   });
 });

@@ -85,7 +85,7 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
             className="shrink-0 mt-0.5 tabular-nums text-3xs text-gray-400 dark:text-gray-500 select-all"
             title={todo.id}
           >
-            #{String(todo.id).slice(-4)}
+            #{String(todo.id).slice(0, 8)}
           </span>
           <span
             className={`flex-1 min-w-0 cursor-pointer text-xs leading-snug whitespace-normal break-words [overflow-wrap:anywhere] ${

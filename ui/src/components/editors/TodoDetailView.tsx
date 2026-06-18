@@ -79,6 +79,8 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
   const [showRun, setShowRun] = useState(false);
   // Expand the FULL per-leaf SDK-session transcript (captured stream-json).
   const [showTranscript, setShowTranscript] = useState(false);
+  // The single status control's dropdown (approve/hold/lifecycle actions).
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
 
   // Sibling sessions in this project — for the assignee picker.
   const [siblings, setSiblings] = useState<string[]>([]);
@@ -222,16 +224,25 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
     done: 'done',
     dropped: 'dropped',
   };
-  // Lifecycle moves a human may set directly. The derived values
-  // ready/blocked/in_progress are NOT offered — they are computed, not stored.
-  const LIFECYCLE: { value: TodoStatus; label: string }[] = [
-    { value: 'planned', label: 'Planned' },
-    { value: 'done', label: 'Done' },
-    { value: 'dropped', label: 'Dropped' },
-  ];
-  // The lifecycle select reflects only terminal/planned; derived rows show 'planned'.
-  const lifecycleValue: TodoStatus =
-    status === 'done' || status === 'dropped' ? status : 'planned';
+  // One status control (epic b2c858d4): the badge shows the DERIVED state (the
+  // read-only truth); its menu holds every WRITE — approve/un-approve (intent),
+  // mark-done/drop/reopen (lifecycle) — all routed through `changeStatus`.
+  // ready/blocked/in_progress are never set raw; planned/done/dropped are the
+  // only stored values a human moves to.
+  const isTerminal = status === 'done' || status === 'dropped';
+  // Derived-state → badge + dot colors (keyed by the derivedStatus value).
+  const DERIVED_BADGE: Record<string, string> = {
+    ready: 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30',
+    in_progress: 'border-info-400 text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/30',
+    blocked: 'border-warning-400 text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/30',
+    planned: 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800',
+    done: 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800',
+    dropped: 'border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 line-through',
+  };
+  const DERIVED_DOT: Record<string, string> = {
+    ready: 'bg-success-500', in_progress: 'bg-info-500', blocked: 'bg-warning-500',
+    planned: 'bg-gray-400', done: 'bg-gray-400', dropped: 'bg-gray-300',
+  };
 
   // Shared chrome-less control styling so status/assignee read as plain text.
   const plainControl =
@@ -252,31 +263,73 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
           className="shrink-0 tabular-nums text-xs text-gray-400 dark:text-gray-500 select-all"
           title={todo.id}
         >
-          #{String(todo.id).slice(-4)}
+          #{String(todo.id).slice(0, 8)}
         </span>
-        <span
-          className={`shrink-0 w-2 h-2 rounded-full ${statusDot(status)}`}
-          aria-hidden="true"
-        />
-        {/* Decision controls (epic b2c858d4): Approve + Hold are INTENT toggles
-            that write approvedAt/heldAt via the store's translation seam; the
-            lifecycle select sets only real lifecycle moves. ready/blocked/
-            in_progress are DERIVED and shown read-only beside them — never set
-            raw. */}
-        <button
-          type="button"
-          data-testid="todo-detail-approve"
-          aria-pressed={approved}
-          onClick={toggleApprove}
-          title={approved ? 'Approved to run — click to un-approve' : 'Approve this todo to run'}
-          className={`shrink-0 px-2 py-0.5 text-xs rounded border ${
-            approved
-              ? 'border-success-400 text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/30'
-              : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-          }`}
-        >
-          {approved ? '✓ Approved' : 'Approve'}
-        </button>
+        {/* Single status control (epic b2c858d4): the badge shows the DERIVED
+            state (read-only truth); clicking opens the writes — Approve/Un-approve
+            (intent) and Done/Drop/Reopen (lifecycle), all via `changeStatus`. */}
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            data-testid="todo-detail-status"
+            aria-haspopup="menu"
+            aria-expanded={statusMenuOpen}
+            onClick={() => setStatusMenuOpen((o) => !o)}
+            title="Status — click to approve, mark done, drop, or reopen"
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded border ${DERIVED_BADGE[derived] ?? DERIVED_BADGE.planned}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${DERIVED_DOT[derived] ?? 'bg-gray-400'}`} aria-hidden="true" />
+            {(derivedReadable[derived] ?? derived).toUpperCase()}
+            <span aria-hidden="true" className="opacity-60">▾</span>
+          </button>
+          {statusMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" aria-hidden="true" onClick={() => setStatusMenuOpen(false)} />
+              <div
+                role="menu"
+                data-testid="todo-detail-status-menu"
+                className="absolute left-0 top-full mt-1 z-20 min-w-[10rem] rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs"
+              >
+                {!isTerminal && (
+                  <button
+                    type="button" role="menuitem" data-testid="todo-detail-approve"
+                    className="block w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => { setStatusMenuOpen(false); toggleApprove(); }}
+                  >
+                    {approved ? 'Un-approve' : '✓ Approve to run'}
+                  </button>
+                )}
+                {!isTerminal && (
+                  <button
+                    type="button" role="menuitem"
+                    className="block w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => { setStatusMenuOpen(false); void changeStatus('done'); }}
+                  >
+                    Mark done
+                  </button>
+                )}
+                {!isTerminal && (
+                  <button
+                    type="button" role="menuitem"
+                    className="block w-full text-left px-3 py-1 text-danger-600 dark:text-danger-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => { setStatusMenuOpen(false); void changeStatus('dropped'); }}
+                  >
+                    Drop
+                  </button>
+                )}
+                {isTerminal && (
+                  <button
+                    type="button" role="menuitem"
+                    className="block w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    onClick={() => { setStatusMenuOpen(false); void changeStatus('planned'); }}
+                  >
+                    Reopen
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <button
           type="button"
           data-testid="todo-detail-hold"
@@ -291,23 +344,6 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
         >
           {held ? '⏸ Held' : 'Hold'}
         </button>
-        <select
-          value={lifecycleValue}
-          onChange={(e) => changeStatus(e.target.value as TodoStatus)}
-          aria-label="Lifecycle"
-          className={`${plainControl} max-w-[120px] truncate`}
-        >
-          {LIFECYCLE.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <span
-          data-testid="todo-detail-derived"
-          title="Derived state (computed, not editable)"
-          className="shrink-0 text-xs text-gray-400 dark:text-gray-500"
-        >
-          now: {derivedReadable[derived] ?? derived}
-        </span>
         <select
           value={todo.assigneeSession ?? ''}
           onChange={(e) => changeAssignee(e.target.value)}
