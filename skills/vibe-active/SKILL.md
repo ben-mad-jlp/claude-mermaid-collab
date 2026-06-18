@@ -18,15 +18,17 @@ Call `mcp__plugin_mermaid-collab_mermaid__list_documents` with the current proje
 
 Look for a document whose `name` ends with `vibeinstructions`.
 
-**If found:** Call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content (Goal / Context — the stable high-level orientation). Display it to the user verbatim so they can reorient.
+**If found:** Call `mcp__plugin_mermaid-collab_mermaid__get_document` to read the full content. It has up to three sections:
+- `## Goal` / `## Context` — the stable high-level orientation. Display verbatim so the user can reorient.
+- `## Checkpoint` — the volatile "where we left off" detail written by `vibe-checkpoint`. If present, display it verbatim — **this is the resume point**, not any todo. (If absent, the session was never checkpointed; fall back to inferring state from the recent todos.)
 
-Then load the live state from session todos — this is where in-flight work lives, not the snippet:
+Then load the live state from session todos — the real work list:
 - Call `mcp__plugin_mermaid-collab_mermaid__list_session_todos` with `includeCompleted: false`.
-- Display the open todos. Call out the `in_progress` todo and show its `description` — that description is the checkpoint of exactly where we left off mid-task.
+- Display the open todos. Do NOT expect an `in_progress` todo to carry the checkpoint — interactive sessions have no `in_progress` todo (only the daemon claims), and the checkpoint lives in the `## Checkpoint` section, not on a todo.
 
 Then say:
 ```
-Vibe session resumed. Goal/Context above, and the in-progress todo has our checkpoint.
+Vibe session resumed. Goal/Context above, and the ## Checkpoint section has where we left off.
 ```
 Then read the `## Pair Mode` section from the vibeinstructions content. If its value is `Enabled`, immediately invoke the `pair` skill via the Skill tool to load it into context.
 
@@ -44,13 +46,16 @@ Then read the `## Pair Mode` section from the vibeinstructions content. If its v
      ## Context
      [Any relevant context from the conversation so far]
 
+     ## Checkpoint
+     [None yet — vibe-checkpoint writes "where we left off" here before a /clear.]
+
      ## Pair Mode
      Disabled
 
      ## Agent Mode
      Enabled
      ```
-     (Fine-grained, in-flight work is tracked in session todos — not in this snippet.)
+     (Real work is tracked in session todos; the volatile "where we left off" checkpoint lives in the `## Checkpoint` section above — not on a todo.)
 3. Then display the entry message below.
 
 ### Entry Message (new vibes only)

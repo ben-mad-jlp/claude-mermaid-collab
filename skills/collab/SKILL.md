@@ -79,7 +79,7 @@ Otherwise (no name provided — the interactive list path):
 3. Create the session by creating an initial document:
    ```
    Tool: mcp__plugin_mermaid-collab_mermaid__create_document
-   Args: { "project": "<cwd>", "session": "<name>", "name": "vibe.vibeinstructions", "content": "# Vibe: <name>\n\n## Goal\n[Not yet defined]\n\n## Context\n[No context recorded]\n\n## Pair Mode\nDisabled\n\n## Agent Mode\nEnabled" }
+   Args: { "project": "<cwd>", "session": "<name>", "name": "vibe.vibeinstructions", "content": "# Vibe: <name>\n\n## Goal\n[Not yet defined]\n\n## Context\n[No context recorded]\n\n## Checkpoint\n[None yet — vibe-checkpoint writes \"where we left off\" here before a /clear.]\n\n## Pair Mode\nDisabled\n\n## Agent Mode\nEnabled" }
    ```
    Fine-grained, in-flight work is tracked in session todos — not in the vibeinstructions snippet.
 4. Discover this Claude Code CLI's PID by running the Bash tool:
