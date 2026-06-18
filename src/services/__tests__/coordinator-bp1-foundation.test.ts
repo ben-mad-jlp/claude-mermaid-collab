@@ -51,8 +51,8 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
   it('drops a dependent whose done foundation is stranded, then admits it once the foundation lands', async () => {
     // BP1 only runs at `drive` (where the daemon auto-lands the epic to integration).
     setOrchestratorLevel(repo, 'drive');
-    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 test', status: 'in_progress' });
-    const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation leaf', parentId: epic.id, status: 'in_progress' });
+    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 test', status: 'planned' });
+    const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation leaf', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, {
       ownerSession: 's', title: 'dependent leaf', parentId: epic.id, status: 'ready',
       dependsOn: [foundation.id],
@@ -91,8 +91,8 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // done+accepted foundation's commit lives on the epic branch, not integration.
     // BP1 must NOT flag that as stranded (else the whole wave blocks forever).
     setOrchestratorLevel(repo, 'build');
-    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 build-level', status: 'in_progress' });
-    const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation', parentId: epic.id, status: 'in_progress' });
+    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 build-level', status: 'planned' });
+    const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, {
       ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [foundation.id],
     });
@@ -105,8 +105,8 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
   });
 
   it('FAIL-SAFE: a dependent whose done dep carries no commit is admitted (indeterminate)', async () => {
-    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 failsafe', status: 'in_progress' });
-    const dep0 = await createTodo(repo, { ownerSession: 's', title: 'trailerless dep', parentId: epic.id, status: 'in_progress' });
+    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 failsafe', status: 'planned' });
+    const dep0 = await createTodo(repo, { ownerSession: 's', title: 'trailerless dep', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, {
       ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [dep0.id],
     });
