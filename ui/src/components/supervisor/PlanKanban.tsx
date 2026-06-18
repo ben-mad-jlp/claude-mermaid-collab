@@ -100,7 +100,7 @@ function PlanCard({
     >
       <div className="text-xs leading-tight text-gray-800 dark:text-gray-100">{todo.title}</div>
       <div className="flex items-center gap-1.5 text-3xs text-gray-500 dark:text-gray-400">
-        <span className="font-mono text-gray-400 dark:text-gray-500" title={todo.id}>#{todo.id.slice(-4)}</span>
+        <span className="font-mono text-gray-400 dark:text-gray-500" title={todo.id}>#{todo.id.slice(0, 8)}</span>
         {depCount > 0 && <span className="font-mono" title={`${depCount} dependencies`}>⊸{depCount}</span>}
         {unblocks > 0 && (
           <span
@@ -262,7 +262,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                 } text-gray-700 dark:text-gray-200`}
                 title={lane.epic ? `${lane.epic.id} — ${lane.title}` : lane.title}
               >
-                {lane.epic && <span className="font-mono text-gray-400 dark:text-gray-500">#{lane.epic.id.slice(-4)} </span>}
+                {lane.epic && <span className="font-mono text-gray-400 dark:text-gray-500">#{lane.epic.id.slice(0, 8)} </span>}
                 {lane.title}
               </button>
               <span className="text-3xs text-gray-400 dark:text-gray-500">{lane.items.length}</span>
