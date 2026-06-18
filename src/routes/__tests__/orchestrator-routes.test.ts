@@ -34,11 +34,11 @@ afterAll(() => {
 });
 
 describe('handleOrchestratorRoutes', () => {
-  it('GET level defaults to build for an unset project', async () => {
+  it('GET level defaults to on for an unset project', async () => {
     const res = await call('GET', `/api/orchestrator/level?project=${encodeURIComponent(PROJECT)}`);
     expect(res).not.toBeNull();
     expect(res!.status).toBe(200);
-    expect(await res!.json()).toEqual({ project: PROJECT, level: 'build' });
+    expect(await res!.json()).toEqual({ project: PROJECT, level: 'on' });
   });
 
   it('GET level requires project', async () => {
@@ -47,12 +47,14 @@ describe('handleOrchestratorRoutes', () => {
   });
 
   it('POST level persists and GET reads it back', async () => {
-    const post = await call('POST', '/api/orchestrator/level', { project: PROJECT, level: 'nudge' });
+    // Use a non-default level ('auto') so the round-trip proves persistence (the
+    // unset default is 'on').
+    const post = await call('POST', '/api/orchestrator/level', { project: PROJECT, level: 'auto' });
     expect(post!.status).toBe(200);
-    expect(await post!.json()).toEqual({ project: PROJECT, level: 'nudge' });
+    expect(await post!.json()).toEqual({ project: PROJECT, level: 'auto' });
 
     const get = await call('GET', `/api/orchestrator/level?project=${encodeURIComponent(PROJECT)}`);
-    expect(await get!.json()).toEqual({ project: PROJECT, level: 'nudge' });
+    expect(await get!.json()).toEqual({ project: PROJECT, level: 'auto' });
   });
 
   it('POST level rejects an invalid level', async () => {
