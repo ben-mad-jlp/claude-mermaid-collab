@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 interface Row {
   kind: string;
+  desc: string;
   defaultModel: string;
   defaultEffort: string;
   modelOverride: string | null;
@@ -43,6 +44,8 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
   const [levels, setLevels] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busyKind, setBusyKind] = useState<string | null>(null);
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastMsg, setBroadcastMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!project) return;
@@ -71,10 +74,29 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
     })();
   }, [project, rows, load]);
 
+  const broadcast = useCallback(() => {
+    if (broadcasting || !project) return;
+    if (!window.confirm('Push this project’s node model + effort settings to ALL other projects? This replaces their per-node settings.')) return;
+    setBroadcasting(true);
+    setBroadcastMsg(null);
+    void (async () => {
+      try {
+        const data = await apiPost('/api/orchestrator/node-profiles/broadcast', { project });
+        const n = typeof data?.applied === 'number' ? data.applied : 0;
+        setBroadcastMsg(`Applied to ${n} project${n === 1 ? '' : 's'}.`);
+      } catch {
+        setBroadcastMsg('Failed to push settings.');
+      } finally {
+        setBroadcasting(false);
+      }
+    })();
+  }, [broadcasting, project]);
+
   if (!loaded) return <div className="text-2xs text-gray-400 dark:text-gray-500">loading node profiles…</div>;
 
   return (
-    <table className="w-full text-2xs border-collapse" data-testid="daemon-nodes-matrix">
+    <div data-testid="daemon-nodes-matrix">
+    <table className="w-full text-2xs border-collapse">
       <thead>
         <tr className="text-gray-500 dark:text-gray-400 text-left">
           <th className="font-medium pr-2 py-0.5">node</th>
@@ -89,14 +111,17 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
           const overridden = r.modelOverride != null || r.effortOverride != null;
           return (
             <tr key={r.kind} data-testid={`node-row-${r.kind}`} className={`border-t border-gray-100 dark:border-gray-800 ${busy ? 'opacity-60' : ''}`}>
-              <td className={`pr-2 py-0.5 font-mono ${overridden ? 'text-info-600 dark:text-info-400' : 'text-gray-700 dark:text-gray-200'}`}>{r.kind}</td>
+              <td className="pr-2 py-0.5 align-top">
+                <div className={`font-mono ${overridden ? 'text-info-600 dark:text-info-400' : 'text-gray-700 dark:text-gray-200'}`}>{r.kind}</div>
+                <div className="text-3xs text-gray-400 dark:text-gray-500 max-w-[260px] leading-tight">{r.desc}</div>
+              </td>
               <td className="px-2 py-0.5">
                 <select
                   data-testid={`node-model-${r.kind}`}
                   disabled={busy}
                   value={r.modelOverride ?? INHERIT}
                   onChange={(e) => update(r.kind, { model: e.target.value === INHERIT ? null : e.target.value })}
-                  className="bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
+                  className="text-2xs bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
                 >
                   <option value={INHERIT}>inherit ({r.defaultModel})</option>
                   {models.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -108,7 +133,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
                   disabled={busy}
                   value={r.effortOverride ?? INHERIT}
                   onChange={(e) => update(r.kind, { effort: e.target.value === INHERIT ? null : e.target.value })}
-                  className="bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
+                  className="text-2xs bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
                 >
                   <option value={INHERIT}>inherit ({r.defaultEffort})</option>
                   {levels.map((l) => <option key={l} value={l}>{l}</option>)}
@@ -120,6 +145,20 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
         })}
       </tbody>
     </table>
+    <div className="mt-2 flex items-center gap-2">
+      <button
+        type="button"
+        data-testid="node-profiles-broadcast"
+        disabled={broadcasting}
+        onClick={broadcast}
+        title="Copy this project's per-node model + effort settings to every other project (replaces theirs)"
+        className="text-2xs px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {broadcasting ? 'pushing…' : 'Push to all projects'}
+      </button>
+      {broadcastMsg && <span className="text-2xs text-gray-500 dark:text-gray-400">{broadcastMsg}</span>}
+    </div>
+    </div>
   );
 };
 

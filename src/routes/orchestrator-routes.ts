@@ -7,12 +7,14 @@ import {
   setProjectEffort,
   listNodeProfileOverrides,
   setNodeProfileOverride,
+  copyNodeProfilesTo,
   EFFORT_LEVELS,
   ORCH_LEVELS,
   type OrchestratorLevel,
 } from '../services/orchestrator-config.ts';
 import type { EffortLevel } from '../agent/contracts.ts';
-import { NODE_PROFILE, LEAF_NODE_KINDS } from '../services/leaf-executor.ts';
+import { NODE_PROFILE, LEAF_NODE_KINDS, NODE_KIND_DESCRIPTIONS } from '../services/leaf-executor.ts';
+import { projectRegistry } from '../services/project-registry.ts';
 
 /** Model aliases offered in the daemon-nodes matrix dropdown. */
 const MODEL_CHOICES = ['opus', 'sonnet', 'haiku'];
@@ -108,6 +110,7 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       const o = overrides[kind] ?? { model: null, effort: null };
       return {
         kind,
+        desc: NODE_KIND_DESCRIPTIONS[kind],
         defaultModel: def.model,
         defaultEffort: def.effort,
         modelOverride: o.model,
@@ -135,6 +138,21 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       }
       setNodeProfileOverride(project, kind, model ?? null, (effort ?? null) as EffortLevel | null);
       return Response.json({ project, kind, model: model ?? null, effort: effort ?? null });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/orchestrator/node-profiles/broadcast { project }
+  // Push this project's node model+effort matrix to EVERY other registered project
+  // (replacing theirs). Returns how many projects were updated.
+  if (url.pathname === '/api/orchestrator/node-profiles/broadcast' && req.method === 'POST') {
+    try {
+      const { project } = (await req.json()) as { project?: string };
+      if (!project) return jsonError('project is required', 400);
+      const targets = (await projectRegistry.list()).map((p) => p.path);
+      const applied = copyNodeProfilesTo(project, targets);
+      return Response.json({ project, applied, totalProjects: targets.length });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

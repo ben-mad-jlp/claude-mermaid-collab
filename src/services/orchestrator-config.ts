@@ -253,6 +253,33 @@ export function setNodeProfileOverride(
   ).run(project, kind, m, e, Date.now());
 }
 
+/** Copy a source project's ENTIRE node-profile override set to each target project,
+ *  replacing whatever the target had (so every target ends up matching the source —
+ *  including "no override" kinds, which are cleared). Skips the source itself.
+ *  Returns the number of projects updated. */
+export function copyNodeProfilesTo(sourceProject: string, targetProjects: string[]): number {
+  const d = openDb();
+  const rows = d
+    .query('SELECT kind, model, effort FROM node_profile_override WHERE project = ?')
+    .all(sourceProject) as Array<{ kind: string; model: string | null; effort: string | null }>;
+  const now = Date.now();
+  let count = 0;
+  const apply = d.transaction((targets: string[]) => {
+    for (const t of targets) {
+      if (t === sourceProject) continue;
+      d.prepare('DELETE FROM node_profile_override WHERE project = ?').run(t);
+      for (const r of rows) {
+        d.prepare(
+          'INSERT INTO node_profile_override (project, kind, model, effort, updatedAt) VALUES (?, ?, ?, ?, ?)',
+        ).run(t, r.kind, r.model, r.effort, now);
+      }
+      count++;
+    }
+  });
+  apply(targetProjects);
+  return count;
+}
+
 /** Steward kill-switch (one-way): force a project's level to 'off' and return the
  *  resulting level. Brake-only — there is deliberately no raise-level counterpart
  *  for the steward (decision 3bf1292b). */

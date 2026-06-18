@@ -20,6 +20,7 @@ import {
   setProjectEffort,
   listNodeProfileOverrides,
   setNodeProfileOverride,
+  copyNodeProfilesTo,
   _closeDb,
 } from '../orchestrator-config';
 import { POOL_CONFIG, POOL_TYPES, MAX_POOL_SIZE } from '../worker-pool';
@@ -185,5 +186,19 @@ describe('per-(project,node-kind) model + effort overrides', () => {
   it('an invalid effort coerces to null', () => {
     setNodeProfileOverride('/proj/np-c', 'implement', 'haiku', 'turbo' as never);
     expect(listNodeProfileOverrides('/proj/np-c').implement).toEqual({ model: 'haiku', effort: null });
+  });
+});
+
+describe('copyNodeProfilesTo (push to all projects)', () => {
+  it('replaces each target with the source set and skips the source', () => {
+    setNodeProfileOverride('/proj/src', 'blueprint', 'sonnet', 'max');
+    setNodeProfileOverride('/proj/src', 'review', null, 'high');
+    setNodeProfileOverride('/proj/dst', 'implement', 'haiku', 'low'); // pre-existing → wiped
+    const n = copyNodeProfilesTo('/proj/src', ['/proj/src', '/proj/dst', '/proj/dst2']);
+    expect(n).toBe(2); // source skipped
+    const expected = { blueprint: { model: 'sonnet', effort: 'max' }, review: { model: null, effort: 'high' } };
+    expect(listNodeProfileOverrides('/proj/dst')).toEqual(expected);
+    expect(listNodeProfileOverrides('/proj/dst2')).toEqual(expected);
+    expect(listNodeProfileOverrides('/proj/src')).toEqual(expected); // source untouched
   });
 });

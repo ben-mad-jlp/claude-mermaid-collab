@@ -269,6 +269,20 @@ export const LEAF_NODE_KINDS: LeafNodeKind[] = [
   'driveplan', 'driveexec', 'report',
 ];
 
+/** One-line description of what each node kind does — surfaced in the matrix editor. */
+export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
+  blueprint: 'Floor: plans the leaf — authors the implementation blueprint the later nodes follow.',
+  implement: 'Floor: writes the code per the blueprint (single-shot).',
+  review: 'Floor: reviews the implementation against the blueprint; failure drives a retry.',
+  research: 'Waves: read-only investigation per task before any edits.',
+  wimplement: 'Waves: implements one file/target (read + edit).',
+  verify: 'Waves: checks one file (e.g. runs tsc) and reports pass/fail.',
+  fix: 'Waves: fixes a file that failed verify (same error twice ⇒ stuck).',
+  driveplan: 'Verify pipeline: authors an AssemblyBuildPlan — plan only, no code.',
+  driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
+  report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
+};
+
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
   blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
   implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' },
