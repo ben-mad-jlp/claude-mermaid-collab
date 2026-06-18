@@ -12,6 +12,11 @@ import Database from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { POOL_CONFIG, poolConfigForSize, clampPoolSize, type PoolConfig } from './worker-pool';
+import type { EffortLevel } from '../agent/contracts';
+
+/** Valid reasoning-effort levels (mirrors the CLI --effort scale). */
+export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** How autonomously the Orchestrator acts for a project (epic 4b81ca59 — collapsed
  *  from the legacy 5-rung ladder off·build·nudge·propose·drive).
@@ -77,6 +82,12 @@ function openDb(): Database {
   db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  // Additive migration: per-project pool size (slots-per-type). NULL = use the
+  // global POOL_CONFIG default. ALTER throws "duplicate column" once added — guard.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN poolSize INTEGER'); } catch { /* already present */ }
+  // Additive migration: per-project reasoning-effort override for daemon-spawned
+  // claude worker nodes. NULL = 'auto' (use the per-node-kind NODE_PROFILE defaults).
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN effortOverride TEXT'); } catch { /* already present */ }
   // One-shot guarded backfill (epic 4b81ca59): collapse any legacy 5-rung rows to
   // the canonical off/on/auto. Idempotent — once migrated, rows are on/auto and no
   // longer match, so re-running is a no-op (cheap; only legacy rows are touched).
@@ -127,6 +138,61 @@ export function setOrchestratorLevel(project: string, level: OrchestratorLevel):
     `INSERT INTO orchestrator_config (project, level, updatedAt) VALUES (?, ?, ?)
      ON CONFLICT(project) DO UPDATE SET level = excluded.level, updatedAt = excluded.updatedAt`,
   ).run(project, safe, Date.now());
+}
+
+// --- Per-project pool size (slots per worker type) -------------------------------
+
+/** The persisted per-project pool size, or null when unset (→ global default).
+ *  A single number that the daemon expands to a uniform PoolConfig (all types = N). */
+export function getProjectPoolSize(project: string): number | null {
+  const d = openDb();
+  const row = d
+    .query('SELECT poolSize FROM orchestrator_config WHERE project = ?')
+    .get(project) as { poolSize: number | null } | undefined;
+  return row?.poolSize == null ? null : clampPoolSize(row.poolSize);
+}
+
+/** Persist a per-project pool size. Pass null to clear (revert to the global
+ *  default). Stored clamped to [1, MAX_POOL_SIZE]. */
+export function setProjectPoolSize(project: string, size: number | null): void {
+  const d = openDb();
+  const value = size == null ? null : clampPoolSize(size);
+  // Upsert: keep the existing level (or its 'on' default) when inserting a fresh row.
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, poolSize, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET poolSize = excluded.poolSize, updatedAt = excluded.updatedAt`,
+  ).run(project, value, Date.now());
+}
+
+/** The effective PoolConfig the daemon should use for a project: the per-project
+ *  uniform override when set, else the global POOL_CONFIG default. */
+export function getProjectPoolConfig(project: string): PoolConfig {
+  const size = getProjectPoolSize(project);
+  return size == null ? POOL_CONFIG : poolConfigForSize(size);
+}
+
+// --- Per-project reasoning-effort override (daemon-spawned claude worker nodes) ---
+
+/** The persisted per-project effort override, or null = 'auto' (per-node-kind
+ *  NODE_PROFILE defaults). Invalid stored values coerce to null. */
+export function getProjectEffort(project: string): EffortLevel | null {
+  const d = openDb();
+  const row = d
+    .query('SELECT effortOverride FROM orchestrator_config WHERE project = ?')
+    .get(project) as { effortOverride: string | null } | undefined;
+  const v = row?.effortOverride;
+  return v != null && (EFFORT_LEVELS as string[]).includes(v) ? (v as EffortLevel) : null;
+}
+
+/** Persist a per-project effort override. Pass null to clear (→ 'auto'/defaults).
+ *  An invalid level is treated as null. */
+export function setProjectEffort(project: string, effort: EffortLevel | null): void {
+  const d = openDb();
+  const value = effort != null && (EFFORT_LEVELS as string[]).includes(effort) ? effort : null;
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, effortOverride, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET effortOverride = excluded.effortOverride, updatedAt = excluded.updatedAt`,
+  ).run(project, value, Date.now());
 }
 
 /** Steward kill-switch (one-way): force a project's level to 'off' and return the

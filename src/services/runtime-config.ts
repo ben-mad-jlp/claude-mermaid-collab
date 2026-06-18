@@ -24,7 +24,8 @@ import {
   getMaxColdStarts,
   getDeadGraceMs,
 } from './coordinator-live';
-import { POOL_CONFIG, type PoolConfig } from './worker-pool';
+import { type PoolConfig } from './worker-pool';
+import { getProjectPoolConfig } from './orchestrator-config';
 import { getOrchestratorHealth } from './orchestrator-live.js';
 import { DEFAULT_WATCHDOG_CONFIG } from './context-watchdog';
 import {
@@ -161,7 +162,7 @@ export function runtimeConfig(project: string, now: number = Date.now()): Runtim
     project,
     now,
     workerIsolation: workerIsolationEnabled(),
-    poolSizes: { ...POOL_CONFIG },
+    poolSizes: getProjectPoolConfig(project),
     maxColdStarts: getMaxColdStarts(),
     deadGraceMs: getDeadGraceMs(),
     perProjectWatchdogThreshold: getWatchdogThreshold(project),

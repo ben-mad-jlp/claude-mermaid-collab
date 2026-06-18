@@ -1,9 +1,16 @@
 import {
   getOrchestratorLevel,
   setOrchestratorLevel,
+  getProjectPoolSize,
+  setProjectPoolSize,
+  getProjectEffort,
+  setProjectEffort,
+  EFFORT_LEVELS,
   ORCH_LEVELS,
   type OrchestratorLevel,
 } from '../services/orchestrator-config.ts';
+import type { EffortLevel } from '../agent/contracts.ts';
+import { DEFAULT_SLOTS_PER_TYPE, MAX_POOL_SIZE } from '../services/worker-pool.ts';
 import { confirmSuggestion, dismissSuggestion } from '../services/triage-execute.ts';
 
 function jsonError(message: string, status: number): Response {
@@ -30,6 +37,53 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       }
       setOrchestratorLevel(project, level as OrchestratorLevel);
       return Response.json({ project, level: level as OrchestratorLevel });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/orchestrator/pool-size?project=<abs path>
+  // Returns the per-project pool size (null = using the global default), plus the
+  // default + max so the UI can render the control without hardcoding them.
+  if (url.pathname === '/api/orchestrator/pool-size' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, poolSize: getProjectPoolSize(project), default: DEFAULT_SLOTS_PER_TYPE, max: MAX_POOL_SIZE });
+  }
+
+  // POST /api/orchestrator/pool-size { project, poolSize }  (poolSize null → clear)
+  if (url.pathname === '/api/orchestrator/pool-size' && req.method === 'POST') {
+    try {
+      const { project, poolSize } = (await req.json()) as { project?: string; poolSize?: number | null };
+      if (!project) return jsonError('project is required', 400);
+      if (poolSize != null && (typeof poolSize !== 'number' || !Number.isFinite(poolSize))) {
+        return jsonError('poolSize must be a number or null', 400);
+      }
+      setProjectPoolSize(project, poolSize ?? null);
+      return Response.json({ project, poolSize: getProjectPoolSize(project), default: DEFAULT_SLOTS_PER_TYPE, max: MAX_POOL_SIZE });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/orchestrator/effort?project=<abs path>
+  // effort null = 'auto' (per-node-kind defaults). Surfaces the allowed levels.
+  if (url.pathname === '/api/orchestrator/effort' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, effort: getProjectEffort(project), levels: EFFORT_LEVELS });
+  }
+
+  // POST /api/orchestrator/effort { project, effort }  (effort null → auto/defaults)
+  if (url.pathname === '/api/orchestrator/effort' && req.method === 'POST') {
+    try {
+      const { project, effort } = (await req.json()) as { project?: string; effort?: string | null };
+      if (!project) return jsonError('project is required', 400);
+      if (effort != null && !(EFFORT_LEVELS as string[]).includes(effort)) {
+        return jsonError(`effort must be null or one of: ${EFFORT_LEVELS.join(', ')}`, 400);
+      }
+      setProjectEffort(project, (effort ?? null) as EffortLevel | null);
+      return Response.json({ project, effort: getProjectEffort(project), levels: EFFORT_LEVELS });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

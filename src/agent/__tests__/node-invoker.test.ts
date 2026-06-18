@@ -49,6 +49,11 @@ describe('buildNodeArgv', () => {
     const argv = buildNodeArgv({ ...base, permissionMode: 'acceptEdits' });
     expect(argv).toEqual(expect.arrayContaining(['--permission-mode', 'acceptEdits']));
   });
+
+  it('passes --effort only when set', () => {
+    expect(buildNodeArgv({ ...base, effort: 'high' })).toEqual(expect.arrayContaining(['--effort', 'high']));
+    expect(buildNodeArgv({ ...base })).not.toContain('--effort');
+  });
 });
 
 describe('authModeFromStatus', () => {

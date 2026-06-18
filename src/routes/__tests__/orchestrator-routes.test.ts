@@ -77,3 +77,67 @@ describe('handleOrchestratorRoutes', () => {
     expect(res).toBeNull();
   });
 });
+
+describe('handleOrchestratorRoutes — pool-size', () => {
+  const POOL_PROJECT = '/tmp/orch-routes-pool';
+
+  it('GET defaults to null (inherit) and surfaces default + max', async () => {
+    const res = await call('GET', `/api/orchestrator/pool-size?project=${encodeURIComponent(POOL_PROJECT)}`);
+    expect(res!.status).toBe(200);
+    const body = await res!.json() as any;
+    expect(body.poolSize).toBeNull();
+    expect(typeof body.default).toBe('number');
+    expect(typeof body.max).toBe('number');
+  });
+
+  it('POST persists a clamped size and GET reads it back', async () => {
+    const post = await call('POST', '/api/orchestrator/pool-size', { project: POOL_PROJECT, poolSize: 999 });
+    expect(post!.status).toBe(200);
+    const posted = await post!.json() as any;
+    expect(posted.poolSize).toBe(posted.max); // clamped to max
+    const get = await call('GET', `/api/orchestrator/pool-size?project=${encodeURIComponent(POOL_PROJECT)}`);
+    expect(((await get!.json()) as any).poolSize).toBe(posted.max);
+  });
+
+  it('POST null clears the override', async () => {
+    await call('POST', '/api/orchestrator/pool-size', { project: POOL_PROJECT, poolSize: 5 });
+    const cleared = await call('POST', '/api/orchestrator/pool-size', { project: POOL_PROJECT, poolSize: null });
+    expect(((await cleared!.json()) as any).poolSize).toBeNull();
+  });
+
+  it('POST without project → 400', async () => {
+    const res = await call('POST', '/api/orchestrator/pool-size', { poolSize: 4 });
+    expect(res!.status).toBe(400);
+  });
+});
+
+describe('handleOrchestratorRoutes — effort', () => {
+  const EFFORT_PROJECT = '/tmp/orch-routes-effort';
+
+  it('GET defaults to null (auto) and surfaces the level scale', async () => {
+    const res = await call('GET', `/api/orchestrator/effort?project=${encodeURIComponent(EFFORT_PROJECT)}`);
+    expect(res!.status).toBe(200);
+    const body = await res!.json() as any;
+    expect(body.effort).toBeNull();
+    expect(body.levels).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+  });
+
+  it('POST persists a valid level and GET reads it back', async () => {
+    const post = await call('POST', '/api/orchestrator/effort', { project: EFFORT_PROJECT, effort: 'xhigh' });
+    expect(post!.status).toBe(200);
+    expect((await post!.json() as any).effort).toBe('xhigh');
+    const get = await call('GET', `/api/orchestrator/effort?project=${encodeURIComponent(EFFORT_PROJECT)}`);
+    expect(((await get!.json()) as any).effort).toBe('xhigh');
+  });
+
+  it('POST null clears the override (→ auto)', async () => {
+    await call('POST', '/api/orchestrator/effort', { project: EFFORT_PROJECT, effort: 'high' });
+    const cleared = await call('POST', '/api/orchestrator/effort', { project: EFFORT_PROJECT, effort: null });
+    expect(((await cleared!.json()) as any).effort).toBeNull();
+  });
+
+  it('POST an invalid level → 400', async () => {
+    const res = await call('POST', '/api/orchestrator/effort', { project: EFFORT_PROJECT, effort: 'turbo' });
+    expect(res!.status).toBe(400);
+  });
+});

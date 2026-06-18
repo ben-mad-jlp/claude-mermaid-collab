@@ -13,8 +13,14 @@ import {
   coalesceLevel,
   getOrchestratorLevel,
   setOrchestratorLevel,
+  getProjectPoolSize,
+  setProjectPoolSize,
+  getProjectPoolConfig,
+  getProjectEffort,
+  setProjectEffort,
   _closeDb,
 } from '../orchestrator-config';
+import { POOL_CONFIG, POOL_TYPES, MAX_POOL_SIZE } from '../worker-pool';
 
 beforeAll(() => { _closeDb(); });
 afterAll(() => {
@@ -98,5 +104,62 @@ describe('unknown value clamping', () => {
   it('setOrchestratorLevel clamps unknown values to "on"', () => {
     setOrchestratorLevel('/proj/bad', 'totally-unknown' as never);
     expect(getOrchestratorLevel('/proj/bad')).toBe('on');
+  });
+});
+
+describe('per-project pool size', () => {
+  it('returns null when unset → getProjectPoolConfig falls back to the global default', () => {
+    expect(getProjectPoolSize('/proj/pool-unset')).toBeNull();
+    expect(getProjectPoolConfig('/proj/pool-unset')).toEqual(POOL_CONFIG);
+  });
+
+  it('set/get round-trips and expands to a uniform per-type config', () => {
+    setProjectPoolSize('/proj/pool-a', 6);
+    expect(getProjectPoolSize('/proj/pool-a')).toBe(6);
+    const cfg = getProjectPoolConfig('/proj/pool-a');
+    for (const t of POOL_TYPES) expect(cfg[t]).toBe(6);
+  });
+
+  it('clamps to [1, MAX_POOL_SIZE]', () => {
+    setProjectPoolSize('/proj/pool-hi', 999);
+    expect(getProjectPoolSize('/proj/pool-hi')).toBe(MAX_POOL_SIZE);
+    setProjectPoolSize('/proj/pool-lo', 0);
+    expect(getProjectPoolSize('/proj/pool-lo')).toBe(1);
+  });
+
+  it('null clears the override (reverts to global default)', () => {
+    setProjectPoolSize('/proj/pool-clear', 8);
+    expect(getProjectPoolSize('/proj/pool-clear')).toBe(8);
+    setProjectPoolSize('/proj/pool-clear', null);
+    expect(getProjectPoolSize('/proj/pool-clear')).toBeNull();
+    expect(getProjectPoolConfig('/proj/pool-clear')).toEqual(POOL_CONFIG);
+  });
+
+  it('setting pool size on a fresh project leaves its level at the on default', () => {
+    setProjectPoolSize('/proj/pool-level', 4);
+    expect(getOrchestratorLevel('/proj/pool-level')).toBe('on');
+  });
+});
+
+describe('per-project effort override', () => {
+  it('returns null (auto) when unset', () => {
+    expect(getProjectEffort('/proj/eff-unset')).toBeNull();
+  });
+
+  it('set/get round-trips a valid level', () => {
+    setProjectEffort('/proj/eff-a', 'xhigh');
+    expect(getProjectEffort('/proj/eff-a')).toBe('xhigh');
+  });
+
+  it('an invalid level coerces to null (auto)', () => {
+    setProjectEffort('/proj/eff-bad', 'turbo' as never);
+    expect(getProjectEffort('/proj/eff-bad')).toBeNull();
+  });
+
+  it('null clears the override', () => {
+    setProjectEffort('/proj/eff-clear', 'high');
+    expect(getProjectEffort('/proj/eff-clear')).toBe('high');
+    setProjectEffort('/proj/eff-clear', null);
+    expect(getProjectEffort('/proj/eff-clear')).toBeNull();
   });
 });

@@ -58,6 +58,9 @@ export interface NodeSpec {
   transcriptLabel?: string;
   /** Permission mode override. Default 'bypassPermissions' (no human to approve, headless). */
   permissionMode?: 'bypassPermissions' | 'acceptEdits' | 'default' | 'plan' | 'auto' | 'dontAsk';
+  /** Reasoning effort (--effort low|medium|high|xhigh|max). Optional → CLI/model
+   *  default. The daemon sets this per node kind (judgment nodes run higher). */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
 export interface NodeUsage {
@@ -144,6 +147,7 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
     '--permission-mode', spec.permissionMode ?? 'bypassPermissions',
   ];
   if (spec.model) argv.push('--model', spec.model);
+  if (spec.effort) argv.push('--effort', spec.effort);
   // allowedTools may be '' (= no tools) — push it explicitly when defined (not just truthy).
   if (spec.allowedTools !== undefined) argv.push('--allowedTools', spec.allowedTools);
   if (spec.appendSystemPrompt) argv.push('--append-system-prompt', spec.appendSystemPrompt);

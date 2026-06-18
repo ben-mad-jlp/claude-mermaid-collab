@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
-import { getOrchestratorLevel, listOrchestratorProjects } from './orchestrator-config';
+import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig } from './orchestrator-config';
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
@@ -1548,7 +1548,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
 
       let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type, provider);
       if (!poolName) {
-        const slot = getOrCreateSlot(poolProject, type, provider);
+        const slot = getOrCreateSlot(poolProject, type, provider, getProjectPoolConfig(poolProject));
         if (!slot) {
           try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
           recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type, provider), detail: JSON.stringify({ todoId: todo.id, type, provider, started: false, reason: 'pool-busy-deferred', released: true }) });

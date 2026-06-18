@@ -10,6 +10,8 @@
 
 import React from 'react';
 import { OrchestratorLadder } from './OrchestratorLadder';
+import { PoolSizeControl } from './PoolSizeControl';
+import { EffortControl } from './EffortControl';
 
 export interface CommandBarProps {
   liveCount: number;
@@ -80,7 +82,9 @@ export const CommandBar: React.FC<CommandBarProps> = ({
         {/* Per-project Orchestrator level ladder — moved here from the sidebar
             rows (it crowded the supervisor cards). Scoped to the active project. */}
         {project && (
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1.5">
+            <EffortControl project={project} />
+            <PoolSizeControl project={project} />
             <OrchestratorLadder project={project} />
           </div>
         )}
