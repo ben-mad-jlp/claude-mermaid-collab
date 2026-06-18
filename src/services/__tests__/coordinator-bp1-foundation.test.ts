@@ -50,7 +50,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
 
   it('drops a dependent whose done foundation is stranded, then admits it once the foundation lands', async () => {
     // BP1 only runs at `drive` (where the daemon auto-lands the epic to integration).
-    setOrchestratorLevel(repo, 'drive');
+    setOrchestratorLevel(repo, 'auto');
     const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 test', status: 'planned' });
     const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation leaf', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, {
@@ -90,7 +90,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // The build123d build_assembly_plan stall: at `build` there is no auto-land, so a
     // done+accepted foundation's commit lives on the epic branch, not integration.
     // BP1 must NOT flag that as stranded (else the whole wave blocks forever).
-    setOrchestratorLevel(repo, 'build');
+    setOrchestratorLevel(repo, 'on');
     const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 build-level', status: 'planned' });
     const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, {
@@ -101,7 +101,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     const dep = getTodo(repo, dependent.id)!;
     const out = await bp1FilterStrandedFoundations(repo, [dep]);
     expect(out.map((t) => t.id)).toContain(dependent.id); // admitted below drive
-    setOrchestratorLevel(repo, 'drive'); // restore for the failsafe case below
+    setOrchestratorLevel(repo, 'auto'); // restore for the failsafe case below
   });
 
   it('FAIL-SAFE: a dependent whose done dep carries no commit is admitted (indeterminate)', async () => {

@@ -10,6 +10,7 @@ process.env.MERMAID_SUPERVISOR_DIR = dir;
 import {
   ORCH_LEVELS,
   levelRank,
+  coalesceLevel,
   getOrchestratorLevel,
   setOrchestratorLevel,
   _closeDb,
@@ -23,35 +24,49 @@ afterAll(() => {
 });
 
 describe('ORCH_LEVELS', () => {
-  it('contains exactly the five canonical levels in order', () => {
-    expect(ORCH_LEVELS).toEqual(['off', 'build', 'nudge', 'propose', 'drive']);
+  it('contains exactly the three canonical levels in order', () => {
+    expect(ORCH_LEVELS).toEqual(['off', 'on', 'auto']);
   });
 });
 
 describe('levelRank', () => {
-  it('off=0, build=1, nudge=2, propose=3, drive=4', () => {
+  it('off=0, on=1, auto=2', () => {
     expect(levelRank('off')).toBe(0);
-    expect(levelRank('build')).toBe(1);
-    expect(levelRank('nudge')).toBe(2);
-    expect(levelRank('propose')).toBe(3);
-    expect(levelRank('drive')).toBe(4);
+    expect(levelRank('on')).toBe(1);
+    expect(levelRank('auto')).toBe(2);
   });
 
-  it('ranks are strictly ordered (off < build < nudge < propose < drive)', () => {
+  it('ranks are strictly ordered (off < on < auto)', () => {
     for (let i = 0; i < ORCH_LEVELS.length - 1; i++) {
       expect(levelRank(ORCH_LEVELS[i])).toBeLessThan(levelRank(ORCH_LEVELS[i + 1]));
     }
   });
 });
 
+describe('coalesceLevel — legacy 5-rung → off/on/auto', () => {
+  it('collapses build|nudge|propose → on, drive → auto, off/on/auto pass through', () => {
+    expect(coalesceLevel('off')).toBe('off');
+    expect(coalesceLevel('build')).toBe('on');
+    expect(coalesceLevel('nudge')).toBe('on');
+    expect(coalesceLevel('propose')).toBe('on');
+    expect(coalesceLevel('drive')).toBe('auto');
+    expect(coalesceLevel('on')).toBe('on');
+    expect(coalesceLevel('auto')).toBe('auto');
+  });
+  it('unknown / undefined → on (supervised default)', () => {
+    expect(coalesceLevel('totally-unknown')).toBe('on');
+    expect(coalesceLevel(undefined)).toBe('on');
+  });
+});
+
 describe('getOrchestratorLevel default', () => {
-  it('returns "build" for an unregistered project', () => {
-    expect(getOrchestratorLevel('/never/registered')).toBe('build');
+  it('returns "on" for an unregistered project', () => {
+    expect(getOrchestratorLevel('/never/registered')).toBe('on');
   });
 });
 
 describe('set → get round-trip', () => {
-  it('persists each level correctly', () => {
+  it('persists each canonical level correctly', () => {
     for (const level of ORCH_LEVELS) {
       const project = `/proj/${level}`;
       setOrchestratorLevel(project, level);
@@ -63,16 +78,25 @@ describe('set → get round-trip', () => {
     const project = '/proj/update-test';
     setOrchestratorLevel(project, 'off');
     expect(getOrchestratorLevel(project)).toBe('off');
-    setOrchestratorLevel(project, 'drive');
-    expect(getOrchestratorLevel(project)).toBe('drive');
+    setOrchestratorLevel(project, 'auto');
+    expect(getOrchestratorLevel(project)).toBe('auto');
+  });
+});
+
+describe('legacy read coalescing', () => {
+  it('a row persisted as a legacy value reads back coalesced', () => {
+    // getOrchestratorLevel coalesces on read even if a legacy value lingers
+    // (the backfill collapses stored rows; this guards the read seam too).
+    setOrchestratorLevel('/proj/legacy', 'drive' as never);
+    expect(getOrchestratorLevel('/proj/legacy')).toBe('auto');
+    setOrchestratorLevel('/proj/legacy2', 'build' as never);
+    expect(getOrchestratorLevel('/proj/legacy2')).toBe('on');
   });
 });
 
 describe('unknown value clamping', () => {
-  it('setOrchestratorLevel clamps unknown values to "build"', () => {
-    // Cast through `never` to simulate a caller passing a bad string at runtime.
+  it('setOrchestratorLevel clamps unknown values to "on"', () => {
     setOrchestratorLevel('/proj/bad', 'totally-unknown' as never);
-    // The coerce() inside setOrchestratorLevel maps unknown → 'build'.
-    expect(getOrchestratorLevel('/proj/bad')).toBe('build');
+    expect(getOrchestratorLevel('/proj/bad')).toBe('on');
   });
 });

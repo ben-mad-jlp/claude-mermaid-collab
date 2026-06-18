@@ -33,7 +33,7 @@ const levelOverrides = new Map<string, string>();
 function makeDeps(): TickDeps {
   return {
     listProjects: async () => [...registeredProjects],
-    getLevel: (project: string) => (levelOverrides.get(project) ?? 'build') as 'off' | 'build' | 'nudge' | 'propose' | 'drive',
+    getLevel: (project: string) => (levelOverrides.get(project) ?? 'on') as 'off' | 'on' | 'auto',
     build: async (project: string) => {
       if (buildShouldThrow && project === buildShouldThrow) throw new Error(`simulated build failure for ${project}`);
       buildCalls.push(project);
@@ -70,20 +70,12 @@ describe('passesForLevel', () => {
     expect(passesForLevel('off')).toEqual({ build: false, reconcile: false, triage: false });
   });
 
-  it('build → build only', () => {
-    expect(passesForLevel('build')).toEqual({ build: true, reconcile: false, triage: false });
+  it('on → build + reconcile + triage (suggest write-only)', () => {
+    expect(passesForLevel('on')).toEqual({ build: true, reconcile: true, triage: true });
   });
 
-  it('nudge → build + reconcile', () => {
-    expect(passesForLevel('nudge')).toEqual({ build: true, reconcile: true, triage: false });
-  });
-
-  it('propose → build + reconcile + triage', () => {
-    expect(passesForLevel('propose')).toEqual({ build: true, reconcile: true, triage: true });
-  });
-
-  it('drive → build + reconcile + triage', () => {
-    expect(passesForLevel('drive')).toEqual({ build: true, reconcile: true, triage: true });
+  it('auto → build + reconcile + triage', () => {
+    expect(passesForLevel('auto')).toEqual({ build: true, reconcile: true, triage: true });
   });
 });
 
@@ -104,46 +96,27 @@ describe('runOrchestratorTick', () => {
     expect(reconcileCalls).toEqual([]);
   });
 
-  it('build level: runs build only', async () => {
+  it('on level: runs build + reconcile + triage (suggest), autoResolve=false', async () => {
     registeredProjects.push({ path: '/proj/b', name: 'b', lastAccess: '' });
-    levelOverrides.set('/proj/b', 'build');
+    levelOverrides.set('/proj/b', 'on');
 
     await runOrchestratorTick(makeDeps());
 
     expect(buildCalls).toEqual(['/proj/b']);
-    expect(reconcileCalls).toEqual([]);
+    expect(reconcileCalls).toEqual(['/proj/b']);
+    expect(triageCalls).toEqual(['/proj/b']);
+    // `on` writes suggestions but does NOT auto-resolve.
+    expect(triageAutoResolve).toEqual([{ project: '/proj/b', autoResolve: false }]);
   });
 
-  it('nudge level: runs build + reconcile, NOT triage', async () => {
-    registeredProjects.push({ path: '/proj/c', name: 'c', lastAccess: '' });
-    levelOverrides.set('/proj/c', 'nudge');
-
-    await runOrchestratorTick(makeDeps());
-
-    expect(buildCalls).toEqual(['/proj/c']);
-    expect(reconcileCalls).toEqual(['/proj/c']);
-    expect(triageCalls).toEqual([]);
-  });
-
-  it('propose level: runs build + reconcile + triage, autoResolve=false', async () => {
-    registeredProjects.push({ path: '/proj/p', name: 'p', lastAccess: '' });
-    levelOverrides.set('/proj/p', 'propose');
-
-    await runOrchestratorTick(makeDeps());
-
-    expect(buildCalls).toEqual(['/proj/p']);
-    expect(reconcileCalls).toEqual(['/proj/p']);
-    expect(triageCalls).toEqual(['/proj/p']);
-    // propose writes suggestions but does NOT auto-resolve.
-    expect(triageAutoResolve).toEqual([{ project: '/proj/p', autoResolve: false }]);
-  });
-
-  it('drive level: triage runs with autoResolve=true', async () => {
+  it('auto level: triage runs with autoResolve=true', async () => {
     registeredProjects.push({ path: '/proj/x', name: 'x', lastAccess: '' });
-    levelOverrides.set('/proj/x', 'drive');
+    levelOverrides.set('/proj/x', 'auto');
 
     await runOrchestratorTick(makeDeps());
 
+    expect(buildCalls).toEqual(['/proj/x']);
+    expect(reconcileCalls).toEqual(['/proj/x']);
     expect(triageCalls).toEqual(['/proj/x']);
     expect(triageAutoResolve).toEqual([{ project: '/proj/x', autoResolve: true }]);
   });
@@ -153,8 +126,8 @@ describe('runOrchestratorTick', () => {
       { path: '/proj/bad', name: 'bad', lastAccess: '' },
       { path: '/proj/good', name: 'good', lastAccess: '' },
     );
-    levelOverrides.set('/proj/bad', 'build');
-    levelOverrides.set('/proj/good', 'build');
+    levelOverrides.set('/proj/bad', 'on');
+    levelOverrides.set('/proj/good', 'on');
     buildShouldThrow = '/proj/bad';
 
     // Should not throw

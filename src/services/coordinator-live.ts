@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
-import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config';
+import { getOrchestratorLevel, listOrchestratorProjects } from './orchestrator-config';
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
@@ -765,8 +765,8 @@ export async function acceptTimeAncestorGate(
   // reproduced live by the grok-build trial). Empty/hallucinated completions are
   // STILL caught independently by resolveCompletion's work-committed re-verify, so
   // skipping the master gate below `drive` never lets fake work through.
-  if (levelRank(getOrchestratorLevel(project)) < levelRank('drive')) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-below-drive-accept' }) });
+  if (getOrchestratorLevel(project) !== 'auto') {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-below-auto-accept' }) });
     return true;
   }
   const targetProject = (getTodo(project, todoId)?.targetProject) ?? project;
@@ -854,7 +854,7 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
   // The dependent's lane branches off the epic-branch TIP, so an on-epic-branch foundation
   // IS already visible to it; and a foundation that never reached the epic branch is
   // caught at accept time by reopenStrandedAccept (which runs at every level). Skip below drive.
-  if (levelRank(getOrchestratorLevel(project)) < levelRank('drive')) return todos;
+  if (getOrchestratorLevel(project) !== 'auto') return todos;
   const out: Todo[] = [];
   for (const t of todos) {
     let foundationStranded = false;
@@ -1091,7 +1091,7 @@ export async function surfaceEpicLand(
 ): Promise<void> {
   const session = opts.sessionHint || 'coordinator';
   const id = opts.preferLinkTodoId;
-  const autoLand = levelRank(getOrchestratorLevel(project)) >= levelRank('drive');
+  const autoLand = getOrchestratorLevel(project) === 'auto';
   try {
     const children = listTodos(project, { includeCompleted: true })
       .filter((t) => t.parentId === epicId && t.status !== 'dropped');

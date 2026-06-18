@@ -16,7 +16,7 @@
  *             (behind the proof gate + rate limits).
  */
 
-import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects } from './orchestrator-config.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runTriagePass } from './triage-pass.js';
@@ -88,18 +88,21 @@ export function kickOrchestrator(_reason?: string): void {
 // Pure helper (also exported for unit tests)
 // ---------------------------------------------------------------------------
 
-/** Which passes should run for a given level. */
+/** Which passes should run for a given level (epic 4b81ca59 — off/on/auto).
+ *  `on` runs build + reconcile + triage SUGGEST (write-only); auto-resolve is the
+ *  only thing reserved for `auto` (decided in the tick via `lvl === 'auto'`). */
 export function passesForLevel(level: ReturnType<typeof getOrchestratorLevel>): {
   build: boolean;
   reconcile: boolean;
   triage: boolean;
 } {
-  const rank = levelRank(level);
+  const active = level !== 'off';
   return {
-    build: rank >= levelRank('build'),
-    reconcile: rank >= levelRank('nudge'),
-    // Orch P2: the Grok 'propose' triage pass runs at level propose and above.
-    triage: rank >= levelRank('propose'),
+    build: active,
+    reconcile: active,
+    // Always-on suggest at `on`+ (write-only; a human confirms). Auto-resolve of
+    // those suggestions stays gated to `auto`.
+    triage: active,
   };
 }
 
@@ -169,7 +172,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // high-confidence actionable suggestions it writes (behind the proof gate);
     // at `propose` it only writes them for human confirm.
     if (passes.triage) {
-      const autoResolve = levelRank(lvl) >= levelRank('drive');
+      const autoResolve = lvl === 'auto';
       try {
         await triage(project, { autoResolve });
       } catch (err) {

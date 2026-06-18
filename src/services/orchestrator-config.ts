@@ -13,30 +13,48 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-/** How autonomously the Orchestrator acts for a project.
+/** How autonomously the Orchestrator acts for a project (epic 4b81ca59 — collapsed
+ *  from the legacy 5-rung ladder off·build·nudge·propose·drive).
  *
- *  off     — daemon does nothing; coordinator not started.
- *  build   — start coordinator and drive todos (today's default behavior).
- *  nudge   — drive todos + surface idle/stalled workers proactively.
- *  propose — nudge + Grok suggests an inline action per escalation (human confirms).
- *  drive   — full autonomy: propose + auto-resolve confident actionable suggestions
- *            (behind the proof gate + rate limits).
+ *  off  — daemon does nothing; coordinator not started.
+ *  on   — supervised: build todos + reconcile (stale-close + land-surface) +
+ *         always-on triage SUGGEST (write-only; a human confirms). Works and
+ *         annotates, never acts unattended. (folds legacy build|nudge|propose)
+ *  auto — on + auto-land + auto-resolve confident suggestions + the bp1/OI-1
+ *         reachability gates. "act for me." (folds legacy drive)
  */
-export type OrchestratorLevel = 'off' | 'build' | 'nudge' | 'propose' | 'drive';
+export type OrchestratorLevel = 'off' | 'on' | 'auto';
 
-export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'drive'];
+/** Legacy 5-rung values still readable from storage until backfilled. */
+export type LegacyOrchestratorLevel = 'build' | 'nudge' | 'propose' | 'drive';
+
+export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'on', 'auto'];
 
 const LEVEL_RANK: Record<OrchestratorLevel, number> = {
   off: 0,
-  build: 1,
-  nudge: 2,
-  propose: 3,
-  drive: 4,
+  on: 1,
+  auto: 2,
 };
 
-/** Numeric rank for a level (off=0 … drive=4). Higher = more autonomous. */
+/** Numeric rank for a level (off=0, on=1, auto=2). Higher = more autonomous. */
 export function levelRank(l: OrchestratorLevel): number {
   return LEVEL_RANK[l];
+}
+
+/** Map ANY stored level string (legacy 5-rung OR canonical) to the canonical
+ *  off/on/auto. The single read seam: build|nudge|propose→on, drive→auto, and
+ *  off/on/auto pass through. Unknown → 'on' (the safe supervised default). */
+export function coalesceLevel(raw: unknown): OrchestratorLevel {
+  switch (raw) {
+    case 'off': return 'off';
+    case 'on': return 'on';
+    case 'auto': return 'auto';
+    case 'build': return 'on';
+    case 'nudge': return 'on';
+    case 'propose': return 'on';
+    case 'drive': return 'auto';
+    default: return 'on';
+  }
 }
 
 // --- Persistence (reuses the supervisor.db SQLite store) -------------------------
@@ -44,7 +62,7 @@ export function levelRank(l: OrchestratorLevel): number {
 const DDL = `
 CREATE TABLE IF NOT EXISTS orchestrator_config (
   project TEXT PRIMARY KEY,
-  level   TEXT NOT NULL DEFAULT 'build',
+  level   TEXT NOT NULL DEFAULT 'on',
   updatedAt INTEGER NOT NULL
 );
 `;
@@ -59,6 +77,13 @@ function openDb(): Database {
   db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  // One-shot guarded backfill (epic 4b81ca59): collapse any legacy 5-rung rows to
+  // the canonical off/on/auto. Idempotent — once migrated, rows are on/auto and no
+  // longer match, so re-running is a no-op (cheap; only legacy rows are touched).
+  db.exec(
+    `UPDATE orchestrator_config SET level='on'   WHERE level IN ('build','nudge','propose');
+     UPDATE orchestrator_config SET level='auto' WHERE level='drive';`,
+  );
   return db;
 }
 
@@ -70,12 +95,10 @@ export function _closeDb(): void {
   }
 }
 
-/** Coerce an arbitrary string to a valid OrchestratorLevel, defaulting to 'build'. */
+/** Coerce an arbitrary stored string to the canonical off/on/auto (legacy values
+ *  collapse via coalesceLevel). Unset/unknown → 'on' (supervised default). */
 function coerce(raw: unknown): OrchestratorLevel {
-  if (typeof raw === 'string' && (ORCH_LEVELS as string[]).includes(raw)) {
-    return raw as OrchestratorLevel;
-  }
-  return 'build';
+  return coalesceLevel(raw);
 }
 
 /** Return the persisted autonomy level for a project. Defaults to 'build' when unset. */

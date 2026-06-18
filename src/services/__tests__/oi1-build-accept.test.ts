@@ -26,14 +26,14 @@ describe('acceptTimeAncestorGate — OI-1 build-level fix', () => {
     // A non-existent/non-git project: at build the level gate returns true BEFORE any
     // git/worktree probe, so acceptance is never reversed → no re-claim loop.
     const project = '/tmp/oi1-build-proj-does-not-exist';
-    setOrchestratorLevel(project, 'build');
+    setOrchestratorLevel(project, 'on');
     const ok = await acceptTimeAncestorGate(project, 'todo-1', 'epic-1', [], 'Trial', 'sess');
     expect(ok).toBe(true);
   });
 
   it('also accepts at `nudge` (still below drive)', async () => {
     const project = '/tmp/oi1-nudge-proj-does-not-exist';
-    setOrchestratorLevel(project, 'nudge');
+    setOrchestratorLevel(project, 'on');
     const ok = await acceptTimeAncestorGate(project, 'todo-1', 'epic-1', [], 'Trial', 'sess');
     expect(ok).toBe(true);
   });
