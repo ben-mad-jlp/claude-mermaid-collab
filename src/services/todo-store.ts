@@ -1334,6 +1334,68 @@ export interface EpicSweepResult {
  * idempotent (a re-run on an already-rolled-up graph closes nothing) and bounded
  * (at most one pass per parent epic).
  */
+export interface SplitLeafResult {
+  parentId: string;
+  childIds: string[];
+}
+
+/**
+ * Worker-decomposition: split a too-big LEAF into one child leaf per file, UNDER the
+ * leaf itself. The leaf becomes a non-executable dependency-grouping CONTAINER — it owns
+ * NO git branch and triggers NO merge; its children commit to the same enclosing epic
+ * branch (resolveEpicId walks past this node) and complete as ordinary leaves, and
+ * {@link sweepEpicRollups} closes the container once they all settle. Dependents of the
+ * leaf keep pointing AT it and unblock when the rollup marks it done — so NO dependency
+ * repointing is needed, and the epic's [LAND] leaf stays the sole merge-to-master authority.
+ *
+ * Idempotent: a leaf that already has live (non-dropped) children is a no-op. Children are
+ * created FIRST, THEN the leaf's own claim is cleared and it is parked 'planned', so the
+ * container claim-guard (planCoordinatorTick) never re-claims it between the two writes.
+ */
+export async function splitLeafInto(
+  project: string,
+  leaf: Todo,
+  files: string[],
+): Promise<SplitLeafResult> {
+  const uniqueFiles = [...new Set(files.map((f) => f.trim()).filter(Boolean))];
+  // Re-entrancy: never re-split a leaf that already has live children.
+  const existing = listTodos(project, { includeCompleted: true })
+    .filter((t) => t.parentId === leaf.id && t.status !== 'dropped');
+  if (existing.length > 0) {
+    return { parentId: leaf.id, childIds: existing.map((t) => t.id) };
+  }
+  const childIds: string[] = [];
+  for (const file of uniqueFiles) {
+    const child = await createTodo(project, {
+      ownerSession: leaf.ownerSession ?? 'coordinator',
+      assigneeSession: leaf.assigneeSession ?? null,
+      assigneeKind: 'agent',
+      title: `${leaf.title ?? leaf.id} — ${file}`,
+      description:
+        `Split child of leaf ${leaf.id.slice(0, 8)} (auto-decomposed: too many files for one run).\n` +
+        `Implement ONLY this file: ${file}\n\n` +
+        `Parent leaf spec:\n${leaf.description ?? '(no description)'}`,
+      status: 'ready',
+      priority: leaf.priority,
+      parentId: leaf.id,
+      dependsOn: leaf.dependsOn ?? [],
+      type: leaf.type,
+      targetProject: leaf.targetProject ?? project,
+      sessionName: leaf.sessionName ?? null,
+    });
+    childIds.push(child.id);
+  }
+  // The leaf is now a container: clear its claim and park it non-terminal so the container
+  // claim-guard skips it and sweepEpicRollups rolls it up once all children are accepted.
+  await withLock(project, () => {
+    const db = openDb(project);
+    db.prepare(
+      `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+    ).run(nowIso(), leaf.id);
+  });
+  return { parentId: leaf.id, childIds };
+}
+
 export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
   return withLock(project, () => {
     assertProjectLocal(project);

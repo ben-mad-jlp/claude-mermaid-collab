@@ -22,7 +22,10 @@
 
 import { join } from 'node:path';
 import type { Todo } from './todo-store';
+import { splitLeafInto } from './todo-store';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
+import type { EffortLevel } from '../agent/contracts';
+import { getProjectEffort } from './orchestrator-config';
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, assertSubscriptionAuth } from '../agent/node-invoker';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
@@ -119,6 +122,12 @@ export interface LeafExecutorDeps {
    *  Optional `?.`: when unwired (tests / non-git) it returns null and BOTH behaviours
    *  fall back to the prior conservative path (gate fails on any error; no skip). */
   changeSet?: (sessionKey: string) => Promise<string[] | null>;
+  /** Auto-split seam (worker-decomposition): decompose a too-big leaf into one child
+   *  leaf per file UNDER it — the leaf becomes a non-executable dependency-grouping
+   *  container (sweepEpicRollups closes it when its children settle; it owns no branch
+   *  and triggers no merge). Default → `splitLeafInto` in todo-store (createTodo per file
+   *  + release this leaf's claim). Optional `?.`: unwired (tests / floor) ⇒ never splits. */
+  splitInto?: (leaf: Todo, files: string[]) => Promise<void>;
   /** P5 size-gate seam: read back the blueprint artifact (the .md the blueprint
    *  node wrote, including its trailing ```json size block) so the executor can
    *  derive the {@link LeafSizeManifest}. Default reads
@@ -169,7 +178,13 @@ export interface LeafRunResult {
   // 'pending' is a FIRST-CLASS outcome (no longer collapsed into 'rejected'): the
   // review PASSed and the work merged, but the completion gate's work-committed
   // re-verify deferred. Distinct from 'rejected' (gate/review actually failed).
-  outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused';
+  // 'split' (worker-decomposition): the leaf was too big to build in one run, so it was
+  // decomposed PRE-FLIGHT into one child leaf per file and became a non-executable
+  // dependency-grouping container. No completion, no merge — sweepEpicRollups closes it
+  // when its children settle; the enclosing epic's LAND leaf stays the merge authority.
+  // The coordinator treats it as "this dispatch produced no acceptance" (returns false);
+  // the container claim-guard then keeps the parent from being re-claimed.
+  outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | 'split';
   attempts: number;
   nodesSpent: number;
   /** Set on a 'blocked' outcome (the cap/budget reason). */
@@ -208,6 +223,12 @@ export const REVISE_REUSE_CAP = 1;
  *  non-enumerable fan-out. Over any of these ⇒ WAVES. */
 export const FILE_THRESHOLD = 4;
 export const TASK_THRESHOLD = 6;
+/** Auto-split ceiling (worker-decomposition): a leaf whose ENUMERATED file set exceeds
+ *  this is decomposed PRE-FLIGHT into one child leaf per file rather than run as one
+ *  (over-large) WAVES leaf that tends to exhaust its node budget. Above FILE_THRESHOLD
+ *  (=WAVES) and well above it — ≤4 FLOOR, 5..SPLIT_CEILING WAVES, >SPLIT_CEILING split.
+ *  A non-enumerable manifest can't be partitioned, so it never auto-splits (→ WAVES). */
+export const SPLIT_CEILING = 12;
 
 /** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
  *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
@@ -237,26 +258,37 @@ export const VERIFY_GATE_MCP_TOOL = verbMcpTool(VERIFY_GATE_VERB);
 /** Per-node model + tool allowlist (blueprint §3). Bash is read-only by prompt
  *  convention (the CLI has no RO-bash flag). The space-separated list is passed
  *  straight to `--allowedTools` by the P1 invoker. */
-const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string }> = {
-  blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash' },
-  implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' },
-  review: { model: 'opus', allowedTools: 'Read Grep Glob Bash' },
+/** Per-node reasoning effort baseline (epic: daemon-set effort). Reasoning-heavy
+ *  nodes (the opus ones: blueprint/review/driveplan) default to 'high'; the
+ *  implementation/read nodes (sonnet) default to 'medium'. A per-project override
+ *  (getProjectEffort) or MERMAID_NODE_EFFORT can replace these uniformly. */
+const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
+  blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
+  implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' },
+  review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // P5 waves:
-  research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash' }, // read-only (spec §12: sonnet for non-blueprint/review)
-  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
-  verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash' }, // read + bash-tsc
-  fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
+  research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read-only (spec §12: sonnet for non-blueprint/review)
+  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' }, // read+edit
+  verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read + bash-tsc
+  fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' }, // read+edit
   // verify pipeline (epic f5c7fc46): plan authors an AssemblyBuildPlan; driveexec is
   // CONSTRAINED to the single deterministic gate verb (invokes, authors nothing); report
   // writes+commits findings and files one session-todo per finding.
-  driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash' },
-  driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}` },
+  driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
+  driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}`, effort: 'medium' },
   // No Bash, no Write: the report node only READS the verdicts, files finding todos via MCP,
   // and EMITS the report markdown as its final message — the EXECUTOR writes it into the
   // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
   // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
-  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__add_session_todo' },
+  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__add_session_todo', effort: 'medium' },
 };
+
+/** Process-wide effort override: MERMAID_NODE_EFFORT forces every spawned node to a
+ *  single level (blunt instrument; the per-project knob is preferred). */
+const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
+  const e = process.env.MERMAID_NODE_EFFORT;
+  return e && (['low', 'medium', 'high', 'xhigh', 'max'] as string[]).includes(e) ? (e as EffortLevel) : undefined;
+})();
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
 function blueprintPath(leaf: Todo): string {
@@ -751,6 +783,12 @@ export async function runLeaf(
   // run's shape (and which path a failure came from) is legible without re-deriving.
   let pathTaken: 'floor' | 'waves' | null = null;
 
+  // Reasoning effort per spawned node: per-project override (getProjectEffort) wins,
+  // then the process-wide MERMAID_NODE_EFFORT, then the per-kind NODE_PROFILE baseline.
+  // Resolved once per run (cheap DB read) and applied to every node spec below.
+  const projectEffort = getProjectEffort(project);
+  const nodeEffort = (kind: LeafNodeKind): EffortLevel => projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
+
   // NODE_BUDGET (20) is the runaway ceiling sized for the FLOOR (≤6 nodes/2 attempts). The
   // WAVES path legitimately spends ~tasks + files×~3 nodes (research per task, then
   // implement/verify/fix per file) — a 6-file leaf needs ~22, which the floor ceiling
@@ -907,6 +945,7 @@ export async function runLeaf(
   ): NodeSpec => ({
     prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
     model: NODE_PROFILE[kind].model,
+    effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
     leafId: leaf.id,
@@ -925,6 +964,7 @@ export async function runLeaf(
   ): NodeSpec => ({
     prompt: buildWavePrompt(kind, leaf, target, ctx),
     model: NODE_PROFILE[kind].model,
+    effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
     leafId: leaf.id,
@@ -1052,6 +1092,7 @@ export async function runLeaf(
   ): NodeSpec => ({
     prompt: buildVerifyPrompt(kind, leaf, planText, gateFindings, verb),
     model: NODE_PROFILE[kind].model,
+    effort: nodeEffort(kind),
     // driveexec is constrained to the RESOLVED verb's MCP tool (not the static default).
     allowedTools:
       kind === 'driveexec'
@@ -1261,6 +1302,25 @@ export async function runLeaf(
       }
     }
 
+    // --- AUTO-SPLIT (worker-decomposition) ---
+    // A leaf whose blueprint ENUMERATES more files than one run should carry is split
+    // PRE-FLIGHT into one child leaf per file under THIS leaf (which becomes a
+    // non-executable dependency-grouping container). Children commit to the SAME enclosing
+    // epic branch (resolveEpicId walks past this node) and complete as ordinary leaves;
+    // sweepEpicRollups closes this container when they all settle — NO new branch, NO land
+    // gate (the epic's LAND leaf stays the sole merge-to-master authority). Only when the
+    // fanout is ENUMERABLE — a non-enumerable manifest can't be partitioned, so it falls
+    // through to WAVES. Guarded by deps.splitInto (unwired ⇒ never splits).
+    if (deps.splitInto && manifest && !manifest.nonEnumerableFanout) {
+      const splitFiles = [...new Set([
+        ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
+      ])];
+      if (splitFiles.length > SPLIT_CEILING) {
+        await deps.splitInto(leaf, splitFiles);
+        return { outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent };
+      }
+    }
+
     if (!shouldUseFloor(manifest)) {
       pathTaken = 'waves';
       // Lift the runaway ceiling to the size-aware waves budget (unless a test pinned one),
@@ -1429,6 +1489,7 @@ export async function makeLeafExecutorDeps(
     mergeToEpic: (sessionKey, eId, message, todoId) =>
       wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
+    splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,
     recordNode,
     setInflight: setLeafInflight,

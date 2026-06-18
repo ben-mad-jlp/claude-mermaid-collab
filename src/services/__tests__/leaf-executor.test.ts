@@ -525,6 +525,9 @@ interface WaveOpts {
   changeSet?: string[] | null;
   /** Spy collector for persistBlueprint calls (one expected per attempt). */
   persistCalls?: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }>;
+  /** When provided, wires the auto-split seam and captures each splitInto call.
+   *  Unset ⇒ seam unwired ⇒ never splits (prior behaviour). */
+  splitCalls?: Array<{ leafId: string; files: string[] }>;
 }
 
 function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[] } {
@@ -569,6 +572,9 @@ function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[]
     recordNode: () => null,
     readBlueprint: async () => manifestText,
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
+    splitInto: opts.splitCalls
+      ? async (lf, files) => { opts.splitCalls!.push({ leafId: lf.id, files }); }
+      : undefined,
     persistBlueprint: opts.persistCalls
       ? async ({ project, attempt, manifest, blueprintMd }) => {
           opts.persistCalls!.push({ project, attempt, manifest, blueprintMd });
@@ -701,6 +707,62 @@ describe('runLeaf P5 size gate', () => {
     expect(calls.filter((c) => c === 'wimplement').length).toBe(2); // both files implemented
     // Only a.ts gets a per-file verify; b.ts is skipped. Plus the 1 wave-level gate verify.
     expect(calls.filter((c) => c === 'verify').length).toBe(2);
+  });
+
+  it('(m) over-ceiling enumerable manifest ⇒ SPLIT pre-flight (no floor/waves nodes run)', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 3, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: [] },
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('split');
+    expect(splitCalls.length).toBe(1);
+    expect([...splitCalls[0].files].sort()).toEqual([...files].sort());
+    // Split happens AFTER blueprint but BEFORE any implement/research/verify work.
+    expect(calls).toEqual(['blueprint']);
+  });
+
+  it('(n) over-ceiling but NON-ENUMERABLE fanout ⇒ no split, falls through to WAVES', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: files, tasks: [{ id: 't', files, description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 200,
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(splitCalls.length).toBe(0); // non-enumerable can't be partitioned → no split
+    expect(calls).toContain('wimplement'); // ran the WAVES path instead
+    expect(res.outcome).toBe('accepted');
+  });
+
+  it('(o) enumerable but at/below the ceiling ⇒ no split (runs normally)', async () => {
+    const files = Array.from({ length: 8 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 8, estimatedTasks: 8, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: files.map((f, i) => ({ id: `t${i}`, files: [f], description: 'd' })) },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 200,
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(splitCalls.length).toBe(0); // 8 ≤ SPLIT_CEILING (12)
+    expect(res.outcome).toBe('accepted');
+  });
+
+  it('(p) split seam UNWIRED ⇒ a too-big leaf still runs (no split) — backward compatible', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 1, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: [{ id: 't', files, description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 200,
+      // NO splitCalls → splitInto unwired → never splits.
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).not.toBe('split');
   });
 
   it('(h) large multi-file waves leaf does NOT budget-exhaust on the DEFAULT budget (L4 regression)', async () => {
