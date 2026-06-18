@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
-import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig } from './orchestrator-config';
+import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
@@ -45,6 +45,7 @@ import {
   markIdle,
   removeSlot,
   reapDeadSlots,
+  DEFAULT_SLOTS_PER_TYPE,
 } from './worker-pool';
 // PAW P1: route the worker spawn + pane-scrape liveness through the WorkerAgent
 // registry (claude-only today). The pane detectors below are RE-EXPORTED from the
@@ -1272,6 +1273,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       try { getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' } as any); }
       catch { /* broadcast is best-effort */ }
     },
+    // Concurrent-dispatch budget = the per-project pool size (uniform across types),
+    // defaulting to DEFAULT_SLOTS_PER_TYPE when unset. Lets the daemon run up to N
+    // headless leaves at once instead of awaiting each serially.
+    maxConcurrency: (project: string) => getProjectPoolSize(project) ?? DEFAULT_SLOTS_PER_TYPE,
     listReadyTodos,
     // Readiness-gates P4: claim-time liveness probe filter. A todo carrying a
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set

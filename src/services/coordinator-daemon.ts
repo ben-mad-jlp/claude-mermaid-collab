@@ -25,6 +25,11 @@ export interface CoordinatorDeps {
   releaseExpiredClaims: (project: string, now?: string) => Promise<{ released: string[]; exhausted: string[] }>;
   completeTodo: (project: string, id: string, acceptance?: 'pending' | 'accepted' | 'rejected') => Promise<{ completed: Todo; promoted: string[] }>;
   launchWorker: (project: string, todo: Todo) => Promise<boolean>;
+  /** Max leaves to dispatch CONCURRENTLY this tick (the per-project pool size). The
+   *  claim+launchWorker step awaits a full leaf run (minutes), so without this the
+   *  tick processes ready leaves strictly one-at-a-time. Returns the project's
+   *  concurrency budget; omitted ⇒ 1 (the prior serial behaviour). */
+  maxConcurrency?: (project: string) => number;
   /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
   escalateExhausted?: (project: string, todoId: string) => Promise<void>;
   /** P3 headless circuit-breaker exhaustion sweep: for any leaf paused on a rate cap
@@ -146,17 +151,32 @@ export async function runTick(
   }
   const claimed: string[] = [];
   const spawned: string[] = [];
-  for (const t of ready) {
-    try {
-      const c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
-      if (!c) continue; // lost the race / already claimed
-      claimed.push(c.id);
-      const ok = await deps.launchWorker(project, c);
-      if (ok) spawned.push(c.id);
-    } catch {
-      // one bad todo must not abort the whole tick; the lease handles recovery
+  // Concurrent dispatch (bounded by the per-project pool size): launchWorker awaits a
+  // full headless leaf run (minutes), so a serial loop would run leaves one-at-a-time
+  // and block the whole tick on the first. Run up to `concurrency` runners that each
+  // pull the next ready todo, claim it, and await its launch. `next++` is atomic in
+  // single-threaded JS (no await between read and increment) so no todo is processed
+  // twice. concurrency=1 (the default when maxConcurrency is unwired) is byte-identical
+  // to the prior serial loop, including claim/launch ordering.
+  const concurrency = Math.max(1, deps.maxConcurrency?.(project) ?? 1);
+  let next = 0;
+  const runner = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= ready.length) return;
+      const t = ready[i];
+      try {
+        const c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
+        if (!c) continue; // lost the race / already claimed
+        claimed.push(c.id);
+        const ok = await deps.launchWorker(project, c);
+        if (ok) spawned.push(c.id);
+      } catch {
+        // one bad todo must not abort the whole tick; the lease handles recovery
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: concurrency }, () => runner()));
   // Push the daemon-driven status changes to the UI (reclaim/exhaust/claim) so the
   // Bridge doesn't show a stale in-flight card after a block/reclaim happened
   // entirely server-side (no MCP tool call to ride the existing broadcast).

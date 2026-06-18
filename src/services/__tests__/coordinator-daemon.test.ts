@@ -161,6 +161,47 @@ describe('runTick', () => {
     expect(result.spawned).not.toContain('b');
   });
 
+  test('concurrent dispatch: runs up to maxConcurrency leaves at once', async () => {
+    const todos = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => makeTodo(id));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const deps = makeDeps({
+      listReadyTodos: () => todos,
+      maxConcurrency: () => 3,
+      launchWorker: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 10));
+        inFlight -= 1;
+        return true;
+      },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(maxInFlight).toBe(3); // bounded by the pool size
+    expect(result.spawned.length).toBe(6); // all eventually dispatched
+    expect(deps._launchCalls.length).toBe(6);
+  });
+
+  test('default (no maxConcurrency) dispatches serially — at most 1 in flight', async () => {
+    const todos = ['a', 'b', 'c'].map((id) => makeTodo(id));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const deps = makeDeps({
+      listReadyTodos: () => todos,
+      // no maxConcurrency → defaults to 1 (prior serial behaviour)
+      launchWorker: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight -= 1;
+        return true;
+      },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(maxInFlight).toBe(1);
+    expect(result.spawned.length).toBe(3);
+  });
+
   test('launchWorker throws for one todo → tick still completes, other todos processed', async () => {
     const todos = [makeTodo('a'), makeTodo('b')];
     const deps = makeDeps({
