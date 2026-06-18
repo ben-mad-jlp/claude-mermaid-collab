@@ -14,7 +14,10 @@ export interface SessionRegistryData {
   sessions: Session[];
 }
 
-const DATA_DIR = join(homedir(), '.mermaid-collab');
+// MERMAID_DATA_DIR lets tests isolate sessions.json off the real ~/.mermaid-collab
+// (else a test's session register() leaks a project into the live app via the
+// session-derived project discovery). Mirrors MERMAID_SUPERVISOR_DIR elsewhere.
+const DATA_DIR = process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab');
 const REGISTRY_PATH = join(DATA_DIR, 'sessions.json');
 
 /**

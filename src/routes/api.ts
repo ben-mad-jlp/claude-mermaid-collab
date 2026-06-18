@@ -485,15 +485,17 @@ export async function handleAPI(
         return Response.json({ success: false, error: 'path query parameter is required' }, { status: 400 });
       }
 
-      // Unregister the project
+      // Unregister from BOTH halves of the unified list. Always drop it from the
+      // watched set too — even when it isn't in the project registry — so a
+      // watched-only entry (e.g. a stranded one the UI Projects panel reads from
+      // the watched set, not the registry) can never get stuck unremovable. This
+      // is the fix for stale `watched_project` rows surviving a registry-miss 404.
       const removed = await projectRegistry.unregister(projectPath);
+      const unwatched = removeWatchedProject(projectPath);
 
-      if (!removed) {
+      if (!removed && !unwatched) {
         return Response.json({ success: false, error: 'Project not found' }, { status: 404 });
       }
-
-      // Keep the unified list in lockstep — drop it from the watched set too.
-      removeWatchedProject(projectPath);
 
       return Response.json({ success: true });
     } catch (error: any) {

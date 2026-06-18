@@ -348,9 +348,10 @@ export function addWatchedProject(project: string): void {
   );
 }
 
-export function removeWatchedProject(project: string): void {
+export function removeWatchedProject(project: string): boolean {
   const d = openDb();
-  d.prepare('DELETE FROM watched_project WHERE project = ?').run(project);
+  const res = d.prepare('DELETE FROM watched_project WHERE project = ?').run(project);
+  return (res?.changes ?? 0) > 0;
 }
 
 export function listWatchedProjects(): WatchedProject[] {

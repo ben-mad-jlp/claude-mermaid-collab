@@ -13,7 +13,10 @@ export interface ProjectRegistryData {
   projects: Project[];
 }
 
-const DATA_DIR = join(homedir(), '.mermaid-collab');
+// MERMAID_DATA_DIR lets tests (and any embed) isolate projects.json off the real
+// ~/.mermaid-collab — without it, a test's register() leaks into the live app's
+// Projects list (mirrors MERMAID_SUPERVISOR_DIR on the supervisor/ledger stores).
+const DATA_DIR = process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab');
 const PROJECTS_PATH = join(DATA_DIR, 'projects.json');
 
 /** A worker worktree (and the __integration__/supervisor scratch dirs) lives under

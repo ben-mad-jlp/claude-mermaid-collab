@@ -1,4 +1,17 @@
 import { vi } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// GLOBAL TEST ISOLATION (stops the live app's Projects list being polluted by tests).
+// Redirect ALL ~/.mermaid-collab state — projects.json + sessions.json (MERMAID_DATA_DIR)
+// and the supervisor/ledger SQLite stores (MERMAID_SUPERVISOR_DIR) — to a throwaway temp
+// dir BEFORE any src module reads its DATA_DIR const. setupFiles run before the test
+// file's imports, so the registries pick up the temp dir. Only set when unset so a test
+// that needs its own dir still wins.
+const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'mc-test-data-'));
+process.env.MERMAID_DATA_DIR ??= TEST_DATA_DIR;
+process.env.MERMAID_SUPERVISOR_DIR ??= TEST_DATA_DIR;
 
 // Mock external packages that might not be available
 vi.mock('mermaid', () => ({
