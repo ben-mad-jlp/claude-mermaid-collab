@@ -9,9 +9,22 @@ import {
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import { isClaimable, claimReason } from '../claimability';
+import type { Todo } from '../todo-store';
 import Database from 'bun:sqlite';
 
 let project: string;
+
+/** De-conflate: readiness/hold are DERIVED, not stored. A released todo is stored
+ *  'planned' but derives claimable; a parked one carries heldAt. These helpers let
+ *  the tests assert the DERIVED state (the real contract) instead of the legacy
+ *  stored enum. Single-entry map is fine — these fixtures have no dependsOn deps. */
+function derivedClaimable(t: Todo): boolean {
+  return isClaimable(t, new Map([[t.id, t]]));
+}
+function derivedReason(t: Todo): string {
+  return claimReason(t, new Map([[t.id, t]]));
+}
 
 /**
  * Strand a row in_progress with NO claim, simulating a daemon-restart orphan.
@@ -212,7 +225,9 @@ describe('todo-store new fields and functions', () => {
     const { released } = await releaseExpiredClaims(project, future);
     expect(released).toContain(t.id);
     const after = getTodo(project, t.id)!;
-    expect(after.status).toBe('ready');
+    // De-conflate: stored 'planned', DERIVES claimable (re-runnable).
+    expect(after.status).toBe('planned');
+    expect(derivedClaimable(after)).toBe(true);
     expect(after.claimedBy).toBeNull();
     expect(after.claimToken).toBeNull();
     expect(after.retryCount).toBe(1);
@@ -241,9 +256,11 @@ describe('todo-store new fields and functions', () => {
     }
     expect(lastExhausted).toContain(t.id);
     const after = getTodo(project, t.id)!;
-    expect(after.status).toBe('blocked');
-    // S3: exhaustion PARKS via heldAt/heldReason='retry-exhausted' (the new honest
-    // stored "blocked"), not just a bare status='blocked'. ONE write per row.
+    // De-conflate: stored 'planned' + heldAt — DERIVES held (not claimable).
+    expect(after.status).toBe('planned');
+    expect(derivedReason(after)).toBe('held');
+    // S3: exhaustion PARKS via heldAt/heldReason='retry-exhausted' (the honest
+    // stored hold), not a bare status='blocked'. ONE write per row.
     expect(after.heldAt).not.toBeNull();
     expect(after.heldReason).toBe('retry-exhausted');
     expect(after.retryCount).toBe(attempts);
@@ -253,8 +270,9 @@ describe('todo-store new fields and functions', () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 60_000); // long lease, NOT expired
     const next = await reclaimClaim(project, t.id);
-    expect(next).toBe('ready');
-    expect(getTodo(project, t.id)!.status).toBe('ready');
+    expect(next).toBe('ready'); // back-compat label
+    expect(getTodo(project, t.id)!.status).toBe('planned');
+    expect(derivedClaimable(getTodo(project, t.id)!)).toBe(true);
     expect(getTodo(project, t.id)!.retryCount).toBe(1);
     // not in_progress anymore → null
     expect(await reclaimClaim(project, t.id)).toBeNull();
@@ -269,9 +287,10 @@ describe('todo-store new fields and functions', () => {
     expect(getTodo(project, t.id)!.claimToken).toBeNull();
     // reclaimClaim and reclaimOrphan are aliases now — both rescue the orphan.
     const next = await reclaimOrphan(project, t.id);
-    expect(next).toBe('ready');
+    expect(next).toBe('ready'); // back-compat label
     const after = getTodo(project, t.id)!;
-    expect(after.status).toBe('ready');
+    expect(after.status).toBe('planned');
+    expect(derivedClaimable(after)).toBe(true);
     expect(after.retryCount).toBe(1); // retry-budget-aware
     // not in_progress anymore → null
     expect(await reclaimOrphan(project, t.id)).toBeNull();
@@ -284,9 +303,10 @@ describe('todo-store new fields and functions', () => {
       strandOrphan(project, t.id);
       status = await reclaimOrphan(project, t.id);
     }
-    expect(status).toBe('blocked');
+    expect(status).toBe('blocked'); // back-compat label
     const after = getTodo(project, t.id)!;
-    expect(after.status).toBe('blocked');
+    expect(after.status).toBe('planned');
+    expect(derivedReason(after)).toBe('held');
     expect(after.heldAt).not.toBeNull();
     expect(after.heldReason).toBe('retry-exhausted');
     expect(after.retryCount).toBeGreaterThan(MAX_CLAIM_RETRIES);
@@ -299,7 +319,8 @@ describe('todo-store new fields and functions', () => {
     const released = await releaseClaim(project, t.id);
     expect(released).toBe(true);
     const after = getTodo(project, t.id)!;
-    expect(after.status).toBe('ready'); // immediately re-claimable
+    expect(after.status).toBe('planned'); // stored; DERIVES immediately re-claimable
+    expect(derivedClaimable(after)).toBe(true);
     expect(after.claimedBy).toBeNull();
     expect(after.claimToken).toBeNull();
     expect(after.claimedAt).toBeNull();
@@ -433,9 +454,9 @@ describe('completeTodo', () => {
     const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
     const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
     const { completed } = await completeTodo(project, dep.id, 'rejected');
-    // SI-3: rejected → non-terminal 'blocked' (not 'done'), completedAt cleared,
-    // so it surfaces as actionable instead of sinking silently into Done.
-    expect(completed.status).toBe('blocked');
+    // SI-3 (de-conflate): rejected → non-terminal, stored 'planned' (not 'done'),
+    // completedAt cleared + acceptanceStatus='rejected' the stored fact.
+    expect(completed.status).toBe('planned');
     expect(completed.completedAt).toBeNull();
     expect(completed.acceptanceStatus).toBe('rejected');
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(blocker.id);
@@ -445,12 +466,13 @@ describe('completeTodo', () => {
     // A rejected todo with no unsatisfied deps must stay parked, not re-promote to ready.
     const rejected = await createTodo(project, { ownerSession: 's1', title: 'rejected', status: 'ready' });
     await completeTodo(project, rejected.id, 'rejected');
-    expect(getTodo(project, rejected.id)!.status).toBe('blocked');
+    expect(getTodo(project, rejected.id)!.status).toBe('planned');
+    expect(getTodo(project, rejected.id)!.acceptanceStatus).toBe('rejected');
     // An unrelated completion triggers the unblock pass — the rejected todo must NOT promote.
     const other = await createTodo(project, { ownerSession: 's1', title: 'other', status: 'ready' });
     const { promoted } = await completeTodo(project, other.id, 'accepted');
     expect(promoted).not.toContain(rejected.id);
-    expect(getTodo(project, rejected.id)!.status).toBe('blocked');
+    expect(getTodo(project, rejected.id)!.status).toBe('planned');
   });
 
   test('acceptance gate: an ACCEPTED dep makes dependents claimable', async () => {
@@ -619,7 +641,7 @@ describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
   test('a rejected completion is not done and carries no completedBy', async () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'rej', assigneeKind: 'human' });
     const res = await completeTodo(project, t.id, 'rejected');
-    expect(res.completed.status).toBe('blocked');
+    expect(res.completed.status).toBe('planned');
     expect(res.completed.completedBy).toBeNull();
   });
 
@@ -776,7 +798,8 @@ describe('steward verbs', () => {
     const child = await createTodo(project, { ownerSession: 's1', title: 'waiting', status: 'ready', dependsOn: [dep.id] });
     // Simulate the false-rejection: gate said no, dep parked 'blocked'/rejected.
     await completeTodo(project, dep.id, 'rejected');
-    expect(getTodo(project, dep.id)!.status).toBe('blocked');
+    expect(getTodo(project, dep.id)!.status).toBe('planned');
+    expect(getTodo(project, dep.id)!.acceptanceStatus).toBe('rejected');
     expect(listReadyTodos(project).map((x) => x.id)).not.toContain(child.id);
 
     const res = await overrideAcceptTodo(project, dep.id);
