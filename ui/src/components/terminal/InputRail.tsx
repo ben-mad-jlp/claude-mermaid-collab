@@ -33,6 +33,9 @@ import { useTerminalPalette, type TerminalPalette } from './terminalTheme';
 
 /** Per-chip lock window — kills the rage-double-tap into a live REPL (Grok #4). */
 const CHIP_LOCK_MS = 800;
+/** Gap between macro-chip steps so the CLI input queue cleanly serialises each
+ *  submission (avoids tmux text-merge if two sends interleave). */
+const MACRO_STEP_GAP_MS = 400;
 
 const DEFAULT_IDS = new Set(DEFAULT_CHIPS.map((c) => c.id));
 
@@ -119,31 +122,53 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
   // types-only (submit:false). Alt/⌥-tap INVERTS that default on ANY chip — the
   // universal override (design §3a, Grok §7). The backend skips the trailing
   // Enter when submit===false (QR3 route flag).
-  const sendChip = (chip: Chip, altKey = false) => {
-    if (disabled || locked[chip.id]) return;
-
-    const composeDefault = !!chip.compose;          // outlined chips stage-for-edit
-    const submit = altKey ? composeDefault : !composeDefault;
-
-    const text = chip.text ?? chip.label;
-    // quiet:true — a user tapping their own quick-reply is not a supervisor nudge,
-    // so suppress the nudge toast (mirrors the composer).
+  // One literal send to the attached pane. Awaitable so a macro chip can serialise
+  // its steps. quiet:true — a user tapping their own quick-reply is not a supervisor
+  // nudge, so suppress the nudge toast (mirrors the composer).
+  const postKeys = (text: string, submit: boolean): Promise<unknown> => {
     const body = { project, session, text, submit, quiet: true };
     const mc = (window as any).mc;
     // Copy resetActiveTerminal's dispatch shape: per-server invoke, fetch fallback.
     if (mc?.invokeOnServer) {
-      void mc
-        .invokeOnServer(serverId, { path: '/api/ide/tmux-send-keys', method: 'POST', body })
-        .catch(() => { /* ignore — a send into a just-closed pane 404s harmlessly */ });
-    } else if (typeof fetch !== 'undefined') {
-      void fetch('/api/ide/tmux-send-keys', {
+      return Promise.resolve(
+        mc.invokeOnServer(serverId, { path: '/api/ide/tmux-send-keys', method: 'POST', body }),
+      ).catch(() => { /* ignore — a send into a just-closed pane 404s harmlessly */ });
+    }
+    if (typeof fetch !== 'undefined') {
+      return fetch('/api/ide/tmux-send-keys', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       }).catch(() => { /* ignore */ });
     }
+    return Promise.resolve();
+  };
 
-    // Lock this chip + flash ✓ for the window, then release.
+  const sendChip = (chip: Chip, altKey = false) => {
+    if (disabled || locked[chip.id]) return;
+
+    if (chip.sequence && chip.sequence.length) {
+      // MACRO chip: submit each step as its own input, in order, with a gap between
+      // them so the CLI input queue serialises them (a queued `/clear` runs only
+      // after `/vibe-checkpoint`'s turn completes). {{session}} is interpolated now.
+      void (async () => {
+        for (let i = 0; i < chip.sequence!.length; i++) {
+          const step = chip.sequence![i].replace(/\{\{session\}\}/g, session);
+          await postKeys(step, true);
+          if (i < chip.sequence!.length - 1) await new Promise((r) => setTimeout(r, MACRO_STEP_GAP_MS));
+        }
+      })();
+    } else {
+      const composeDefault = !!chip.compose;          // outlined chips stage-for-edit
+      const submit = altKey ? composeDefault : !composeDefault;
+      void postKeys(chip.text ?? chip.label, submit);
+    }
+
+    // Lock this chip + flash ✓ for the window, then release. A macro chip stays
+    // locked for its whole sequence so a re-tap can't interleave a second run.
+    const lockMs = chip.sequence?.length
+      ? chip.sequence.length * MACRO_STEP_GAP_MS + CHIP_LOCK_MS
+      : CHIP_LOCK_MS;
     setLocked((m) => ({ ...m, [chip.id]: true }));
     if (timers.current[chip.id]) clearTimeout(timers.current[chip.id]);
     timers.current[chip.id] = setTimeout(() => {
@@ -152,7 +177,7 @@ export function InputRail({ project, session, serverId, disabled = false }: Inpu
         delete next[chip.id];
         return next;
       });
-    }, CHIP_LOCK_MS);
+    }, lockMs);
 
     // Hand focus back to the terminal so typing continues uninterrupted.
     focusTerminalPane();

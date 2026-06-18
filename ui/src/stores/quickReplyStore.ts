@@ -27,6 +27,14 @@ export interface Chip {
   /** false/undefined = filled/send chip; true = outlined+caret/stage-for-edit. */
   compose?: boolean;
   /**
+   * A MACRO chip: submit each string in order as its own input (instead of `text`).
+   * Each is sent + Enter sequentially with a small gap so the CLI's input queue
+   * serialises them (a queued `/clear` only runs after `/vibe-checkpoint`'s turn
+   * finishes — see InputRail.sendChip). `{{session}}` is interpolated at click time.
+   * Macro chips ignore `compose` (always submit).
+   */
+  sequence?: string[];
+  /**
    * Reserved for v2 per-project scoping (design §3b) — only 'global' in v1.
    * Noted, not built: the rail renders every custom chip regardless today.
    */
@@ -45,6 +53,12 @@ export const DEFAULT_CHIPS: Chip[] = [
   { id: 'continue', label: 'continue' },
   { id: 'stop', label: 'stop' },
   { id: 'reco', label: 'do-reco', text: 'do your recommendation' },
+  {
+    id: 'checkpoint-reload',
+    label: '⏎ ckpt+reload',
+    // The common checkpoint → clear → re-register loop, queued as 3 inputs.
+    sequence: ['/vibe-checkpoint', '/clear', '/collab {{session}}'],
+  },
 ];
 
 const DEFAULT_IDS = new Set(DEFAULT_CHIPS.map((c) => c.id));

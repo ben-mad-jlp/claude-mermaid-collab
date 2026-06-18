@@ -6,6 +6,16 @@ import { computeOrderedChips, DEFAULT_CHIPS, type Chip } from './quickReplyStore
  * assignment. It must: honour an explicit order, append chips missing from order
  * (migration / newly-added), drop hidden defaults, and stay stable.
  */
+describe('checkpoint-reload macro chip', () => {
+  it('ships the checkpoint → clear → re-collab sequence with a {{session}} placeholder', () => {
+    const chip = DEFAULT_CHIPS.find((c) => c.id === 'checkpoint-reload');
+    expect(chip).toBeDefined();
+    expect(chip!.sequence).toEqual(['/vibe-checkpoint', '/clear', '/collab {{session}}']);
+    // The placeholder is interpolated at click time; the last step must carry it.
+    expect(chip!.sequence!.at(-1)).toContain('{{session}}');
+  });
+});
+
 describe('computeOrderedChips', () => {
   const custom: Chip[] = [{ id: 'c_a', label: 'A' }, { id: 'c_b', label: 'B' }];
 
