@@ -67,7 +67,7 @@ async function loadSpritePipeline() {
   return { quantizeBuffer };
 }
 import { tmpdir as osTmpdir } from 'os';
-import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile, readdir as fsReaddir, unlink as fsUnlink } from 'fs/promises';
+import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile, readdir as fsReaddir, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from 'fs/promises';
 
 /**
  * Expand ~ to home directory in paths
@@ -407,6 +407,69 @@ export async function handleAPI(
       await cleanupSessionRegistrations(project, session);
       wsHandler.broadcast({ type: 'session_deleted', project, session });
       return Response.json({ ok: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // ============================================
+  // Filesystem browse + mkdir — backs the Add Project / Add Watching folder picker
+  // (the in-app browser used in a plain browser, and the "create new folder" option
+  // in BOTH the browser and the desktop app). Local single-user tool: read any dir
+  // the server user can read; mkdir restricted to a single safe path segment.
+  // ============================================
+
+  // GET /api/fs/list?path=<abs> — list the immediate SUBDIRECTORIES of a directory.
+  // Empty/missing path → the user's home dir. Returns { path, parent, entries[] }.
+  if (path === '/api/fs/list' && req.method === 'GET') {
+    try {
+      const raw = url.searchParams.get('path');
+      const dir = raw && raw.trim() ? expandPath(raw.trim()) : homedir();
+      if (!dir.startsWith('/')) return Response.json({ error: 'path must be absolute' }, { status: 400 });
+      let dirents;
+      try {
+        dirents = await fsReaddir(dir, { withFileTypes: true });
+      } catch (e: any) {
+        const code = e?.code === 'ENOENT' ? 404 : e?.code === 'EACCES' ? 403 : 400;
+        return Response.json({ error: `cannot read ${dir}: ${e?.message || String(e)}` }, { status: code });
+      }
+      const entries = dirents
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+        .map((d) => ({ name: d.name, path: join(dir, d.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const parent = dir === '/' ? null : join(dir, '..');
+      return Response.json({ path: dir, parent, entries }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/fs/mkdir { parent, name } — create a new folder `name` inside `parent`
+  // and return its absolute path. `name` must be a single safe segment (no / or ..).
+  if (path === '/api/fs/mkdir' && req.method === 'POST') {
+    try {
+      const { parent: rawParent, name } = (await req.json()) as { parent?: string; name?: string };
+      if (!rawParent || !name) return Response.json({ error: 'parent and name required' }, { status: 400 });
+      const parent = expandPath(rawParent.trim());
+      const seg = name.trim();
+      if (!parent.startsWith('/')) return Response.json({ error: 'parent must be absolute' }, { status: 400 });
+      if (!seg || seg.includes('/') || seg === '.' || seg === '..') {
+        return Response.json({ error: 'name must be a single folder name (no slashes)' }, { status: 400 });
+      }
+      try {
+        const st = await fsStat(parent);
+        if (!st.isDirectory()) return Response.json({ error: `${parent} is not a directory` }, { status: 400 });
+      } catch {
+        return Response.json({ error: `parent does not exist: ${parent}` }, { status: 404 });
+      }
+      const target = join(parent, seg);
+      try {
+        await fsMkdir(target, { recursive: false });
+      } catch (e: any) {
+        if (e?.code === 'EEXIST') return Response.json({ error: `already exists: ${target}` }, { status: 409 });
+        return Response.json({ error: `mkdir failed: ${e?.message || String(e)}` }, { status: 400 });
+      }
+      return Response.json({ path: target });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
     }
