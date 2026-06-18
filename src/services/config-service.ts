@@ -97,6 +97,7 @@ export function _resetConfigCache(): void { cache = null; }
 // ---------------------------------------------------------------------------
 
 import type { JudgmentConfig, JudgmentProvider } from './judgment-llm.ts';
+import { getTierOverride, type TierScope } from './tier-override-store.ts';
 
 /** The xAI model the triage classifier has always used — the default when no
  *  JUDGMENT_MODEL is configured. Keep in sync with grok-triage.ts's xAI path. */
@@ -125,4 +126,61 @@ export function getJudgmentConfig(): JudgmentConfig {
   const model = getConfig('JUDGMENT_MODEL', DEFAULT_JUDGMENT_MODEL) ?? DEFAULT_JUDGMENT_MODEL;
   const apiKey = getSecret(JUDGMENT_KEY_BY_PROVIDER[provider]) ?? '';
   return { provider, model, apiKey };
+}
+
+// --- Triage as a tier-matrix role (epic 4b81ca59 / L4) ---------------------
+//
+// Triage (escalation classification) is now a swappable role on the SAME device as
+// worker phases: a per-scope `tier_override` row with phase='triage' (set from the
+// TieringEditor), or a global WORKER_PROVIDER_TRIAGE/WORKER_MODEL_TRIAGE config key,
+// overrides the model. Falls back to the flat JUDGMENT_* config (getJudgmentConfig)
+// so existing setups + the zero-code opus swap keep working. We deliberately do NOT
+// make 'triage' a worker SubloopRole (it isn't a build phase) — tier_override keys
+// `phase` as a free string, so triage rides the same store without polluting the
+// worker recipe types. The JudgmentLLM port stays the call surface.
+
+/** Default judgment model per provider when an override names a provider but no model. */
+const DEFAULT_MODEL_BY_JUDGMENT: Record<JudgmentProvider, string | null> = {
+  xai: DEFAULT_JUDGMENT_MODEL,
+  anthropic: 'claude-opus-4-8',
+  openai: null, // no safe default — require an explicit WORKER_MODEL_TRIAGE / override model
+};
+
+/** Map a worker-tier ProviderId (or a raw provider string) to a JudgmentProvider. */
+function providerIdToJudgment(pid: string | undefined): JudgmentProvider | null {
+  switch (pid) {
+    case 'claude': case 'anthropic': return 'anthropic';
+    case 'grok-build': case 'grok': case 'xai': return 'xai';
+    case 'codex': case 'openai': return 'openai';
+    default: return null;
+  }
+}
+
+function judgmentFromProvider(jp: JudgmentProvider, model: string | null | undefined): JudgmentConfig | null {
+  const m = model || DEFAULT_MODEL_BY_JUDGMENT[jp];
+  if (!m) return null; // provider named but no model we can default — skip this tier
+  return { provider: jp, model: m, apiKey: getSecret(JUDGMENT_KEY_BY_PROVIDER[jp]) ?? '' };
+}
+
+/** Resolve the triage classifier's LLM config for a scope. epic > project > level
+ *  > global (WORKER_*_TRIAGE) > flat JUDGMENT_* default. */
+export function resolveTriageRoute(ctx: { project?: string; epicId?: string; level?: string } = {}): JudgmentConfig {
+  const PHASE = 'triage';
+  const fromScope = (scope: TierScope, scopeId?: string): JudgmentConfig | null => {
+    if (!scopeId) return null;
+    const o = getTierOverride(scope, scopeId, PHASE);
+    const jp = providerIdToJudgment(o?.provider);
+    return o && jp ? judgmentFromProvider(jp, o.model) : null;
+  };
+  const global = (): JudgmentConfig | null => {
+    const jp = providerIdToJudgment(getConfig('WORKER_PROVIDER_TRIAGE') ?? undefined);
+    return jp ? judgmentFromProvider(jp, getConfig('WORKER_MODEL_TRIAGE')) : null;
+  };
+  return (
+    fromScope('epic', ctx.epicId) ??
+    fromScope('project', ctx.project) ??
+    fromScope('level', ctx.level) ??
+    global() ??
+    getJudgmentConfig()
+  );
 }

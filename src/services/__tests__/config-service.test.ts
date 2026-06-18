@@ -2,7 +2,7 @@ import { test, expect, describe, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { getConfig, getSecret, _resetConfigCache } from '../config-service';
+import { getConfig, getSecret, _resetConfigCache, resolveTriageRoute } from '../config-service';
 
 let tmpDir: string;
 let configFile: string;
@@ -127,5 +127,45 @@ describe('config-service getSecret (config-first, env fallback)', () => {
     } finally {
       delete process.env.NUM;
     }
+  });
+});
+
+describe('resolveTriageRoute (triage tier-role, L4)', () => {
+  afterEach(() => {
+    delete process.env.WORKER_PROVIDER_TRIAGE;
+    delete process.env.WORKER_MODEL_TRIAGE;
+    delete process.env.JUDGMENT_PROVIDER;
+    delete process.env.JUDGMENT_MODEL;
+    _resetConfigCache();
+  });
+
+  test('no config → flat JUDGMENT_* default (xai / grok-build-0.1)', () => {
+    const r = resolveTriageRoute();
+    expect(r.provider).toBe('xai');
+    expect(r.model).toBe('grok-build-0.1');
+  });
+
+  test('WORKER_PROVIDER_TRIAGE=claude (no model) → anthropic + default opus model', () => {
+    process.env.WORKER_PROVIDER_TRIAGE = 'claude';
+    _resetConfigCache();
+    const r = resolveTriageRoute();
+    expect(r.provider).toBe('anthropic');
+    expect(r.model).toBe('claude-opus-4-8');
+  });
+
+  test('WORKER_PROVIDER_TRIAGE + WORKER_MODEL_TRIAGE pin the model', () => {
+    process.env.WORKER_PROVIDER_TRIAGE = 'claude';
+    process.env.WORKER_MODEL_TRIAGE = 'claude-opus-4-7';
+    _resetConfigCache();
+    const r = resolveTriageRoute();
+    expect(r.provider).toBe('anthropic');
+    expect(r.model).toBe('claude-opus-4-7');
+  });
+
+  test('a provider with no defaultable model + no explicit model → falls through to JUDGMENT_*', () => {
+    process.env.WORKER_PROVIDER_TRIAGE = 'codex'; // → openai, which has no default model
+    _resetConfigCache();
+    const r = resolveTriageRoute();
+    expect(r.provider).toBe('xai'); // fell back to the flat default
   });
 });

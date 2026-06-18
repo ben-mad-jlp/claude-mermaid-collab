@@ -25,7 +25,7 @@
 import type { Escalation, SuggestedAction, TriageBucket } from './supervisor-store.ts';
 import { getTodo } from './todo-store.ts';
 import { listSupervisorAudit } from './supervisor-store.ts';
-import { getJudgmentConfig } from './config-service.ts';
+import { resolveTriageRoute } from './config-service.ts';
 import { makeJudgmentLLM } from './judgment-llm.ts';
 import { execFileSync } from 'node:child_process';
 
@@ -111,13 +111,16 @@ function realCommitsBehindMaster(project: string): number {
 }
 
 /**
- * Default judgment call: route through the swappable JudgmentLLM port. With no
- * config set this resolves to today's xAI/grok-build-0.1 behaviour (byte-equivalent
- * to the previous hard-wired realCallGrok). The `deps.callGrok` injection seam below
- * stays intact so tests still inject a fake.
+ * Default triage classifier call (provider-neutral): resolve the triage role's LLM
+ * for this project scope via the tier matrix (resolveTriageRoute — phase='triage'
+ * tier_override > WORKER_*_TRIAGE > flat JUDGMENT_* default) and route through the
+ * swappable JudgmentLLM port. With nothing configured this is today's
+ * xAI/grok-build-0.1 behaviour; set a `triage` tier override (or WORKER_*_TRIAGE)
+ * to swap it — e.g. to Opus — per project/epic from the TieringEditor, zero code.
+ * The `deps.callGrok` injection seam stays intact so tests still inject a fake.
  */
-function defaultCallGrok(system: string, prompt: string): Promise<string> {
-  return makeJudgmentLLM(getJudgmentConfig()).complete(system, prompt);
+function defaultClassify(project: string, system: string, prompt: string): Promise<string> {
+  return makeJudgmentLLM(resolveTriageRoute({ project })).complete(system, prompt);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +263,7 @@ export async function classifyEscalation(
   deps: TriageDeps = {},
   now: number = Date.now(),
 ): Promise<SuggestedAction | null> {
-  const callGrok = deps.callGrok ?? defaultCallGrok;
+  const callGrok = deps.callGrok ?? ((system: string, prompt: string) => defaultClassify(project, system, prompt));
   const bundle = packBundle(project, esc, deps);
 
   let raw: string;
