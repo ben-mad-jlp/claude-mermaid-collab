@@ -43,6 +43,13 @@ contextBridge.exposeInMainWorld('mc', {
     ipcRenderer.on('mc:bootstrap-error', h);
     return () => ipcRenderer.removeListener('mc:bootstrap-error', h);
   },
+  // Live startup progress for the loading screen (phase + a human message with the
+  // sidecar's latest log line + elapsed). Lets it show real info, not a bare spinner.
+  onBootstrapProgress: (cb: (info: { phase: string; message: string; elapsedMs: number }) => void) => {
+    const h = (_e: any, info: any) => cb(info);
+    ipcRenderer.on('mc:bootstrap-progress', h);
+    return () => ipcRenderer.removeListener('mc:bootstrap-progress', h);
+  },
   retryBootstrap: () => ipcRenderer.invoke('mc:retry-bootstrap'),
   browser: {
     listTabs: () => ipcRenderer.invoke('mc:browser:listTabs'),

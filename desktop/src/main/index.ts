@@ -573,6 +573,16 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
     // Tee sidecar stdout/stderr here so a failed Windows/packaged startup is
     // diagnosable; the path is also shown on the error screen.
     logFilePath: join(app.getPath('logs'), 'sidecar.log'),
+    // Live startup info for the loading screen — the sidecar's latest log line +
+    // elapsed, so the cold-start window shows what's happening, not a bare spinner.
+    onStartupProgress: (info) => {
+      const secs = Math.round(info.elapsedMs / 1000);
+      let message: string;
+      if (info.phase === 'attached') message = 'Connecting to the collaboration server…';
+      else if (info.lastLog) message = `${info.lastLog}${secs > 0 ? `  ·  ${secs}s` : ''}`;
+      else message = `Starting the collaboration server…${secs > 0 ? `  ·  ${secs}s` : ''}`;
+      mainWindow?.webContents.send('mc:bootstrap-progress', { phase: info.phase, message, elapsedMs: info.elapsedMs });
+    },
   });
   const { port, attached } = await supervisor.start();
   console.log(`[bootstrap] sidecar ${attached ? 'attached' : 'spawned'} on port ${port}; cdp on ${cdpPort}`);

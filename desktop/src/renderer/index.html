@@ -102,6 +102,20 @@
       }
       button:hover { filter: brightness(1.08); }
       button:disabled { opacity: 0.5; cursor: default; }
+
+      /* Live startup readout under the spinner — monospace, dim, single line. */
+      .status {
+        margin: 16px auto 0;
+        min-height: 16px;
+        max-width: 520px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: opacity 0.2s;
+      }
     </style>
   </head>
   <body>
@@ -110,6 +124,9 @@
       <div class="title">Mermaid Collab</div>
       <div class="subtitle">Starting collaboration server…</div>
       <div class="spinner"></div>
+      <!-- Live startup readout — the sidecar's latest log line + elapsed, streamed
+           from main via mc:bootstrap-progress so this isn't a bare spinner. -->
+      <div class="status" id="status"></div>
     </div>
 
     <div id="error" class="stage">
@@ -131,6 +148,15 @@
       const detailEl = document.getElementById('error-detail');
       const logPathEl = document.getElementById('error-logpath');
       const retryBtn = document.getElementById('retry');
+      const statusEl = document.getElementById('status');
+
+      // Live startup info — replaces the bare spinner with what's actually
+      // happening (the sidecar's latest log line + elapsed), streamed from main.
+      if (window.mc && typeof window.mc.onBootstrapProgress === 'function') {
+        window.mc.onBootstrapProgress((info) => {
+          if (info && info.message) statusEl.textContent = info.message;
+        });
+      }
 
       if (window.mc && typeof window.mc.onBootstrapError === 'function') {
         window.mc.onBootstrapError((info) => {
@@ -147,6 +173,7 @@
         retryBtn.disabled = true;
         errorPanel.style.display = 'none';
         loading.style.display = 'block';
+        statusEl.textContent = '';
         if (window.mc && typeof window.mc.retryBootstrap === 'function') {
           window.mc.retryBootstrap();
         }

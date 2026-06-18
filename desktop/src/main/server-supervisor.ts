@@ -78,6 +78,10 @@ export interface SupervisorOpts {
   logFilePath?: string;
   /** App/server version, used by the port-ownership handshake to tell a current owner from a stale shadow. */
   version?: string;
+  /** Startup-progress callback — fired while the sidecar comes up so the loading
+   *  screen can show live info (phase, elapsed, the latest sidecar.log line)
+   *  instead of a bare spinner during the cold-start window. Best-effort. */
+  onStartupProgress?: (info: { phase: 'spawning' | 'attached' | 'waiting'; elapsedMs: number; lastLog?: string }) => void;
 }
 
 // Give the sidecar a generous startup window before surfacing the health-timeout
@@ -300,8 +304,20 @@ export class ServerSupervisor {
   private child: ChildProcess | null = null;
   private port: number | null = null;
   private attached = false;
-  /** Ring buffer of the most recent stderr lines, surfaced in the health-timeout error. */
+  /** Ring buffer of the most recent sidecar output lines (stdout+stderr), surfaced
+   *  in the health-timeout error AND as live loading-screen info. */
   private stderrTail: string[] = [];
+
+  /** The latest meaningful sidecar output line — ANSI-stripped + truncated — for
+   *  the loading screen's live startup readout. Empty until output arrives. */
+  private lastLogLine(): string | undefined {
+    for (let i = this.stderrTail.length - 1; i >= 0; i--) {
+      // eslint-disable-next-line no-control-regex
+      const clean = this.stderrTail[i].replace(/\x1b\[[0-9;]*m/g, '').trim();
+      if (clean) return clean.length > 120 ? clean.slice(0, 120) + '…' : clean;
+    }
+    return undefined;
+  }
   private logStream: fs.WriteStream | null = null;
   /** ms-epoch the current sidecar child was spawned — the anchor the watchdog
    *  startup grace is measured from (re-stamped on every respawn). */
@@ -343,6 +359,7 @@ export class ServerSupervisor {
     });
     if (handshake.action === 'defer') {
       // A rightful owner already holds the port — attach to it rather than spawn.
+      this.opts.onStartupProgress?.({ phase: 'attached', elapsedMs: 0 });
       this.port = port;
       this.attached = true;
       return { port, attached: true };
@@ -355,6 +372,7 @@ export class ServerSupervisor {
     }
     // action === 'proceed' → the port is ours (was free, or a stale holder was evicted); spawn.
     this.stopped = false;
+    this.opts.onStartupProgress?.({ phase: 'spawning', elapsedMs: 0 });
     this.spawnChild(port);
     await this.waitForHealth(port);
 
@@ -450,15 +468,18 @@ export class ServerSupervisor {
       } catch { this.logStream = null; }
     }
     this.logStream?.write(`\n--- sidecar start ${new Date().toISOString()} (${cmd}) ---\n`);
-    this.child.stdout?.on('data', (d: Buffer) => { this.logStream?.write(d); });
-    this.child.stderr?.on('data', (d: Buffer) => {
+    const capture = (d: Buffer) => {
       this.logStream?.write(d);
       for (const line of d.toString().split('\n')) {
         if (!line.trim()) continue;
         this.stderrTail.push(line);
         if (this.stderrTail.length > 40) this.stderrTail.shift();
       }
-    });
+    };
+    // Capture BOTH streams into the tail — the sidecar's startup progress lines go
+    // to stdout, and the loading screen surfaces the latest line (lastLogLine).
+    this.child.stdout?.on('data', capture);
+    this.child.stderr?.on('data', capture);
     // If the process dies before health comes up, record the exit reason.
     this.child.on('exit', (code, signal) => {
       this.stderrTail.push(`[sidecar exited code=${code} signal=${signal}]`);
@@ -478,6 +499,10 @@ export class ServerSupervisor {
       } catch {
         // not up yet
       }
+      // Surface live startup info to the loading screen — the latest sidecar.log
+      // line (what the server is actually doing) + elapsed, so it isn't a bare
+      // spinner through the cold-start window.
+      this.opts.onStartupProgress?.({ phase: 'waiting', elapsedMs: Date.now() - start, lastLog: this.lastLogLine() });
       await new Promise((res) => setTimeout(res, pollMs));
     }
     try {
