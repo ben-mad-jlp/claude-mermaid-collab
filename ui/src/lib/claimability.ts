@@ -16,6 +16,7 @@ export type ClaimReason =
   | 'claimable'       // fully unblocked, approved, agent → daemon-claimable
   | 'terminal'        // status done|dropped
   | 'in-flight'       // claim != null
+  | 'rejected'        // this todo's OWN acceptanceStatus==='rejected' — ran but failed the gate; held for a human, never auto-reclaimed
   | 'human-assignee'  // fully-unblocked + approved HUMAN todo (incl. [GATE]) → actionable in HumanInbox, NOT daemon-claimed
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
@@ -31,6 +32,8 @@ export function depSatisfied(dep: SessionTodo | undefined): boolean {
 export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): ClaimReason {
   if (t.status === 'done' || t.status === 'dropped') return 'terminal';
   if (t.claim != null) return 'in-flight';
+  // Self-rejected (gate failed) — held for a human, never auto-reclaimed (80f85190).
+  if (t.acceptanceStatus === 'rejected') return 'rejected';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {

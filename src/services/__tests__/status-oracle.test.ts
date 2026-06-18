@@ -50,8 +50,8 @@ const ALLOWLIST: AllowEntry[] = [
   // (A) funnel.ts byId-absent single-todo fallback (documented in funnel.ts): the per-row color
   //     helpers (statusTint/statusDot) call bucketTodo WITHOUT a byId map (no dep graph for a
   //     glyph), so they fall back to the legacy enum for COLOR ONLY — funnel delegates to
-  //     claimReason whenever byId is supplied. 2 reads (ready+blocked) + 1 explanatory comment.
-  { file: 'ui/src/components/supervisor/bridge/funnel.ts', count: 3, reason: 'byId-absent legacy-enum color fallback (ready+blocked) + the explanatory comment; delegates to claimReason when byId is supplied' },
+  //     claimReason whenever byId is supplied. 2 reads (ready+blocked).
+  { file: 'ui/src/components/supervisor/bridge/funnel.ts', count: 2, reason: 'byId-absent legacy-enum color fallback (ready+blocked); delegates to claimReason when byId is supplied' },
 
   // NOTE on comment-only matches: a few files contain the literal `status==='ready'` inside
   // explanatory COMMENTS (e.g. ui/src/lib/claimability.ts, funnel.ts blocked-fallback comment).

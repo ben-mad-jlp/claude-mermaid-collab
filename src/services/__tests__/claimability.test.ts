@@ -49,6 +49,13 @@ describe('claimReason — each branch', () => {
   it('held: heldAt != null (after approval)', () => {
     expect(claimReason(mk({ ...approved, heldAt: APPROVED }), map())).toBe('held');
   });
+  it("rejected: a todo's OWN acceptanceStatus==='rejected' is NOT claimable (80f85190)", () => {
+    // A rejected completion is non-terminal (status 'planned') + still approved +
+    // no claim/hold — must be held out, not auto-reclaimed.
+    const t = mk({ ...approved, status: 'planned', acceptanceStatus: 'rejected' });
+    expect(claimReason(t, map())).toBe('rejected');
+    expect(isClaimable(t, map())).toBe(false);
+  });
   it('dep-rejected BEFORE deps-pending', () => {
     const dep = mk({ id: 'D', status: 'done', acceptanceStatus: 'rejected' });
     const pending = mk({ id: 'P', status: 'in_progress' });

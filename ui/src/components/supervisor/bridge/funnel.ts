@@ -82,13 +82,13 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     tint: 'text-warning-600 dark:text-warning-400',
     bg: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
     loud: true,
-    // Derived "blocked" = held, dep-rejected, or deps-pending (the three jobs the
-    // old `status==='blocked'` conflated), read VERBATIM from claimReason. Legacy
-    // fallback (no byId) reads the old enum so unmigrated callers are unchanged.
+    // Derived "blocked" = held, dep-rejected, deps-pending, or self-rejected (the
+    // needs-a-human states), read VERBATIM from claimReason. Legacy fallback (no
+    // byId) reads the old enum so unmigrated callers are unchanged.
     match: (t, byId) => {
       if (byId == null) return t.status === 'blocked';
       const r = claimReason(t, byId);
-      return r === 'held' || r === 'dep-rejected' || r === 'deps-pending';
+      return r === 'held' || r === 'dep-rejected' || r === 'deps-pending' || r === 'rejected';
     },
   },
   {

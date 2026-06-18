@@ -15,6 +15,7 @@ export type ClaimReason =
   | 'claimable'       // fully unblocked, approved, agent → daemon-claimable
   | 'terminal'        // status done|dropped
   | 'in-flight'       // claim != null
+  | 'rejected'        // this todo's OWN acceptanceStatus==='rejected' — ran but failed the gate; held for a human, never auto-reclaimed
   | 'human-assignee'  // fully-unblocked + approved HUMAN todo (incl. [GATE]) → actionable in HumanInbox, NOT daemon-claimed
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
@@ -44,6 +45,11 @@ export function depSatisfied(dep: Todo | undefined): boolean {
 export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   if (t.status === 'done' || t.status === 'dropped') return 'terminal';
   if (t.claim != null) return 'in-flight';
+  // A self-rejected completion (gate failed) is NOT done and must NOT be auto-
+  // reclaimed — it stays parked for a human to re-open/split/drop. The old hold
+  // was completeTodo's unblock-pass skip, deleted in S4; this derives it instead
+  // (80f85190 — claimReason previously only checked a DEP's rejection, not its own).
+  if (t.acceptanceStatus === 'rejected') return 'rejected';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {
