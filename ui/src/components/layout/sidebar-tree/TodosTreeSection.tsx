@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
+import { CopyId } from '@/components/CopyId';
 import { useTabsStore } from '@/stores/tabsStore';
 import { api } from '@/lib/api';
 import { SessionTodo, TodoStatus } from '@/types/sessionTodo';
@@ -81,12 +82,7 @@ function TodoRow({ todo, project, session }: TodoRowProps) {
       <div className="group w-full text-left px-2 py-1.5 rounded flex flex-col gap-0.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
         {/* Row 1 — title + (hover) delete */}
         <div className="flex items-start gap-2">
-          <span
-            className="shrink-0 mt-0.5 tabular-nums text-3xs text-gray-400 dark:text-gray-500 select-all"
-            title={todo.id}
-          >
-            #{String(todo.id).slice(0, 8)}
-          </span>
+          <CopyId id={todo.id} className="shrink-0 mt-0.5 tabular-nums text-3xs text-gray-400 dark:text-gray-500" />
           <span
             className={`flex-1 min-w-0 cursor-pointer text-xs leading-snug whitespace-normal break-words [overflow-wrap:anywhere] ${
               isDone ? 'line-through text-gray-400 dark:text-gray-500' : ''

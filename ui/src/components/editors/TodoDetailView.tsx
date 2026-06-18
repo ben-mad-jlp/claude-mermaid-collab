@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { api } from '@/lib/api';
+import { CopyId } from '@/components/CopyId';
 import { MarkdownPreview } from './MarkdownPreview';
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
@@ -259,12 +260,7 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
         data-testid="todo-detail-header"
         className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 text-sm min-w-0"
       >
-        <span
-          className="shrink-0 tabular-nums text-xs text-gray-400 dark:text-gray-500 select-all"
-          title={todo.id}
-        >
-          #{String(todo.id).slice(0, 8)}
-        </span>
+        <CopyId id={todo.id} className="shrink-0 tabular-nums text-xs text-gray-400 dark:text-gray-500" />
         {/* Single status control (epic b2c858d4): the badge shows the DERIVED
             state (read-only truth); clicking opens the writes — Approve/Un-approve
             (intent) and Done/Drop/Reopen (lifecycle), all via `changeStatus`. */}
