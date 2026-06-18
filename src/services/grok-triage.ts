@@ -1,5 +1,6 @@
 /**
- * Grok triage classifier for the Orchestrator `propose` level (Orch P2).
+ * Triage classifier for the Orchestrator (runs at level `on`+). The classifier
+ * model is a swappable tier-role (resolveTriageRoute) — not hardwired to Grok.
  *
  * Design: design-orch-p2-propose (post-Grok-consult shape) + design-unified-
  * orchestrator-daemon §4/§5/§11.

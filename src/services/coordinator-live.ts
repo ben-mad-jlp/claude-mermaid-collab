@@ -758,13 +758,13 @@ export async function acceptTimeAncestorGate(
 ): Promise<boolean> {
   // OI-1/BUILD MISMATCH FIX: the master-reachability gate (and its acceptance
   // reversal) only makes sense where the daemon AUTO-LANDS the epic to master —
-  // i.e. at `drive`. At build/nudge there is NO auto-land, so accepted work
+  // i.e. at `auto`. At `on` there is NO auto-land, so accepted work
   // legitimately lives on the epic/lane branch and never reaches origin/master;
   // reversing acceptance for that re-surfaces the todo `ready` → it is re-claimed
   // and re-built forever (the infinite re-claim loop behind escalation 0ca77927,
   // reproduced live by the grok-build trial). Empty/hallucinated completions are
   // STILL caught independently by resolveCompletion's work-committed re-verify, so
-  // skipping the master gate below `drive` never lets fake work through.
+  // skipping the master gate below `auto` never lets fake work through.
   if (getOrchestratorLevel(project) !== 'auto') {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-below-auto-accept' }) });
     return true;
@@ -843,9 +843,9 @@ export async function acceptTimeAncestorGate(
 // integration ref / no commit) is treated as satisfied — uncertainty never blocks.
 export async function bp1FilterStrandedFoundations(project: string, todos: Todo[]): Promise<Todo[]> {
   if (todos.length === 0) return todos;
-  // BUILD-LEVEL FIX (mirrors OI-1 acceptTimeAncestorGate's skip-below-drive): the
+  // BUILD-LEVEL FIX (mirrors OI-1 acceptTimeAncestorGate's skip-below-auto): the
   // integration-reachability test only makes sense where the daemon AUTO-LANDS the epic
-  // to integration — i.e. at `drive`. BELOW drive there is NO auto-land, so a done
+  // to integration — i.e. at `auto`. BELOW auto there is NO auto-land, so a done
   // foundation's commit legitimately lives on its epic accumulation branch and NEVER
   // reaches the integration ref; checking commitOnIntegration there flags EVERY done
   // dependency as "stranded" and blocks the whole wave forever (the dependent is dropped
@@ -853,7 +853,7 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
   // blocked on a done+accepted T1 whose commit was on the epic branch, not origin/<int>).
   // The dependent's lane branches off the epic-branch TIP, so an on-epic-branch foundation
   // IS already visible to it; and a foundation that never reached the epic branch is
-  // caught at accept time by reopenStrandedAccept (which runs at every level). Skip below drive.
+  // caught at accept time by reopenStrandedAccept (which runs at every level). Skip below auto.
   if (getOrchestratorLevel(project) !== 'auto') return todos;
   const out: Todo[] = [];
   for (const t of todos) {

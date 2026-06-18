@@ -1,12 +1,13 @@
 /**
- * Grok triage pass for the Orchestrator daemon (Orch P2, level `propose`).
+ * Triage pass for the Orchestrator daemon — runs at level `on` and above.
  *
- * Design: design-orch-p2-propose. Runs at level >= propose, AFTER the deterministic
- * reconcile pass has auto-closed the cheap buckets. For each UNDECIDED open
- * escalation it asks Grok to classify (single-shot, grok-triage.ts) and writes the
- * verdict INLINE on the escalation as a `suggestedAction` — NOT a separate queue.
- * Nothing acts autonomously at `propose`: the human confirms/dismisses on the card,
- * and a confirm re-validates through the server proof gate.
+ * Design: design-orch-p2-propose (legacy doc name). Runs at `on`+, AFTER the
+ * deterministic reconcile pass has auto-closed the cheap buckets. For each UNDECIDED
+ * open escalation it asks the triage classifier to classify (single-shot,
+ * grok-triage.ts; the model is a swappable tier-role) and writes the verdict INLINE
+ * on the escalation as a `suggestedAction` — NOT a separate queue. Nothing acts
+ * autonomously at `on`: the human confirms/dismisses on the card, and a confirm
+ * re-validates through the server proof gate. Only `auto` auto-resolves.
  *
  * Bounded + fail-open:
  *  - Skips human-floor kinds (approval/decision/assumption-invalidated/operator-gated)
@@ -93,9 +94,9 @@ export interface TriagePassDeps extends TriageDeps {
   setSuggestion?: typeof setEscalationSuggestion;
   /** Todo revision lookup for freshness (defaults to todo-store). */
   getTodoRevision?: (project: string, id: string) => { updatedAt: string } | null;
-  /** Phase 3 (level `drive`): when true, the pass also AUTO-resolves the
-   *  high-confidence actionable suggestions it writes, unattended, behind the proof
-   *  gate + AUTO_RESOLVE_CAP. False (level `propose`) → write-only, human confirms. */
+  /** Level `auto`: when true, the pass also AUTO-resolves the high-confidence
+   *  actionable suggestions it writes, unattended, behind the proof gate +
+   *  AUTO_RESOLVE_CAP. False (level `on`) → write-only, human confirms. */
   autoResolve?: boolean;
   /** Confirm executor (defaults to the real proof-gated confirm). Injectable so the
    *  auto-resolve path is unit-testable without shelling out to git/tsc. */
