@@ -14,8 +14,10 @@ import { Renderer } from '../../services/renderer';
 import { WebSocketHandler } from '../../websocket/handler';
 import { sessionRegistry } from '../../services/session-registry';
 import { UpdateLogManager } from '../../services/update-log-manager';
+import { isolateRegistries } from '../../test-helpers/isolate-registries';
 
 describe('API Document History Endpoints', () => {
+  let restoreRegistries: () => Promise<void>;
   let testProjectPath: string;
   let testSession: string;
   let testSessionPath: string;
@@ -24,6 +26,11 @@ describe('API Document History Endpoints', () => {
   let mockWSHandler: WebSocketHandler;
 
   beforeEach(async () => {
+    // Isolate the project + session registries so registering the test session below
+    // can't leak `test-history-*` into the real ~/.mermaid-collab registries (which
+    // the live server reads + surfaces in its Projects list).
+    restoreRegistries = isolateRegistries('history');
+
     // Create a unique test project path
     testProjectPath = join(tmpdir(), `test-history-${Date.now()}`);
     testSession = 'test-session';
@@ -45,6 +52,8 @@ describe('API Document History Endpoints', () => {
   });
 
   afterEach(async () => {
+    // Restore + remove the isolated registry temp files (stops test-project leak).
+    await restoreRegistries?.();
     // Clean up test files
     if (fs.existsSync(testProjectPath)) {
       await rm(testProjectPath, { recursive: true, force: true });

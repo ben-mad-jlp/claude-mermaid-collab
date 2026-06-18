@@ -14,9 +14,10 @@ import { WebSocketHandler } from '../websocket/handler';
 import { ProjectRegistry, projectRegistry } from '../services/project-registry';
 import { sessionRegistry } from '../services/session-registry';
 import { uiManager, type UIResponse } from '../services/ui-manager';
+import { isolateRegistries } from '../test-helpers/isolate-registries';
 
 describe('API Projects Endpoints', () => {
-  let testRegistryPath: string;
+  let restoreRegistries: () => Promise<void>;
   let testProjectPath: string;
   let testProjectPath2: string;
 
@@ -26,14 +27,10 @@ describe('API Projects Endpoints', () => {
   let mockWSHandler: WebSocketHandler;
 
   beforeEach(async () => {
-    // Create temporary registry and project paths
-    testRegistryPath = join(tmpdir(), `test-api-projects-${Date.now()}.json`);
-    // Replace the singleton's registry path for testing
-    Object.defineProperty(projectRegistry, 'registryPath', {
-      value: testRegistryPath,
-      writable: true,
-      configurable: true,
-    });
+    // Isolate BOTH the project AND session registry singletons to temp files so
+    // register()/discover() never pollute the real ~/.mermaid-collab registries the
+    // live server reads (session registrations were leaking test projects in).
+    restoreRegistries = isolateRegistries('api');
 
     testProjectPath = join(tmpdir(), `test-api-project-${Date.now()}`);
     testProjectPath2 = join(tmpdir(), `test-api-project2-${Date.now()}`);
@@ -48,10 +45,8 @@ describe('API Projects Endpoints', () => {
   });
 
   afterEach(async () => {
-    // Clean up test files
-    if (fs.existsSync(testRegistryPath)) {
-      await rm(testRegistryPath, { force: true });
-    }
+    // Restore + remove the isolated registry temp files.
+    await restoreRegistries?.();
     if (fs.existsSync(testProjectPath)) {
       await rm(testProjectPath, { recursive: true, force: true });
     }
@@ -511,19 +506,15 @@ describe('API Projects Endpoints', () => {
   });
 
   describe('Snippet API Endpoints', () => {
-    let testRegistryPath: string;
+    let restoreSnippetRegistries: () => Promise<void>;
     let testProjectPath: string;
     let mockValidator: Validator;
     let mockRenderer: Renderer;
     let mockWSHandler: WebSocketHandler;
 
     beforeEach(async () => {
-      testRegistryPath = join(tmpdir(), `test-api-snippets-${Date.now()}.json`);
-      Object.defineProperty(projectRegistry, 'registryPath', {
-        value: testRegistryPath,
-        writable: true,
-        configurable: true,
-      });
+      // Isolate both registries (project + session) so registering below can't leak.
+      restoreSnippetRegistries = isolateRegistries('api-snippet');
 
       testProjectPath = join(tmpdir(), `test-api-snippet-project-${Date.now()}`);
       await mkdir(testProjectPath, { recursive: true });
@@ -547,9 +538,7 @@ describe('API Projects Endpoints', () => {
     });
 
     afterEach(async () => {
-      if (fs.existsSync(testRegistryPath)) {
-        await rm(testRegistryPath, { force: true });
-      }
+      await restoreSnippetRegistries?.();
       if (fs.existsSync(testProjectPath)) {
         await rm(testProjectPath, { recursive: true, force: true });
       }
