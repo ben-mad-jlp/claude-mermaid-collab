@@ -12,6 +12,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 export interface ModelViewerProps {
   url: string;
@@ -69,23 +70,37 @@ export const ModelViewer: React.FC<ModelViewerProps> = ({ url, mimeType }) => {
     const height = container.clientHeight || 400;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1b1f24);
+    scene.background = new THREE.Color(0x2b3038);
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 100000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(width, height);
+    // ACES tone mapping + sRGB output so PBR materials read at the right brightness
+    // instead of looking crushed/dark.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    // Neutral studio lighting so geometry reads without a baked material.
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.1));
-    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    // Image-based lighting — the real fix for "too dark". A PBR MeshStandardMaterial
+    // is mostly lit by its environment; without one its reflections are black. A soft
+    // RoomEnvironment gives even studio illumination from every direction.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTexture = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTexture;
+    pmrem.dispose();
+
+    // A bright hemisphere + a key directional add directional definition on top of
+    // the even IBL so edges and curvature read.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 1.4));
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(1, 1.5, 1);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.8);
     fill.position.set(-1, -0.5, -1);
     scene.add(fill);
 
@@ -146,6 +161,7 @@ export const ModelViewer: React.FC<ModelViewerProps> = ({ url, mimeType }) => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
+      envTexture.dispose();
       renderer.dispose();
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
