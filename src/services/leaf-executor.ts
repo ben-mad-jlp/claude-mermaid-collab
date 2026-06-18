@@ -1335,6 +1335,38 @@ export async function runLeaf(
   return parkBlocked('attempt-cap-exhausted');
 }
 
+/** Per-attempt blueprint document name. Mint and prefix-scan share this so they can't drift. */
+export function blueprintAttemptName(leafId: string, attempt: number): string {
+  return `Leaf blueprint — ${leafId.slice(0, 8)} attempt ${attempt}`;
+}
+/** The stable prefix of every attempt name for a leaf (all attempts, any N). */
+export function blueprintAttemptPrefix(leafId: string): string {
+  return `Leaf blueprint — ${leafId.slice(0, 8)} attempt `;
+}
+
+/**
+ * Mark every PRIOR attempt blueprint for `leafId` as deprecated, leaving only `liveId`.
+ * Prefix-scans the documents (NOT link.blueprintId chaining) so it also catches ORPHANS —
+ * attempts from interrupted runs that died before the todo link was updated, which is why
+ * all attempts otherwise sit at equal visual weight. Exported for direct testing.
+ */
+export async function deprecatePriorAttempts(
+  dm: import('./document-manager').DocumentManager,
+  sessionDir: string,
+  leafId: string,
+  liveId: string,
+): Promise<void> {
+  const { MetadataManager } = await import('./metadata-manager');
+  const mm = new MetadataManager(sessionDir);
+  await mm.initialize();
+  const prefix = blueprintAttemptPrefix(leafId);
+  for (const d of await dm.listDocuments()) {
+    if (d.id !== liveId && d.name.startsWith(prefix)) {
+      await mm.updateItem(d.id, { deprecated: true });
+    }
+  }
+}
+
 /**
  * Factory wiring the REAL dependencies. Resolves the epic id (walking parentId in
  * the tracking project), materialises the epic branch, and binds the production
@@ -1429,7 +1461,7 @@ export async function makeLeafExecutorDeps(
       const dir = sessionRegistry.resolvePath(trackingProject, BLUEPRINT_SESSION, 'documents');
       const dm = new DocumentManager(dir);
       await dm.initialize();
-      const name = `Leaf blueprint — ${lf.id.slice(0, 8)} attempt ${attempt}`;
+      const name = blueprintAttemptName(lf.id, attempt);
       // createDocument throws if the sanitized id already exists (e.g. a resumed attempt);
       // fall back to saving over the existing doc so re-runs are idempotent.
       const sanitizedId = name.replace(/[^a-zA-Z0-9-_]/g, '-');
@@ -1443,6 +1475,10 @@ export async function makeLeafExecutorDeps(
       await updateTodo(trackingProject, lf.id, {
         link: { blueprintId: id, ...(lf.link?.taskId ? { taskId: lf.link.taskId } : {}) },
       });
+      // Auto-deprecate every PRIOR attempt blueprint for this leaf so only the live
+      // one shows by default. Best-effort: superseding is cosmetic, never fail a build.
+      const sessionDir = sessionRegistry.resolvePath(trackingProject, BLUEPRINT_SESSION, '.');
+      await deprecatePriorAttempts(dm, sessionDir, lf.id, id).catch(() => {});
       return id;
     },
   };

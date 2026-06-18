@@ -12,6 +12,10 @@ import { join } from 'node:path';
 const TEST_DATA_DIR = mkdtempSync(join(tmpdir(), 'mc-test-data-'));
 process.env.MERMAID_DATA_DIR ??= TEST_DATA_DIR;
 process.env.MERMAID_SUPERVISOR_DIR ??= TEST_DATA_DIR;
+// config.json / tech-packs.json honor their own *file*-path overrides; point them
+// into the same throwaway dir so a test mutating either can't write to ~/.mermaid-collab.
+process.env.MERMAID_CONFIG_PATH ??= join(TEST_DATA_DIR, 'config.json');
+process.env.MERMAID_TECH_PACKS_PATH ??= join(TEST_DATA_DIR, 'tech-packs.json');
 
 // Mock external packages that might not be available
 vi.mock('mermaid', () => ({

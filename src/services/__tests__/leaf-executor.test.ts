@@ -23,6 +23,8 @@ import {
   FILE_THRESHOLD,
   TASK_THRESHOLD,
   NODE_BUDGET,
+  deprecatePriorAttempts,
+  blueprintAttemptName,
   type LeafExecutorDeps,
   type LeafSizeManifest,
 } from '../leaf-executor';
@@ -1152,5 +1154,53 @@ describe('runVerifyPipeline command-gate composition (L3)', () => {
     const exec = base.spies.invokeSpecs.find((s) => (s.allowedTools ?? '').includes('check_graph_drift'));
     expect(exec).toBeDefined();
     expect(exec!.allowedTools).toContain('mcp__bsync-cad__check_graph_drift');
+  });
+});
+
+describe('deprecatePriorAttempts (only the live attempt blueprint stays undeprecated)', () => {
+  const { mkdtempSync } = require('node:fs');
+  const { tmpdir } = require('node:os');
+  const { join } = require('node:path');
+
+  async function setup() {
+    const { DocumentManager } = await import('../document-manager');
+    const { MetadataManager } = await import('../metadata-manager');
+    const sessionDir = mkdtempSync(join(tmpdir(), 'mc-bp-attempts-'));
+    const dm = new DocumentManager(join(sessionDir, 'documents'));
+    await dm.initialize();
+    return { dm, sessionDir, MetadataManager };
+  }
+
+  const LEAF = 'b1bea317-aaaa-bbbb-cccc-deadbeef0000';
+
+  it('deprecates every prior attempt, leaves the live one, and ignores unrelated docs', async () => {
+    const { dm, sessionDir, MetadataManager } = await setup();
+    const id1 = await dm.createDocument(blueprintAttemptName(LEAF, 1), '# attempt 1');
+    const id2 = await dm.createDocument(blueprintAttemptName(LEAF, 2), '# attempt 2');
+    const live = await dm.createDocument(blueprintAttemptName(LEAF, 3), '# attempt 3');
+    const other = await dm.createDocument('Leaf blueprint — feedface attempt 1', '# different leaf');
+
+    await deprecatePriorAttempts(dm, sessionDir, LEAF, live);
+
+    const mm = new MetadataManager(sessionDir);
+    await mm.initialize();
+    expect(mm.getItemMetadata(id1).deprecated).toBe(true);
+    expect(mm.getItemMetadata(id2).deprecated).toBe(true);
+    expect(mm.getItemMetadata(live).deprecated ?? false).toBe(false); // live stays visible
+    expect(mm.getItemMetadata(other).deprecated ?? false).toBe(false); // another leaf untouched
+  });
+
+  it('catches an ORPHAN attempt left undeprecated by an interrupted earlier run', async () => {
+    const { dm, sessionDir, MetadataManager } = await setup();
+    // attempt 1 minted by a run that died before chaining its link — an orphan.
+    const orphan = await dm.createDocument(blueprintAttemptName(LEAF, 1), '# orphaned attempt 1');
+    const live = await dm.createDocument(blueprintAttemptName(LEAF, 2), '# attempt 2');
+
+    await deprecatePriorAttempts(dm, sessionDir, LEAF, live);
+
+    const mm = new MetadataManager(sessionDir);
+    await mm.initialize();
+    expect(mm.getItemMetadata(orphan).deprecated).toBe(true);
+    expect(mm.getItemMetadata(live).deprecated ?? false).toBe(false);
   });
 });
