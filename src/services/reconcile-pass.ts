@@ -5,82 +5,35 @@
  * This module replaces the ex-Supervisor reconcile loop with a pure, mechanical
  * pass that the Orchestrator calls for a project at level >= nudge.
  *
- * What it does (Phase 1):
- *   1. NUDGE: For each supervised session in the project that is IDLE and owns at
- *      least one `ready` todo, send a nudge via tmux. Rate-limited per session
- *      (module-level Map, 5-minute cooldown).
- *   2. STALE ESCALATIONS: Auto-close open escalations whose age exceeds
+ * What it does:
+ *   1. STALE ESCALATIONS: Auto-close open escalations whose age exceeds
  *      SUPERVISOR_STALE_AFTER_MS.
+ *   2. EPIC-ROLLUP SWEEP + self-healing land-surface.
  *   3. VERIFIED-DONE: auto-close open escalations whose linked todo has
  *      terminally settled out-of-band (done+accepted → verified-done, or
  *      dropped → moot). Deterministic proof gate; a done-but-unaccepted todo is
  *      left alone.
  *
- * Pure deterministic — NO LLM/Grok calls. Fail-open: per-session errors never
- * abort the full pass.
+ * (The legacy tmux-NUDGE pass was removed in epic 4b81ca59 / L3: it sent
+ * "you have ready work, continue" keystrokes into a worker's tmux session, which
+ * is dead in the headless leaf-executor world — workers have no interactive tmux
+ * to nudge. The stale-close + land-surface below are the surviving useful work,
+ * now running at level `on`.)
+ *
+ * Pure deterministic — NO LLM/Grok calls. Fail-open: per-item errors never abort
+ * the full pass.
  */
 
 import {
-  listSupervised,
   listOpenEscalations,
   resolveEscalation,
   getEscalation,
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
-  getSupervisedLaunchProject,
 } from './supervisor-store.ts';
-import { listTodos, getTodo, sweepEpicRollups } from './todo-store.ts';
-import { isClaimable } from './claimability.ts';
+import { getTodo, sweepEpicRollups } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND } from './coordinator-live.ts';
-import { sendTmuxKeys } from './tmux-send.ts';
-import { getStatus } from './session-status-store.ts';
-import { deriveLiveness } from './session-runtime.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
-
-// ---------------------------------------------------------------------------
-// Rate-limit state (module-level, survives the process lifetime)
-// ---------------------------------------------------------------------------
-
-/** Nudge cooldown: do not re-nudge a session within this window. */
-export const NUDGE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-
-/** module-level last-nudge-time per session (key = `${project}::${session}`). */
-const lastNudgeAt = new Map<string, number>();
-
-/** Exported for tests: reset the rate-limit map. */
-export function _resetNudgeState(): void {
-  lastNudgeAt.clear();
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** True when the session's status indicates it is IDLE (not actively running a turn). */
-function isSessionIdle(project: string, session: string, now: number): boolean {
-  const status = getStatus(project, session);
-  if (!status) {
-    // No status row → session never registered or already gone — treat as idle
-    // so a dangling supervised session doesn't silently block nudges.
-    return true;
-  }
-  // hasActiveClaim is unknown here without a full join; use false (safe: only
-  // flips crashed→idle, which is acceptable — a crashed session still gets a nudge).
-  const liveness = deriveLiveness(status, false, now);
-  return liveness === 'idle';
-}
-
-/** True when a session has at least one CLAIMABLE todo it OWNS or is assigned to.
- *  De-conflate (b2c858d4): readiness is DERIVED — the old `{status:'ready'}` filter is stale
- *  (ready work is now stored status='planned'+approvedAt), so derive via isClaimable over the
- *  full work-graph (byId needed for dep resolution). */
-function hasReadyWork(project: string, session: string): boolean {
-  const all = listTodos(project, { includeCompleted: true });
-  const byId = new Map(all.map((t) => [t.id, t]));
-  return all.some(
-    (t) => (t.ownerSession === session || t.assigneeSession === session) && isClaimable(t, byId),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main export
@@ -88,55 +41,13 @@ function hasReadyWork(project: string, session: string): boolean {
 
 /**
  * Run one deterministic reconcile pass for the given project.
- * Called by the Orchestrator daemon at level >= nudge.
+ * Called by the Orchestrator daemon at level `on` and above.
  */
 export async function runReconcilePass(project: string): Promise<void> {
   const now = Date.now();
 
   // -------------------------------------------------------------------------
-  // 1. NUDGE: idle sessions with ready work
-  // -------------------------------------------------------------------------
-  const supervised = listSupervised().filter((s) => s.project === project);
-
-  for (const sup of supervised) {
-    try {
-      const { session } = sup;
-
-      if (!isSessionIdle(project, session, now)) continue;
-      if (!hasReadyWork(project, session)) continue;
-
-      // Rate-limit check
-      const key = `${project}::${session}`;
-      const lastNudge = lastNudgeAt.get(key) ?? 0;
-      if (now - lastNudge < NUDGE_COOLDOWN_MS) continue;
-
-      // Derive the tmux launch project (cross-project coordinator spawn fix)
-      const launchProject = getSupervisedLaunchProject(project, session) ?? project;
-
-      const nudgeText =
-        'You have ready work in the task graph. Please check your todos and continue.';
-
-      await sendTmuxKeys(launchProject, session, nudgeText);
-
-      lastNudgeAt.set(key, now);
-
-      recordSupervisorAudit({
-        kind: 'nudge',
-        project,
-        session,
-        detail: JSON.stringify({ source: 'reconcile-pass', launchProject }),
-      });
-    } catch (err) {
-      // Fail-open: log but do not abort the pass for other sessions.
-      console.warn(
-        `[reconcile-pass] nudge failed for ${project}/${sup.session}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // 2. STALE ESCALATIONS: auto-close open escalations older than the stale window
+  // 1. STALE ESCALATIONS: auto-close open escalations older than the stale window
   // -------------------------------------------------------------------------
   const openEscalations = listOpenEscalations().filter((e) => e.project === project);
 

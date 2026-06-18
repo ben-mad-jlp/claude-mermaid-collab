@@ -6,7 +6,7 @@
  * and mocks the tmux-send + session-status external calls.
  */
 
-import { describe, it, expect, beforeAll, afterAll, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,41 +18,11 @@ import { join } from 'node:path';
 const supDir = mkdtempSync(join(tmpdir(), 'rp-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = supDir;
 
-// -----------------------------------------------------------------------
-// Mock tmux-send BEFORE importing reconcile-pass (which imports tmux-send).
-// We capture calls via a shared array so tests can assert on them.
-// -----------------------------------------------------------------------
-const tmuxCalls: Array<{ project: string; session: string; text: string }> = [];
-
-mock.module('../tmux-send.ts', () => ({
-  sendTmuxKeys: async (project: string, session: string, text: string) => {
-    tmuxCalls.push({ project, session, text });
-    return { sent: true };
-  },
-}));
-
-// -----------------------------------------------------------------------
-// Mock session-status-store to control idle/active status in tests.
-// -----------------------------------------------------------------------
-type StatusValue = 'waiting' | 'active' | 'permission' | 'checkpoint_ready';
-const statusOverrides = new Map<string, StatusValue>(); // key = `${project}::${session}`
-
-mock.module('../session-status-store.ts', () => ({
-  getStatus: (project: string, session: string) => {
-    const key = `${project}::${session}`;
-    const status = statusOverrides.get(key) ?? 'waiting'; // default idle
-    return { project, session, status, updatedAt: Date.now() - 1000, contextPercent: null, contextUpdatedAt: null, checkpointReadyAt: null };
-  },
-}));
-
-// Now import the module under test (after mocks are installed).
+// The legacy tmux-NUDGE pass (and its tmux-send / session-status mocks) was
+// removed in epic 4b81ca59 / L3 — reconcile is now stale-close + epic-rollup +
+// land-surface + verified-done only.
+import { runReconcilePass } from '../reconcile-pass';
 import {
-  runReconcilePass,
-  _resetNudgeState,
-  NUDGE_COOLDOWN_MS,
-} from '../reconcile-pass';
-import {
-  addSupervised,
   createEscalation,
   listOpenEscalations,
   resolveEscalation,
@@ -87,9 +57,6 @@ beforeEach(() => {
   // land in our own db (test isolation across files).
   process.env.MERMAID_SUPERVISOR_DIR = supDir;
   _closeDb();
-  tmuxCalls.length = 0;
-  statusOverrides.clear();
-  _resetNudgeState();
 });
 afterAll(() => {
   _closeDb();
@@ -99,103 +66,8 @@ afterAll(() => {
 });
 
 // -----------------------------------------------------------------------
-// Helper: create a supervised session entry for a project
-// -----------------------------------------------------------------------
-function supervise(project: string, session: string): void {
-  addSupervised(project, session, 'manual');
-}
-
-// Helper: make a session appear ACTIVE (not idle)
-function setActive(project: string, session: string): void {
-  statusOverrides.set(`${project}::${session}`, 'active');
-}
-
-// -----------------------------------------------------------------------
 // Tests
 // -----------------------------------------------------------------------
-
-describe('runReconcilePass — nudge: idle session with ready work', () => {
-  it('sends a nudge when the session is idle and has a ready todo', async () => {
-    const project = freshProject();
-    const session = 'worker-abc';
-    supervise(project, session);
-    // Create a ready todo owned by the session
-    await createTodo(project, { ownerSession: session, title: 'do something', status: 'ready' });
-
-    await runReconcilePass(project);
-
-    expect(tmuxCalls.length).toBe(1);
-    expect(tmuxCalls[0].session).toBe(session);
-  });
-
-  it('does NOT nudge when the session is active (not idle)', async () => {
-    const project = freshProject();
-    const session = 'worker-busy';
-    supervise(project, session);
-    await createTodo(project, { ownerSession: session, title: 'active work', status: 'ready' });
-    setActive(project, session);
-
-    await runReconcilePass(project);
-
-    expect(tmuxCalls.length).toBe(0);
-  });
-});
-
-describe('runReconcilePass — nudge: idle session with NO ready work', () => {
-  it('does NOT nudge when there are no ready todos', async () => {
-    const project = freshProject();
-    const session = 'worker-noop';
-    supervise(project, session);
-    // Only a 'todo' status todo (not ready)
-    await createTodo(project, { ownerSession: session, title: 'not ready', status: 'todo' });
-
-    await runReconcilePass(project);
-
-    expect(tmuxCalls.length).toBe(0);
-  });
-
-  it('does NOT nudge a supervised session with zero todos', async () => {
-    const project = freshProject();
-    const session = 'worker-empty';
-    supervise(project, session);
-
-    await runReconcilePass(project);
-
-    expect(tmuxCalls.length).toBe(0);
-  });
-});
-
-describe('runReconcilePass — nudge cooldown suppresses repeat nudge', () => {
-  it('nudges on first pass but skips on a second pass within the cooldown', async () => {
-    const project = freshProject();
-    const session = 'worker-cool';
-    supervise(project, session);
-    await createTodo(project, { ownerSession: session, title: 'go', status: 'ready' });
-
-    await runReconcilePass(project);
-    expect(tmuxCalls.length).toBe(1);
-
-    // Second pass immediately — should be rate-limited
-    await runReconcilePass(project);
-    expect(tmuxCalls.length).toBe(1); // still 1; no additional nudge
-  });
-
-  it('nudges again after the cooldown has elapsed (after resetting state)', async () => {
-    const project = freshProject();
-    const session = 'worker-refire';
-    supervise(project, session);
-    await createTodo(project, { ownerSession: session, title: 'go', status: 'ready' });
-
-    await runReconcilePass(project);
-    expect(tmuxCalls.length).toBe(1);
-
-    // Simulate cooldown elapsed by resetting the rate-limit state
-    _resetNudgeState();
-
-    await runReconcilePass(project);
-    expect(tmuxCalls.length).toBe(2);
-  });
-});
 
 describe('runReconcilePass — stale escalation auto-close', () => {
   it('auto-closes an open escalation older than SUPERVISOR_STALE_AFTER_MS', async () => {
@@ -294,22 +166,6 @@ describe('runReconcilePass — BP0 summary escalation is exempt from auto-close'
     expect(open).not.toContain(normal.id);
     // …but the BP0 summary is exempt and stays open for the human.
     expect(open).toContain(summary.id);
-  });
-});
-
-describe('runReconcilePass — only affects its own project', () => {
-  it('does not nudge sessions belonging to a different project', async () => {
-    const projectA = freshProject();
-    const projectB = freshProject();
-    const session = 'worker-cross';
-
-    supervise(projectB, session);
-    await createTodo(projectB, { ownerSession: session, title: 'ready', status: 'ready' });
-
-    // Run pass for projectA — should not nudge a session in projectB
-    await runReconcilePass(projectA);
-
-    expect(tmuxCalls.length).toBe(0);
   });
 });
 
@@ -552,13 +408,5 @@ describe('runReconcilePass — verified-done escalation auto-close', () => {
     await runReconcilePass(project);
 
     expect(listOpenEscalations().find((e) => e.id === escalation.id)).toBeDefined();
-  });
-});
-
-// Expose for manual import in other test helpers (not required but documents the
-// rate-limit constant is exported from the module under test).
-describe('NUDGE_COOLDOWN_MS constant', () => {
-  it('is 5 minutes', () => {
-    expect(NUDGE_COOLDOWN_MS).toBe(5 * 60 * 1000);
   });
 });
