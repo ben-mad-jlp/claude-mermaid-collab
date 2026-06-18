@@ -935,7 +935,15 @@ const App: React.FC = () => {
             const prevIds = new Set((useSessionStore.getState().sessionTodos ?? []).map((t) => t.id));
             api.getSessionTodos(currentSession.project, me, true)
               .then((todos) => {
-                useSessionStore.getState().setSessionTodos(todos);
+                // MERGE, don't replace: this fetch is scoped to MY (owner-or-assignee)
+                // todos, so a wholesale replace evicts cross-session todos that a
+                // Plan/Bridge detail view is pinned to (→ "Todo not found"). Preserve
+                // any currently-held todo that isn't mine and isn't in this fetch.
+                const fetchedIds = new Set(todos.map((t) => t.id));
+                const preserved = (useSessionStore.getState().sessionTodos ?? []).filter(
+                  (t) => !fetchedIds.has(t.id) && t.ownerSession !== me && t.assigneeSession !== me,
+                );
+                useSessionStore.getState().setSessionTodos([...todos, ...preserved]);
                 // Toast when a todo was newly assigned to me.
                 if (evt.assigneeSession === me) {
                   const newlyAssigned = todos.filter((t) => t.assigneeSession === me && !prevIds.has(t.id));
