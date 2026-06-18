@@ -25,7 +25,7 @@ import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
-import { getProjectEffort } from './orchestrator-config';
+import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, assertSubscriptionAuth } from '../agent/node-invoker';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
@@ -262,7 +262,14 @@ export const VERIFY_GATE_MCP_TOOL = verbMcpTool(VERIFY_GATE_VERB);
  *  nodes (the opus ones: blueprint/review/driveplan) default to 'high'; the
  *  implementation/read nodes (sonnet) default to 'medium'. A per-project override
  *  (getProjectEffort) or MERMAID_NODE_EFFORT can replace these uniformly. */
-const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
+/** Every leaf-executor node kind, in a stable display order (drives the matrix editor). */
+export const LEAF_NODE_KINDS: LeafNodeKind[] = [
+  'blueprint', 'implement', 'review',
+  'research', 'wimplement', 'verify', 'fix',
+  'driveplan', 'driveexec', 'report',
+];
+
+export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
   blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
   implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' },
   review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
@@ -783,11 +790,15 @@ export async function runLeaf(
   // run's shape (and which path a failure came from) is legible without re-deriving.
   let pathTaken: 'floor' | 'waves' | null = null;
 
-  // Reasoning effort per spawned node: per-project override (getProjectEffort) wins,
-  // then the process-wide MERMAID_NODE_EFFORT, then the per-kind NODE_PROFILE baseline.
-  // Resolved once per run (cheap DB read) and applied to every node spec below.
+  // Per-(project, node-kind) model + effort overrides, resolved once per run.
+  // model  : per-kind override → NODE_PROFILE default.
+  // effort : per-kind override → per-project blanket (getProjectEffort) →
+  //          MERMAID_NODE_EFFORT env → per-kind NODE_PROFILE default.
+  const nodeOverrides = listNodeProfileOverrides(project);
   const projectEffort = getProjectEffort(project);
-  const nodeEffort = (kind: LeafNodeKind): EffortLevel => projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
+  const nodeModel = (kind: LeafNodeKind): string => nodeOverrides[kind]?.model ?? NODE_PROFILE[kind].model;
+  const nodeEffort = (kind: LeafNodeKind): EffortLevel =>
+    nodeOverrides[kind]?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
 
   // NODE_BUDGET (20) is the runaway ceiling sized for the FLOOR (≤6 nodes/2 attempts). The
   // WAVES path legitimately spends ~tasks + files×~3 nodes (research per task, then
@@ -814,7 +825,7 @@ export async function runLeaf(
     state.nodesSpent += 1;
     // LIVE signal: mark the leaf as running THIS node before the (slow) spawn, clear it
     // the instant the node returns — so the in-flight node is visible cross-process.
-    deps.setInflight?.({ project, leafId: leaf.id, epicId, nodeKind: kind, model: NODE_PROFILE[kind].model, attempt: state.attempt });
+    deps.setInflight?.({ project, leafId: leaf.id, epicId, nodeKind: kind, model: nodeModel(kind), attempt: state.attempt });
     let res: NodeResult;
     try {
       res = await deps.invoker.invoke(spec);
@@ -829,7 +840,7 @@ export async function runLeaf(
         epicId,
         leafId: leaf.id,
         nodeKind: kind,
-        model: NODE_PROFILE[kind].model,
+        model: nodeModel(kind),
         nodesSpent: 1,
         authMode: res.authMode,
         exitCode: res.exitCode,
@@ -944,7 +955,7 @@ export async function runLeaf(
     reviewFindings?: string,
   ): NodeSpec => ({
     prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
-    model: NODE_PROFILE[kind].model,
+    model: nodeModel(kind),
     effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
@@ -963,7 +974,7 @@ export async function runLeaf(
     ctx?: { blueprintText?: string; researchText?: string },
   ): NodeSpec => ({
     prompt: buildWavePrompt(kind, leaf, target, ctx),
-    model: NODE_PROFILE[kind].model,
+    model: nodeModel(kind),
     effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
@@ -1091,7 +1102,7 @@ export async function runLeaf(
     gateFindings?: string,
   ): NodeSpec => ({
     prompt: buildVerifyPrompt(kind, leaf, planText, gateFindings, verb),
-    model: NODE_PROFILE[kind].model,
+    model: nodeModel(kind),
     effort: nodeEffort(kind),
     // driveexec is constrained to the RESOLVED verb's MCP tool (not the static default).
     allowedTools:

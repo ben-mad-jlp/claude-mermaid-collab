@@ -8,10 +8,10 @@
  * (design-tabbed-bridge §3b) — the dropdown that used to live here is gone.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { OrchestratorLadder } from './OrchestratorLadder';
 import { PoolSizeControl } from './PoolSizeControl';
-import { EffortControl } from './EffortControl';
+import { DaemonNodesMatrix } from '@/components/settings/DaemonNodesMatrix';
 
 export interface CommandBarProps {
   liveCount: number;
@@ -45,6 +45,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   onRefresh,
 }) => {
   const projectName = project ? project.split('/').filter(Boolean).pop() ?? project : null;
+  const [showNodes, setShowNodes] = useState(false);
   return (
     <div
       data-testid="bridge-command-bar"
@@ -83,12 +84,29 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             rows (it crowded the supervisor cards). Scoped to the active project. */}
         {project && (
           <div className="ml-auto flex items-center gap-1.5">
-            <EffortControl project={project} />
+            <button
+              type="button"
+              data-testid="bridge-nodes-toggle"
+              data-open={showNodes}
+              onClick={() => setShowNodes((v) => !v)}
+              title="Per-node model & effort for this project's daemon workers"
+              className={`flex items-center rounded border px-1.5 py-0.5 text-3xs font-medium shrink-0 cursor-pointer border-gray-300 dark:border-gray-600 ${showNodes ? 'bg-info-500 dark:bg-info-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+            >
+              ⚙ nodes
+            </button>
             <PoolSizeControl project={project} />
             <OrchestratorLadder project={project} />
           </div>
         )}
       </div>
+
+      {/* Per-node-kind model + effort matrix for the leaf-executor's claude workers,
+          scoped to the active project. Toggled from the ⚙ nodes button above. */}
+      {project && showNodes && (
+        <div className="mt-2 rounded border border-gray-200 dark:border-gray-700 p-2 bg-white/60 dark:bg-gray-900/40">
+          <DaemonNodesMatrix project={project} />
+        </div>
+      )}
 
       {/* Row 2 — glanceable totals. Mirrors the left-column project card's row-2
           indicators (same glyphs + colors) so the Bridge top line and the card

@@ -5,11 +5,17 @@ import {
   setProjectPoolSize,
   getProjectEffort,
   setProjectEffort,
+  listNodeProfileOverrides,
+  setNodeProfileOverride,
   EFFORT_LEVELS,
   ORCH_LEVELS,
   type OrchestratorLevel,
 } from '../services/orchestrator-config.ts';
 import type { EffortLevel } from '../agent/contracts.ts';
+import { NODE_PROFILE, LEAF_NODE_KINDS } from '../services/leaf-executor.ts';
+
+/** Model aliases offered in the daemon-nodes matrix dropdown. */
+const MODEL_CHOICES = ['opus', 'sonnet', 'haiku'];
 import { DEFAULT_SLOTS_PER_TYPE, MAX_POOL_SIZE } from '../services/worker-pool.ts';
 import { confirmSuggestion, dismissSuggestion } from '../services/triage-execute.ts';
 
@@ -84,6 +90,51 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       }
       setProjectEffort(project, (effort ?? null) as EffortLevel | null);
       return Response.json({ project, effort: getProjectEffort(project), levels: EFFORT_LEVELS });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/orchestrator/node-profiles?project=<abs path>
+  // The per-node-kind model + effort matrix: defaults, this project's overrides, and
+  // the effective resolved values, plus the choice lists for the editor dropdowns.
+  if (url.pathname === '/api/orchestrator/node-profiles' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    const overrides = listNodeProfileOverrides(project);
+    const projectEffort = getProjectEffort(project); // per-project blanket fallback
+    const rows = LEAF_NODE_KINDS.map((kind) => {
+      const def = NODE_PROFILE[kind];
+      const o = overrides[kind] ?? { model: null, effort: null };
+      return {
+        kind,
+        defaultModel: def.model,
+        defaultEffort: def.effort,
+        modelOverride: o.model,
+        effortOverride: o.effort,
+        effectiveModel: o.model ?? def.model,
+        effectiveEffort: o.effort ?? projectEffort ?? def.effort,
+      };
+    });
+    return Response.json({ project, rows, models: MODEL_CHOICES, levels: EFFORT_LEVELS });
+  }
+
+  // POST /api/orchestrator/node-profiles { project, kind, model, effort }
+  // model/effort null = clear that field (inherit). Both null = remove the override.
+  if (url.pathname === '/api/orchestrator/node-profiles' && req.method === 'POST') {
+    try {
+      const { project, kind, model, effort } = (await req.json()) as {
+        project?: string; kind?: string; model?: string | null; effort?: string | null;
+      };
+      if (!project) return jsonError('project is required', 400);
+      if (!kind || !(LEAF_NODE_KINDS as string[]).includes(kind)) {
+        return jsonError(`kind must be one of: ${LEAF_NODE_KINDS.join(', ')}`, 400);
+      }
+      if (effort != null && !(EFFORT_LEVELS as string[]).includes(effort)) {
+        return jsonError(`effort must be null or one of: ${EFFORT_LEVELS.join(', ')}`, 400);
+      }
+      setNodeProfileOverride(project, kind, model ?? null, (effort ?? null) as EffortLevel | null);
+      return Response.json({ project, kind, model: model ?? null, effort: effort ?? null });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

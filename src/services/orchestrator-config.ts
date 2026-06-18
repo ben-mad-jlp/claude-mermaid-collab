@@ -88,6 +88,16 @@ function openDb(): Database {
   // Additive migration: per-project reasoning-effort override for daemon-spawned
   // claude worker nodes. NULL = 'auto' (use the per-node-kind NODE_PROFILE defaults).
   try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN effortOverride TEXT'); } catch { /* already present */ }
+  // Per-(project, node-kind) model + effort overrides for the leaf-executor's claude
+  // nodes. A row's NULL model/effort = inherit that node kind's NODE_PROFILE default.
+  db.exec(`CREATE TABLE IF NOT EXISTS node_profile_override (
+    project   TEXT NOT NULL,
+    kind      TEXT NOT NULL,
+    model     TEXT,
+    effort    TEXT,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (project, kind)
+  )`);
   // One-shot guarded backfill (epic 4b81ca59): collapse any legacy 5-rung rows to
   // the canonical off/on/auto. Idempotent — once migrated, rows are on/auto and no
   // longer match, so re-running is a no-op (cheap; only legacy rows are touched).
@@ -193,6 +203,54 @@ export function setProjectEffort(project: string, effort: EffortLevel | null): v
     `INSERT INTO orchestrator_config (project, level, effortOverride, updatedAt) VALUES (?, 'on', ?, ?)
      ON CONFLICT(project) DO UPDATE SET effortOverride = excluded.effortOverride, updatedAt = excluded.updatedAt`,
   ).run(project, value, Date.now());
+}
+
+// --- Per-(project, node-kind) model + effort overrides (leaf-executor claude nodes) ---
+
+export interface NodeProfileOverride {
+  /** Model alias/id override, or null to inherit the node kind's default. */
+  model: string | null;
+  /** Effort override, or null to inherit (then the per-project / env / default chain). */
+  effort: EffortLevel | null;
+}
+
+/** Every per-node-kind override for a project, keyed by kind. Kinds with no row
+ *  are absent (→ inherit defaults). Used by the daemon at run time and the editor. */
+export function listNodeProfileOverrides(project: string): Record<string, NodeProfileOverride> {
+  const d = openDb();
+  const rows = d
+    .query('SELECT kind, model, effort FROM node_profile_override WHERE project = ?')
+    .all(project) as Array<{ kind: string; model: string | null; effort: string | null }>;
+  const out: Record<string, NodeProfileOverride> = {};
+  for (const r of rows) {
+    out[r.kind] = {
+      model: r.model && r.model.trim() ? r.model : null,
+      effort: r.effort != null && (EFFORT_LEVELS as string[]).includes(r.effort) ? (r.effort as EffortLevel) : null,
+    };
+  }
+  return out;
+}
+
+/** Set (or clear) a single node kind's model/effort override for a project. A
+ *  null model or effort clears that field (inherit); when BOTH are null the row is
+ *  deleted so the kind reads as a clean inherit. An invalid effort coerces to null. */
+export function setNodeProfileOverride(
+  project: string,
+  kind: string,
+  model: string | null,
+  effort: EffortLevel | null,
+): void {
+  const d = openDb();
+  const m = model && model.trim() ? model.trim() : null;
+  const e = effort != null && (EFFORT_LEVELS as string[]).includes(effort) ? effort : null;
+  if (m == null && e == null) {
+    d.prepare('DELETE FROM node_profile_override WHERE project = ? AND kind = ?').run(project, kind);
+    return;
+  }
+  d.prepare(
+    `INSERT INTO node_profile_override (project, kind, model, effort, updatedAt) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project, kind) DO UPDATE SET model = excluded.model, effort = excluded.effort, updatedAt = excluded.updatedAt`,
+  ).run(project, kind, m, e, Date.now());
 }
 
 /** Steward kill-switch (one-way): force a project's level to 'off' and return the

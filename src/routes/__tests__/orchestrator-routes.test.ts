@@ -143,3 +143,40 @@ describe('handleOrchestratorRoutes — effort', () => {
     expect(res!.status).toBe(400);
   });
 });
+
+describe('handleOrchestratorRoutes — node-profiles', () => {
+  const NP_PROJECT = '/tmp/orch-routes-np';
+
+  it('GET returns a row per node kind with defaults + choice lists', async () => {
+    const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(NP_PROJECT)}`);
+    expect(res!.status).toBe(200);
+    const body = await res!.json() as any;
+    expect(Array.isArray(body.rows)).toBe(true);
+    expect(body.rows.length).toBe(10);
+    const bp = body.rows.find((r: any) => r.kind === 'blueprint');
+    expect(bp.defaultModel).toBe('opus');
+    expect(bp.defaultEffort).toBe('high');
+    expect(bp.modelOverride).toBeNull();
+    expect(body.models).toContain('sonnet');
+    expect(body.levels).toContain('xhigh');
+  });
+
+  it('POST an override and GET reflects it in the effective columns', async () => {
+    const post = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind: 'blueprint', model: 'sonnet', effort: 'max' });
+    expect(post!.status).toBe(200);
+    const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(NP_PROJECT)}`);
+    const bp = ((await res!.json()) as any).rows.find((r: any) => r.kind === 'blueprint');
+    expect(bp.effectiveModel).toBe('sonnet');
+    expect(bp.effectiveEffort).toBe('max');
+  });
+
+  it('POST an unknown kind → 400', async () => {
+    const res = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind: 'bogus', model: 'opus' });
+    expect(res!.status).toBe(400);
+  });
+
+  it('POST an invalid effort → 400', async () => {
+    const res = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind: 'review', effort: 'turbo' });
+    expect(res!.status).toBe(400);
+  });
+});

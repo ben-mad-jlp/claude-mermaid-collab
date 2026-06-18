@@ -18,6 +18,8 @@ import {
   getProjectPoolConfig,
   getProjectEffort,
   setProjectEffort,
+  listNodeProfileOverrides,
+  setNodeProfileOverride,
   _closeDb,
 } from '../orchestrator-config';
 import { POOL_CONFIG, POOL_TYPES, MAX_POOL_SIZE } from '../worker-pool';
@@ -161,5 +163,27 @@ describe('per-project effort override', () => {
     expect(getProjectEffort('/proj/eff-clear')).toBe('high');
     setProjectEffort('/proj/eff-clear', null);
     expect(getProjectEffort('/proj/eff-clear')).toBeNull();
+  });
+});
+
+describe('per-(project,node-kind) model + effort overrides', () => {
+  it('absent kinds return no override; set/list round-trips', () => {
+    expect(listNodeProfileOverrides('/proj/np-a')).toEqual({});
+    setNodeProfileOverride('/proj/np-a', 'blueprint', 'sonnet', 'max');
+    const o = listNodeProfileOverrides('/proj/np-a');
+    expect(o.blueprint).toEqual({ model: 'sonnet', effort: 'max' });
+  });
+
+  it('null model/effort clears that field; both null removes the row', () => {
+    setNodeProfileOverride('/proj/np-b', 'review', 'opus', 'xhigh');
+    setNodeProfileOverride('/proj/np-b', 'review', null, 'high'); // clear model only
+    expect(listNodeProfileOverrides('/proj/np-b').review).toEqual({ model: null, effort: 'high' });
+    setNodeProfileOverride('/proj/np-b', 'review', null, null); // remove row
+    expect(listNodeProfileOverrides('/proj/np-b').review).toBeUndefined();
+  });
+
+  it('an invalid effort coerces to null', () => {
+    setNodeProfileOverride('/proj/np-c', 'implement', 'haiku', 'turbo' as never);
+    expect(listNodeProfileOverrides('/proj/np-c').implement).toEqual({ model: 'haiku', effort: null });
   });
 });
