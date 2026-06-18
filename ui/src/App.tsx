@@ -1336,19 +1336,23 @@ const App: React.FC = () => {
   // only and `selectDocument` / `selectDiagram` etc. don't fetch content).
   useEffect(() => {
     if (!currentSession) return;
-    if (!currentSession.serverId) return;
+    // A falsy serverId is VALID — it means "local origin" and apiFetch routes it
+    // there (same as Refresh, which has no such guard). The old early-return here
+    // skipped the session-switch auto-load for local/self-project sessions, so the
+    // sidebar stayed stale until a manual Refresh. (artifact-staleness bug)
+    const serverId = currentSession.serverId || '';
     const project = currentSession.project || '';
     (async () => {
-      await loadSessionItems(currentSession.serverId, project, currentSession.name);
+      await loadSessionItems(serverId, project, currentSession.name);
       const entry = useTabsStore.getState().bySession[sessionKey(project, currentSession.name)];
       if (!entry?.activeTabId) return;
       const tab = entry.tabs.find((t) => t.id === entry.activeTabId);
       if (!tab || tab.kind !== 'artifact' || !tab.artifactType) return;
       switch (tab.artifactType) {
-        case 'document': selectDocumentWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
-        case 'diagram': selectDiagramWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
-        case 'design': selectDesignWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
-        case 'spreadsheet': selectSpreadsheetWithContent(currentSession.serverId, project, currentSession.name, tab.artifactId); break;
+        case 'document': selectDocumentWithContent(serverId, project, currentSession.name, tab.artifactId); break;
+        case 'diagram': selectDiagramWithContent(serverId, project, currentSession.name, tab.artifactId); break;
+        case 'design': selectDesignWithContent(serverId, project, currentSession.name, tab.artifactId); break;
+        case 'spreadsheet': selectSpreadsheetWithContent(serverId, project, currentSession.name, tab.artifactId); break;
       }
     })();
   }, [
