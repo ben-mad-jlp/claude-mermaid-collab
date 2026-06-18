@@ -214,7 +214,11 @@ describe('confirmSuggestion / dismissSuggestion', () => {
 
     const res = await confirmSuggestion(project, escalation.id);
     expect(res.ok).toBe(true);
-    expect(getTodo(project, work.id)?.status).toBe('ready'); // verb applied
+    // De-conflate: the reset_todo verb APPROVES (clears hold) — stored 'planned',
+    // approvedAt set → DERIVES claimable.
+    expect(getTodo(project, work.id)?.status).toBe('planned');
+    expect(getTodo(project, work.id)?.approvedAt).not.toBeNull();
+    expect(getTodo(project, work.id)?.heldAt).toBeNull();
     expect(getEscalation(escalation.id)?.status).toBe('resolved');
     expect(getEscalation(escalation.id)?.suggestedAction).toBeNull();
   });
@@ -228,7 +232,10 @@ describe('confirmSuggestion / dismissSuggestion', () => {
 
     const res = await confirmSuggestion(project, escalation.id);
     expect(res.ok).toBe(false);
-    expect(getTodo(project, work.id)?.status).toBe('blocked'); // NOT mutated
+    // NOT mutated — created via status:'blocked' (seam → heldAt='manual', stored
+    // 'planned'); the rejected confirm leaves it held.
+    expect(getTodo(project, work.id)?.status).toBe('planned');
+    expect(getTodo(project, work.id)?.heldAt).not.toBeNull();
     const after = getEscalation(escalation.id);
     expect(after?.status).toBe('open'); // still open
     expect(after?.routedTo).toBe('human'); // re-routed
@@ -246,7 +253,9 @@ describe('confirmSuggestion / dismissSuggestion', () => {
 
     const res = await confirmSuggestion(project, escalation.id);
     expect(res.reason).toBe('stale');
-    expect(getTodo(project, work.id)?.status).toBe('blocked'); // untouched
+    // untouched — created via status:'blocked' (seam → heldAt, stored 'planned').
+    expect(getTodo(project, work.id)?.status).toBe('planned');
+    expect(getTodo(project, work.id)?.heldAt).not.toBeNull();
     expect(getEscalation(escalation.id)?.suggestedAction).toBeNull();
   });
 

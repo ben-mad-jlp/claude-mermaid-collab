@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerOrchestratorKick, fireOrchestratorKick } from '../orchestrator-kick';
-import { createTodo, updateTodo, completeTodo, resetTodo, _closeProject } from '../todo-store';
+import { createTodo, updateTodo, completeTodo, resetTodo, listReadyTodos, _closeProject } from '../todo-store';
 
 describe('orchestrator-kick seam', () => {
   afterEach(() => registerOrchestratorKick(() => {})); // reset hook between tests
@@ -52,17 +52,18 @@ describe('todo-store fires the kick on ready transitions', () => {
 
     await createTodo(project, { ownerSession: 's1', title: 'hot', status: 'ready' });
     expect(kicks.length).toBe(1);
-    expect(kicks[0]).toStartWith('todo-created-ready:');
+    // De-conflate: status:'ready' is the APPROVE decision → the kick keys on it.
+    expect(kicks[0]).toStartWith('todo-created-approved:');
   });
 
   test('updateTodo kicks only on the transition INTO ready', async () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'a', status: 'planned' });
     expect(kicks).toEqual([]);
 
-    // planned → ready: kick.
+    // planned → ready (approve): kick.
     await updateTodo(project, t.id, { status: 'ready' });
     expect(kicks.length).toBe(1);
-    expect(kicks[0]).toStartWith('todo-ready:');
+    expect(kicks[0]).toStartWith('approved:');
 
     // ready → ready (idempotent re-write, e.g. a title edit): no new kick.
     await updateTodo(project, t.id, { title: 'a2' });
@@ -73,30 +74,39 @@ describe('todo-store fires the kick on ready transitions', () => {
     expect(kicks.length).toBe(1);
   });
 
-  test('completeTodo kicks when a finished dep unblocks a dependent to ready', async () => {
+  test('completeTodo fires a dep-terminal kick; the unblocked dependent DERIVES claimable', async () => {
     const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
-    const child = await createTodo(project, { ownerSession: 's1', title: 'child', status: 'blocked', dependsOn: [dep.id] });
-    expect(child.status).toBe('blocked');
+    // De-conflate: a dep-blocked child is APPROVED + has an unsatisfied dep (derives
+    // deps-pending) — NOT status:'blocked' (the seam would make that a manual hold,
+    // which the dep completion would NOT clear).
+    const child = await createTodo(project, { ownerSession: 's1', title: 'child', status: 'ready', dependsOn: [dep.id] });
+    expect(listReadyTodos(project).map((t) => t.id)).not.toContain(child.id); // held by the dep
     kicks.length = 0; // ignore the create kicks
 
     const res = await completeTodo(project, dep.id, 'accepted');
-    expect(res.promoted).toContain(child.id);
-    expect(kicks.some((k) => k.startsWith('deps-unblocked:'))).toBe(true);
+    // The blocked→ready fan-out is DELETED — `promoted` is always empty now; the
+    // child simply DERIVES claimable once its dep is terminal.
+    expect(res.promoted).toEqual([]);
+    expect(listReadyTodos(project).map((t) => t.id)).toContain(child.id);
+    // A dep-terminal completion fires the capacity kick so the daemon re-ticks.
+    expect(kicks.some((k) => k.startsWith('dep-terminal:'))).toBe(true);
   });
 
-  test('completeTodo does NOT kick when nothing unblocks', async () => {
+  test('completeTodo fires the dep-terminal capacity kick even when nothing unblocks', async () => {
     const solo = await createTodo(project, { ownerSession: 's1', title: 'solo', status: 'ready' });
     kicks.length = 0;
     const res = await completeTodo(project, solo.id, 'accepted');
     expect(res.promoted).toEqual([]);
-    expect(kicks).toEqual([]);
+    // De-conflate: a non-rejected completion is itself the capacity event → it kicks
+    // (dep-terminal) regardless of dependents, so a freed lane re-ticks promptly.
+    expect(kicks).toEqual([`dep-terminal:${solo.id.slice(0, 8)}`]);
   });
 
   test('resetTodo to ready kicks (steward unstick)', async () => {
     const t = await createTodo(project, { ownerSession: 's1', title: 'stuck', status: 'blocked' });
     kicks.length = 0;
-    await resetTodo(project, t.id); // defaults to 'ready'
+    await resetTodo(project, t.id); // defaults to 'ready' = approve + clear-hold
     expect(kicks.length).toBe(1);
-    expect(kicks[0]).toStartWith('todo-reset:');
+    expect(kicks[0]).toStartWith('unheld:');
   });
 });
