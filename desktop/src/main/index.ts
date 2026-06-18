@@ -683,10 +683,14 @@ if (gotLock) {
     }
   });
 
+  // Quit fully when the window closes — including on macOS. The usual Apple
+  // convention (keep the app alive in the dock, reopen via `activate`) assumes a
+  // tray/menu-bar affordance to interact while windowless; this app has none, so
+  // a lingering dock dot just holds :9002 and forces a confusing second Cmd+Q
+  // before the user can relaunch. Tearing down the sidecar here also lets the
+  // relaunch redeploy a freshly-built binary (see the teardownSidecar note above).
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      teardownSidecar();
-      app.quit();
-    }
+    teardownSidecar();
+    app.quit();
   });
 }
