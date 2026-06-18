@@ -6,6 +6,7 @@ import { useTabsStore, useSessionTabs } from '@/stores/tabsStore';
 import { SubscriptionsPanel } from '@/components/layout/SubscriptionsPanel';
 import { SupervisorPanel } from '@/components/layout/SupervisorPanel';
 import { ServersTreeSection } from '@/components/layout/sidebar-tree/ServersTreeSection';
+import { VersionBadge } from '@/components/layout/VersionBadge';
 import { ArtifactTree } from '@/components/layout/sidebar-tree/ArtifactTree';
 import { WorktreeBadge } from '@/components/layout/WorktreeBadge';
 import { useDataLoader } from '@/hooks/useDataLoader';
@@ -127,6 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="shrink-0 border-t border-gray-200 dark:border-gray-700 max-h-[40%] overflow-y-auto">
         <ServersTreeSection />
       </div>
+      <VersionBadge />
     </aside>
   );
 };
