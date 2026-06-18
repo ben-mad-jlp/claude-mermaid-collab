@@ -1,6 +1,6 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable } from './claimability';
+import { isClaimable, claimReason, derivedStatus, type ClaimReason } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -1014,6 +1014,51 @@ export function listReadyTodos(project: string): Todo[] {
   const all = listTodos(project, { includeCompleted: true });
   const byId = new Map(all.map((t) => [t.id, t]));
   return all.filter((t) => isClaimable(t, byId));
+}
+
+/**
+ * A todo enriched with its DERIVED claimability view, for CLIENT surfaces that
+ * have no local derivation (the MCP tools planners/workers read). The UI does NOT
+ * use this — it derives client-side from the raw row (ui/src/lib/claimability.ts),
+ * so HTTP responses keep the raw stored `status`. Here we make the DERIVED status
+ * the displayed `status` (planned/ready/blocked/in_progress/done/dropped, computed
+ * live) and expose the raw `storedStatus` alongside, plus the explicit signals.
+ *
+ * This is the missing implementation of claimability.ts's contract that "every
+ * reader renders derivedStatus/isClaimable/claimReason VERBATIM" — without it a
+ * planner who writes status:'ready' reads back the raw stored 'planned' and can't
+ * tell their approval took effect (it did: approvedAt is stamped, the row derives
+ * ready/claimable).
+ */
+export type TodoView = Todo & {
+  /** The raw persisted status (planned/backlog/todo/done/dropped) — never derived. */
+  storedStatus: TodoStatus;
+  /** Live-derived status: planned|ready|blocked|in_progress|done|dropped. Mirrors `status`. */
+  derivedStatus: TodoStatus;
+  /** True iff a daemon may claim this todo (modulo the daemon-side live probe). */
+  isClaimable: boolean;
+  /** Why this todo is/!claimable — the single explanatory signal. */
+  claimReason: ClaimReason;
+};
+
+/**
+ * Enrich todos with their derived claimability view. `byId` spans the WHOLE
+ * project (deps may live outside the passed slice), so we read the full graph once.
+ */
+export function deriveTodoViews(project: string, todos: Todo[]): TodoView[] {
+  const all = listTodos(project, { includeCompleted: true });
+  const byId = new Map(all.map((t) => [t.id, t]));
+  return todos.map((t) => {
+    const ds = derivedStatus(t, byId) as TodoStatus;
+    return {
+      ...t,
+      storedStatus: t.status,
+      status: ds,
+      derivedStatus: ds,
+      isClaimable: isClaimable(t, byId),
+      claimReason: claimReason(t, byId),
+    };
+  });
 }
 
 export interface CreateGateInput {

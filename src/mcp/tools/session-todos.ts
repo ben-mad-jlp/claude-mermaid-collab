@@ -15,7 +15,9 @@ import {
   removeTodo,
   clearCompleted,
   reorder,
+  deriveTodoViews,
   type Todo,
+  type TodoView,
   type TodoStatus,
   type TodoLink,
 } from '../../services/todo-store.js';
@@ -55,7 +57,12 @@ export interface ListSessionTodosOptions {
 export interface CompactTodo {
   id: string;
   title: string;
+  /** Live-derived status (planned|ready|blocked|in_progress|done|dropped). */
   status: TodoStatus;
+  /** Raw persisted status — never derived. */
+  storedStatus: TodoStatus;
+  isClaimable: boolean;
+  claimReason: string;
   completed: boolean;
   ownerSession: string;
   assigneeSession: string | null;
@@ -71,11 +78,14 @@ export interface CompactTodo {
   targetProject: string | null;
 }
 
-function toCompactTodo(t: Todo): CompactTodo {
+function toCompactTodo(t: TodoView): CompactTodo {
   return {
     id: t.id,
     title: t.title,
-    status: t.status,
+    status: t.derivedStatus,
+    storedStatus: t.storedStatus,
+    isClaimable: t.isClaimable,
+    claimReason: t.claimReason,
     completed: t.completed,
     ownerSession: t.ownerSession,
     assigneeSession: t.assigneeSession,
@@ -121,7 +131,7 @@ export const listSessionTodosSchema = {
     status: {
       type: 'string',
       enum: ['backlog', 'planned', 'todo', 'ready', 'in_progress', 'blocked', 'done', 'dropped'],
-      description: 'Filter todos by status',
+      description: "Filter by status. ready/blocked/in_progress are DERIVED (computed live), so this filters on each todo's derivedStatus, not the raw stored value.",
     },
     compact: {
       type: 'boolean',
@@ -148,7 +158,7 @@ export const addSessionTodoSchema = {
     status: {
       type: 'string',
       enum: ['backlog', 'planned', 'todo', 'ready', 'in_progress', 'blocked', 'done', 'dropped'],
-      description: 'Initial status (default: todo)',
+      description: "Initial status (default: todo). ready/blocked/in_progress are DERIVED, not stored: 'ready' = approve-to-run (stamps approvedAt, stored status stays planned), 'blocked' = hold. The response's `derivedStatus`/`status` reflect the effective state.",
     },
     priority: { type: 'number', description: 'Priority 0-4 (0=highest)' },
     dueDate: { type: 'string', description: 'ISO date string for due date' },
@@ -186,7 +196,7 @@ export const updateSessionTodoSchema = {
     status: {
       type: 'string',
       enum: ['backlog', 'planned', 'todo', 'ready', 'in_progress', 'blocked', 'done', 'dropped'],
-      description: 'New status (optional)',
+      description: "New status (optional). ready/blocked/in_progress are DERIVED, never stored: writing 'ready' APPROVES the todo (stamps approvedAt) — the raw stored `status` intentionally stays 'planned' while `derivedStatus`/`status` in the response become 'ready'. Writing 'blocked' = hold. 'in_progress' is rejected (claims are daemon-only). Do NOT retry if the stored status reads 'planned' after approving — check derivedStatus/isClaimable instead.",
     },
     assigneeSession: { type: 'string', description: 'Reassign to this session (optional)' },
     assigneeKind: { type: 'string', enum: ['agent', 'human'], description: 'Set assignee kind: agent (default) or human. Attribution, not auth (optional).' },
@@ -293,18 +303,22 @@ export async function listSessionTodos(
   project: string,
   session: string,
   opts: ListSessionTodosOptions = {}
-): Promise<Todo[] | CompactTodo[]> {
-  const todos = await listTodos(project, {
+): Promise<TodoView[] | CompactTodo[]> {
+  // Fetch raw (no status filter here — `ready`/`blocked`/`in_progress` are derived,
+  // never stored, so a raw status filter would never match them), enrich to the
+  // derived view, THEN filter on the derived status so `status:'ready'` works.
+  const raw = await listTodos(project, {
     session,
     assigneeSession: opts.assigneeSession,
-    status: opts.status,
     includeCompleted: opts.includeCompleted,
   });
-  if (opts.compact) return todos.map(toCompactTodo);
+  let views = deriveTodoViews(project, raw);
+  if (opts.status) views = views.filter((t) => t.derivedStatus === opts.status);
+  if (opts.compact) return views.map(toCompactTodo);
   if (opts.descriptionLimit != null && opts.descriptionLimit >= 0) {
-    return todos.map((t) => truncateDescription(t, opts.descriptionLimit!));
+    return views.map((t) => truncateDescription(t, opts.descriptionLimit!) as TodoView);
   }
-  return todos;
+  return views;
 }
 
 /** The per-project default epic that orphan work todos are parented under so

@@ -64,7 +64,7 @@ import { bom } from '../services/system-object-bom.js';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.js';
 import { specHealth, syncShortlist } from '../services/cartographer.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
-import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision } from '../services/todo-store.js';
+import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
 import { checkInvariants } from '../services/invariant-check.js';
 import { gateStatus } from '../services/gate-status.js';
 import { instanceTopology } from '../services/instance-topology.js';
@@ -2103,7 +2103,7 @@ IMPORTANT - Common pitfalls to avoid:
       // Session todos tools
       {
         name: 'list_session_todos',
-        description: 'List per-session todos (checkable list attached to a collab session). Set includeCompleted=false to filter out completed items. For long-lived sessions with many todos, pass compact=true (slim projection, omits descriptions) to stay under the token cap, or descriptionLimit=N to truncate descriptions. Results are sorted by order ascending.',
+        description: "List per-session todos (checkable list attached to a collab session). Each todo carries a DERIVED claimability view: `status`/`derivedStatus` = the live state (planned/ready/blocked/in_progress/done/dropped), `storedStatus` = the raw persisted value, plus `isClaimable` + `claimReason`. An approved todo reads derivedStatus:'ready' even though storedStatus stays 'planned'. Set includeCompleted=false to filter out completed items. For long-lived sessions with many todos, pass compact=true (slim projection, omits descriptions) to stay under the token cap, or descriptionLimit=N to truncate descriptions. Results are sorted by order ascending.",
         inputSchema: listSessionTodosSchema,
       },
       {
@@ -2164,7 +2164,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'await_human_decision', description: 'Block until a human posts a decision for the given escalation (via the decide endpoint), then return the chosen optionId + any note. Use after filing a structured escalation (escalation_create with options[]) to relay an A/B decision without ending the turn. Returns { timedOut: true } if no answer arrives within timeoutMs.', inputSchema: { type: 'object', properties: { escalationId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Max time to wait in ms (default 600000 = 10 min).' } }, required: ['escalationId'] } },
       { name: 'supervisor_next_decision', description: 'On-demand supervisor LLM poll: return the oldest PENDING ambiguous-stop decision request (id, workerSession, signal, snapshot) the watchdog daemon enqueued, or null when the queue is empty. Read the snapshot, JUDGE, then call supervisor_resolve_decision. The LLM never loops or acts — it only judges; the daemon acts on the verdict.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Optional project scope; omit for all watched projects.' } } } },
       { name: 'supervisor_resolve_decision', description: 'Write a verdict for a pending decision request (the supervisor LLM\'s one judgment). verdict: escalate (surface to the human), nudge/resume (push the worker to continue), or wait (leave it). EPOCH-GATED: pass supervisorEpoch; a superseded supervisor is rejected and performs no write. The daemon acts on the verdict on its next tick.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, verdict: { type: 'string', enum: ['escalate', 'nudge', 'resume', 'wait'] }, reason: { type: 'string', description: 'Short rationale for the verdict (recorded for provenance).' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected (superseded).' } }, required: ['id', 'verdict'] } },
-      { name: 'get_todo', description: 'Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). Used by a worker to read its claimed todo.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
+      { name: 'get_todo', description: "Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). `status`/`derivedStatus` are the live-DERIVED state and `storedStatus` is the raw persisted value (an approved todo derives 'ready' while storedStatus stays 'planned'); also returns isClaimable + claimReason. Used by a worker to read its claimed todo.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
       { name: 'gate_status', description: "Read-only per-project acceptance-gate status. Returns the CONFIGURED gate command (the project's .collab/project.json `gateCommand`, the tsc/test invocation the completion gate runs) — or null + `gateConfigured:false` when the project uses the default worker change-set-scoped tsc+tests — plus the last N gate results per todo (from the durable supervisor audit trail): each carries { todoId, title, passed, acceptance, acceptanceStatus, ts, reason }. Lets the steward answer 'why is this todo blocked / how is the gate set up?' without spelunking the DB or manifest.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose gate config + recent results to report.' }, limit: { type: 'number', description: 'Max recent gate results to return (default 20, capped 200).' } }, required: ['project'] } },
       { name: 'invariant_check', description: "Read-only work-graph health check. Returns only the VIOLATIONS of the documented invariants (not the whole graph): orphan (non-epic todo with no [EPIC] ancestor), stranded-epic ([EPIC] with no [LAND] leaf beneath it), epic-planned-ready-child (epic still 'planned' with a 'ready' child), broken-depends-on (dependsOn points at a missing/dropped todo), blocked-on-nothing ('blocked' but every dep is done). A clean graph returns []. Each violation carries { kind, todoId, title, reason }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose work-graph to check.' } }, required: ['project'] } },
@@ -3664,7 +3664,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
             const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
-            return JSON.stringify(result, null, 2);
+            return JSON.stringify({ ...deriveTodoViews(project, [result])[0] }, null, 2);
           }
 
           case 'update_session_todo': {
@@ -3692,7 +3692,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName, targetProject });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
-            return JSON.stringify(result, null, 2);
+            return JSON.stringify({ ...deriveTodoViews(project, [result])[0], previousAssigneeSession: result.previousAssigneeSession ?? undefined }, null, 2);
           }
 
           case 'toggle_session_todo': {
@@ -3705,7 +3705,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await toggleSessionTodo(project, session, id, completed);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
-            return JSON.stringify(result, null, 2);
+            return JSON.stringify({ ...deriveTodoViews(project, [result])[0] }, null, 2);
           }
 
           case 'remove_session_todo': {
@@ -3750,7 +3750,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
             const result = await assignSessionTodo(project, session, id, assigneeSession);
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
-            return JSON.stringify(result, null, 2);
+            return JSON.stringify({ ...deriveTodoViews(project, [result])[0], previousAssigneeSession: result.previousAssigneeSession ?? undefined }, null, 2);
           }
 
           case 'roadmap_list': {
@@ -4702,7 +4702,7 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !todoId) throw new Error('Missing required: project, todoId');
             const todo = getTodo(project, todoId);
             if (!todo) throw new Error(`todo not found: ${todoId}`);
-            return JSON.stringify(todo, null, 2);
+            return JSON.stringify(deriveTodoViews(project, [todo])[0], null, 2);
           }
           case 'invariant_check': {
             const { project } = args as { project: string };
@@ -4821,7 +4821,7 @@ IMPORTANT - Common pitfalls to avoid:
             const result = await resetTodo(project, todoId, status ?? 'ready', targetProject);
             if (asSteward && escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-            return JSON.stringify(result, null, 2);
+            return JSON.stringify(deriveTodoViews(project, [result])[0], null, 2);
           }
           case 'create_gate': {
             const { project, workTodoId, title, description, gateKind, parentId, decisionRef } = args as { project: string; workTodoId: string; title: string; description?: string | null; gateKind?: string; parentId?: string | null; decisionRef?: string | null };
@@ -4841,7 +4841,7 @@ IMPORTANT - Common pitfalls to avoid:
             const result = await overrideAcceptTodo(project, todoId, completedBy ?? 'steward');
             if (asSteward && escalationId) supervisorStore.resolveEscalation(escalationId, 'resolved');
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-            return JSON.stringify(result, null, 2);
+            return JSON.stringify({ ...result, completed: deriveTodoViews(project, [result.completed])[0] }, null, 2);
           }
           case 'checkpoint_ready': {
             const { project, session, checkpointTodoId, checkpointDocId, maxWriteAgeMs } = args as { project: string; session: string; checkpointTodoId?: string; checkpointDocId?: string; maxWriteAgeMs?: number };

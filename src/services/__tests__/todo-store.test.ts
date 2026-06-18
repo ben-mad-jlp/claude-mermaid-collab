@@ -7,6 +7,7 @@ import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
+  deriveTodoViews,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { isClaimable, claimReason } from '../claimability';
@@ -916,5 +917,44 @@ describe('S3 write-side translation seam', () => {
     expect(ids).toContain(claimable.id);
     expect(ids).not.toContain(unapproved.id);
     expect(ids).not.toContain(human.id);
+  });
+});
+
+describe('deriveTodoViews — the client-facing derived view (MCP surface)', () => {
+  test("approving via status:'ready' surfaces derivedStatus:'ready' while storedStatus stays 'planned'", async () => {
+    // This is the exact planner scenario: write status:'ready' (translated to an
+    // approval — stamps approvedAt, keeps stored status 'planned'), then READ it back.
+    const epic = await createTodo(project, { ownerSession: 's1', title: '[EPIC] E' });
+    const t = await createTodo(project, { ownerSession: 's1', title: 'C0', parentId: epic.id, status: 'planned' });
+    expect(t.status).toBe('planned');
+    expect(t.approvedAt).toBeNull();
+
+    await updateTodo(project, t.id, { status: 'ready' }); // the approve verb
+    const stored = getTodo(project, t.id)!;
+    expect(stored.status).toBe('planned'); // raw row unchanged (by design)
+    expect(stored.approvedAt).not.toBeNull(); // approval recorded
+
+    const [view] = deriveTodoViews(project, [stored]);
+    expect(view.storedStatus).toBe('planned'); // truth preserved
+    expect(view.derivedStatus).toBe('ready'); // ← what the planner sees now
+    expect(view.status).toBe('ready'); // displayed status mirrors derived
+    expect(view.isClaimable).toBe(true);
+    expect(view.claimReason).toBe('claimable');
+  });
+
+  test('unapproved todo derives planned + unapproved; blocked dep derives deps-pending', async () => {
+    const epic = await createTodo(project, { ownerSession: 's1', title: '[EPIC] E2' });
+    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', parentId: epic.id });
+    const child = await createTodo(project, { ownerSession: 's1', title: 'child', parentId: epic.id, dependsOn: [dep.id] });
+    await updateTodo(project, child.id, { status: 'ready' }); // approve, but dep not done
+
+    const views = deriveTodoViews(project, [getTodo(project, dep.id)!, getTodo(project, child.id)!]);
+    const depView = views.find((v) => v.id === dep.id)!;
+    const childView = views.find((v) => v.id === child.id)!;
+    expect(depView.derivedStatus).toBe('planned'); // unapproved
+    expect(depView.claimReason).toBe('unapproved');
+    expect(childView.derivedStatus).toBe('blocked'); // approved but dep pending
+    expect(childView.isClaimable).toBe(false);
+    expect(childView.claimReason).toBe('deps-pending');
   });
 });
