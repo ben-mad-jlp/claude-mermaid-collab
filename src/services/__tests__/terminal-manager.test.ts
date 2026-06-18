@@ -42,7 +42,7 @@ describe('TerminalManager', () => {
 
       const path = manager['getStoragePath'](project, session);
 
-      expect(path).toBe('/path/to/project/.collab/my-session/terminal-sessions.json');
+      expect(path).toBe('/path/to/project/.collab/sessions/my-session/terminal-sessions.json');
     });
 
     it('should handle absolute paths correctly', () => {
@@ -54,7 +54,7 @@ describe('TerminalManager', () => {
       expect(path).toContain('.collab');
       expect(path).toContain('collab-123');
       expect(path).toContain('terminal-sessions.json');
-      expect(path).toBe(join(project, '.collab', session, 'terminal-sessions.json'));
+      expect(path).toBe(join(project, '.collab', 'sessions', session, 'terminal-sessions.json'));
     });
   });
 
@@ -165,7 +165,7 @@ describe('TerminalManager', () => {
 
       await manager.writeSessions(testDir, 'new-session', state);
 
-      const storagePath = join(testDir, '.collab', 'new-session', 'terminal-sessions.json');
+      const storagePath = join(testDir, '.collab', 'sessions', 'new-session', 'terminal-sessions.json');
       expect(existsSync(storagePath)).toBe(true);
     });
 
@@ -185,7 +185,7 @@ describe('TerminalManager', () => {
 
       await manager.writeSessions(testDir, 'test-session', state);
 
-      const storagePath = join(testDir, '.collab', 'test-session', 'terminal-sessions.json');
+      const storagePath = join(testDir, '.collab', 'sessions', 'test-session', 'terminal-sessions.json');
       const content = readFileSync(storagePath, 'utf-8');
       const parsed = JSON.parse(content) as TerminalSessionsState;
 
@@ -202,7 +202,7 @@ describe('TerminalManager', () => {
 
       await manager.writeSessions(testDir, 'test-session', state);
 
-      const storagePath = join(testDir, '.collab', 'test-session', 'terminal-sessions.json');
+      const storagePath = join(testDir, '.collab', 'sessions', 'test-session', 'terminal-sessions.json');
       const content = readFileSync(storagePath, 'utf-8');
       const parsed = JSON.parse(content) as TerminalSessionsState;
 
@@ -221,7 +221,7 @@ describe('TerminalManager', () => {
 
       await manager.writeSessions(testDir, 'test-session', state);
 
-      const storagePath = join(testDir, '.collab', 'test-session', 'terminal-sessions.json');
+      const storagePath = join(testDir, '.collab', 'sessions', 'test-session', 'terminal-sessions.json');
       const content = readFileSync(storagePath, 'utf-8');
 
       expect(content).toContain('\n');

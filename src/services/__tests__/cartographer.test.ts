@@ -109,7 +109,7 @@ describe('inverse coverage — the satisfy-edge KEY (aboutObjectId, not srcId)',
   test('a NON-done object-todo is not a coverage gap', async () => {
     const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC]' });
     activeRequirement(epic.id, 'req-A');
-    await createTodo(project, { ownerSession: 's', title: 'wip', status: 'in_progress', objectRef: objId, parentId: epic.id });
+    await createTodo(project, { ownerSession: 's', title: 'wip', status: 'planned', objectRef: objId, parentId: epic.id });
     expect(inverseCoverage(project)).toHaveLength(0);
   });
 });
