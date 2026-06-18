@@ -255,7 +255,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   : 'border-gray-200 dark:border-gray-700'
               }`}
             >
-              {lane.epic && <CopyId id={lane.epic.id} className="text-gray-400 dark:text-gray-500 mr-1 shrink-0" />}
+              {lane.epic && <CopyId id={lane.epic.id} className="text-xs text-gray-400 dark:text-gray-500 mr-1 shrink-0" />}
               <button
                 type="button"
                 onClick={lane.epic && onSelectTodo ? () => onSelectTodo(lane.epic!) : undefined}
