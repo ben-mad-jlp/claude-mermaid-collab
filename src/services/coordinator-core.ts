@@ -65,6 +65,28 @@ export function planOrphanReap(todos: Todo[], now: string, graceMs: number): Orp
   return out;
 }
 
+/**
+ * Heal-on-restart selector: ids of in_progress leaves whose claim was minted by a
+ * daemon epoch OTHER than the live one. Such a claim's in-process executor died
+ * with that prior daemon, so it is reclaimable ON SIGHT — no liveness probe (a
+ * lingering reusable tmux shell must not shield it, the gap that stranded leaves
+ * across a sidecar hot-swap). Claims with NO epoch (legacy / pre-this-feature)
+ * are excluded here — left to the pulse/grace probes, so this is never worse than
+ * before. Pure; the daemon feeds it `listTodos(status:'in_progress')`.
+ */
+export function planPriorEpochReap(todos: Todo[], liveEpoch: string): string[] {
+  const out: string[] = [];
+  for (const t of todos) {
+    if (t.status !== 'in_progress') continue;
+    if (t.assigneeKind === 'human') continue; // human-owned — never reclaimed
+    if (t.parentId == null) continue;          // epics are containers — never reaped
+    const ep = t.claim?.epoch;
+    if (!ep || ep === liveEpoch) continue;     // no epoch (legacy) or ours (live) → skip
+    out.push(t.id);
+  }
+  return out;
+}
+
 /** How long since a lane's last DURABLE session_status pulse (updatedAt) before
  *  that pulse counts as stale. Paired with a not-alive confirmation for the
  *  two-fact reclaim below; ~8s collapses the orphan-detection latency from the

@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
-import { planOrphanReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
+import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, levelRank, listOrchestratorProjects } from './orchestrator-config';
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
@@ -384,6 +384,14 @@ export function detectRateLimit(pane: string): boolean {
 /** How long since a lane last pulsed before its session_status counts as stale for
  *  the two-fact reclaim. Override with MERMAID_PULSE_STALE_MS. */
 const PULSE_STALE_MS = DEFAULT_PULSE_STALE_MS;
+
+/** This daemon process's epoch — minted once per process at module load, stamped
+ *  onto every claim this process mints (claimTodo). A claim carrying a DIFFERENT
+ *  epoch was minted by a now-dead daemon; since the leaf-executor runs in-process
+ *  it cannot have outlived that process, so such a claim is reclaimable on sight
+ *  (the heal that un-strands leaves killed by a sidecar hot-swap — no liveness
+ *  probe, which a lingering reusable tmux shell would defeat). */
+const COORDINATOR_EPOCH = crypto.randomUUID();
 
 /** The lane's last DURABLE pulse (session_status.updatedAt, ms epoch), or null when
  *  none was ever recorded — the signal that the additive fast path must fall back to
@@ -1291,7 +1299,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // Wrapped to record coordinator lifecycle events into the supervisor audit
     // log → it doubles as the unified orchestration trace (open-problem #10/obs).
     claimTodo: async (project, id, claimedBy, leaseMs) => {
-      const c = await claimTodo(project, id, claimedBy, leaseMs);
+      const c = await claimTodo(project, id, claimedBy, leaseMs, COORDINATOR_EPOCH);
       if (c) recordSupervisorAudit({ kind: 'claim', project, session: c.sessionName ?? '', detail: JSON.stringify({ todoId: id, claimedBy }) });
       return c;
     },
@@ -1679,6 +1687,30 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const nowMs = Date.parse(now);
       const inProgress = listTodos(project, { status: 'in_progress' });
 
+      // PRIOR-EPOCH FAST PATH (heal-on-restart): a claim stamped with a daemon
+      // epoch other than THIS process's was minted by a now-dead daemon. The
+      // leaf-executor runs in-process, so it cannot have outlived that process —
+      // reclaim on sight, NO liveness probe (a lingering reusable tmux shell must
+      // not shield it; that gap stranded leaves across a sidecar hot-swap until
+      // lease expiry). Claims with no epoch (legacy/pre-this-feature) are left to
+      // the pulse/grace probes below — never worse than today.
+      const priorEpochReaped = new Set<string>();
+      for (const id of planPriorEpochReap(inProgress, COORDINATOR_EPOCH)) {
+        const t = inProgress.find((x) => x.id === id)!;
+        const next = await reclaimOrphan(project, id);
+        if (next == null) continue;                 // raced to terminal
+        if (t.sessionName) markIdle(t.targetProject ?? project, t.sessionName); // free pool slot
+        priorEpochReaped.add(id);
+        if (next === 'ready') reclaimed.push(id);
+        else exhausted.push(id);
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: t.sessionName ?? '',
+          detail: JSON.stringify({ source: 'prior-epoch-reap', todoId: id, outcome: next, claimEpoch: t.claim?.epoch, liveEpoch: COORDINATOR_EPOCH }),
+        });
+      }
+
       // FAST PATH (Phase 1, decision 9cd01858): derive staleness from the DURABLE
       // session_status pulse instead of the 15-min/​~9h todo-updatedAt grace. A leaf
       // whose lane last pulsed > PULSE_STALE_MS ago AND whose worker is CONFIRMED
@@ -1690,6 +1722,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const snap = await procSnapshot();
       const fastReaped = new Set<string>();
       for (const t of inProgress) {
+        if (priorEpochReaped.has(t.id)) continue; // already reclaimed by the prior-epoch pass
         if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
         if (t.parentId == null) continue; // epics are containers — never reaped
         const session = t.sessionName;
@@ -1718,7 +1751,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the fast path did not already reap (incl. all NULL-pulse / fresh-pulse lanes).
       const candidates = planOrphanReap(inProgress, now, DEFAULT_ORPHAN_GRACE_MS);
       for (const c of candidates) {
-        if (fastReaped.has(c.id)) continue; // already reclaimed via the durable pulse
+        if (priorEpochReaped.has(c.id) || fastReaped.has(c.id)) continue; // already reclaimed (prior-epoch or pulse)
         // Live in-process lane (no tmux) → never reap on tmux absence (§6.7 bootstrap).
         if (c.sessionName && await inProcessLaneAlive(c.sessionName)) continue;
         // Case B (claim past lease): only reap once the worker's tmux is confirmed

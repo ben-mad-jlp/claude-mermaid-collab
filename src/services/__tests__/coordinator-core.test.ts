@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { planCoordinatorTick, planOrphanReap, shouldPulseReap } from '../coordinator-core';
+import { planCoordinatorTick, planOrphanReap, planPriorEpochReap, shouldPulseReap } from '../coordinator-core';
 import type { Todo } from '../todo-store';
 
 function makeTodo(overrides: Partial<Todo> & { id: string; status: Todo['status'] }): Todo {
@@ -228,5 +228,36 @@ describe('shouldPulseReap (Phase 1 two-fact reclaim, decision 9cd01858)', () => 
     // planOrphanReap age/lease grace governs it — strictly additive.
     expect(shouldPulseReap(null, NOW, STALE, true)).toBe(false);
     expect(shouldPulseReap(null, NOW, STALE, false)).toBe(false);
+  });
+});
+
+describe('planPriorEpochReap (heal-on-restart)', () => {
+  const LIVE = 'epoch-live';
+  const claim = (epoch?: string) => ({ by: 'coordinator', token: 't', at: NOW, leaseMs: 60_000, ...(epoch ? { epoch } : {}) });
+
+  test('reclaims an in_progress leaf claimed by a PRIOR epoch', () => {
+    const t = makeTodo({ id: 'a', status: 'in_progress', parentId: 'epic', claim: claim('epoch-dead') });
+    expect(planPriorEpochReap([t], LIVE)).toEqual(['a']);
+  });
+
+  test('leaves a leaf claimed by the LIVE epoch alone', () => {
+    const t = makeTodo({ id: 'a', status: 'in_progress', parentId: 'epic', claim: claim(LIVE) });
+    expect(planPriorEpochReap([t], LIVE)).toEqual([]);
+  });
+
+  test('leaves a legacy (no-epoch) claim to the probes', () => {
+    const t = makeTodo({ id: 'a', status: 'in_progress', parentId: 'epic', claim: claim(undefined) });
+    expect(planPriorEpochReap([t], LIVE)).toEqual([]);
+  });
+
+  test('never touches epics (no parent) or human-owned leaves', () => {
+    const epic = makeTodo({ id: 'e', status: 'in_progress', parentId: null, claim: claim('epoch-dead') });
+    const human = makeTodo({ id: 'h', status: 'in_progress', parentId: 'epic', assigneeKind: 'human', claim: claim('epoch-dead') });
+    expect(planPriorEpochReap([epic, human], LIVE)).toEqual([]);
+  });
+
+  test('only in_progress rows are candidates', () => {
+    const planned = makeTodo({ id: 'p', status: 'planned', parentId: 'epic', claim: claim('epoch-dead') });
+    expect(planPriorEpochReap([planned], LIVE)).toEqual([]);
   });
 });

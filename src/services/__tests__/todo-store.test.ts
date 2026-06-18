@@ -958,3 +958,22 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
     expect(childView.claimReason).toBe('deps-pending');
   });
 });
+
+describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
+  test('stamps the passed epoch into the claim; absent when omitted', async () => {
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] E' });
+    const t = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id, status: 'planned' });
+    await updateTodo(project, t.id, { status: 'ready' }); // approve so the CAS claim succeeds
+
+    const claimed = await claimTodo(project, t.id, 'coordinator', 60_000, 'epoch-XYZ');
+    expect(claimed).not.toBeNull();
+    const got = getTodo(project, t.id)!;
+    expect(got.status).toBe('in_progress');
+    expect(got.claim?.epoch).toBe('epoch-XYZ');
+
+    // Reset + reclaim with NO epoch → legacy-shaped claim (epoch undefined).
+    await resetTodo(project, t.id, 'ready');
+    await claimTodo(project, t.id, 'coordinator', 60_000);
+    expect(getTodo(project, t.id)!.claim?.epoch).toBeUndefined();
+  });
+});

@@ -31,6 +31,12 @@ export interface ClaimStruct {
   token: string;
   at: string;
   leaseMs: number;
+  /** Owning daemon-process epoch, stamped at claim time. A claim whose epoch
+   *  differs from the live daemon's was minted by a now-dead process; since the
+   *  leaf-executor runs IN-PROCESS (it cannot outlive its process), such a claim
+   *  is reclaimable on sight without a liveness probe — the heal that frees leaves
+   *  stranded across a sidecar hot-swap. Absent on legacy/pre-epoch claims. */
+  epoch?: string;
 }
 
 /** Whether a todo's assignee is an autonomous agent (default) or a human.
@@ -818,7 +824,7 @@ function assertProjectLocal(project: string): void {
   }
 }
 
-export function claimTodo(project: string, id: string, claimedBy: string, leaseMs: number): Promise<Todo | null> {
+export function claimTodo(project: string, id: string, claimedBy: string, leaseMs: number, epoch?: string): Promise<Todo | null> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
@@ -833,7 +839,7 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     //   status NOT IN done/dropped — not terminal
     //   approvedAt IS NOT NULL    — Planner-approved
     //   heldAt IS NULL            — not held
-    const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs } satisfies ClaimStruct);
+    const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs, ...(epoch ? { epoch } : {}) } satisfies ClaimStruct);
     const res = db.prepare(
       `UPDATE todos SET status='in_progress', claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, claim=?, updatedAt=?
        WHERE id=? AND claim IS NULL AND status NOT IN ('done','dropped') AND approvedAt IS NOT NULL AND heldAt IS NULL`
