@@ -520,6 +520,9 @@ interface WaveOpts {
   nodeBudget?: number;
   /** verify text per call, in order; defaults to 'TSC: CLEAN'. */
   verifyTexts?: string[];
+  /** Change-set seam injection (files this leaf touched). Unset ⇒ seam unwired
+   *  (null) ⇒ prior conservative behaviour (gate fails on any error; no no-op skip). */
+  changeSet?: string[] | null;
   /** Spy collector for persistBlueprint calls (one expected per attempt). */
   persistCalls?: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }>;
 }
@@ -565,6 +568,7 @@ function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[]
     escalate() {},
     recordNode: () => null,
     readBlueprint: async () => manifestText,
+    changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     persistBlueprint: opts.persistCalls
       ? async ({ project, attempt, manifest, blueprintMd }) => {
           opts.persistCalls!.push({ project, attempt, manifest, blueprintMd });
@@ -644,6 +648,59 @@ describe('runLeaf P5 size gate', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('waves-file-stuck');
+  });
+
+  it('(i) WAVES gate: a FOREIGN-only tsc error (file the leaf never touched) PASSES when scoped', async () => {
+    // The build123d ec4c082d failure: every own-file verify clean, but the project-wide
+    // gate tripped on a pre-existing error in an untouched file. With the change-set wired,
+    // the foreign-only failure must be scoped away and the leaf accepted.
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      changeSet: ['a.ts'],
+      // per-file a.ts verify clean; the GATE verify reports an error in an untouched file.
+      verifyTexts: ['TSC: CLEAN', 'foreign/other.ts(12,3): error TS2307: Cannot find module'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).not.toBe('waves-tsc-gate-failed');
+  });
+
+  it('(j) WAVES gate: an IN-SCOPE tsc error (in a file the leaf changed) still BLOCKS', async () => {
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
+      changeSet: ['a.ts'],
+      verifyTexts: ['TSC: CLEAN', 'a.ts(5,2): error TS2322: type mismatch'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('waves-tsc-gate-failed');
+  });
+
+  it('(k) WAVES gate: with the change-set UNWIRED, any gate error BLOCKS (fail-closed, unchanged)', async () => {
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
+      // NO changeSet → seam unwired → null → fail closed even on a foreign error.
+      verifyTexts: ['TSC: CLEAN', 'foreign/other.ts(1,1): error TS2307: x'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('waves-tsc-gate-failed');
+  });
+
+  it('(l) WAVES no-op skip: a wimplement that changes nothing skips its per-file verify', async () => {
+    // Budget-burn regression: an already-satisfied file (not in the change-set after its
+    // wimplement) must NOT spend a verify node. a.ts is touched, b.ts is already done.
+    const { deps, calls } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts', 'b.ts'], tasks: [{ id: 't', files: ['a.ts', 'b.ts'], description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      changeSet: ['a.ts'], // only a.ts was actually changed; b.ts is a no-op
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(calls.filter((c) => c === 'wimplement').length).toBe(2); // both files implemented
+    // Only a.ts gets a per-file verify; b.ts is skipped. Plus the 1 wave-level gate verify.
+    expect(calls.filter((c) => c === 'verify').length).toBe(2);
   });
 
   it('(h) large multi-file waves leaf does NOT budget-exhaust on the DEFAULT budget (L4 regression)', async () => {

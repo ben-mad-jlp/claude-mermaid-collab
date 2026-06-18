@@ -465,6 +465,59 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
+  // changeSet — files this lane's worktree touched: committed work (diff
+  // baseRef..HEAD) UNION uncommitted edits (status --porcelain). Mirrors the
+  // completion gate's lane-local change-set (gate-runner fetchLaneChangeSet) so
+  // the WAVES tsc gate can scope a project-wide failure the same way, and the
+  // executor can detect a no-op wimplement. Mid-leaf the edits are uncommitted
+  // (HEAD still at the epic tip) so `status` carries them; the baseRef diff covers
+  // any committed work. Returns null when no worktree exists or BOTH git reads
+  // fail (→ caller fails closed / unscoped); an empty-but-readable result is a
+  // real empty change-set, not an error.
+  // ---------------------------------------------------------------------------
+  async changeSet(sessionId: string, baseRef?: string): Promise<string[] | null> {
+    const rec = await this.readRecord(sessionId);
+    if (!rec || !(await this.pathExists(rec.path))) return null;
+    const set = new Set<string>();
+    let read = false;
+    if (baseRef) {
+      const d = await this.runGit(
+        rec.path,
+        ['diff', '--name-only', `${baseRef}..HEAD`],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      if (d.code === 0) {
+        read = true;
+        for (const line of d.stdout.split('\n')) {
+          const p = line.trim();
+          if (p) set.add(p);
+        }
+      }
+    }
+    const s = await this.runGit(
+      rec.path,
+      ['status', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (s.code === 0) {
+      read = true;
+      for (const line of s.stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // Porcelain: "XY <path>" or rename "XY <old> -> <new>". Strip the 2-char
+        // status + leading space; take the post-arrow path for renames.
+        let p = line.slice(3).trim();
+        const arrow = p.indexOf(' -> ');
+        if (arrow !== -1) p = p.slice(arrow + 4).trim();
+        // Strip surrounding quotes git adds for paths with special chars.
+        if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
+        if (p) set.add(p);
+      }
+    }
+    return read ? [...set] : null;
+  }
+
+  // ---------------------------------------------------------------------------
   // list — enumerate all persisted worktree records.
   // ---------------------------------------------------------------------------
   async list(): Promise<WorktreeInfo[]> {

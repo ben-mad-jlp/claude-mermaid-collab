@@ -29,6 +29,7 @@ import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordi
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
 import { recordNode, setLeafInflight, clearLeafInflight } from './worker-ledger';
+import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -110,6 +111,14 @@ export interface LeafExecutorDeps {
    *  the budget ceiling deterministically without faking a 20-node run. */
   nodeBudget?: number;
   now?: () => number;
+  /** Change-set seam: the files THIS leaf's worktree touched (vs the epic base),
+   *  used to (1) scope the WAVES tsc gate so a PRE-EXISTING foreign error in a file
+   *  the leaf never touched can't block it (matching the completion gate's contract),
+   *  and (2) detect a no-op `wimplement` (file already satisfied) so its per-file verify
+   *  is skipped instead of burning a node. Default → `wm.changeSet(sessionKey, epicBranch)`.
+   *  Optional `?.`: when unwired (tests / non-git) it returns null and BOTH behaviours
+   *  fall back to the prior conservative path (gate fails on any error; no skip). */
+  changeSet?: (sessionKey: string) => Promise<string[] | null>;
   /** P5 size-gate seam: read back the blueprint artifact (the .md the blueprint
    *  node wrote, including its trailing ```json size block) so the executor can
    *  derive the {@link LeafSizeManifest}. Default reads
@@ -972,6 +981,16 @@ export async function runLeaf(
       if (impl.rateLimited) return pausedResult('wimplement', impl);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
+      // No-op short-circuit: if the wimplement made NO change to this file, it was
+      // already satisfied in the worktree baseline — skip its per-file verify (the
+      // final project-wide gate still backstops). Avoids burning a verify node per
+      // already-done file (the budget-exhaustion-on-done-work failure). Only when the
+      // change-set is readable; null (unwired / non-git) → verify as before.
+      const implChangeSet = deps.changeSet ? await deps.changeSet(sessionKey) : null;
+      if (implChangeSet && !isInChangeSet(file, implChangeSet)) {
+        continue; // already-done file → next file
+      }
+
       // VERIFY + per-file FIX loop. same-error-signature-twice = stuck.
       let previousError: string | null = null;
       for (;;) {
@@ -1004,7 +1023,18 @@ export async function runLeaf(
     if (gate.rateLimited) return pausedResult('verify', gate);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!isTscClean(gate.text)) {
-      return parkBlocked('waves-tsc-gate-failed');
+      // The gate runs PROJECT-WIDE tsc, so a PRE-EXISTING error in a file this leaf
+      // never touched would otherwise block an otherwise-clean leaf. Scope the failure
+      // to the leaf's change-set — the same contract the completion gate already uses
+      // (scopeFailureToChangeSet): foreign-only errors PASS; an error in a file the leaf
+      // changed still blocks. When the change-set is unavailable (unwired / non-git), the
+      // scope returns null → we fail closed exactly as before.
+      const gateChangeSet = deps.changeSet ? await deps.changeSet(sessionKey) : null;
+      const scoped = scopeFailureToChangeSet(gate.text ?? '', gateChangeSet);
+      if (!scoped?.passed) {
+        return parkBlocked('waves-tsc-gate-failed');
+      }
+      // foreign-only tsc errors → the leaf's own files are clean → gate passes.
     }
 
     return null; // all clean → caller runs the leaf REVIEW node
@@ -1398,6 +1428,7 @@ export async function makeLeafExecutorDeps(
     },
     mergeToEpic: (sessionKey, eId, message, todoId) =>
       wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
+    changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
     escalate: createEscalation,
     recordNode,
     setInflight: setLeafInflight,
