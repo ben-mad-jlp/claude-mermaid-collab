@@ -260,8 +260,9 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                 className={`text-xs font-semibold text-left truncate ${
                   lane.epic && onSelectTodo ? 'hover:underline cursor-pointer' : 'cursor-default'
                 } text-gray-700 dark:text-gray-200`}
-                title={lane.title}
+                title={lane.epic ? `${lane.epic.id} — ${lane.title}` : lane.title}
               >
+                {lane.epic && <span className="font-mono text-gray-400 dark:text-gray-500">#{lane.epic.id.slice(-4)} </span>}
                 {lane.title}
               </button>
               <span className="text-3xs text-gray-400 dark:text-gray-500">{lane.items.length}</span>
