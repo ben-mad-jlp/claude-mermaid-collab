@@ -2,14 +2,22 @@ import {
   $getSelection,
   $isRangeSelection,
   $isDecoratorNode,
+  $isTextNode,
   type LexicalEditor,
 } from 'lexical';
 import { $createMentionNode, type MentionPayload } from './ComposerMentionNode';
 import { $createSkillNode } from './ComposerSkillNode';
 
+/** The `@query` trigger the picker matches on, anchored at the caret. Kept in
+ *  sync with ComposerPromptEditor's mention-trigger regex. */
+const MENTION_TRIGGER_RE = /@[A-Za-z0-9_./:\-]*$/;
+
 /**
- * Insert a MentionNode at the current selection. Must be called inside
- * an editor.update() context OR will wrap one itself.
+ * Insert a MentionNode at the current selection, FIRST removing the `@query`
+ * trigger text the user typed. Without this the literal `@fo` is left in the
+ * paragraph, the trigger regex re-matches on the next update and re-opens the
+ * picker, and the stray text ships in the message. Must be called inside an
+ * editor.update() context OR will wrap one itself.
  */
 export function insertMention(
   editor: LexicalEditor,
@@ -18,9 +26,26 @@ export function insertMention(
   editor.update(
     () => {
       const selection = $getSelection();
-      if ($isRangeSelection(selection)) {
-        const node = $createMentionNode(payload);
-        selection.insertNodes([node]);
+      if (!$isRangeSelection(selection)) return;
+      // Delete the `@query` trigger immediately before a collapsed caret.
+      const anchor = selection.anchor;
+      if (selection.isCollapsed() && anchor.type === 'text') {
+        const textNode = anchor.getNode();
+        if ($isTextNode(textNode)) {
+          const before = textNode.getTextContent().slice(0, anchor.offset);
+          const m = before.match(MENTION_TRIGGER_RE);
+          if (m) {
+            // moveSelection=true → caret collapses to the deletion start, where
+            // the mention node is then inserted.
+            textNode.spliceText(anchor.offset - m[0].length, m[0].length, '', true);
+          }
+        }
+      }
+      const sel = $getSelection();
+      if ($isRangeSelection(sel)) {
+        sel.insertNodes([$createMentionNode(payload)]);
+        // Trailing space so the mention is separated and the trigger can't re-fire.
+        sel.insertText(' ');
       }
     },
     { discrete: true },

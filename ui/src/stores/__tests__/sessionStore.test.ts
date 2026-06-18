@@ -248,9 +248,11 @@ describe('useSessionStore', () => {
       expect(useSessionStore.getState().selectedDiagramId).toBeNull();
     });
 
-    it('should not select non-existent diagram', () => {
+    it('sets the id unconditionally even for a non-existent diagram', () => {
+      // selectDiagram sets the id without guarding against the list contents;
+      // the viewer resolves missing artifacts gracefully (see store comment).
       useSessionStore.getState().selectDiagram('non-existent');
-      expect(useSessionStore.getState().selectedDiagramId).toBeNull();
+      expect(useSessionStore.getState().selectedDiagramId).toBe('non-existent');
     });
 
     it('should get selected diagram', () => {
@@ -384,9 +386,9 @@ describe('useSessionStore', () => {
       expect(useSessionStore.getState().selectedDocumentId).toBeNull();
     });
 
-    it('should not select non-existent document', () => {
+    it('sets the id unconditionally even for a non-existent document', () => {
       useSessionStore.getState().selectDocument('non-existent');
-      expect(useSessionStore.getState().selectedDocumentId).toBeNull();
+      expect(useSessionStore.getState().selectedDocumentId).toBe('non-existent');
     });
 
     it('should get selected document', () => {
@@ -855,9 +857,9 @@ describe('useSessionStore', () => {
       expect(useSessionStore.getState().selectedSnippetId).toBeNull();
     });
 
-    it('should not select non-existent snippet', () => {
+    it('sets the id unconditionally even for a non-existent snippet', () => {
       useSessionStore.getState().selectSnippet('non-existent');
-      expect(useSessionStore.getState().selectedSnippetId).toBeNull();
+      expect(useSessionStore.getState().selectedSnippetId).toBe('non-existent');
     });
 
     it('should get selected snippet', () => {

@@ -8,7 +8,7 @@ import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { summarize as summarizeLedger } from './worker-ledger';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
-import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
+import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
@@ -664,6 +664,63 @@ async function reopenStrandedAccept(
   }
 }
 
+// --- OI-1 loop-bound: cap stranded-accept reopens -------------------------------
+// reopenStrandedAccept re-surfaces an un-integratable leaf as `ready` so a worker
+// re-does it. But if the LAND itself is structurally stuck (e.g. the work was
+// salvaged to the integration branch out-of-band, so the leaf's OWN commit can
+// never become an ancestor; or the epic→integration land keeps conflicting),
+// re-doing produces another commit that ALSO won't integrate — an infinite
+// re-claim/re-build loop that burns the model budget forever (observed live:
+// build123d A1 "dump_plan core" looped ~5h at `drive`). Bound it: after N reopens
+// for the same leaf, stop re-surfacing and PARK it held + escalate, exactly like
+// the lease-retry-exhaust path, so a human integrates it once instead of the
+// daemon rebuilding it endlessly.
+export const STRANDED_REOPEN_CAP = Number(process.env.MERMAID_STRANDED_REOPEN_CAP) || 3;
+
+/** How many times THIS leaf has already been reversed as not-on-integration. */
+export function countStrandedReversals(project: string, todoId: string): number {
+  try {
+    return listSupervisorAudit({ project, kind: 'reconcile', limit: 1000 }).filter((r) => {
+      try {
+        const d = JSON.parse((r as { detail?: string }).detail ?? '{}');
+        return d.todoId === todoId && d.oi1 === 'reversed-not-on-integration';
+      } catch { return false; }
+    }).length;
+  } catch { return 0; }
+}
+
+/** Park a leaf whose acceptance can't be integrated after repeated reopens: hold it
+ *  (not claimable → the loop stops) + escalate for manual integration. Mirrors
+ *  reopenStrandedAccept's epic re-open, but parks `blocked`/held instead of `ready`. */
+async function parkStrandedAccept(
+  project: string,
+  todoId: string,
+  epicId: string,
+  rolledUp: string[],
+  title: string,
+  intRef: string,
+  session: string,
+  reversals: number,
+): Promise<void> {
+  try {
+    // resetTodo('blocked') translates to a HOLD (heldAt set) → isClaimable=false, so
+    // the daemon stops re-claiming it. (resetTodo auto-resolves stale escalations, so
+    // raise the new one AFTER.)
+    await resetTodo(project, todoId, 'blocked');
+    for (const ep of rolledUp) await resetTodo(project, ep, 'in_progress').catch(() => {});
+    createEscalation({
+      project,
+      session,
+      todoId,
+      kind: 'blocker',
+      questionText: `Stranded acceptance could NOT be integrated after ${reversals} re-attempts: "${title}" keeps being accepted but its commit never becomes reachable from ${intRef}, and the epic→integration land keeps failing. Re-building won't help (the land is structurally stuck — e.g. the work was merged to the integration branch out-of-band). PARKED (held) to stop the re-claim loop. Integrate the epic / mark this todo done by hand, then clear the hold.`,
+    });
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'parked-held-reopen-cap', reversals }) });
+  } catch (e) {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'park-held-failed', reason: e instanceof Error ? e.message : String(e) }) });
+  }
+}
+
 // --- OI-1: accept-time ANCESTOR-OF-INTEGRATION gate -----------------------------
 // Close the stranded-acceptance class: `accepted` must imply `reachable from the
 // integration branch`, so accepted work can never silently fail to ship. This runs
@@ -748,9 +805,17 @@ export async function acceptTimeAncestorGate(
     return true; // fail-safe.
   }
 
-  // Genuinely stranded → reverse the premature acceptance instead of stamping a
-  // false `accepted`. reopenStrandedAccept resets the leaf to `ready` (actionable)
-  // and raises an escalation; we annotate the reason as integration-unreachable.
+  // Genuinely stranded. Re-doing the leaf only helps if the NEXT build can integrate;
+  // if it's failed to integrate repeatedly, re-surfacing it `ready` just loops forever
+  // (the build123d A1 ~5h burn). Bound it: under the cap, reverse to `ready` for a
+  // re-attempt; at/over the cap, PARK held + escalate so a human integrates it once.
+  const reversals = countStrandedReversals(project, todoId);
+  if (reversals >= STRANDED_REOPEN_CAP) {
+    await parkStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session, reversals);
+    return false;
+  }
+  // reopenStrandedAccept resets the leaf to `ready` (actionable) and raises an
+  // escalation; we annotate the reason as integration-unreachable (counted above).
   await reopenStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session);
   recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reversed-not-on-integration' }) });
   return false;

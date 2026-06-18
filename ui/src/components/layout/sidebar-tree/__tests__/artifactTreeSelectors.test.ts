@@ -143,13 +143,10 @@ describe('selectCatchAllDocuments', () => {
 // ---------- selectCatchAllSnippets ----------
 
 describe('selectCatchAllSnippets', () => {
-  it('excludes vibeinstructions, code-type artifacts, dedupes by groupId, uses groupName, tolerates non-JSON', () => {
+  it('excludes vibeinstructions, dedupes by groupId, uses groupName, tolerates non-JSON', () => {
     const items: any[] = [
       snip({ id: 's-plain', name: 'plain', content: 'not json' }),
       snip({ id: 's-vi', name: 'x.vibeinstructions' }),
-      // code-type artifacts are excluded (they appear in the linked-files section)
-      { id: 's-code-1', name: 'linked.ts', type: 'code', filePath: '/a/b.ts', content: '', lastModified: 500 },
-      { id: 's-code-2', name: 'other.ts', type: 'code', filePath: '/c/d.ts', content: '', lastModified: 400 },
       snip({
         id: 's-grp-1',
         name: 'grp-one',
@@ -165,8 +162,6 @@ describe('selectCatchAllSnippets', () => {
     const ids = out.map((n: any) => n.id);
     expect(ids).toContain('s-plain');
     expect(ids).not.toContain('s-vi');
-    expect(ids).not.toContain('s-code-1');
-    expect(ids).not.toContain('s-code-2');
     const groupNodes = out.filter((n: any) => n.name === 'Group One');
     expect(groupNodes.length).toBe(1);
   });

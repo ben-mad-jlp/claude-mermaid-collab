@@ -1,108 +1,96 @@
 /**
- * useEditorHistory Hook Tests
+ * useMonacoHistory Hook Tests
+ *
+ * (Historically useEditorHistory, for the CodeMirror editor. The editor was
+ * migrated to Monaco; the undo/redo history hook is now `useMonacoHistory`.
+ * Unlike the old hook it does not expose an `editorRef` — the editor is held
+ * internally — so behavior is verified through the public surface:
+ *   setEditor / undo / redo / canUndo / canRedo.)
  *
  * Tests verify:
- * - Hook initialization with no editor
- * - Setting editor reference
- * - Tracking undo/redo availability
- * - Undo functionality
- * - Redo functionality
- * - Cleanup when editor is removed
+ * - Hook initialization (canUndo/canRedo false, functions provided)
+ * - Setting / clearing the editor reference
+ * - Undo / redo are safe to call without an editor
+ * - Cleanup / reset when editor is removed
+ * - Independent state across hook instances
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useEditorHistory } from '../useEditorHistory';
+import { useMonacoHistory } from '../useMonacoHistory';
 
-// Create a minimal mock editor for testing
+// Minimal Monaco editor stand-in: getModel() returns a model with the
+// alternative-version-id + onDidChangeContent surface the hook touches.
 function createMockEditor() {
-  // Create a minimal EditorView-like object for testing
+  const model = {
+    getAlternativeVersionId: vi.fn(() => 1),
+    onDidChangeContent: vi.fn(() => ({ dispose: vi.fn() })),
+  };
   const mockEditor = {
-    state: {
-      // Mock state with history
-      history: {
-        done: [],
-        undone: [],
-      },
-    },
-    dispatch: vi.fn(() => {
-      // Mock dispatch
-    }),
+    getModel: vi.fn(() => model),
+    trigger: vi.fn(),
   } as any;
-
   return mockEditor;
 }
 
-describe('useEditorHistory', () => {
+describe('useMonacoHistory', () => {
   describe('Initialization', () => {
-    it('should initialize with null editor ref', () => {
-      const { result } = renderHook(() => useEditorHistory());
-
-      expect(result.current.editorRef.current).toBeNull();
-    });
-
     it('should initialize with canUndo as false', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(result.current.canUndo).toBe(false);
     });
 
     it('should initialize with canRedo as false', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(result.current.canRedo).toBe(false);
     });
 
     it('should provide setEditor function', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(typeof result.current.setEditor).toBe('function');
     });
 
     it('should provide undo function', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(typeof result.current.undo).toBe('function');
     });
 
     it('should provide redo function', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(typeof result.current.redo).toBe('function');
     });
   });
 
   describe('setEditor Function', () => {
-    it('should store editor reference when called with editor', () => {
-      const { result } = renderHook(() => useEditorHistory());
+    it('should accept an editor without throwing', () => {
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
-      act(() => {
-        result.current.setEditor(mockEditor);
-      });
-
-      expect(result.current.editorRef.current).toBe(mockEditor);
+      expect(() => {
+        act(() => {
+          result.current.setEditor(mockEditor);
+        });
+      }).not.toThrow();
     });
 
-    it('should clear editor reference when called with null', () => {
-      const { result } = renderHook(() => useEditorHistory());
+    it('should subscribe to model content changes when given an editor', () => {
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       act(() => {
         result.current.setEditor(mockEditor);
       });
 
-      expect(result.current.editorRef.current).not.toBeNull();
-
-      act(() => {
-        result.current.setEditor(null);
-      });
-
-      expect(result.current.editorRef.current).toBeNull();
+      expect(mockEditor.getModel().onDidChangeContent).toHaveBeenCalled();
     });
 
     it('should reset canUndo and canRedo when editor is null', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       act(() => {
@@ -118,23 +106,23 @@ describe('useEditorHistory', () => {
     });
 
     it('should handle rapid editor changes', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
       const editor1 = createMockEditor();
       const editor2 = createMockEditor();
 
-      act(() => {
-        result.current.setEditor(editor1);
-        result.current.setEditor(null);
-        result.current.setEditor(editor2);
-      });
-
-      expect(result.current.editorRef.current).toBe(editor2);
+      expect(() => {
+        act(() => {
+          result.current.setEditor(editor1);
+          result.current.setEditor(null);
+          result.current.setEditor(editor2);
+        });
+      }).not.toThrow();
     });
   });
 
   describe('Undo Function', () => {
     it('should not crash when undo called without editor', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(() => {
         act(() => {
@@ -144,7 +132,7 @@ describe('useEditorHistory', () => {
     });
 
     it('should not crash when undo called with canUndo false', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       act(() => {
@@ -162,7 +150,7 @@ describe('useEditorHistory', () => {
     });
 
     it('should be callable', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(typeof result.current.undo).toBe('function');
 
@@ -174,7 +162,7 @@ describe('useEditorHistory', () => {
 
   describe('Redo Function', () => {
     it('should not crash when redo called without editor', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(() => {
         act(() => {
@@ -184,7 +172,7 @@ describe('useEditorHistory', () => {
     });
 
     it('should not crash when redo called with canRedo false', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       act(() => {
@@ -202,7 +190,7 @@ describe('useEditorHistory', () => {
     });
 
     it('should be callable', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(typeof result.current.redo).toBe('function');
 
@@ -214,9 +202,8 @@ describe('useEditorHistory', () => {
 
   describe('Return Object', () => {
     it('should return all required properties', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
-      expect(result.current).toHaveProperty('editorRef');
       expect(result.current).toHaveProperty('setEditor');
       expect(result.current).toHaveProperty('undo');
       expect(result.current).toHaveProperty('redo');
@@ -225,10 +212,7 @@ describe('useEditorHistory', () => {
     });
 
     it('should have correct return type', () => {
-      const { result } = renderHook(() => useEditorHistory());
-
-      // editorRef should be a ref object
-      expect(result.current.editorRef).toHaveProperty('current');
+      const { result } = renderHook(() => useMonacoHistory());
 
       // setEditor, undo, redo should be functions
       expect(typeof result.current.setEditor).toBe('function');
@@ -243,7 +227,7 @@ describe('useEditorHistory', () => {
 
   describe('Edge Cases', () => {
     it('should handle multiple consecutive setEditor calls with null', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
 
       expect(() => {
         act(() => {
@@ -255,7 +239,7 @@ describe('useEditorHistory', () => {
     });
 
     it('should handle setEditor then immediate undo', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       expect(() => {
@@ -267,7 +251,7 @@ describe('useEditorHistory', () => {
     });
 
     it('should handle setEditor then immediate redo', () => {
-      const { result } = renderHook(() => useEditorHistory());
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       expect(() => {
@@ -279,27 +263,25 @@ describe('useEditorHistory', () => {
     });
 
     it('should maintain hook state across updates', () => {
-      const { result, rerender } = renderHook(() => useEditorHistory());
+      const { result, rerender } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       act(() => {
         result.current.setEditor(mockEditor);
       });
 
-      const firstRef = result.current.editorRef.current;
+      const canUndoBefore = result.current.canUndo;
 
       rerender();
 
-      const secondRef = result.current.editorRef.current;
-
-      expect(firstRef).toBe(secondRef);
+      expect(result.current.canUndo).toBe(canUndoBefore);
     });
   });
 
   describe('Independent Hook Instances', () => {
     it('should have independent state across instances', () => {
-      const { result: result1 } = renderHook(() => useEditorHistory());
-      const { result: result2 } = renderHook(() => useEditorHistory());
+      const { result: result1 } = renderHook(() => useMonacoHistory());
+      const { result: result2 } = renderHook(() => useMonacoHistory());
 
       const editor1 = createMockEditor();
       const editor2 = createMockEditor();
@@ -309,16 +291,16 @@ describe('useEditorHistory', () => {
         result2.current.setEditor(editor2);
       });
 
-      expect(result1.current.editorRef.current).toBe(editor1);
-      expect(result2.current.editorRef.current).toBe(editor2);
-      expect(result1.current.editorRef.current).not.toBe(
-        result2.current.editorRef.current
-      );
+      // Each instance subscribed to its own editor's model.
+      expect(editor1.getModel().onDidChangeContent).toHaveBeenCalled();
+      expect(editor2.getModel().onDidChangeContent).toHaveBeenCalled();
+      expect(result1.current.canUndo).toBe(false);
+      expect(result2.current.canUndo).toBe(false);
     });
 
     it('should not affect other instances when one clears editor', () => {
-      const { result: result1 } = renderHook(() => useEditorHistory());
-      const { result: result2 } = renderHook(() => useEditorHistory());
+      const { result: result1 } = renderHook(() => useMonacoHistory());
+      const { result: result2 } = renderHook(() => useMonacoHistory());
 
       const editor1 = createMockEditor();
       const editor2 = createMockEditor();
@@ -332,51 +314,44 @@ describe('useEditorHistory', () => {
         result1.current.setEditor(null);
       });
 
-      expect(result1.current.editorRef.current).toBeNull();
-      expect(result2.current.editorRef.current).toBe(editor2);
+      // Clearing instance 1 must not throw or disturb instance 2.
+      expect(result1.current.canUndo).toBe(false);
+      expect(result2.current.canUndo).toBe(false);
     });
   });
 
   describe('Undo and Redo Callbacks', () => {
-    it('should maintain function references across re-renders', () => {
-      const { result, rerender } = renderHook(() => useEditorHistory());
+    it('should maintain stable references across re-renders without state changes', () => {
+      const { result, rerender } = renderHook(() => useMonacoHistory());
 
-      const undoBefore = result.current.undo;
-      const redoBefore = result.current.redo;
+      const setEditorBefore = result.current.setEditor;
 
       rerender();
 
-      const undoAfter = result.current.undo;
-      const redoAfter = result.current.redo;
-
-      expect(undoBefore).toBe(undoAfter);
-      expect(redoBefore).toBe(redoAfter);
+      // setEditor has no reactive deps, so it stays referentially stable.
+      expect(result.current.setEditor).toBe(setEditorBefore);
     });
 
-    it('should update dependency when canUndo changes', () => {
-      const { result } = renderHook(() => useEditorHistory());
+    it('should expose canUndo as a boolean after setting an editor', () => {
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       act(() => {
         result.current.setEditor(mockEditor);
       });
 
-      const canUndoValue = result.current.canUndo;
-
-      expect(typeof canUndoValue).toBe('boolean');
+      expect(typeof result.current.canUndo).toBe('boolean');
     });
 
-    it('should update dependency when canRedo changes', () => {
-      const { result } = renderHook(() => useEditorHistory());
+    it('should expose canRedo as a boolean after setting an editor', () => {
+      const { result } = renderHook(() => useMonacoHistory());
       const mockEditor = createMockEditor();
 
       act(() => {
         result.current.setEditor(mockEditor);
       });
 
-      const canRedoValue = result.current.canRedo;
-
-      expect(typeof canRedoValue).toBe('boolean');
+      expect(typeof result.current.canRedo).toBe('boolean');
     });
   });
 });

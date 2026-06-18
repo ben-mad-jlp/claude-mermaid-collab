@@ -27,8 +27,8 @@ describe('ItemCard', () => {
   };
 
   describe('Rendering', () => {
-    it('renders item name and type label', () => {
-      render(
+    it('renders item name and subtitle', () => {
+      const { container } = render(
         <ItemCard
           item={baseItem}
           isSelected={false}
@@ -37,7 +37,9 @@ describe('ItemCard', () => {
       );
 
       expect(screen.getByText('Test Item')).toBeInTheDocument();
-      expect(screen.getByText(/Diagram/)).toBeInTheDocument();
+      // Type is now conveyed via icon (not a text label); subtitle shows relative time.
+      expect(container.querySelector('svg')).toBeInTheDocument();
+      expect(screen.getByText('just now')).toBeInTheDocument();
     });
 
     it('displays correct icon for diagram type', () => {
@@ -69,7 +71,6 @@ describe('ItemCard', () => {
 
       const icon = container.querySelector('svg');
       expect(icon).toBeInTheDocument();
-      expect(screen.getByText(/Document/)).toBeInTheDocument();
     });
 
     it('displays correct icon for design type', () => {
@@ -78,7 +79,7 @@ describe('ItemCard', () => {
         type: 'design',
       };
 
-      render(
+      const { container } = render(
         <ItemCard
           item={designItem}
           isSelected={false}
@@ -86,7 +87,8 @@ describe('ItemCard', () => {
         />
       );
 
-      expect(screen.getByText(/Design/)).toBeInTheDocument();
+      // Design icon: a rounded rect with internal cross paths.
+      expect(container.querySelector('svg rect')).toBeInTheDocument();
     });
 
     it('displays correct icon for spreadsheet type', () => {
@@ -95,7 +97,7 @@ describe('ItemCard', () => {
         type: 'spreadsheet',
       };
 
-      render(
+      const { container } = render(
         <ItemCard
           item={sheetItem}
           isSelected={false}
@@ -103,7 +105,8 @@ describe('ItemCard', () => {
         />
       );
 
-      expect(screen.getByText(/Spreadsheet/)).toBeInTheDocument();
+      // Spreadsheet icon: grid (rect with row/column divider paths).
+      expect(container.querySelector('svg rect')).toBeInTheDocument();
     });
 
     it('displays snippet icon for snippet type', () => {
@@ -113,7 +116,7 @@ describe('ItemCard', () => {
         name: 'example.js',
       };
 
-      render(
+      const { container } = render(
         <ItemCard
           item={snippetItem}
           isSelected={false}
@@ -121,7 +124,8 @@ describe('ItemCard', () => {
         />
       );
 
-      expect(screen.getByText(/Snippet/)).toBeInTheDocument();
+      // Snippet icon: the code-brackets glyph (two polylines).
+      expect(container.querySelectorAll('svg polyline').length).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -476,7 +480,7 @@ describe('ItemCard', () => {
       );
 
       const deleteButton = screen.getByLabelText(`Delete ${baseItem.name}`);
-      expect(deleteButton).toHaveAttribute('title', 'Delete item');
+      expect(deleteButton).toHaveAttribute('title', 'Delete');
     });
 
     it('has title attribute for item name truncation', () => {

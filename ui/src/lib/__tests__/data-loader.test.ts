@@ -94,7 +94,9 @@ describe('Data Loader', () => {
 
       expect(result).toEqual(mockDiagrams);
       expect(useSessionStore.getState().diagrams).toEqual(mockDiagrams);
-      expect(api.getDiagrams).toHaveBeenCalledWith(mockProject, mockSession);
+      // loadDiagrams(serverId, project, session) forwards all three positional
+      // args to api.getDiagrams; here session is undefined (not passed by caller).
+      expect(api.getDiagrams).toHaveBeenCalledWith(mockProject, mockSession, undefined);
     });
 
     it('should handle load failures gracefully', async () => {

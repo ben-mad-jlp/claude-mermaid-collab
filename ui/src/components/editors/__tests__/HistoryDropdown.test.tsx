@@ -50,6 +50,38 @@ vi.mock('@/hooks/useDocumentHistory', () => ({
 import { useDocumentHistory } from '@/hooks/useDocumentHistory';
 const mockUseDocumentHistory = useDocumentHistory as ReturnType<typeof vi.fn>;
 
+/**
+ * Mirror of the component's `formatTimestamp` (HistoryDropdown.tsx). The
+ * component renders absolute clock times (not relative "Xm ago"), so the test
+ * derives the expected label the same way to stay timezone-independent.
+ */
+function expectedLabel(timestamp: string): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+
+  if (isToday) return timeStr;
+  if (isYesterday) {
+    return `Yesterday ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+  }
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
+  if (diffDays < 7) {
+    const dayName = date.toLocaleDateString([], { weekday: 'short' });
+    return `${dayName} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+// Labels for the three default mockHistory changes (computed at module load,
+// matching the fake system time set in beforeEach).
+const TS_NEWEST = '2024-01-15T11:00:00Z';
+const TS_MIDDLE = '2024-01-15T10:30:00Z';
+
 describe('HistoryDropdown', () => {
   const mockOnVersionSelect = vi.fn();
   const defaultProps = {
@@ -207,7 +239,7 @@ describe('HistoryDropdown', () => {
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
       // Find dropdown items - use exact match
-      expect(screen.getByText('5m ago')).toBeInTheDocument();
+      expect(screen.getByText(expectedLabel(TS_NEWEST))).toBeInTheDocument();
     });
 
     it('should close dropdown on second button click', () => {
@@ -215,10 +247,10 @@ describe('HistoryDropdown', () => {
       const button = screen.getByRole('button', { name: /history/i });
 
       fireEvent.click(button);
-      expect(screen.getByText('5m ago')).toBeInTheDocument();
+      expect(screen.getByText(expectedLabel(TS_NEWEST))).toBeInTheDocument();
 
       fireEvent.click(button);
-      expect(screen.queryByText('5m ago')).not.toBeInTheDocument();
+      expect(screen.queryByText(expectedLabel(TS_NEWEST))).not.toBeInTheDocument();
     });
 
     it('should close dropdown when clicking outside', async () => {
@@ -230,14 +262,14 @@ describe('HistoryDropdown', () => {
       );
 
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
-      expect(screen.getByText('5m ago')).toBeInTheDocument();
+      expect(screen.getByText(expectedLabel(TS_NEWEST))).toBeInTheDocument();
 
       fireEvent.mouseDown(screen.getByTestId('outside'));
-      expect(screen.queryByText('5m ago')).not.toBeInTheDocument();
+      expect(screen.queryByText(expectedLabel(TS_NEWEST))).not.toBeInTheDocument();
     });
   });
 
-  describe('Relative Time Formatting', () => {
+  describe('Timestamp Formatting', () => {
     beforeEach(() => {
       mockUseDocumentHistory.mockReturnValue({
         history: mockHistory,
@@ -248,8 +280,8 @@ describe('HistoryDropdown', () => {
       });
     });
 
-    it('should show "just now" for timestamps less than 1 minute ago', () => {
-      vi.setSystemTime(new Date('2024-01-15T11:00:30Z')); // 30 seconds after last change
+    it('should show the clock time for a today timestamp', () => {
+      vi.setSystemTime(new Date('2024-01-15T11:00:30Z')); // same day
 
       const historyWithRecent = {
         ...mockHistory,
@@ -266,37 +298,18 @@ describe('HistoryDropdown', () => {
       render(<HistoryDropdown {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
-      expect(screen.getByText(/just now/i)).toBeInTheDocument();
+      const label = expectedLabel('2024-01-15T11:00:00Z');
+      // Today timestamps render as a plain clock time (h:mm:ss AM/PM), not relative.
+      expect(label).toMatch(/\d{1,2}:\d{2}:\d{2}\s?(AM|PM)/i);
+      expect(screen.getByText(label)).toBeInTheDocument();
     });
 
-    it('should show minutes ago for timestamps < 60 minutes', () => {
+    it('should render each same-day change as its clock time', () => {
       render(<HistoryDropdown {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
-      // 11:00 -> 11:05 = 5 minutes ago
-      expect(screen.getByText('5m ago')).toBeInTheDocument();
-      // 10:30 -> 11:05 = 35 minutes ago
-      expect(screen.getByText('35m ago')).toBeInTheDocument();
-    });
-
-    it('should show hours ago for timestamps < 24 hours', () => {
-      const historyWithHoursAgo = {
-        ...mockHistory,
-        changes: [{ timestamp: '2024-01-15T08:00:00Z', diff: { oldString: '', newString: '' } }],
-      };
-      mockUseDocumentHistory.mockReturnValue({
-        history: historyWithHoursAgo,
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-        getVersionAt: mockGetVersionAt,
-      });
-
-      render(<HistoryDropdown {...defaultProps} />);
-      fireEvent.click(screen.getByRole('button', { name: /history/i }));
-
-      // 08:00 -> 11:05 = 3 hours ago
-      expect(screen.getByText(/3h ago/i)).toBeInTheDocument();
+      expect(screen.getByText(expectedLabel(TS_NEWEST))).toBeInTheDocument();
+      expect(screen.getByText(expectedLabel(TS_MIDDLE))).toBeInTheDocument();
     });
 
     it('should show "Yesterday" for timestamps 1 day ago', () => {
@@ -318,7 +331,7 @@ describe('HistoryDropdown', () => {
       expect(screen.getByText(/Yesterday/i)).toBeInTheDocument();
     });
 
-    it('should show days ago for timestamps < 7 days', () => {
+    it('should show the weekday for timestamps < 7 days ago', () => {
       const historyWithDaysAgo = {
         ...mockHistory,
         changes: [{ timestamp: '2024-01-12T11:00:00Z', diff: { oldString: '', newString: '' } }],
@@ -334,8 +347,8 @@ describe('HistoryDropdown', () => {
       render(<HistoryDropdown {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
-      // 3 days ago
-      expect(screen.getByText(/3d ago/i)).toBeInTheDocument();
+      // 2024-01-12 was a Friday; component renders "<weekday> <time>".
+      expect(screen.getByText(expectedLabel('2024-01-12T11:00:00Z'))).toBeInTheDocument();
     });
 
     it('should show date for timestamps >= 7 days ago', () => {
@@ -354,8 +367,10 @@ describe('HistoryDropdown', () => {
       render(<HistoryDropdown {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
-      // Should show formatted date (locale-dependent, but contains 2024 or 1/1)
-      expect(screen.getByRole('button', { name: /1\/1\/2024|2024/i })).toBeInTheDocument();
+      // Older entries render as "<Mon> <day>, <time>" (e.g. "Jan 1, 11:00 AM").
+      const label = expectedLabel('2024-01-01T11:00:00Z');
+      expect(label).toMatch(/Jan 1,/);
+      expect(screen.getByText(label)).toBeInTheDocument();
     });
   });
 
@@ -378,11 +393,9 @@ describe('HistoryDropdown', () => {
         (btn) => btn.textContent && !btn.textContent.match(/^History$/i)
       );
 
-      // Newest (11:00) should be first -> 5m ago
-      // Middle (10:30) should be second -> 35m ago
-      // Oldest (10:00) should be last -> 1h 5m = 65m ago
-      expect(buttons[0]).toHaveTextContent('5m ago');
-      expect(buttons[1]).toHaveTextContent('35m ago');
+      // Newest (11:00) should be first, middle (10:30) second.
+      expect(buttons[0]).toHaveTextContent(expectedLabel(TS_NEWEST));
+      expect(buttons[1]).toHaveTextContent(expectedLabel(TS_MIDDLE));
     });
   });
 
@@ -516,7 +529,7 @@ describe('HistoryDropdown', () => {
       render(<HistoryDropdown {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
-      const historyItem = screen.getByText('5m ago');
+      const historyItem = screen.getByText(expectedLabel(TS_NEWEST));
       fireEvent.click(historyItem);
 
       // Should show loading state
@@ -539,7 +552,7 @@ describe('HistoryDropdown', () => {
       render(<HistoryDropdown {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
-      const historyItem = screen.getByText('5m ago');
+      const historyItem = screen.getByText(expectedLabel(TS_NEWEST));
       fireEvent.click(historyItem);
 
       const loadingButton = screen.getByText('Loading...');
@@ -576,7 +589,7 @@ describe('HistoryDropdown', () => {
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
       // Find the dropdown container (the parent div of history items)
-      const dropdown = screen.getByText('5m ago').closest('div');
+      const dropdown = screen.getByText(expectedLabel(TS_NEWEST)).closest('div');
       expect(dropdown).toHaveClass('absolute', 'right-0', 'z-50');
     });
 
@@ -584,7 +597,7 @@ describe('HistoryDropdown', () => {
       render(<HistoryDropdown {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /history/i }));
 
-      const dropdown = screen.getByText('5m ago').closest('div');
+      const dropdown = screen.getByText(expectedLabel(TS_NEWEST)).closest('div');
       expect(dropdown).toHaveClass('max-h-64', 'overflow-auto');
     });
   });

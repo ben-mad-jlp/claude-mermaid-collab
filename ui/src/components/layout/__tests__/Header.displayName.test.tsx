@@ -1,239 +1,132 @@
 /**
- * Header Component Tests - displayName Rendering
+ * Header Component Tests - Session label rendering
  *
- * Test coverage includes:
- * - displayName rendering in session dropdown
- * - Status label display in dropdown
- * - Proper fallback when displayName is not available
+ * The project/session `<select>` dropdowns were replaced with plain static
+ * labels (commit 683456e2 "header labels"). The Header no longer renders a
+ * session dropdown that listed each session's `displayName` as a
+ * "Status: <name>" line — the current session's *name* is shown in a static
+ * `header-session-label` and that is the only session-identity surface.
+ *
+ * These tests assert that current contract:
+ *  - the current session's name renders in the static label,
+ *  - there is no session-selector dropdown,
+ *  - displayName / "Status:" / "Phase:" lines are not rendered by the Header.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { Header } from '../Header';
+import { useSessionStore } from '@/stores/sessionStore';
 import type { Session } from '@/types';
 
-describe('Header - displayName Rendering', () => {
+function renderHeader(props: Parameters<typeof Header>[0]) {
+  return render(
+    <MemoryRouter>
+      <Header {...props} />
+    </MemoryRouter>
+  );
+}
+
+describe('Header - session label rendering', () => {
   const mockSessions: Session[] = [
-    {
-      project: '/test/project',
-      name: 'session-1',
-      displayName: 'Exploring',
-    },
-    {
-      project: '/test/project',
-      name: 'session-2',
-      displayName: 'Designing',
-    },
-    {
-      project: '/test/project',
-      name: 'session-3',
-      displayName: undefined,
-    },
+    { project: '/test/project', name: 'session-1', displayName: 'Exploring' },
+    { project: '/test/project', name: 'session-2', displayName: 'Designing' },
+    { project: '/test/project', name: 'session-3', displayName: undefined },
   ];
 
   beforeEach(() => {
-    // Reset any global state
+    useSessionStore.setState({ currentSession: null, sessions: [] });
   });
 
-  describe('displayName in Session Dropdown', () => {
-    it('should render displayName in session dropdown', async () => {
-      render(
-        <Header
-          sessions={mockSessions}
-          registeredProjects={['/test/project']}
-        />
-      );
-
-      // Click session selector to open dropdown
-      const sessionSelector = screen.getByTestId('session-selector');
-      fireEvent.click(sessionSelector);
-
-      // Wait for dropdown to appear and verify displayName is shown in status line
-      expect(screen.getByText(/Status: Exploring/)).toBeDefined();
-      expect(screen.getByText(/Status: Designing/)).toBeDefined();
-    });
-
-    it('should use Status label instead of Phase in dropdown', async () => {
-      render(
-        <Header
-          sessions={mockSessions}
-          registeredProjects={['/test/project']}
-        />
-      );
-
-      // Click session selector to open dropdown
-      const sessionSelector = screen.getByTestId('session-selector');
-      fireEvent.click(sessionSelector);
-
-      // Should show "Status:" labels for sessions with displayName
-      const statusLines = screen.getAllByText(/Status:/);
-      expect(statusLines.length).toBeGreaterThan(0);
-
-      // Should NOT show "Phase:" labels
-      const phaseLabels = screen.queryAllByText(/Phase:/);
-      expect(phaseLabels.length).toBe(0);
-    });
-
-    it('should not show status line when displayName is not available', async () => {
-      const sessionsWithoutDisplay: Session[] = [
-        {
-          project: '/test/project',
-          name: 'session-1',
-          displayName: 'Exploring',
-        },
-        {
-          project: '/test/project',
-          name: 'session-2',
-          displayName: undefined,
-        },
-      ];
-
-      render(
-        <Header
-          sessions={sessionsWithoutDisplay}
-          registeredProjects={['/test/project']}
-        />
-      );
-
-      // Click session selector to open dropdown
-      const sessionSelector = screen.getByTestId('session-selector');
-      fireEvent.click(sessionSelector);
-
-      // Should show status for session-1
-      expect(screen.getByText(/Status: Exploring/)).toBeDefined();
-
-      // Should not show status labels (only one "Status:" for session-1)
-      const statusLabels = screen.getAllByText(/Status:/);
-      expect(statusLabels.length).toBe(1);
-    });
-
-    it('should display various user-friendly display names correctly', async () => {
-      const displayNames = [
-        'Starting',
-        'Gathering Goals',
-        'Exploring',
-        'Clarifying',
-        'Designing',
-        'Validating',
-        'Investigating',
-        'Planning Task',
-        'Defining Interfaces',
-        'Writing Pseudocode',
-        'Building Skeleton',
-        'Building Tasks',
-        'Preparing Handoff',
-        'Ready',
-        'Executing',
-        'Finishing',
-        'Cleaning Up',
-        'Done',
-      ];
-
-      const sessionsWithNames = displayNames.map((name, idx) => ({
-        project: '/test/project',
-        name: `session-${idx}`,
-        displayName: name,
-      }));
-
-      const { unmount } = render(
-        <Header
-          sessions={sessionsWithNames}
-          registeredProjects={['/test/project']}
-        />
-      );
-
-      // Click session selector to open dropdown
-      const sessionSelector = screen.getByTestId('session-selector');
-      fireEvent.click(sessionSelector);
-
-      // Verify all display names are rendered as "Status: [name]"
-      displayNames.forEach((name) => {
-        expect(screen.getByText(new RegExp(`Status: ${name}`))).toBeDefined();
+  describe('static session label', () => {
+    it('shows the current session name in the static session label', () => {
+      useSessionStore.setState({
+        currentSession: mockSessions[0],
+        sessions: mockSessions,
       });
 
-      unmount();
+      renderHeader({
+        sessions: mockSessions,
+        registeredProjects: ['/test/project'],
+      });
+
+      const label = screen.getByTestId('header-session-label');
+      expect(label.textContent).toContain('session-1');
     });
 
-    it('should update displayName when session changes', async () => {
-      const initialSessions: Session[] = [
-        {
-          project: '/test/project',
-          name: 'session-1',
-          displayName: 'Exploring',
-        },
-        {
-          project: '/test/project',
-          name: 'session-2',
-          displayName: 'Designing',
-        },
-      ];
+    it('falls back to a placeholder when there is no current session', () => {
+      useSessionStore.setState({ currentSession: null, sessions: mockSessions });
 
-      const { rerender } = render(
-        <Header
-          sessions={initialSessions}
-          registeredProjects={['/test/project']}
-        />
+      renderHeader({
+        sessions: mockSessions,
+        registeredProjects: ['/test/project'],
+      });
+
+      const label = screen.getByTestId('header-session-label');
+      expect(label.textContent).toContain('—');
+    });
+
+    it('updates the label when the current session changes', () => {
+      useSessionStore.setState({
+        currentSession: mockSessions[0],
+        sessions: mockSessions,
+      });
+
+      const { rerender } = renderHeader({
+        sessions: mockSessions,
+        registeredProjects: ['/test/project'],
+      });
+
+      expect(screen.getByTestId('header-session-label').textContent).toContain(
+        'session-1'
       );
 
-      let sessionSelector = screen.getByTestId('session-selector');
-      fireEvent.click(sessionSelector);
-
-      expect(screen.getByText(/Status: Exploring/)).toBeDefined();
-
-      // Re-render with updated displayName
-      const updatedSessions = [
-        {
-          project: '/test/project',
-          name: 'session-1',
-          displayName: 'Clarifying',
-        },
-        {
-          project: '/test/project',
-          name: 'session-2',
-          displayName: 'Designing',
-        },
-      ];
-
+      useSessionStore.setState({ currentSession: mockSessions[1] });
       rerender(
-        <Header
-          sessions={updatedSessions}
-          registeredProjects={['/test/project']}
-        />
+        <MemoryRouter>
+          <Header sessions={mockSessions} registeredProjects={['/test/project']} />
+        </MemoryRouter>
       );
 
-      // The dropdown should still be open, check updated name
-      expect(screen.getByText(/Status: Clarifying/)).toBeDefined();
+      expect(screen.getByTestId('header-session-label').textContent).toContain(
+        'session-2'
+      );
     });
   });
 
-  describe('Fallback behavior', () => {
-    it('should not display status line for sessions without displayName', async () => {
-      const sessionsWithoutDisplay: Session[] = [
-        {
-          project: '/test/project',
-          name: 'session-1',
-          phase: 'brainstorming',
-          // No displayName
-        },
-      ];
+  describe('removed session dropdown', () => {
+    it('does not render a session-selector dropdown', () => {
+      useSessionStore.setState({
+        currentSession: mockSessions[0],
+        sessions: mockSessions,
+      });
 
-      render(
-        <Header
-          sessions={sessionsWithoutDisplay}
-          registeredProjects={['/test/project']}
-        />
-      );
+      renderHeader({
+        sessions: mockSessions,
+        registeredProjects: ['/test/project'],
+      });
 
-      // Click session selector to open dropdown
-      const sessionSelector = screen.getByTestId('session-selector');
-      fireEvent.click(sessionSelector);
+      expect(screen.queryByTestId('session-selector')).toBeNull();
+    });
 
-      // Should show session name
-      expect(screen.getByText('session-1')).toBeDefined();
+    it('does not render displayName "Status:"/"Phase:" lines', () => {
+      useSessionStore.setState({
+        currentSession: mockSessions[0],
+        sessions: mockSessions,
+      });
 
-      // Should NOT show status line (even though phase exists)
-      const statusLabels = screen.queryAllByText(/Status:/);
-      expect(statusLabels.length).toBe(0);
+      renderHeader({
+        sessions: mockSessions,
+        registeredProjects: ['/test/project'],
+      });
+
+      // The simplified Header surfaces only the session name, not any
+      // per-session displayName/status lines.
+      expect(screen.queryAllByText(/Status:/).length).toBe(0);
+      expect(screen.queryAllByText(/Phase:/).length).toBe(0);
+      expect(screen.queryByText('Exploring')).toBeNull();
+      expect(screen.queryByText('Designing')).toBeNull();
     });
   });
 });

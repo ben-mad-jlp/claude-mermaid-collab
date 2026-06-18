@@ -54,6 +54,17 @@ vi.mock('crypto', () => ({
   randomUUID: vi.fn(() => 'mock-uuid-1234'),
 }));
 
+// tmux availability gate: creating a session now 503s when tmux is missing on
+// the server PATH (common in CI). These tests exercise the create happy path,
+// so report tmux as available and stub the stale-session self-heal.
+vi.mock('../../services/tmux-availability', () => ({
+  isTmuxAvailable: vi.fn().mockResolvedValue(true),
+  TMUX_UNAVAILABLE_MESSAGE: 'tmux is not available',
+}));
+vi.mock('../../services/tmux-session', () => ({
+  healStaleTmuxSession: vi.fn().mockResolvedValue(false),
+}));
+
 describe('Terminal API Routes', () => {
   let mockWSHandler: any;
   const mockManagers = { diagramManager: {} as any, documentManager: {} as any, metadataManager: {} as any };
@@ -219,7 +230,12 @@ describe('Terminal API Routes', () => {
       const data = await response.json() as CreateSessionResult;
       expect(data.id).toBe('mock-uuid-1234');
       expect(data.wsUrl).toContain('/terminal/mock-uuid-1234');
-      expect(mockPtyManager.create).toHaveBeenCalledWith('mock-uuid-1234', { cwd: '/test/project' });
+      // Terminals are tmux-hosted: create() attaches the PTY to the project/
+      // session's base tmux session.
+      expect(mockPtyManager.create).toHaveBeenCalledWith('mock-uuid-1234', {
+        cwd: '/test/project',
+        tmux: { base: expect.any(String) },
+      });
     });
 
     it('should create session without name', async () => {

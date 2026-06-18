@@ -131,10 +131,14 @@ describe('POST /api/document/:id logging integration', () => {
       mockValidator, mockRenderer, mockWSHandler
     );
 
-    // Find the document_history_updated broadcast
-    const historyBroadcast = broadcastCalls.find(
-      (call) => call.type === 'document_history_updated'
-    );
+    // The history append + its broadcast complete just AFTER handleAPI resolves
+    // (fire-and-forget logging), so poll briefly instead of reading once — under
+    // full-suite parallelism the single read raced the async broadcast (flaky).
+    let historyBroadcast: any;
+    for (let i = 0; i < 100 && !historyBroadcast; i++) {
+      historyBroadcast = broadcastCalls.find((call) => call.type === 'document_history_updated');
+      if (!historyBroadcast) await new Promise((r) => setTimeout(r, 10));
+    }
 
     expect(historyBroadcast).toBeDefined();
     expect(historyBroadcast.id).toBe('test-doc');
@@ -273,10 +277,12 @@ describe('POST /api/document/:id logging integration', () => {
     expect(history!.original).toBe('original content');
     expect(history!.changes).toHaveLength(2);
 
-    // Verify changeCount in the second broadcast
-    const historyBroadcasts = broadcastCalls.filter(
-      (call) => call.type === 'document_history_updated'
-    );
+    // Verify changeCount in the second broadcast — poll for both (async, see above).
+    let historyBroadcasts = broadcastCalls.filter((call) => call.type === 'document_history_updated');
+    for (let i = 0; i < 100 && historyBroadcasts.length < 2; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      historyBroadcasts = broadcastCalls.filter((call) => call.type === 'document_history_updated');
+    }
     expect(historyBroadcasts).toHaveLength(2);
     expect(historyBroadcasts[1].changeCount).toBe(2);
   });

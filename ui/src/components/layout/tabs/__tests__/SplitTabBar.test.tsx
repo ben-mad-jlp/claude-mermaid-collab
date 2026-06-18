@@ -5,7 +5,6 @@ import {
   useTabsStore,
   sessionKey,
   type TabDescriptor,
-  type PaneId,
 } from '../../../../stores/tabsStore';
 import { useSessionStore } from '../../../../stores/sessionStore';
 
@@ -28,25 +27,19 @@ function makeTab(overrides: Partial<TabDescriptor> & { id: string }): TabDescrip
   };
 }
 
-function seedPanes(
-  leftTabs: TabDescriptor[],
-  rightTabs: TabDescriptor[],
-  activePaneId: PaneId = 'left'
+// Single-pane model: flat tab list with an optional rightPaneTabId selecting
+// which tab is split off into the right pane (and thus hidden from the main bar).
+function seedSession(
+  tabs: TabDescriptor[],
+  rightPaneTabId: string | null = null
 ) {
   useTabsStore.setState({
     bySession: {
       [KEY]: {
-        panes: {
-          left: {
-            tabs: leftTabs,
-            activeTabId: leftTabs[0]?.id ?? null,
-          },
-          right: {
-            tabs: rightTabs,
-            activeTabId: rightTabs[0]?.id ?? null,
-          },
-        },
-        activePaneId,
+        tabs,
+        activeTabId: tabs[0]?.id ?? null,
+        rightPaneTabId,
+        activePaneId: 'left',
       },
     },
   } as any);
@@ -61,41 +54,40 @@ describe('SplitTabBar', () => {
     });
   });
 
-  it('renders only left TabBar when right pane is empty', () => {
-    seedPanes([makeTab({ id: 'tab1' })], []);
+  it('renders a single tab bar wrapper with one TabBar', () => {
+    seedSession([makeTab({ id: 'tab1' })]);
     render(<SplitTabBar />);
 
-    expect(screen.queryByTestId('split-tab-bar')).toBeNull();
+    expect(screen.getByTestId('single-tab-bar')).toBeTruthy();
     const bars = screen.getAllByTestId('tab-bar');
     expect(bars).toHaveLength(1);
-    expect(bars[0].getAttribute('data-pane')).toBe('left');
   });
 
-  it('renders both TabBars when right pane has tabs', () => {
-    seedPanes([makeTab({ id: 'l1' })], [makeTab({ id: 'r1' })]);
+  it('renders all regular tabs in the main TabBar', () => {
+    seedSession([
+      makeTab({ id: 'l1', name: 'Left-Title' }),
+      makeTab({ id: 'r1', name: 'Right-Title', order: 1 }),
+    ]);
     render(<SplitTabBar />);
 
-    expect(screen.getByTestId('split-tab-bar')).toBeTruthy();
-    const bars = screen.getAllByTestId('tab-bar');
-    expect(bars).toHaveLength(2);
-    const panes = bars.map((b) => b.getAttribute('data-pane')).sort();
-    expect(panes).toEqual(['left', 'right']);
+    const bar = screen.getByTestId('tab-bar');
+    expect(within(bar).getByText('Left-Title')).toBeTruthy();
+    expect(within(bar).getByText('Right-Title')).toBeTruthy();
   });
 
-  it("each TabBar renders its own pane's tabs", () => {
-    seedPanes(
-      [makeTab({ id: 'lt', name: 'Left-Title' })],
-      [makeTab({ id: 'rt', name: 'Right-Title' })]
+  it('excludes the right-pane tab from the main TabBar', () => {
+    seedSession(
+      [
+        makeTab({ id: 'lt', name: 'Left-Title' }),
+        makeTab({ id: 'rt', name: 'Right-Title', order: 1 }),
+      ],
+      'rt'
     );
     render(<SplitTabBar />);
 
-    const bars = screen.getAllByTestId('tab-bar');
-    const leftBar = bars.find((b) => b.getAttribute('data-pane') === 'left')!;
-    const rightBar = bars.find((b) => b.getAttribute('data-pane') === 'right')!;
-
-    expect(within(leftBar).getByText('Left-Title')).toBeTruthy();
-    expect(within(leftBar).queryByText('Right-Title')).toBeNull();
-    expect(within(rightBar).getByText('Right-Title')).toBeTruthy();
-    expect(within(rightBar).queryByText('Left-Title')).toBeNull();
+    const bar = screen.getByTestId('tab-bar');
+    expect(within(bar).getByText('Left-Title')).toBeTruthy();
+    // The tab assigned to the right pane is not shown in the main bar.
+    expect(within(bar).queryByText('Right-Title')).toBeNull();
   });
 });

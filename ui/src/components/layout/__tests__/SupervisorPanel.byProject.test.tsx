@@ -31,6 +31,8 @@ vi.mock('@/stores/supervisorStore', () => {
     ],
     escalations: [],
     watchedProjects: [{ project: '/proj' }],
+    todosByProject: {},
+    loadProjectTodos: vi.fn(),
     config: { supervisorProject: '/proj', supervisorSession: 'sup' },
     liveness: { running: true },
     loadSupervised: vi.fn(),
@@ -111,16 +113,17 @@ describe('SupervisorPanel — per-project collapsible group', () => {
     vi.clearAllMocks();
   });
 
-  it('renders a collapsible project header with the claudepix avatar and a combined-state attribute', () => {
+  it('renders a project header with the claudepix avatar and the combined-state attribute', () => {
+    // The panel is a header-only per-project index — the per-project chevron and
+    // inline session cards were dropped (fde3ced8). The header still carries the
+    // combined per-project health (reduced from its sessions) + the dancing avatar.
     render(<SupervisorPanel />);
     const header = screen.getByTestId('supervisor-project-header');
     expect(header.getAttribute('data-project')).toBe('/proj');
-    expect(header.getAttribute('aria-expanded')).toBe('true');
-    // The combined status is one of the known palette values.
-    expect(['permission', 'active', 'waiting', 'unknown']).toContain(header.getAttribute('data-combined-status'));
+    // Combined status reduces the two sessions (waiting + active) → 'active' (AMBER):
+    // active wins over waiting, and nothing needs permission.
+    expect(header.getAttribute('data-combined-status')).toBe('active');
     // The dancing-Claude avatar renders in the header.
     expect(screen.getByTestId('claudepix')).toBeTruthy();
-    // Both supervised sessions render under the (expanded) group.
-    expect(screen.getAllByTestId('session-card')).toHaveLength(2);
   });
 });

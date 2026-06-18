@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 
-// Mock CodeMirrorWrapper to a simple textarea-like stand-in
-vi.mock('../CodeMirrorWrapper', () => ({
+// Mock MonacoWrapper to a simple stand-in (CodeFileView renders the Monaco
+// editor for text files; we only assert the value gets through).
+vi.mock('../MonacoWrapper', () => ({
   __esModule: true,
   default: ({ value }: { value: string }) => (
     <div data-testid="codemirror">{value}</div>

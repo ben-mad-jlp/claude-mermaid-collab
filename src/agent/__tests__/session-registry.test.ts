@@ -50,8 +50,31 @@ let tmpDir: string;
 let spawnCalls: Array<{ cmd: string[]; opts: any }>;
 let currentFakes: FakeHandles[];
 
+// A short-lived fake proc that has already exited — used for the `git` probes
+// the WorktreeManager now runs through the injected spawn. Exiting non-zero
+// makes projectRoot read as non-git so no real worktree work happens (and the
+// fake's streams are pre-closed so reads don't hang).
+function makeExitedProc(code: number): FakeProc {
+  return {
+    stdin: { write: mock(() => {}), end: mock(() => {}) },
+    stdout: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+    stderr: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+    kill: mock(() => {}),
+    exited: Promise.resolve(code),
+    exitCode: code,
+    signalCode: null,
+    killed: false,
+  };
+}
+
 function makeSpawn() {
   return (cmd: string[], opts: any) => {
+    // Only the `claude` child is tracked (in spawnCalls + currentFakes); the
+    // `git` probes the WorktreeManager runs get a no-op exited proc so they
+    // don't hang and don't pollute the claude-spawn assertions.
+    if (cmd[0] !== 'claude') {
+      return makeExitedProc(1);
+    }
     spawnCalls.push({ cmd, opts });
     const f = makeFakeProc();
     currentFakes.push(f);
@@ -72,11 +95,15 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-function makeRegistry() {
+// `projectRoot` should be the same path the test passes to getOrCreate: a
+// non-git projectRoot resolves the child's spawnCwd to projectRoot, so the
+// persisted record cwd and the jsonl-lookup slug both key off it.
+function makeRegistry(projectRoot?: string) {
   return new AgentSessionRegistry({
     broadcast: (msg) => broadcasts.push(msg),
     persistDir: tmpDir,
     spawn: makeSpawn(),
+    projectRoot,
   });
 }
 
@@ -105,7 +132,7 @@ describe('AgentSessionRegistry', () => {
   });
 
   it('getOrCreate is idempotent while child is alive', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/tmp');
     const c1 = await r.getOrCreate('s', '/tmp');
     const c2 = await r.getOrCreate('s', '/tmp');
     expect(c1).toBe(c2);
@@ -113,16 +140,18 @@ describe('AgentSessionRegistry', () => {
   });
 
   it('concurrent getOrCreate returns same child and spawns once', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/tmp');
     const [c1, c2] = await Promise.all([r.getOrCreate('s', '/tmp'), r.getOrCreate('s', '/tmp')]);
     expect(c1).toBe(c2);
     expect(spawnCalls.length).toBe(1);
   });
 
   it('writes a persistence record at <persistDir>/<sha1(sessionId)>.json', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/cwd/a');
     await r.getOrCreate('s-persist', '/cwd/a');
-    const files = await fs.readdir(tmpDir);
+    // persistDir now also holds the event-log db, sockets/, and settings/; the
+    // session persistence record is the lone `<sha1>.json` file.
+    const files = (await fs.readdir(tmpDir)).filter((f) => f.endsWith('.json'));
     expect(files.length).toBe(1);
     const rec = JSON.parse(await fs.readFile(path.join(tmpDir, files[0]), 'utf8'));
     expect(rec.sessionId).toBe('s-persist');
@@ -130,19 +159,36 @@ describe('AgentSessionRegistry', () => {
     expect(typeof rec.lastSeen).toBe('number');
   });
 
-  it('subsequent registry sees persistence → spawns with --resume', async () => {
-    const r1 = makeRegistry();
-    await r1.getOrCreate('s-resume', '/cwd/r');
-    spawnCalls = [];
-    const r2 = makeRegistry();
-    await r2.getOrCreate('s-resume', '/cwd/r');
-    const argv = spawnCalls[0].cmd;
-    expect(argv).toContain('--resume');
-    expect(argv).not.toContain('--session-id');
+  it('spawns with --resume when the Claude CLI session jsonl already exists', async () => {
+    // Resume is now derived from the presence of the Claude CLI's own session
+    // jsonl on disk (keyed by spawnCwd's slug + the deterministic claudeSessionId),
+    // not from the registry's persistence record. Write that jsonl to a fake HOME
+    // so the next start resumes rather than opening a fresh --session-id.
+    const fakeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-home-resume-'));
+    const prevHome = process.env.HOME;
+    process.env.HOME = fakeHome;
+    try {
+      const cwd = '/cwd/r';
+      const slug = cwd.replace(/[/.]/g, '-');
+      const claudeSessionId = uuidv5('s-resume', NAMESPACE_COLLAB_AGENT);
+      const jsonlDir = path.join(fakeHome, '.claude', 'projects', slug);
+      await fs.mkdir(jsonlDir, { recursive: true });
+      await fs.writeFile(path.join(jsonlDir, `${claudeSessionId}.jsonl`), '');
+
+      const r = makeRegistry(cwd);
+      await r.getOrCreate('s-resume', cwd);
+      const argv = spawnCalls[0].cmd;
+      expect(argv).toContain('--resume');
+      expect(argv).not.toContain('--session-id');
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+      await fs.rm(fakeHome, { recursive: true, force: true });
+    }
   });
 
   it('broadcasts session_started on init frame', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/cwd');
     await r.getOrCreate('s-init', '/cwd');
     const fake = currentFakes[0];
     fake.pushStdout(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'cs-1', cwd: '/cwd' }) + '\n');
@@ -153,18 +199,20 @@ describe('AgentSessionRegistry', () => {
   });
 
   it('transcriptOf captures broadcast events', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/cwd');
     await r.getOrCreate('s-t', '/cwd');
     const fake = currentFakes[0];
     fake.pushStdout(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'cs', cwd: '/cwd' }) + '\n');
     await new Promise((res) => setTimeout(res, 15));
     const ring = r.transcriptOf('s-t');
     expect(ring.length).toBeGreaterThan(0);
-    expect(ring[0].kind).toBe('session_started');
+    // A `worktree_info` event is now emitted ahead of `session_started`; assert
+    // the session lifecycle event is captured rather than pinning it to index 0.
+    expect(ring.some((e) => e.kind === 'session_started')).toBe(true);
   });
 
   it('transcript ring caps at 500', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/cwd');
     await r.getOrCreate('s-ring', '/cwd');
     const fake = currentFakes[0];
     for (let i = 0; i < 600; i++) {
@@ -176,7 +224,7 @@ describe('AgentSessionRegistry', () => {
   });
 
   it('exit event broadcasts session_ended and removes entry', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/cwd');
     await r.getOrCreate('s-exit', '/cwd');
     const fake = currentFakes[0];
     fake.resolveExit(0);
@@ -187,7 +235,7 @@ describe('AgentSessionRegistry', () => {
   });
 
   it('stop clears transcript and entry', async () => {
-    const r = makeRegistry();
+    const r = makeRegistry('/cwd');
     await r.getOrCreate('s-stop', '/cwd');
     const fake = currentFakes[0];
     // allow stop to resolve
@@ -202,7 +250,8 @@ describe('AgentSessionRegistry', () => {
     process.env.HOME = fakeHome;
     try {
       const cwd = '/cwd/backfill';
-      const slug = cwd.replace(/\//g, '-');
+      // Match the registry's slug rule (replaces both '/' and '.').
+      const slug = cwd.replace(/[/.]/g, '-');
       const sessionId = 's-backfill';
       const claudeSessionId = uuidv5(sessionId, NAMESPACE_COLLAB_AGENT);
       const jsonlDir = path.join(fakeHome, '.claude', 'projects', slug);
@@ -227,7 +276,7 @@ describe('AgentSessionRegistry', () => {
         lines.map((l) => JSON.stringify(l)).join('\n') + '\n',
       );
 
-      const r = makeRegistry();
+      const r = makeRegistry(cwd);
       await r.getOrCreate(sessionId, cwd);
       await new Promise((res) => setTimeout(res, 20));
 
@@ -253,7 +302,7 @@ describe('AgentSessionRegistry', () => {
     const prevHome = process.env.HOME;
     process.env.HOME = fakeHome;
     try {
-      const r = makeRegistry();
+      const r = makeRegistry('/cwd/fresh');
       await r.getOrCreate('s-fresh', '/cwd/fresh');
       await new Promise((res) => setTimeout(res, 10));
       const ring = r.transcriptOf('s-fresh');

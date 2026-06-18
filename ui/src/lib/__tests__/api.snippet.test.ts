@@ -79,10 +79,11 @@ describe('API Client - Snippet Operations', () => {
         json: async () => ({ snippets: mockSnippets }),
       });
 
-      const result = await api.getSnippets('/test/project', 'test-session');
+      const result = await api.getSnippets('server-1', '/test/project', 'test-session');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/snippets')
+        expect.stringContaining('/api/snippets'),
+        expect.anything()
       );
       expect(result).toEqual(mockSnippets);
     });
@@ -93,7 +94,7 @@ describe('API Client - Snippet Operations', () => {
         json: async () => ({}),
       });
 
-      const result = await api.getSnippets('/test/project', 'test-session');
+      const result = await api.getSnippets('server-1', '/test/project', 'test-session');
 
       expect(result).toEqual([]);
     });
@@ -105,7 +106,7 @@ describe('API Client - Snippet Operations', () => {
       });
 
       await expect(
-        api.getSnippets('/project', 'session')
+        api.getSnippets('server-1', '/project', 'session')
       ).rejects.toThrow('Not Found');
     });
   });
@@ -123,10 +124,11 @@ describe('API Client - Snippet Operations', () => {
         json: async () => mockSnippet,
       });
 
-      const result = await api.getSnippet('/test/project', 'test-session', 'my-snippet');
+      const result = await api.getSnippet('server-1', '/test/project', 'test-session', 'my-snippet');
 
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/snippet/my-snippet')
+        expect.stringContaining('/api/snippet/my-snippet'),
+        expect.anything()
       );
       expect(result).toEqual(mockSnippet);
     });
@@ -136,7 +138,7 @@ describe('API Client - Snippet Operations', () => {
         status: 404,
       });
 
-      const result = await api.getSnippet('/test/project', 'test-session', 'nonexistent');
+      const result = await api.getSnippet('server-1', '/test/project', 'test-session', 'nonexistent');
 
       expect(result).toBeNull();
     });
@@ -146,11 +148,11 @@ describe('API Client - Snippet Operations', () => {
         status: 404,
       });
 
-      await api.getSnippet('/project', 'session', 'id with spaces');
+      await api.getSnippet('server-1', '/project', 'session', 'id with spaces');
 
       const callUrl = (global.fetch as any).mock.calls[0][0];
       // ID with spaces should be encoded
-      expect(callUrl).toContain('%20'); // Encoded space
+      expect(callUrl).toContain('id%20with%20spaces'); // Encoded space in id segment
     });
 
     it('should throw error on other failed response', async () => {
@@ -161,13 +163,13 @@ describe('API Client - Snippet Operations', () => {
       });
 
       await expect(
-        api.getSnippet('/project', 'session', 'id')
+        api.getSnippet('server-1', '/project', 'session', 'id')
       ).rejects.toThrow('Internal Server Error');
     });
   });
 
   describe('updateSnippet', () => {
-    it('should send POST request with updated content', async () => {
+    it('should send PUT request with updated content', async () => {
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ success: true }),
@@ -183,7 +185,7 @@ describe('API Client - Snippet Operations', () => {
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/snippet/snippet-id'),
         expect.objectContaining({
-          method: 'POST',
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
         })
       );

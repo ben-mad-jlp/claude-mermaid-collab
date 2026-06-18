@@ -1,5 +1,8 @@
 /**
- * CodeMirrorWrapper Component Tests
+ * MonacoWrapper Component Tests
+ *
+ * (Historically CodeMirrorWrapper; the editor was migrated from CodeMirror to
+ * Monaco. The component under test is now `MonacoWrapper`.)
  *
  * Test coverage includes:
  * - Component rendering and initialization
@@ -15,25 +18,43 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { CodeMirrorWrapper, type Language } from '../CodeMirrorWrapper';
-import { useTheme } from '@/hooks/useTheme';
+import { MonacoWrapper, type Language } from '../MonacoWrapper';
 import { useUIStore } from '@/stores/uiStore';
 
-// Mock @uiw/react-codemirror
-vi.mock('@uiw/react-codemirror', () => ({
-  default: ({ value, onChange, placeholder, editable, className }: any) => (
+// Mock @monaco-editor/react: render a textarea stand-in for the editor so we
+// can assert value/onChange/readOnly/placeholder without a real Monaco runtime.
+vi.mock('@monaco-editor/react', () => {
+  const Editor = ({ value, onChange, options }: any) => (
     <textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={!editable}
-      className={className}
+      placeholder={options?.placeholder}
+      disabled={options?.readOnly}
       data-testid="codemirror-editor"
     />
-  ),
-}));
+  );
+  return {
+    __esModule: true,
+    default: Editor,
+    // loader.init() is awaited in MonacoWrapper to register themes; resolve it.
+    loader: {
+      init: () =>
+        Promise.resolve({
+          editor: { defineTheme: vi.fn(), setTheme: vi.fn() },
+          languages: {
+            registerFoldingRangeProvider: vi.fn(),
+            FoldingRangeKind: { Region: 'region' },
+          },
+        }),
+    },
+  };
+});
 
-describe('CodeMirrorWrapper', () => {
+// Theme JSON imports used by ensureThemesRegistered.
+vi.mock('../themes/github-dark.json', () => ({ default: {} }));
+vi.mock('../themes/github-light.json', () => ({ default: {} }));
+
+describe('MonacoWrapper', () => {
   let mockOnChange: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -50,7 +71,7 @@ describe('CodeMirrorWrapper', () => {
   describe('Rendering', () => {
     it('should render the editor wrapper', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="console.log('Hello');"
           onChange={mockOnChange}
         />
@@ -64,7 +85,7 @@ describe('CodeMirrorWrapper', () => {
     it('should display initial code content', async () => {
       const code = 'const x = 42;';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={code}
           onChange={mockOnChange}
         />
@@ -78,7 +99,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should show loading state initially', () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
         />
@@ -92,7 +113,7 @@ describe('CodeMirrorWrapper', () => {
     it('should render with custom class names', async () => {
       const customClass = 'my-custom-editor';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
           className={customClass}
@@ -110,7 +131,7 @@ describe('CodeMirrorWrapper', () => {
     it('should update code on change', async () => {
       const user = userEvent.setup();
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
         />
@@ -132,7 +153,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should handle empty code content', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
         />
@@ -150,7 +171,7 @@ describe('CodeMirrorWrapper', () => {
 }`;
 
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={multiLineCode}
           onChange={mockOnChange}
         />
@@ -165,7 +186,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should update code when value prop changes', async () => {
       const { rerender } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 1;"
           onChange={mockOnChange}
         />
@@ -177,7 +198,7 @@ describe('CodeMirrorWrapper', () => {
       });
 
       rerender(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 2;"
           onChange={mockOnChange}
         />
@@ -194,7 +215,7 @@ describe('CodeMirrorWrapper', () => {
     it('should accept javascript language', async () => {
       const jsCode = 'const x = 42;';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={jsCode}
           onChange={mockOnChange}
           language="javascript"
@@ -210,7 +231,7 @@ describe('CodeMirrorWrapper', () => {
     it('should accept markdown language', async () => {
       const mdCode = '# Hello\nThis is markdown';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={mdCode}
           onChange={mockOnChange}
           language="markdown"
@@ -226,7 +247,7 @@ describe('CodeMirrorWrapper', () => {
     it('should accept yaml language', async () => {
       const yamlCode = 'name: test\nversion: 1.0';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={yamlCode}
           onChange={mockOnChange}
           language="yaml"
@@ -242,7 +263,7 @@ describe('CodeMirrorWrapper', () => {
     it('should accept html language', async () => {
       const htmlCode = '<div>Hello</div>';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={htmlCode}
           onChange={mockOnChange}
           language="html"
@@ -258,7 +279,7 @@ describe('CodeMirrorWrapper', () => {
     it('should accept json language', async () => {
       const jsonCode = '{"name": "test", "value": 42}';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={jsonCode}
           onChange={mockOnChange}
           language="json"
@@ -274,7 +295,7 @@ describe('CodeMirrorWrapper', () => {
     it('should default to text language', async () => {
       const plainText = 'This is plain text';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={plainText}
           onChange={mockOnChange}
         />
@@ -288,7 +309,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should switch languages dynamically', async () => {
       const { rerender } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
           language="javascript"
@@ -300,7 +321,7 @@ describe('CodeMirrorWrapper', () => {
       });
 
       rerender(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="# Markdown"
           onChange={mockOnChange}
           language="markdown"
@@ -320,7 +341,7 @@ describe('CodeMirrorWrapper', () => {
       setState({ theme: 'light' });
 
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -337,7 +358,7 @@ describe('CodeMirrorWrapper', () => {
       setState({ theme: 'dark' });
 
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -354,7 +375,7 @@ describe('CodeMirrorWrapper', () => {
       setState({ theme: 'light' });
 
       const { rerender } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -367,7 +388,7 @@ describe('CodeMirrorWrapper', () => {
       setState({ theme: 'dark' });
 
       rerender(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -383,7 +404,7 @@ describe('CodeMirrorWrapper', () => {
   describe('Read-Only Mode', () => {
     it('should be editable by default', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -397,7 +418,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should be read-only when readOnly prop is true', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
           readOnly={true}
@@ -413,7 +434,7 @@ describe('CodeMirrorWrapper', () => {
     it('should not call onChange when read-only', async () => {
       const user = userEvent.setup();
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
           readOnly={true}
@@ -434,7 +455,7 @@ describe('CodeMirrorWrapper', () => {
   describe('Customization Props', () => {
     it('should apply custom height', async () => {
       const { container } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
           height="600px"
@@ -449,7 +470,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should show line numbers by default', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="line 1\nline 2"
           onChange={mockOnChange}
           showLineNumbers={true}
@@ -463,7 +484,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should hide line numbers when showLineNumbers is false', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="line 1\nline 2"
           onChange={mockOnChange}
           showLineNumbers={false}
@@ -478,7 +499,7 @@ describe('CodeMirrorWrapper', () => {
     it('should display placeholder text', async () => {
       const placeholderText = 'Enter code here...';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
           placeholder={placeholderText}
@@ -493,7 +514,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should enable word wrap by default', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="This is a very long line of code that should wrap to the next line"
           onChange={mockOnChange}
           wordWrap={true}
@@ -507,7 +528,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should disable word wrap when wordWrap is false', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="This is a very long line of code"
           onChange={mockOnChange}
           wordWrap={false}
@@ -524,7 +545,7 @@ describe('CodeMirrorWrapper', () => {
     it('should call onChange callback on code changes', async () => {
       const user = userEvent.setup();
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
         />
@@ -547,7 +568,7 @@ describe('CodeMirrorWrapper', () => {
     it('should call onChange for each character typed', async () => {
       const user = userEvent.setup();
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
         />
@@ -567,7 +588,7 @@ describe('CodeMirrorWrapper', () => {
     it('should handle rapid code changes', async () => {
       const user = userEvent.setup();
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value=""
           onChange={mockOnChange}
         />
@@ -589,7 +610,7 @@ describe('CodeMirrorWrapper', () => {
     it('should handle very long code content', async () => {
       const longCode = 'const x = 1;\n'.repeat(1000);
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={longCode}
           onChange={mockOnChange}
         />
@@ -604,7 +625,7 @@ describe('CodeMirrorWrapper', () => {
     it('should handle code with special characters', async () => {
       const specialCode = 'const str = "Hello\\nWorld\\t!";';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={specialCode}
           onChange={mockOnChange}
         />
@@ -619,7 +640,7 @@ describe('CodeMirrorWrapper', () => {
     it('should handle code with unicode characters', async () => {
       const unicodeCode = '// 你好 🌍\nconst emoji = "😀";';
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value={unicodeCode}
           onChange={mockOnChange}
         />
@@ -640,7 +661,7 @@ describe('CodeMirrorWrapper', () => {
 
       expect(() => {
         render(
-          <CodeMirrorWrapper
+          <MonacoWrapper
             value="test"
             onChange={throwingOnChange}
           />
@@ -653,7 +674,7 @@ describe('CodeMirrorWrapper', () => {
       setState({ theme: 'light' });
 
       const { rerender } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -665,7 +686,7 @@ describe('CodeMirrorWrapper', () => {
 
       setState({ theme: 'dark' });
       rerender(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -673,7 +694,7 @@ describe('CodeMirrorWrapper', () => {
 
       setState({ theme: 'light' });
       rerender(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -688,7 +709,7 @@ describe('CodeMirrorWrapper', () => {
   describe('Component Lifecycle', () => {
     it('should initialize properly on mount', async () => {
       const { container } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="console.log('test');"
           onChange={mockOnChange}
         />
@@ -701,7 +722,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should cleanup properly on unmount', async () => {
       const { unmount } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="test code"
           onChange={mockOnChange}
         />
@@ -718,7 +739,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should handle multiple prop updates', async () => {
       const { rerender } = render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 1;"
           onChange={mockOnChange}
           language="javascript"
@@ -731,7 +752,7 @@ describe('CodeMirrorWrapper', () => {
       });
 
       rerender(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 2;"
           onChange={mockOnChange}
           language="markdown"
@@ -749,7 +770,7 @@ describe('CodeMirrorWrapper', () => {
   describe('Accessibility', () => {
     it('should have accessible wrapper element', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />
@@ -763,7 +784,7 @@ describe('CodeMirrorWrapper', () => {
 
     it('should have accessible editor element with testid', async () => {
       render(
-        <CodeMirrorWrapper
+        <MonacoWrapper
           value="const x = 42;"
           onChange={mockOnChange}
         />

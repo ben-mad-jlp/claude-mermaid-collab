@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { AgentSessionRegistry } from '../session-registry.ts';
 import { AgentDispatcher } from '../dispatcher.ts';
+import { CommandReceiptsStore } from '../command-receipts.ts';
 import type { AgentEvent } from '../contracts.ts';
 
 type FakeProc = {
@@ -52,8 +53,29 @@ let tmpDir: string;
 let currentFakes: FakeHandles[];
 let broadcasts: Array<{ type: 'agent_event'; channel: string; event: AgentEvent }>;
 
+// A short-lived fake proc that has already exited — used for the `git` probes
+// the WorktreeManager now runs through the injected spawn. Exiting non-zero
+// makes projectRoot read as non-git so no real worktree work happens.
+function makeExitedProc(code: number) {
+  return {
+    stdin: { write: () => {}, end: () => {} },
+    stdout: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+    stderr: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+    kill: () => {},
+    exited: Promise.resolve(code),
+    exitCode: code,
+    signalCode: null,
+    killed: false,
+  } as any;
+}
+
 function makeSpawn() {
-  return (_cmd: string[], _opts: any) => {
+  return (cmd: string[], _opts: any) => {
+    // Only the `claude` child should be tracked as a fake; everything else
+    // (notably `git`, invoked by the WorktreeManager) gets a no-op exited proc.
+    if (cmd[0] !== 'claude') {
+      return makeExitedProc(1);
+    }
     const f = makeFakeProc();
     currentFakes.push(f);
     return f.proc;
@@ -99,6 +121,13 @@ function makeFakeWsHandler() {
   return {} as any;
 }
 
+// The dispatcher's command-receipts middleware requires a commandId on every
+// command; inject a unique one per call so dispatch actually runs.
+let cmdSeq = 0;
+function dispatch(dispatcher: AgentDispatcher, ws: any, cmd: any) {
+  return dispatcher.handle(ws, { commandId: `cmd-${++cmdSeq}`, ...cmd });
+}
+
 describe('AgentDispatcher', () => {
   describe('agent_cancel (bug #8)', () => {
     it('synthesizes turn_end with canceled=true when a turn is in-flight', async () => {
@@ -107,10 +136,11 @@ describe('AgentDispatcher', () => {
         registry,
         wsHandler: makeFakeWsHandler(),
         resolvedCwd: '/tmp',
+        receipts: new CommandReceiptsStore(":memory:"),
       });
       const { ws } = makeFakeWs();
 
-      await dispatcher.handle(ws, { kind: 'agent_start', sessionId: 's-cancel', cwd: '/tmp' });
+      await dispatch(dispatcher, ws, { kind: 'agent_start', sessionId: 's-cancel', cwd: '/tmp' });
       // Fire a turn_start via stream frame
       const fake = currentFakes[0];
       fake.pushStdout(
@@ -124,7 +154,7 @@ describe('AgentDispatcher', () => {
       const beforeCancel = broadcasts.filter((b) => b.event.kind === 'turn_end').length;
       expect(beforeCancel).toBe(0);
 
-      await dispatcher.handle(ws, { kind: 'agent_cancel', sessionId: 's-cancel' });
+      await dispatch(dispatcher, ws, { kind: 'agent_cancel', sessionId: 's-cancel' });
 
       const turnEnds = broadcasts.filter((b) => b.event.kind === 'turn_end');
       expect(turnEnds.length).toBe(1);
@@ -141,11 +171,12 @@ describe('AgentDispatcher', () => {
         registry,
         wsHandler: makeFakeWsHandler(),
         resolvedCwd: '/tmp',
+        receipts: new CommandReceiptsStore(":memory:"),
       });
       const { ws } = makeFakeWs();
 
-      await dispatcher.handle(ws, { kind: 'agent_start', sessionId: 's-idle', cwd: '/tmp' });
-      await dispatcher.handle(ws, { kind: 'agent_cancel', sessionId: 's-idle' });
+      await dispatch(dispatcher, ws, { kind: 'agent_start', sessionId: 's-idle', cwd: '/tmp' });
+      await dispatch(dispatcher, ws, { kind: 'agent_cancel', sessionId: 's-idle' });
 
       const turnEnds = broadcasts.filter((b) => b.event.kind === 'turn_end');
       expect(turnEnds.length).toBe(0);
@@ -157,10 +188,11 @@ describe('AgentDispatcher', () => {
         registry,
         wsHandler: makeFakeWsHandler(),
         resolvedCwd: '/tmp',
+        receipts: new CommandReceiptsStore(":memory:"),
       });
       const { ws } = makeFakeWs();
 
-      await dispatcher.handle(ws, { kind: 'agent_start', sessionId: 's-race', cwd: '/tmp' });
+      await dispatch(dispatcher, ws, { kind: 'agent_start', sessionId: 's-race', cwd: '/tmp' });
       const fake = currentFakes[0];
       fake.pushStdout(
         JSON.stringify({
@@ -170,7 +202,7 @@ describe('AgentDispatcher', () => {
       );
       await new Promise((r) => setTimeout(r, 20));
 
-      await dispatcher.handle(ws, { kind: 'agent_cancel', sessionId: 's-race' });
+      await dispatch(dispatcher, ws, { kind: 'agent_cancel', sessionId: 's-race' });
       const cancelTurnIds = broadcasts
         .filter((b) => b.event.kind === 'turn_end')
         .map((b) => (b.event as any).turnId);
@@ -203,11 +235,12 @@ describe('AgentDispatcher', () => {
         registry,
         wsHandler: makeFakeWsHandler(),
         resolvedCwd: '/tmp',
+        receipts: new CommandReceiptsStore(":memory:"),
       });
 
       // Tab A starts the session.
       const tabA = makeFakeWs();
-      await dispatcher.handle(tabA.ws, { kind: 'agent_start', sessionId: 's-replay', cwd: '/tmp' });
+      await dispatch(dispatcher, tabA.ws, { kind: 'agent_start', sessionId: 's-replay', cwd: '/tmp' });
       // Simulate some activity
       const fake = currentFakes[0];
       fake.pushStdout(
@@ -229,10 +262,12 @@ describe('AgentDispatcher', () => {
 
       // Tab B connects fresh and sends agent_resume.
       const tabB = makeFakeWs();
-      await dispatcher.handle(tabB.ws, { kind: 'agent_resume', sessionId: 's-replay' });
+      await dispatch(dispatcher, tabB.ws, { kind: 'agent_resume', sessionId: 's-replay' });
 
-      // Tab B should receive the full cached transcript.
-      const kinds = tabB.sent.map((m) => m.event.kind);
+      // Tab B should receive the full cached transcript. Replay now arrives as
+      // `historical_event` frames (each carrying `.event`) followed by a
+      // `resume_complete` / `command_ack` frame that has no `.event`.
+      const kinds = tabB.sent.map((m) => (m as any).event?.kind).filter(Boolean);
       expect(kinds).toContain('session_started');
       expect(kinds).toContain('turn_start');
       expect(kinds).toContain('assistant_delta');
@@ -246,10 +281,11 @@ describe('AgentDispatcher', () => {
         registry,
         wsHandler: makeFakeWsHandler(),
         resolvedCwd: '/tmp',
+        receipts: new CommandReceiptsStore(":memory:"),
       });
 
       const tabA = makeFakeWs();
-      await dispatcher.handle(tabA.ws, { kind: 'agent_start', sessionId: 's-start2', cwd: '/tmp' });
+      await dispatch(dispatcher, tabA.ws, { kind: 'agent_start', sessionId: 's-start2', cwd: '/tmp' });
       const fake = currentFakes[0];
       fake.pushStdout(
         JSON.stringify({ type: 'system', subtype: 'init', session_id: 'cs', cwd: '/tmp' }) + '\n',
@@ -259,7 +295,7 @@ describe('AgentDispatcher', () => {
       const tabB = makeFakeWs();
       // A late-joining tab that sends agent_start (not agent_resume) against an
       // already-running child must also get the cached history.
-      await dispatcher.handle(tabB.ws, { kind: 'agent_start', sessionId: 's-start2', cwd: '/tmp' });
+      await dispatch(dispatcher, tabB.ws, { kind: 'agent_start', sessionId: 's-start2', cwd: '/tmp' });
 
       const kinds = tabB.sent.map((m) => m.event.kind);
       expect(kinds).toContain('session_started');

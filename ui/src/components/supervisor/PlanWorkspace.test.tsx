@@ -61,8 +61,8 @@ describe('PlanWorkspace detail dock', () => {
 
   it('opens a resizable SplitPane dock with a drag handle when a todo is selected', () => {
     render(<PlanWorkspace />);
-    const lane = screen.getByTestId('startable-lane');
-    fireEvent.click(within(lane).getByText('A'));
+    const workspace = screen.getByTestId('plan-workspace');
+    fireEvent.click(within(workspace).getByText('A'));
 
     expect(screen.getByTestId('split-pane')).toBeInTheDocument();
     expect(screen.getByTestId('split-pane-handle')).toBeInTheDocument(); // draggable divider

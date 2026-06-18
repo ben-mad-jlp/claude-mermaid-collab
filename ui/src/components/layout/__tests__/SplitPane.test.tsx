@@ -21,12 +21,12 @@ import { SplitPane, ThreeWaySplitPane } from '../SplitPane';
 
 // Mock react-resizable-panels
 vi.mock('react-resizable-panels', () => ({
-  Panel: ({ children, 'data-testid': testId, defaultSizePercentage, minSizePercentage, maxSizePercentage, collapsible }: any) => (
+  Panel: ({ children, 'data-testid': testId, defaultSize, minSize, maxSize, collapsible }: any) => (
     <div
       data-testid={testId}
-      data-default-size={defaultSizePercentage}
-      data-min-size={minSizePercentage}
-      data-max-size={maxSizePercentage}
+      data-default-size={defaultSize}
+      data-min-size={minSize}
+      data-max-size={maxSize}
       data-collapsible={collapsible}
     >
       {children}

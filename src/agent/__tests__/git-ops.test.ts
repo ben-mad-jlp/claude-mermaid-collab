@@ -52,15 +52,18 @@ describe('git-ops', () => {
     }
   });
 
-  it('stashCreate returns empty string when working tree is clean', async () => {
+  it("stashCreate returns the 'HEAD' sentinel when working tree is clean", async () => {
     if (!repoRootIsGit) return;
     repoDir = await initRepo();
     fs.writeFileSync(path.join(repoDir, 'a.txt'), 'hello\n');
     await run(repoDir, ['add', '.']);
     await run(repoDir, ['commit', '-q', '-m', 'init']);
 
+    // `git stash create` emits empty stdout on a clean tree; stashCreate coerces
+    // that to the 'HEAD' sentinel so downstream "no-op restore" checks match
+    // uniformly across git versions (see review I5).
     const sha = await ops.stashCreate(repoDir, 'nothing to stash');
-    expect(sha).toBe('');
+    expect(sha).toBe('HEAD');
   });
 
   it('stashCreate returns a valid SHA when there are changes, and the object exists', async () => {

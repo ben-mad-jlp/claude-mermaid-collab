@@ -480,7 +480,10 @@ describe('POST /api/ui-response', () => {
       const data = await response.json() as { error: string };
       expect(data.error).toContain('No pending UI or uiId mismatch');
 
-      // Clean up
+      // Clean up: the blocking render promise only settles when the pending UI
+      // is resolved or dismissed. A mismatched uiId never resolves it, so
+      // dismiss it explicitly before awaiting (otherwise renderPromise hangs).
+      uiManager.dismissUI(sessionKey);
       await renderPromise.catch(() => {});
     }, 15000);
 

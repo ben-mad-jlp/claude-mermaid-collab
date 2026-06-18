@@ -62,7 +62,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       }));
 
       // Project selector should reflect current session's project
-      const projectBtn = screen.getByTestId('project-selector');
+      const projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project1');
     });
 
@@ -78,7 +78,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       });
 
       // Initially no session in store but sessions are passed as props
-      let projectBtn = screen.getByTestId('project-selector');
+      let projectBtn = screen.getByTestId('header-project-label');
       // Component may or may not auto-select; just verify the element exists
       expect(projectBtn).toBeDefined();
 
@@ -93,7 +93,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       }));
 
       // Project should now be selected
-      projectBtn = screen.getByTestId('project-selector');
+      projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project1');
     });
   });
@@ -109,7 +109,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       renderHeader({ sessions, registeredProjects });
 
       // Project selector should not be auto-populated just because registered projects exist
-      const projectBtn = screen.getByTestId('project-selector');
+      const projectBtn = screen.getByTestId('header-project-label');
       // Should show "Select Project" initially or the first from sessions only
       const text = projectBtn.textContent || '';
       // Should not unnecessarily auto-select
@@ -132,7 +132,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
         registeredProjects: ['/path/to/project1', '/path/to/project2'],
       });
 
-      const projectBtn = screen.getByTestId('project-selector');
+      const projectBtn = screen.getByTestId('header-project-label');
       // Should select project1 because that's what currentSession specifies
       expect(projectBtn.textContent).toContain('project1');
     });
@@ -160,7 +160,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
         registeredProjects: ['/path/to/project1', '/path/to/project2'],
       }));
 
-      let projectBtn = screen.getByTestId('project-selector');
+      let projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project1');
 
       // Simulate a session deletion (terminal close)
@@ -173,7 +173,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       }));
 
       // Project should still be project1
-      projectBtn = screen.getByTestId('project-selector');
+      projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project1');
     });
 
@@ -192,7 +192,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
         registeredProjects: ['/path/to/project1', '/path/to/project2'],
       });
 
-      let projectBtn = screen.getByTestId('project-selector');
+      let projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project1');
 
       // Remove project2 (simulating projects array change)
@@ -204,7 +204,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       }));
 
       // Should still be on project1
-      projectBtn = screen.getByTestId('project-selector');
+      projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project1');
     });
   });
@@ -224,7 +224,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
         registeredProjects: ['/path/to/project1'],
       });
 
-      const sessionBtn = screen.getByTestId('session-selector');
+      const sessionBtn = screen.getByTestId('header-session-label');
       expect(sessionBtn.textContent).toContain('session1');
 
       // Simulate terminal deletion - session is still available
@@ -234,7 +234,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       }));
 
       // Session should remain the same
-      expect(screen.getByTestId('session-selector').textContent).toContain('session1');
+      expect(screen.getByTestId('header-session-label').textContent).toContain('session1');
     });
 
     it('should display correct session when currentSession matches selected project', () => {
@@ -253,7 +253,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       });
 
       // Session should be displayed
-      const sessionBtn = screen.getByTestId('session-selector');
+      const sessionBtn = screen.getByTestId('header-session-label');
       expect(sessionBtn.textContent).toContain('session1');
     });
   });
@@ -280,7 +280,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
         registeredProjects: ['/path/to/project1', '/path/to/project2'],
       }));
 
-      let projectBtn = screen.getByTestId('project-selector');
+      let projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project1');
 
       // Quickly change to session2
@@ -294,7 +294,7 @@ describe('Header Component - Item 2: Terminal Close Bug Fix', () => {
       }));
 
       // Should immediately reflect new session's project
-      projectBtn = screen.getByTestId('project-selector');
+      projectBtn = screen.getByTestId('header-project-label');
       expect(projectBtn.textContent).toContain('project2');
     });
   });

@@ -202,13 +202,21 @@ describe('SplitPaneParity — each TabKind renders when pinned right', () => {
     expect(el.getAttribute('data-session')).toBe(NAME);
   });
 
-  it('task-details → placeholder (not yet implemented)', () => {
+  it('task-details → DocumentView when the document exists', () => {
     const tab = makeTab({ id: 'td1', kind: 'task-details' });
+    seedSession({ documents: [{ id: 'td1', name: 'TD', content: '# td' }] });
+    seedRightTab(tab);
+    const { getByTestId } = renderRightPane(tab);
+    expect(getByTestId('mock-document-view').getAttribute('data-doc-id')).toBe('td1');
+  });
+
+  it('task-details → NotFound when the document is missing', () => {
+    const tab = makeTab({ id: 'td-missing', kind: 'task-details' });
     seedSession();
     seedRightTab(tab);
     const { getByTestId, getByText } = renderRightPane(tab);
     expect(getByTestId('pane-content-not-found')).toBeTruthy();
-    expect(getByText(/Task details view not implemented/i)).toBeTruthy();
+    expect(getByText(/Task details document not found/i)).toBeTruthy();
   });
 
   it('blueprint → DocumentView', () => {

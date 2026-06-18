@@ -33,9 +33,12 @@ afterAll(() => {
 });
 
 describe('handleAgentSessionsAPI', () => {
-  it('returns 400 when project missing', async () => {
+  it('routes to registry mode when project missing (503 when registry unavailable)', async () => {
+    // A missing `project` no longer 400s: it now selects the registry list mode
+    // (BUG-05). In this harness no live registry is wired, so the handler
+    // surfaces 503 rather than silently falling through to the legacy path.
     const res = await handleAgentSessionsAPI(new Request('http://x/api/agent/sessions'));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(503);
   });
 
   it('returns [] for nonexistent project', async () => {

@@ -88,13 +88,16 @@ describe('useAgentSession — commandId / retry buffer', () => {
     act(() => {
       result.current.send('hello');
       result.current.cancel('turn-x');
+      // setPermissionMode is now local-only (legacy WS alias removed); it does
+      // not emit an outbound command.
       result.current.setPermissionMode('accept-edits');
       result.current.resolvePermission('p1', 'allow_once');
       result.current.commitPushPR({ title: 'feat: x' });
     });
 
     const sends = lastSends();
-    expect(sends.length).toBeGreaterThanOrEqual(6); // resume + 5 above
+    // resume + send + cancel + resolvePermission + commitPushPR (setPermissionMode emits nothing)
+    expect(sends.length).toBeGreaterThanOrEqual(5);
 
     for (const s of sends) {
       expect(typeof s.commandId).toBe('string');

@@ -95,7 +95,12 @@ describe('ChildManager', () => {
     expect(argv).toContain('--verbose');
     expect(argv).toContain('--permission-mode');
     expect(argv).toContain('bypassPermissions');
-    expect(argv).toContain('--tools');
+    // `--tools` was replaced: the child now pins setting sources, surfaces hook
+    // events, and (under the default bypass runtime) skips permission prompts.
+    expect(argv).toContain('--setting-sources');
+    expect(argv).toContain('project,local');
+    expect(argv).toContain('--include-hook-events');
+    expect(argv).toContain('--dangerously-skip-permissions');
     expect(argv).toContain('--session-id');
     expect(argv).toContain('uuid-1');
     expect(argv).not.toContain('--resume');

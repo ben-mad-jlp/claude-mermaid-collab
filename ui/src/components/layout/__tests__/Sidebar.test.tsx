@@ -175,7 +175,7 @@ describe('Sidebar', () => {
     );
 
     const aside = container.querySelector('aside[data-testid="sidebar"]');
-    expect(aside).toHaveClass('flex', 'flex-col', 'w-72');
+    expect(aside).toHaveClass('flex', 'flex-col', 'w-80');
   });
 
   /**

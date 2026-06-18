@@ -55,7 +55,7 @@ describe('SidebarNodeContextMenu', () => {
       />,
     );
     fireEvent.click(screen.getByRole('menuitem'));
-    expect(onAction).toHaveBeenCalledWith('open');
+    expect(onAction).toHaveBeenCalledWith('open', []);
     expect(onClose).toHaveBeenCalled();
   });
 

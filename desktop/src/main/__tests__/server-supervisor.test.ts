@@ -368,7 +368,13 @@ describe('wrapSidecarForWsl (Windows port P6 — sidecar-in-WSL)', () => {
     expect(script).toContain("export PORT='9002'");
     expect(script).toContain("export MERMAID_PROJECT='/p'");
     expect(script).toContain("export MC_DESKTOP_CONTROL_TOKEN='t'");
-    expect(script).not.toContain('PATH=');   // Windows PATH must NOT cross into WSL
+    // Windows PATH value must NOT cross into WSL. The script DOES set a
+    // WSL-internal PATH prefix (export PATH="$HOME/.bun/bin:…:$PATH") so `bun`
+    // resolves in the non-interactive login shell — that's a Linux-side $PATH
+    // construction, not the crossed Windows env. Assert the Windows value is
+    // absent and no crossed `export PATH='…'` (single-quoted env form) exists.
+    expect(script).not.toContain('C:\\Windows');
+    expect(script).not.toMatch(/export PATH='/);  // crossed-env form would be single-quoted
     expect(script).not.toContain('RANDOM=');  // non-sidecar vars excluded
   });
 

@@ -57,11 +57,12 @@ describe('ArtifactTreeNode', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it('snippet shows </> icon', () => {
-    render(
+  it('renders a leaf icon for a node', () => {
+    const { container } = render(
       <ArtifactTreeNode node={makeNode({ artifactType: 'snippet' })} />,
     );
-    expect(screen.getByText('</>')).toBeTruthy();
+    // iconFor renders a generic dot marker for every node type.
+    expect(container.querySelector('span.rounded-full')).toBeTruthy();
   });
 
   it('deprecated applies line-through', () => {

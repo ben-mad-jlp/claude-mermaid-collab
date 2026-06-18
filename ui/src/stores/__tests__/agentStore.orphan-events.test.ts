@@ -4,7 +4,8 @@ import type {
   SessionClearedEvent,
   CompactionEvent,
   AssistantThinkingEvent,
-  ModelChangeEvent,
+  ModelChangedEvent,
+  TurnStartEvent,
   UserMessageEvent,
   AssistantMessageCompleteEvent,
   PermissionRequestedEvent,
@@ -29,8 +30,8 @@ describe('agentStore orphan-events wiring', () => {
     const thinking: AssistantThinkingEvent = {
       kind: 'assistant_thinking', sessionId: 'x', ts: 3, turnId: 't1', text: 'think',
     };
-    const model: ModelChangeEvent = {
-      kind: 'model_change', sessionId: 'x', ts: 4, turnId: 't1', model: 'claude-opus-4',
+    const model: ModelChangedEvent = {
+      kind: 'model_changed', sessionId: 'x', ts: 4, model: 'claude-opus-4',
     };
     const perm: PermissionRequestedEvent = {
       kind: 'permission_requested', sessionId: 'x', ts: 5,
@@ -106,15 +107,20 @@ describe('agentStore orphan-events wiring', () => {
     expect(useAgentStore.getState().thinkingByTurn.t1).toBe('final');
   });
 
-  it('model_change records modelByTurn', () => {
+  it('model_changed records modelByTurn under the current turn', () => {
     const s = useAgentStore.getState();
+    // model_changed keys modelByTurn by the store's currentTurnId, so establish
+    // the active turn first via turn_start.
     s.applyEvent({
-      kind: 'model_change', sessionId: 'x', ts: 1, turnId: 't1', model: 'claude-opus-4-7',
-    } as ModelChangeEvent);
+      kind: 'turn_start', sessionId: 'x', ts: 0, turnId: 't1',
+    } as TurnStartEvent);
+    s.applyEvent({
+      kind: 'model_changed', sessionId: 'x', ts: 1, model: 'claude-opus-4-7',
+    } as ModelChangedEvent);
     expect(useAgentStore.getState().modelByTurn.t1).toBe('claude-opus-4-7');
     useAgentStore.getState().applyEvent({
-      kind: 'model_change', sessionId: 'x', ts: 2, turnId: 't1', model: 'claude-haiku',
-    } as ModelChangeEvent);
+      kind: 'model_changed', sessionId: 'x', ts: 2, model: 'claude-haiku',
+    } as ModelChangedEvent);
     expect(useAgentStore.getState().modelByTurn.t1).toBe('claude-haiku');
   });
 });

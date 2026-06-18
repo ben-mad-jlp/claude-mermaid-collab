@@ -140,7 +140,7 @@ describe('App Component', () => {
     it('should provide theme context', () => {
       renderApp();
       // Check that theme-related elements exist
-      const appDiv = screen.getByRole('main')?.parentElement;
+      const appDiv = screen.getByTestId('header')?.parentElement;
       expect(appDiv).toBeDefined();
     });
   });
@@ -264,7 +264,7 @@ describe('App Component', () => {
     it('should initialize with default UI state', () => {
       renderApp();
       // Should render without errors
-      const appDiv = screen.getByRole('main')?.parentElement;
+      const appDiv = screen.getByTestId('header')?.parentElement;
       expect(appDiv).toBeDefined();
     });
 
@@ -853,7 +853,7 @@ describe('App Component', () => {
       });
 
       // Verify App still renders correctly
-      const appDiv = screen.getByRole('main')?.parentElement;
+      const appDiv = screen.getByTestId('header')?.parentElement;
       expect(appDiv).toBeDefined();
       expect(appDiv?.className).toContain('flex');
 

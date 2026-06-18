@@ -60,9 +60,31 @@ let spawnCalls: Array<{ cmd: string[]; opts: any }>;
 let currentFakes: FakeHandles[];
 let broadcasts: any[];
 
+// A short-lived fake proc that has already exited — used for the `git` probes
+// the WorktreeManager now runs through the injected spawn. Exiting non-zero
+// makes projectRoot read as non-git so no real worktree work happens (and the
+// fake's stdout/stderr are pre-closed so reads don't hang).
+function makeExitedProc(code: number): FakeProc {
+  return {
+    stdin: { write: mock(() => {}), end: mock(() => {}) },
+    stdout: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+    stderr: new ReadableStream<Uint8Array>({ start(c) { c.close(); } }),
+    kill: mock(() => {}),
+    exited: Promise.resolve(code),
+    exitCode: code,
+    signalCode: null,
+    killed: false,
+  };
+}
+
 function makeSpawn() {
   return (cmd: string[], opts: any) => {
     spawnCalls.push({ cmd, opts });
+    // Only the `claude` child is tracked as a controllable fake; everything else
+    // (notably `git`, invoked by the WorktreeManager) gets a no-op exited proc.
+    if (cmd[0] !== 'claude') {
+      return makeExitedProc(1);
+    }
     const f = makeFakeProc();
     currentFakes.push(f);
     return f.proc;
@@ -80,11 +102,12 @@ afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-function makeRegistry() {
+function makeRegistry(projectRoot?: string) {
   return new AgentSessionRegistry({
     broadcast: (msg) => broadcasts.push(msg),
     persistDir: tmpDir,
     spawn: makeSpawn(),
+    projectRoot,
   });
 }
 
@@ -242,7 +265,11 @@ describe('AgentSessionRegistry.backfillHistory', () => {
     const prevHome = process.env.HOME;
     process.env.HOME = fakeHome;
     try {
-      const slug = cwd.replace(/\//g, '-');
+      // Mirror the registry's slug rule (replaces both '/' and '.'). Because a
+      // non-git projectRoot resolves spawnCwd to projectRoot, the registry must
+      // be rooted at `cwd` so claudeSessionExists/backfillHistory look up the
+      // jsonl under the same slug we write here.
+      const slug = cwd.replace(/[/.]/g, '-');
       const claudeSessionId = uuidv5(sessionId, NAMESPACE_COLLAB_AGENT);
       const jsonlDir = path.join(fakeHome, '.claude', 'projects', slug);
       await fs.mkdir(jsonlDir, { recursive: true });
@@ -250,7 +277,7 @@ describe('AgentSessionRegistry.backfillHistory', () => {
         path.join(jsonlDir, `${claudeSessionId}.jsonl`),
         jsonlLines.map((l) => JSON.stringify(l)).join('\n') + '\n',
       );
-      const r = makeRegistry();
+      const r = makeRegistry(cwd);
       await fn(r);
     } finally {
       if (prevHome === undefined) delete process.env.HOME;

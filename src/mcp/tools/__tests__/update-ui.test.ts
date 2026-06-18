@@ -11,7 +11,9 @@ global.fetch = vi.fn() as unknown as typeof fetch;
 describe('updateUI', () => {
   const mockProject = '/path/to/project';
   const mockSession = 'test-session';
-  const mockApiUrl = `http://localhost:3737/api/update-ui?project=${encodeURIComponent(mockProject)}&session=${encodeURIComponent(mockSession)}`;
+  const apiHost = process.env.HOST || 'localhost';
+  const apiPort = parseInt(process.env.PORT || '9002', 10);
+  const mockApiUrl = `http://${apiHost}:${apiPort}/api/update-ui?project=${encodeURIComponent(mockProject)}&session=${encodeURIComponent(mockSession)}`;
 
   beforeEach(() => {
     vi.clearAllMocks();

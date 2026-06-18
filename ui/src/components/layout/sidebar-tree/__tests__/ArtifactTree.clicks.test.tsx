@@ -150,7 +150,7 @@ describe('ArtifactTree click handling', () => {
     expect(openPreviewSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('multi-selected nodes get the ring class applied via isInMultiSelection', () => {
+  it('multi-selected nodes get the highlight class applied via isInMultiSelection', () => {
     const { container } = render(<ArtifactTree />);
     fireEvent.click(getNode(container, 'd1'));
     fireEvent.click(getNode(container, 'd2'), { ctrlKey: true });
@@ -159,9 +159,9 @@ describe('ArtifactTree click handling', () => {
     const d2 = getNode(container, 'd2');
     const d3 = getNode(container, 'd3');
 
-    expect(d1.className).toContain('ring-2');
-    expect(d2.className).toContain('ring-2');
-    expect(d3.className).not.toContain('ring-2');
+    expect(d1.className).toContain('bg-accent-100');
+    expect(d2.className).toContain('bg-accent-100');
+    expect(d3.className).not.toContain('bg-accent-100');
   });
 });
 

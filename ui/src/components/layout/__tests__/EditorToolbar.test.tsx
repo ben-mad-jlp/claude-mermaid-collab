@@ -509,7 +509,11 @@ describe('EditorToolbar', () => {
       expect(zoomLevel).toBeNull();
     });
 
-    it('should show copy snippet action for snippets', async () => {
+    // Snippets no longer surface copy via the overflow menu — the overflow
+    // menu is intentionally hidden for snippets (the parent SnippetViewer
+    // supplies Copy through the `inlineControls` slot instead). These tests
+    // assert that current contract.
+    it('should not render the overflow menu for snippets', () => {
       const onCopySnippet = vi.fn();
 
       render(
@@ -524,16 +528,13 @@ describe('EditorToolbar', () => {
         />
       );
 
-      const overflowButton = screen.getByTestId('editor-toolbar-overflow');
-      fireEvent.click(overflowButton);
-
-      await waitFor(() => {
-        const copyAction = screen.getByTestId('overflow-action-copy-snippet');
-        expect(copyAction).toBeInTheDocument();
-      });
+      // Overflow trigger is suppressed for snippets, so the copy-snippet
+      // action is not reachable from EditorToolbar.
+      expect(screen.queryByTestId('editor-toolbar-overflow')).toBeNull();
+      expect(screen.queryByTestId('overflow-action-copy-snippet')).toBeNull();
     });
 
-    it('should call onCopySnippet when copy action is clicked', async () => {
+    it('should render the snippet copy control via the inlineControls slot', () => {
       const onCopySnippet = vi.fn();
 
       render(
@@ -541,6 +542,11 @@ describe('EditorToolbar', () => {
           {...defaultProps}
           itemType="snippet"
           onCopySnippet={onCopySnippet}
+          inlineControls={
+            <button data-testid="snippet-copy" onClick={() => onCopySnippet()}>
+              Copy
+            </button>
+          }
           onUndo={mockCallbacks.onUndo}
           onRedo={mockCallbacks.onRedo}
           onZoomIn={mockCallbacks.onZoomIn}
@@ -548,17 +554,10 @@ describe('EditorToolbar', () => {
         />
       );
 
-      const overflowButton = screen.getByTestId('editor-toolbar-overflow');
-      fireEvent.click(overflowButton);
+      const copyButton = screen.getByTestId('snippet-copy');
+      expect(copyButton).toBeInTheDocument();
 
-      await waitFor(() => {
-        const copyAction = screen.getByTestId('overflow-action-copy-snippet');
-        expect(copyAction).toBeInTheDocument();
-      });
-
-      const copyButton = screen.getByTestId('overflow-action-copy-snippet');
       fireEvent.click(copyButton);
-
       expect(onCopySnippet).toHaveBeenCalledOnce();
     });
   });

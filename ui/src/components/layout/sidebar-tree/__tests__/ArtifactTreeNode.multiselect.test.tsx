@@ -15,37 +15,32 @@ function makeNode(overrides: Partial<TreeNode> = {}): TreeNode {
 }
 
 describe('ArtifactTreeNode multi-selection', () => {
-  it('renders ring classes when isInMultiSelection is true', () => {
+  it('renders highlight classes when isInMultiSelection is true', () => {
     const { getByRole } = render(
       <ArtifactTreeNode node={makeNode()} isInMultiSelection />,
     );
     const item = getByRole('treeitem');
-    expect(item.className).toContain('ring-2');
-    expect(item.className).toContain('ring-accent-500');
+    expect(item.className).toContain('bg-accent-100');
   });
 
-  it('does NOT render ring when isInMultiSelection is false/omitted', () => {
+  it('does NOT highlight when isInMultiSelection is false/omitted', () => {
     const { getByRole, rerender } = render(
       <ArtifactTreeNode node={makeNode()} />,
     );
     let item = getByRole('treeitem');
-    expect(item.className).not.toContain('ring-2');
-    expect(item.className).not.toContain('ring-accent-500');
+    expect(item.className).not.toContain('bg-accent-100');
 
     rerender(<ArtifactTreeNode node={makeNode()} isInMultiSelection={false} />);
     item = getByRole('treeitem');
-    expect(item.className).not.toContain('ring-2');
-    expect(item.className).not.toContain('ring-accent-500');
+    expect(item.className).not.toContain('bg-accent-100');
   });
 
-  it('applies both selected and multi-selection classes together', () => {
+  it('applies highlight when both selected and multi-selection are set', () => {
     const { getByRole } = render(
       <ArtifactTreeNode node={makeNode()} selected isInMultiSelection />,
     );
     const item = getByRole('treeitem');
     expect(item.className).toContain('bg-accent-100');
-    expect(item.className).toContain('ring-2');
-    expect(item.className).toContain('ring-accent-500');
   });
 
   it('onClick receives MouseEvent with ctrlKey=true', () => {

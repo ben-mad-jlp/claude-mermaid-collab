@@ -32,8 +32,18 @@ vi.mock('@/components/agent-chat/FileMentionPicker', () => ({
 
 function flushTimers() {
   return act(async () => {
-    await Promise.resolve();
+    // Flush several microtask + macrotask turns so the React.lazy()
+    // LexicalChatComposer chunk resolves and its Suspense boundary commits.
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
+    await new Promise((r) => setTimeout(r, 0));
   });
+}
+
+// Wait until the lazily-loaded composer has mounted (label is present).
+async function waitForComposer(): Promise<HTMLElement> {
+  return screen.findByLabelText('Message composer');
 }
 
 describe('ChatComposer (Lexical)', () => {
@@ -51,7 +61,7 @@ describe('ChatComposer (Lexical)', () => {
       />,
     );
     await flushTimers();
-    expect(screen.getByLabelText('Message composer')).toBeInTheDocument();
+    expect(await waitForComposer()).toBeInTheDocument();
     expect(document.querySelector('textarea')).toBeNull();
   });
 
@@ -83,7 +93,7 @@ describe('ChatComposer (Lexical)', () => {
     );
     await flushTimers();
 
-    const ce = screen.getByLabelText('Message composer') as HTMLElement & {
+    const ce = (await waitForComposer()) as HTMLElement & {
       __lexicalEditor?: import('lexical').LexicalEditor;
     };
     // Lexical decorates the ContentEditable host with a `__lexicalEditor`
@@ -130,6 +140,8 @@ describe('ChatComposer (Lexical)', () => {
     });
     await flushTimers();
 
+    // Selecting a file should insert the mention AND remove the `@fo` trigger
+    // text so the picker closes. See REAL BUG note below.
     expect(screen.queryByTestId('file-mention-picker')).toBeNull();
     let sawMention = false;
     editor.getEditorState().read(() => {
@@ -165,6 +177,7 @@ describe('ChatComposer (Lexical)', () => {
       />,
     );
     await flushTimers();
+    await waitForComposer();
 
     // Grab the editor off any node Lexical attached it to.
     let editor: import('lexical').LexicalEditor | null = null;
@@ -229,6 +242,7 @@ describe('ChatComposer (Lexical)', () => {
     await flushTimers();
 
     expect(onSend).not.toHaveBeenCalled();
-    expect(onSlashCommand).toHaveBeenCalledWith('clear');
+    // onSlashCommand signature is (id, args?); a bare /clear pill passes no args.
+    expect(onSlashCommand).toHaveBeenCalledWith('clear', undefined);
   });
 });

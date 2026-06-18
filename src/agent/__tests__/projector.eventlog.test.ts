@@ -39,7 +39,9 @@ describe('Projector routes events through EventLog', () => {
   });
 
   it('project() appends once per batch and returns events with monotonic seq', () => {
-    const appendSpy = vi.spyOn(log, 'append');
+    // project() persists each non-empty batch via appendWithAggregates
+    // (it only falls back to append() when aggregate columns are unavailable).
+    const appendSpy = vi.spyOn(log, 'appendWithAggregates');
     const projector = new Projector(log);
     const sessionId = 'sess-test';
     const ctx = mkCtx(sessionId);

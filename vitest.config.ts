@@ -1,30 +1,56 @@
 import { defineConfig } from 'vitest/config';
 import * as path from 'path';
+import { readFileSync, readdirSync } from 'fs';
+
+const ROOT = __dirname;
+const TEST_ROOTS = ['src', 'extensions/vscode/src', 'desktop/src'];
+
+/**
+ * Dynamically exclude every test file that runs under `bun test` (imports
+ * 'bun:test') — they use bun-only APIs and would fail to load under vitest with
+ * "Cannot find package 'bun:test'". Detecting them by content (instead of a
+ * hand-maintained list) keeps `npm run test:backend` clean as new bun tests are
+ * added. The bun tests are run separately via `bun test`.
+ */
+function bunTestFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    let entries: ReturnType<typeof readdirSync>;
+    try {
+      entries = readdirSync(path.join(ROOT, dir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const rel = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === 'node_modules') continue;
+        walk(rel);
+      } else if (/\.test\.tsx?$/.test(e.name)) {
+        try {
+          if (/from ['"]bun:test['"]/.test(readFileSync(path.join(ROOT, rel), 'utf8'))) {
+            out.push(rel);
+          }
+        } catch { /* unreadable — skip */ }
+      }
+    }
+  };
+  for (const r of TEST_ROOTS) walk(r);
+  return out;
+}
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
     include: ['src/**/*.test.ts', 'extensions/vscode/src/**/*.test.ts', 'desktop/src/**/*.test.ts'],
-    exclude: [
-      '**/node_modules/**',
-      // bun:test files — run via `bun test`, not vitest
-      'src/types/update-log.test.ts',
-      'src/services/__tests__/question-manager.test.ts',
-      'src/services/__tests__/todo-store.test.ts',
-      'src/services/__tests__/worker-ledger.test.ts',
-      'src/services/__tests__/tier-override-store.test.ts',
-      'src/services/__tests__/system-object-store.test.ts',
-      'src/services/__tests__/system-object-bom.test.ts',
-      'src/services/__tests__/system-object-edges.test.ts',
-      'src/services/__tests__/todo-migration.test.ts',
-      'src/mcp/tools/lessons.test.ts',
-      'src/config/__tests__/project-manifest.test.ts',
-      'src/config/__tests__/agent-profiles.test.ts',
-      'src/services/__tests__/friction-store.test.ts',
-      'src/services/__tests__/supervisor-decisions.test.ts',
-    ],
+    exclude: ['**/node_modules/**', ...bunTestFiles()],
     setupFiles: ['./vitest.setup.ts'],
+    // Backend tests share on-disk state (SQLite DBs / temp dirs at fixed paths),
+    // so running test FILES in parallel causes cross-file contention → a shifting
+    // set of flaky failures (each test passes in isolation). Serialize files for
+    // determinism; within-file tests still run normally. Correctness over speed.
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
