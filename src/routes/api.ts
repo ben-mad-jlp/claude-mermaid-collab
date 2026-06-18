@@ -35,7 +35,7 @@ import {
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
-import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject } from '../services/supervisor-store.ts';
+import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
 import {
@@ -67,7 +67,7 @@ async function loadSpritePipeline() {
   return { quantizeBuffer };
 }
 import { tmpdir as osTmpdir } from 'os';
-import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile } from 'fs/promises';
+import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile, readdir as fsReaddir, unlink as fsUnlink } from 'fs/promises';
 
 /**
  * Expand ~ to home directory in paths
@@ -80,6 +80,35 @@ function expandPath(path: string): string {
     return homedir();
   }
   return path;
+}
+
+/**
+ * Full session de-registration cleanup shared by every delete/archive path.
+ * `sessionRegistry.unregister()` only removes the sessions.json entry; this clears
+ * the TWO registrations that were otherwise left DANGLING when a session is deleted:
+ *  1. the supervisor's supervised-session row (`removeSupervised`), so a deleted
+ *     session no longer lingers as a ghost in the supervised list; and
+ *  2. the Claude-session binding file `/tmp/.mermaid-collab-binding-<id>.json` written
+ *     by `register_claude_session` — keyed by claudeSessionId, so we match on its
+ *     `{project, session}` contents rather than a known id.
+ * All best-effort: a failure here NEVER blocks the delete (the registry row is gone).
+ */
+async function cleanupSessionRegistrations(project: string, session: string): Promise<void> {
+  try { removeSupervised(project, session); } catch { /* best-effort: supervisor row */ }
+  try {
+    const entries = await fsReaddir('/tmp');
+    await Promise.all(
+      entries
+        .filter((n) => n.startsWith('.mermaid-collab-binding-') && n.endsWith('.json'))
+        .map(async (n) => {
+          const p = join('/tmp', n);
+          try {
+            const b = JSON.parse(await fsReadFile(p, 'utf-8')) as { project?: string; session?: string };
+            if (b.project === project && b.session === session) await fsUnlink(p);
+          } catch { /* unreadable / mismatched binding — skip */ }
+        }),
+    );
+  } catch { /* /tmp unreadable — best-effort */ }
 }
 
 // Track server start time for uptime calculation
@@ -301,6 +330,7 @@ export async function handleAPI(
       const project = expandPath(rawProject);
 
       const removed = await sessionRegistry.unregister(project, session);
+      await cleanupSessionRegistrations(project, session);
       return Response.json({ success: removed });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -334,6 +364,7 @@ export async function handleAPI(
       // Unregister from session registry if deleted
       if (options.deleteSession) {
         await sessionRegistry.unregister(project, session);
+        await cleanupSessionRegistrations(project, session);
         wsHandler.broadcast({ type: 'session_deleted', project, session });
       }
 
@@ -373,6 +404,7 @@ export async function handleAPI(
       const { rm } = await import('node:fs/promises');
       await rm(sessionDir, { recursive: true, force: true });
       await sessionRegistry.unregister(project, session);
+      await cleanupSessionRegistrations(project, session);
       wsHandler.broadcast({ type: 'session_deleted', project, session });
       return Response.json({ ok: true });
     } catch (error: any) {
