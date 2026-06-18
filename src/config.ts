@@ -56,8 +56,9 @@ export const config = {
   MAX_FILE_SIZE: 1048576, // 1MB
   MAX_IMAGE_SIZE: 50 * 1024 * 1024, // 50 MB
   // Visual-media whitelist for the image/media artifact path: still images +
-  // animated (gif/webp) + video. Video rides the same upload/store/index path and
-  // is distinguished at render time by its video/* MIME (rendered in <video>).
+  // animated (gif/webp) + video + 3D models. All ride the same upload/store/index
+  // path and are distinguished at render time by MIME prefix (image/ → <img>,
+  // video/ → <video>, model/ → the three.js ModelViewer).
   ALLOWED_IMAGE_MIME_TYPES: [
     'image/png',
     'image/jpeg',
@@ -70,6 +71,11 @@ export const config = {
     'video/mp4',
     'video/webm',
     'video/quicktime',
+    'model/gltf-binary',  // glb
+    'model/gltf+json',    // gltf
+    'model/stl',          // stl
+    'model/obj',          // obj
+    'model/ply',          // ply
   ] as const,
   THUMBNAIL_CACHE_SIZE: 100,
   UNDO_HISTORY_SIZE: 50,

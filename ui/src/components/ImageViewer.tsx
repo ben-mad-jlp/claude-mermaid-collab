@@ -3,6 +3,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSessionTabs } from '../stores/tabsStore';
 import { SpritePlayer } from './SpritePlayer';
+// Lazy so three.js (~600KB) is code-split into its own chunk, fetched only when a
+// 3D model artifact is actually opened — it never weighs down the main bundle.
+const ModelViewer = React.lazy(() => import('./ModelViewer'));
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -111,6 +114,10 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
           </div>
         ) : animate && manifest ? (
           <SpritePlayer atlasUrl={apiUrl} manifest={manifest} />
+        ) : image.mimeType?.startsWith('model/') ? (
+          <React.Suspense fallback={<div className="text-xs text-gray-400">loading 3D viewer…</div>}>
+            <ModelViewer url={apiUrl} mimeType={image.mimeType} name={image.name} />
+          </React.Suspense>
         ) : image.mimeType?.startsWith('video/') ? (
           <video
             src={apiUrl}

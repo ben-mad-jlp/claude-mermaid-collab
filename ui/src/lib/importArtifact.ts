@@ -11,7 +11,7 @@ export type ForcedType = ArtifactType | 'code-file';
 // Visual-media extensions routed to the image/media artifact path: still images,
 // animated, AND video (mp4/webm/mov). Video is an image-type artifact distinguished
 // by its video/* MIME and rendered in <video>.
-const IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','svg','bmp','tif','tiff','avif','mp4','webm','mov']);
+const IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','svg','bmp','tif','tiff','avif','mp4','webm','mov','glb','gltf','stl','obj','ply']);
 
 interface ImportResult {
   type: ArtifactType;
