@@ -180,6 +180,10 @@ export class ImageManager {
       'image/svg+xml': 'svg',
       'image/bmp': 'bmp',
       'image/tiff': 'tiff',
+      'image/avif': 'avif',
+      'video/mp4': 'mp4',
+      'video/webm': 'webm',
+      'video/quicktime': 'mov',
     };
     return mimeToExt[mimeType] || 'bin';
   }

@@ -8,7 +8,10 @@ import { api } from './api';
 export type ArtifactType = 'diagram' | 'document' | 'design' | 'snippet' | 'spreadsheet' | 'image';
 export type ForcedType = ArtifactType | 'code-file';
 
-const IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','svg','bmp','tif','tiff']);
+// Visual-media extensions routed to the image/media artifact path: still images,
+// animated, AND video (mp4/webm/mov). Video is an image-type artifact distinguished
+// by its video/* MIME and rendered in <video>.
+const IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','svg','bmp','tif','tiff','avif','mp4','webm','mov']);
 
 interface ImportResult {
   type: ArtifactType;
@@ -78,7 +81,7 @@ export async function importArtifact(
 
     if (forced === 'image') {
       if (!IMAGE_EXTS.has(ext)) {
-        throw new Error('WrongDropTarget: Can only drop images into the Images section');
+        throw new Error('WrongDropTarget: Can only drop images, video, or audio into the Media section');
       }
       const formData = new FormData();
       formData.append('file', file);

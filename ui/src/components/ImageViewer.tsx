@@ -65,7 +65,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
   if (!image || !effectiveProject || !effectiveSession) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <p className="text-gray-500 dark:text-gray-400 text-sm">No image selected</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm">No media selected</p>
       </div>
     );
   }
@@ -97,7 +97,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
             href={apiUrl}
             download={image.name}
             className="ml-2 px-3 py-1.5 text-xs font-medium text-info-600 dark:text-info-400 hover:bg-info-50 dark:hover:bg-info-900/20 rounded transition-colors"
-            title="Download image"
+            title="Download"
           >
             Download
           </a>
@@ -111,6 +111,14 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ imageId, project, sess
           </div>
         ) : animate && manifest ? (
           <SpritePlayer atlasUrl={apiUrl} manifest={manifest} />
+        ) : image.mimeType?.startsWith('video/') ? (
+          <video
+            src={apiUrl}
+            controls
+            onError={() => setImageError(true)}
+            className="object-contain"
+            style={{ maxWidth: '100%', maxHeight: '100%' }}
+          />
         ) : (
           <img
             src={apiUrl}

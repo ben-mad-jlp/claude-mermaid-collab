@@ -26,7 +26,6 @@ import { DesignsSection } from './sections/DesignsSection';
 import { SnippetsSection } from './sections/SnippetsSection';
 import { SpreadsheetSection } from './sections/SpreadsheetSection';
 import { ImagesSection } from './sections/ImagesSection';
-import { AudioSection } from './sections/AudioSection';
 import { EmbedsSection } from './sections/EmbedsSection';
 import { PinsSection } from './sections/PinsSection';
 import { RecentSection } from './sections/RecentSection';
@@ -308,6 +307,11 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
     [audio],
   );
 
+  // The "Media" section aggregates images (incl. video, which is an image-type
+  // artifact with a video/* MIME) and audio under one header. The section sorts by
+  // lastModified, so the two streams interleave by recency.
+  const mediaNodes = useMemo<TreeNode[]>(() => [...imageNodes, ...audioNodes], [imageNodes, audioNodes]);
+
   const diagramNodes = useMemo<TreeNode[]>(
     () => diagrams.filter((d) => !d.name.startsWith('Implementing/')).map((d) => toArtifactNode(d, 'diagram')),
     [diagrams],
@@ -393,8 +397,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
         leaves: [...blueprintNodes, ...taskNodes, ...implementingRawNodes].map((n) => ({ id: n.id, name: n.name })),
       },
       { id: 'embeds', leaves: embedNodes.map((n) => ({ id: n.id, name: n.name })) },
-      { id: 'images', leaves: imageNodes.map((n) => ({ id: n.id, name: n.name })) },
-      { id: 'audio', leaves: audioNodes.map((n) => ({ id: n.id, name: n.name })) },
+      { id: 'images', leaves: mediaNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'diagrams', leaves: diagramNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'documents', leaves: documentNodes.map((n) => ({ id: n.id, name: n.name })) },
       { id: 'designs', leaves: designNodes.map((n) => ({ id: n.id, name: n.name })) },
@@ -454,8 +457,7 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
       { id: 'recent', nodes: recentlyUpdatedNodes },
       { id: 'implementing', nodes: [...blueprintNodes, ...taskNodes, ...implementingRawNodes] },
       { id: 'embeds', nodes: embedNodes },
-      { id: 'images', nodes: imageNodes },
-      { id: 'audio', nodes: audioNodes },
+      { id: 'images', nodes: mediaNodes },
       { id: 'diagrams', nodes: diagramNodes },
       { id: 'documents', nodes: documentNodes },
       { id: 'designs', nodes: designNodes },
@@ -1219,28 +1221,11 @@ export function ArtifactTree({ className, vsCodeMode, studio }: ArtifactTreeProp
           toTabDescriptor={toTabDescriptor}
         />
         <ImagesSection
-          nodes={imageNodes}
+          title="Media"
+          nodes={mediaNodes}
           collapsed={collapsedSections.has('images')}
           forceExpanded={forceExpandedSections.has('images')}
           onToggle={() => toggleSection('images')}
-          showDeprecated={showDeprecated}
-          searchQuery={searchQuery}
-          visibleNodes={visibleNodes}
-          multiSelection={multiSelection}
-          isSelected={isSelected}
-          handleNodeClick={handleNodeClick}
-          openNode={openNode}
-          openPermanent={openPermanent}
-          openPreview={openPreview}
-          handleNodeContextMenu={handleNodeContextMenu}
-          setSelection={setSelection}
-          toTabDescriptor={toTabDescriptor}
-        />
-        <AudioSection
-          nodes={audioNodes}
-          collapsed={collapsedSections.has('audio')}
-          forceExpanded={forceExpandedSections.has('audio')}
-          onToggle={() => toggleSection('audio')}
           showDeprecated={showDeprecated}
           searchQuery={searchQuery}
           visibleNodes={visibleNodes}

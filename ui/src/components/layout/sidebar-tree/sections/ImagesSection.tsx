@@ -5,6 +5,9 @@ import type { TreeNode } from '../getActionsForNode';
 
 export interface ImagesSectionProps {
   nodes: TreeNode[];
+  /** Section header label (default "Images"). The section now aggregates images,
+   *  video, and audio under one "Media" header — see ArtifactTree. */
+  title?: string;
   collapsed: boolean;
   forceExpanded: boolean;
   onToggle: () => void;
@@ -24,6 +27,7 @@ export interface ImagesSectionProps {
 
 export function ImagesSection({
   nodes,
+  title = 'Images',
   collapsed,
   forceExpanded,
   onToggle,
@@ -59,7 +63,7 @@ export function ImagesSection({
     <React.Fragment>
       <SectionBranchRow
         id="images"
-        title="Images"
+        title={title}
         count={filtered.length}
         collapsed={collapsed && !forceExpanded}
         onToggle={onToggle}

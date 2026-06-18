@@ -73,20 +73,14 @@ export const SECTION_DEFS: SectionDef[] = [
     filter: (n) => n.kind === 'artifact' && n.artifactType === 'spreadsheet',
   },
   {
+    // "Media" aggregates images, video (an image-type artifact with a video/* MIME),
+    // and audio under one section (rendered by ImagesSection with title="Media").
     id: 'images',
-    label: 'Images',
+    label: 'Media',
     renderer: 'flat',
     multiselectable: true,
     collapsible: true,
-    filter: (n) => n.kind === 'artifact' && n.artifactType === 'image',
-  },
-  {
-    id: 'audio',
-    label: 'Audio',
-    renderer: 'flat',
-    multiselectable: true,
-    collapsible: true,
-    filter: (n) => n.kind === 'artifact' && n.artifactType === 'audio',
+    filter: (n) => n.kind === 'artifact' && (n.artifactType === 'image' || n.artifactType === 'audio'),
   },
   {
     id: 'embeds',

@@ -69,8 +69,8 @@ export const createImageSchema = {
   type: 'object',
   properties: {
     ...sessionParamsDesc,
-    name: { type: 'string', description: 'Image display name (filename)' },
-    source: { type: 'string', description: 'Image source: file path, URL, or base64 data URI (data:image/png;base64,...)' },
+    name: { type: 'string', description: 'Media display name (filename)' },
+    source: { type: 'string', description: 'Media source: file path, URL, or base64 data URI. Accepts images (png/jpeg/gif/webp/svg/bmp/tiff/avif) AND video (mp4/webm/mov) — e.g. data:image/png;base64,... or data:video/mp4;base64,...' },
   },
   required: ['project', 'session', 'name', 'source'],
 };
