@@ -113,7 +113,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
             <tr key={r.kind} data-testid={`node-row-${r.kind}`} className={`border-t border-gray-100 dark:border-gray-800 ${busy ? 'opacity-60' : ''}`}>
               <td className="pr-2 py-0.5 align-top">
                 <div className={`font-mono ${overridden ? 'text-info-600 dark:text-info-400' : 'text-gray-700 dark:text-gray-200'}`}>{r.kind}</div>
-                <div className="text-3xs text-gray-400 dark:text-gray-500 max-w-[260px] leading-tight">{r.desc}</div>
+                <div className="text-3xs text-gray-600 dark:text-gray-300 max-w-[260px] leading-tight">{r.desc}</div>
               </td>
               <td className="px-2 py-0.5">
                 <select
