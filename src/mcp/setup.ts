@@ -1242,6 +1242,11 @@ export async function setupMCPServer(): Promise<Server> {
         inputSchema: { type: 'object', properties: {} },
       },
       {
+        name: 'get_datetime',
+        description: "Get the current date and time on the server. Returns ISO-8601 UTC, a human-readable local string, the IANA timezone, and epoch milliseconds. Use this to timestamp observations while monitoring a long-running process — so when fired events are reviewed later (e.g. overnight) the wall-clock time of each is visible.",
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
         name: 'list_sessions',
         description: 'List registered collab sessions. Pass `project` to list only sessions in that project (e.g. to pick an assignee for cross-session todos); omit for all projects.',
         inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path to filter sessions by (optional).' } } },
@@ -2506,6 +2511,20 @@ IMPORTANT - Common pitfalls to avoid:
         switch (name) {
           case 'generate_session_name':
             return JSON.stringify({ name: generateSessionName() }, null, 2);
+
+          case 'get_datetime': {
+            const now = new Date();
+            return JSON.stringify(
+              {
+                iso: now.toISOString(),
+                local: now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' }),
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                epochMs: now.getTime(),
+              },
+              null,
+              2,
+            );
+          }
 
           case 'list_sessions':
             return await listSessions((args as { project?: string })?.project);
