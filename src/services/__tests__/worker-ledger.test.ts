@@ -3,7 +3,8 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, reapStaleInflight, type LedgerEntry } from '../worker-ledger';
+import Database from 'bun:sqlite';
 
 let dir: string;
 
@@ -76,5 +77,25 @@ describe('worker-ledger', () => {
   test('limit caps rows', () => {
     for (let i = 0; i < 5; i++) recordPhase(entry(), 1000 + i);
     expect(queryLedger({ limit: 3 }).length).toBe(3);
+  });
+});
+
+describe('leaf_inflight epoch heal (reapStaleInflight)', () => {
+  test('deletes rows from a dead process (foreign + NULL epoch), keeps this process\'s', () => {
+    setLeafInflight({ project: '/p', leafId: 'live', nodeKind: 'implement' });
+    // Simulate rows a now-dead daemon left: a foreign epoch + a legacy NULL epoch.
+    const raw = new Database(join(dir, 'worker-ledger.db'));
+    raw.prepare("INSERT INTO leaf_inflight (leafId, project, startedAt, epoch) VALUES ('dead', '/p', ?, 'old-epoch')").run(Date.now());
+    raw.prepare("INSERT INTO leaf_inflight (leafId, project, startedAt, epoch) VALUES ('legacy', '/p', ?, NULL)").run(Date.now());
+    raw.close();
+
+    expect(reapStaleInflight()).toBe(2);
+    expect(listLeafInflight().map((r) => r.leafId)).toEqual(['live']);
+  });
+
+  test('a row this process wrote survives its own reap', () => {
+    setLeafInflight({ project: '/p', leafId: 'mine' });
+    expect(reapStaleInflight()).toBe(0);
+    expect(listLeafInflight().map((r) => r.leafId)).toContain('mine');
   });
 });

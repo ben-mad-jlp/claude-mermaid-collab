@@ -6,7 +6,7 @@ import { getOrchestratorLevel, listOrchestratorProjects } from './orchestrator-c
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight } from './worker-ledger';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
@@ -1687,6 +1687,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const nowMs = Date.parse(now);
       const inProgress = listTodos(project, { status: 'in_progress' });
 
+      // Reap stranded leaf_inflight telemetry rows left by a now-dead daemon (a
+      // sidecar restart killed the in-process executor before its finally cleared
+      // the row) so daemon_status stops showing phantom running leaves. Global +
+      // idempotent; cheap to run each tick (epic 8e7386e4).
+      reapStaleInflight();
+
       // PRIOR-EPOCH FAST PATH (heal-on-restart): a claim stamped with a daemon
       // epoch other than THIS process's was minted by a now-dead daemon. The
       // leaf-executor runs in-process, so it cannot have outlived that process —
@@ -1699,6 +1705,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         const t = inProgress.find((x) => x.id === id)!;
         const next = await reclaimOrphan(project, id);
         if (next == null) continue;                 // raced to terminal
+        clearLeafInflight(id);                        // drop the dead executor's inflight row
         if (t.sessionName) markIdle(t.targetProject ?? project, t.sessionName); // free pool slot
         priorEpochReaped.add(id);
         if (next === 'ready') reclaimed.push(id);

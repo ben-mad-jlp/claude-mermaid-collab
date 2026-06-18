@@ -104,6 +104,12 @@ CREATE INDEX IF NOT EXISTS idx_ledger_ts ON worker_ledger(ts);
 
 let db: Database | null = null;
 
+/** This process's epoch — minted once at module load, stamped onto every
+ *  leaf_inflight row this process writes. A row carrying a different (or NULL,
+ *  legacy) epoch was written by a now-dead daemon whose in-process executor was
+ *  killed before it could clear the row; `reapStaleInflight` deletes those. */
+const LEDGER_EPOCH = crypto.randomUUID();
+
 function openDb(): Database {
   if (db) return db;
   const dir = process.env.MERMAID_SUPERVISOR_DIR ?? join(homedir(), '.mermaid-collab');
@@ -142,8 +148,16 @@ function openDb(): Database {
     nodeKind TEXT,
     model TEXT,
     attempt INTEGER,
-    startedAt INTEGER NOT NULL
+    startedAt INTEGER NOT NULL,
+    epoch TEXT
   )`);
+  // Additive migration: `epoch` stamps the owning daemon process so a record left
+  // by a now-dead process (sidecar restart killed the executor before its finally
+  // cleared the row) can be reaped on sight. Guarded ALTER for pre-existing tables.
+  try {
+    const lic = db.query('PRAGMA table_info(leaf_inflight)').all() as Array<{ name: string }>;
+    if (!lic.some((c) => c.name === 'epoch')) db.exec('ALTER TABLE leaf_inflight ADD COLUMN epoch TEXT');
+  } catch { /* best-effort migration */ }
   return db;
 }
 
@@ -272,18 +286,33 @@ export interface InflightRow extends InflightEntry { startedAt: number }
 export function setLeafInflight(e: InflightEntry, now: number = Date.now()): void {
   try {
     openDb().prepare(
-      `INSERT INTO leaf_inflight (leafId, project, epicId, nodeKind, model, attempt, startedAt)
-       VALUES (?,?,?,?,?,?,?)
+      `INSERT INTO leaf_inflight (leafId, project, epicId, nodeKind, model, attempt, startedAt, epoch)
+       VALUES (?,?,?,?,?,?,?,?)
        ON CONFLICT(leafId) DO UPDATE SET
          project=excluded.project, epicId=excluded.epicId, nodeKind=excluded.nodeKind,
-         model=excluded.model, attempt=excluded.attempt, startedAt=excluded.startedAt`,
-    ).run(e.leafId, e.project, e.epicId ?? null, e.nodeKind ?? null, e.model ?? null, e.attempt ?? null, now);
+         model=excluded.model, attempt=excluded.attempt, startedAt=excluded.startedAt, epoch=excluded.epoch`,
+    ).run(e.leafId, e.project, e.epicId ?? null, e.nodeKind ?? null, e.model ?? null, e.attempt ?? null, now, LEDGER_EPOCH);
   } catch { /* telemetry — never break the run */ }
 }
 
 /** Clear a leaf's in-flight row (node finished / leaf terminal). Best-effort. */
 export function clearLeafInflight(leafId: string): void {
   try { openDb().prepare('DELETE FROM leaf_inflight WHERE leafId = ?').run(leafId); } catch { /* best-effort */ }
+}
+
+/**
+ * Reap stranded in-flight rows: delete every row NOT written by THIS process
+ * (epoch != LEDGER_EPOCH, or NULL/legacy). Such a row's executor died with its
+ * daemon (e.g. a sidecar hot-swap) before its finally could clear it, so it would
+ * otherwise show as a phantom running leaf forever. Safe to call every tick —
+ * idempotent (once swept, only this process's live rows remain). Returns the
+ * count deleted. Best-effort.
+ */
+export function reapStaleInflight(): number {
+  try {
+    const res = openDb().prepare('DELETE FROM leaf_inflight WHERE epoch IS NULL OR epoch != ?').run(LEDGER_EPOCH);
+    return res.changes ?? 0;
+  } catch { return 0; }
 }
 
 /** List currently-running leaves (newest-started first). Optional project filter. */
