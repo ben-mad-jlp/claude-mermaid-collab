@@ -7,7 +7,9 @@
  */
 import React from 'react';
 
-const PHASES = ['sizegate', 'research', 'authortests', 'implement', 'verify', 'review'] as const;
+// Worker subloop phases + `triage` (the escalation-classifier role — not a build
+// phase, but routed through the SAME tier_override store; epic 4b81ca59 / L4-L5).
+const PHASES = ['sizegate', 'research', 'authortests', 'implement', 'verify', 'review', 'triage'] as const;
 const PROVIDERS = ['', 'claude', 'grok-build', 'codex'] as const; // '' = inherit (clear override)
 
 interface PreviewRow {

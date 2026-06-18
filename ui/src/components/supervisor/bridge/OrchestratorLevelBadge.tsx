@@ -9,15 +9,13 @@
 import React, { useEffect, useState } from 'react';
 import type { OrchestratorLevel } from './OrchestratorLadder';
 
-const LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'drive'];
+const LEVELS: OrchestratorLevel[] = ['off', 'on', 'auto'];
 
-/** Heat-ramp dot color per level (matches the ladder: gray ▸ green ▸ yellow ▸ orange ▸ red). */
+/** Heat dot per level (matches the ladder: gray ▸ green ▸ red). */
 const LEVEL_DOT: Record<OrchestratorLevel, string> = {
   off: 'bg-gray-400 dark:bg-gray-500',
-  build: 'bg-success-500',
-  nudge: 'bg-yellow-400',
-  propose: 'bg-orange-500',
-  drive: 'bg-danger-500',
+  on: 'bg-success-500',
+  auto: 'bg-danger-500',
 };
 
 export interface OrchestratorLevelBadgeProps {

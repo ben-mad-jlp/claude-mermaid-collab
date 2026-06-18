@@ -1,34 +1,29 @@
 /**
- * OrchestratorLadder — per-project 5-stop segmented control for the Orchestrator
- * daemon level. Replaces the Coordinator RoleSwitch pill and the steward/supervisor
- * role cards. Levels: off · build · nudge · propose · consult.
+ * OrchestratorLadder — per-project 3-stop segmented control for the Orchestrator
+ * daemon level (epic 4b81ca59 — collapsed from the legacy off·build·nudge·propose·drive).
+ * Levels: off · on · auto.
  *
  * GET /api/orchestrator/level?project=<abs> → { project, level }
  * POST /api/orchestrator/level body { project, level } → { project, level }
  */
 import React, { useEffect, useState, useCallback } from 'react';
 
-export type OrchestratorLevel = 'off' | 'build' | 'nudge' | 'propose' | 'drive';
+export type OrchestratorLevel = 'off' | 'on' | 'auto';
 
-const LEVELS: OrchestratorLevel[] = ['off', 'build', 'nudge', 'propose', 'drive'];
+const LEVELS: OrchestratorLevel[] = ['off', 'on', 'auto'];
 
 const LEVEL_TITLE: Record<OrchestratorLevel, string> = {
-  off: 'Orchestrator off — no daemon activity',
-  build: 'Build — daemon executes claimed todos autonomously',
-  nudge: 'Nudge — daemon nudges idle workers + auto-closes stale escalations',
-  propose: 'Propose — Grok suggests an inline action per escalation (you confirm)',
-  drive: 'Drive — daemon auto-resolves confident suggestions (behind the proof gate)',
+  off: 'Off — no daemon activity for this project',
+  on: 'On — supervised: builds todos, reconciles, and suggests an action per escalation (you confirm). Never acts unattended.',
+  auto: 'Auto — on + acts for you: auto-lands green epics, auto-resolves confident suggestions (behind the proof gate), reachability gates.',
 };
 
-/** Per-stop color ramp (gray ▸ green ▸ yellow ▸ orange ▸ red) — escalating autonomy
- *  reads as escalating "heat". A stop AT/BELOW the active level fills with its color;
- *  above stays dim. `off` is always the neutral gray base. */
+/** Per-stop heat: off = neutral gray, on = green (safe/supervised), auto = red
+ *  (acting unattended). Only the selected stop is bright. */
 const STOP_ACTIVE: Record<OrchestratorLevel, string> = {
   off: 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200',
-  build: 'bg-success-500 dark:bg-success-600 text-white',
-  nudge: 'bg-yellow-400 dark:bg-yellow-500 text-gray-900 dark:text-gray-900',
-  propose: 'bg-orange-500 dark:bg-orange-600 text-white',
-  drive: 'bg-danger-500 dark:bg-danger-600 text-white',
+  on: 'bg-success-500 dark:bg-success-600 text-white',
+  auto: 'bg-danger-500 dark:bg-danger-600 text-white',
 };
 
 export interface OrchestratorLadderProps {
@@ -36,8 +31,8 @@ export interface OrchestratorLadderProps {
 }
 
 export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project }) => {
-  // Optimistic level — default to 'build' until the GET resolves.
-  const [level, setLevel] = useState<OrchestratorLevel>('build');
+  // Optimistic level — default to 'on' until the GET resolves.
+  const [level, setLevel] = useState<OrchestratorLevel>('on');
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   // Single daemon-health signal (the daemon is global; the dot just reflects it).

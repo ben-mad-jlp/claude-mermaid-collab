@@ -3078,7 +3078,7 @@ export async function handleAPI(
       level: url.searchParams.get('level') ?? undefined,
     };
     const PHASES = ['sizegate', 'research', 'authortests', 'implement', 'verify', 'review'] as const;
-    const rows = PHASES.map((phase) => {
+    const rows: Array<{ phase: string; provider: string; model: string; source: string; winningScope: string; available: boolean }> = PHASES.map((phase) => {
       const r = resolveTierRoute(phase, base, ctx);
       return {
         phase,
@@ -3089,6 +3089,28 @@ export async function handleAPI(
         available: providerAvailable(r.provider),
       };
     });
+    // triage (epic 4b81ca59 / L5): NOT a worker SubloopRole — resolved via the
+    // parallel triage tier-walk (resolveTriageRoute), shown read-only here so the
+    // TieringEditor's triage row displays the resolved classifier model.
+    {
+      const { resolveTriageRoute } = await import('../services/config-service');
+      const { getTierOverride } = await import('../services/tier-override-store');
+      const { getConfig } = await import('../services/config-service');
+      const cfg = resolveTriageRoute(ctx);
+      const overridden =
+        !!getConfig('WORKER_PROVIDER_TRIAGE') ||
+        (!!ctx.epicId && !!getTierOverride('epic', ctx.epicId, 'triage')) ||
+        (!!ctx.project && !!getTierOverride('project', ctx.project, 'triage')) ||
+        (!!ctx.level && !!getTierOverride('level', ctx.level, 'triage'));
+      rows.push({
+        phase: 'triage',
+        provider: cfg.provider,
+        model: cfg.model,
+        source: overridden ? 'override' : 'default',
+        winningScope: overridden ? 'override' : 'default',
+        available: !!cfg.apiKey,
+      });
+    }
     return Response.json({ rows });
   }
 
