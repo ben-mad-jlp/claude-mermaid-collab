@@ -25,11 +25,11 @@ const TriageLifecycleBadge: React.FC<{ escalation: Escalation }> = ({ escalation
       <span
         data-testid="triage-lifecycle-badge"
         data-state="ai-handling"
-        title="A Grok triage consult is in flight for this escalation"
+        title="An AI triage consult is in flight for this escalation"
         className="shrink-0 inline-flex items-center gap-1 px-1 py-0.5 rounded text-3xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300"
       >
         <span className="inline-block w-2 h-2 rounded-full border border-current border-t-transparent animate-spin" aria-hidden="true" />
-        Grok is triaging…
+        AI is triaging…
       </span>
     );
   }
@@ -38,7 +38,7 @@ const TriageLifecycleBadge: React.FC<{ escalation: Escalation }> = ({ escalation
       <span
         data-testid="triage-lifecycle-badge"
         data-state="escalated-to-human"
-        title="Grok tried to triage this and could not resolve it — it needs you"
+        title="AI tried to triage this and could not resolve it — it needs you"
         className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-3xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
       >
         🛡 needs you — AI couldn’t resolve
@@ -220,7 +220,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                       <span className="text-2xs font-semibold uppercase tracking-wide text-warning-700 dark:text-warning-300">
                         {e.suggestedAction.bucket}
                       </span>
-                      <span className="text-2xs text-gray-400 dark:text-gray-500" title="Grok confidence">
+                      <span className="text-2xs text-gray-400 dark:text-gray-500" title="AI confidence">
                         {Math.round((e.suggestedAction.confidence ?? 0) * 100)}%
                       </span>
                     </div>

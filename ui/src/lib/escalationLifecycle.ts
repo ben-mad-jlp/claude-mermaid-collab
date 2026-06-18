@@ -122,7 +122,7 @@ export function lifecyclePresentation(e: Escalation): LifecyclePresentation {
   const token = classifyEscalationLifecycle(e);
   switch (token) {
     case 'ai-handling':
-      return { token, label: 'Grok is triaging…', spinner: true };
+      return { token, label: 'AI is triaging…', spinner: true };
     case 'ai-suggested':
       return { token, label: 'AI suggested', spinner: false };
     case 'escalated-to-human':
