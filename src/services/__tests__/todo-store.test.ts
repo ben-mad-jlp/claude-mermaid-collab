@@ -10,6 +10,7 @@ import {
   deriveTodoViews,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
 import { isClaimable, claimReason } from '../claimability';
 import type { Todo } from '../todo-store';
 import Database from 'bun:sqlite';
@@ -1004,5 +1005,43 @@ describe('Inbox = planning-only — approval block (updateSessionTodo)', () => {
     // editing the title (no status:'ready') is fine
     const updated = await updateSessionTodo(project, 's', child.id, { title: 'renamed' });
     expect(updated.title).toBe('renamed');
+  });
+});
+
+describe('auto-unsubscribe on terminal transition', () => {
+  // Isolate the subscriptions.db (defaults to ~/.mermaid-collab) to the temp project.
+  beforeEach(() => { process.env.MERMAID_DATA_DIR = project; __resetSubs(); });
+  afterEach(() => { __resetSubs(); delete process.env.MERMAID_DATA_DIR; });
+
+  test('completeTodo(accepted) expires a subscription targeting that todo', async () => {
+    const t = await createTodo(project, { ownerSession: 's', title: 'leaf' });
+    addSubscription(project, 'watcher', 'todo', t.id);
+    expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(1);
+
+    await completeTodo(project, t.id, 'accepted');
+    expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(0);
+  });
+
+  test('completing the last child rolls up the epic and expires the EPIC subscription too', async () => {
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] roll' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+    addSubscription(project, 'watcher', 'epic', epic.id);
+
+    await completeTodo(project, child.id, 'accepted'); // epic rolls up to done
+    expect(getTodo(project, epic.id)!.status).toBe('done');
+    expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(0);
+  });
+
+  test('updateTodo → dropped expires a subscription; a rejected completion does NOT', async () => {
+    const dropped = await createTodo(project, { ownerSession: 's', title: 'to-drop' });
+    addSubscription(project, 'watcher', 'todo', dropped.id);
+    await updateTodo(project, dropped.id, { status: 'dropped' });
+    expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(0);
+
+    // A rejected completion parks (non-terminal) → keeps its subscription.
+    const rejected = await createTodo(project, { ownerSession: 's', title: 'to-reject' });
+    addSubscription(project, 'watcher', 'todo', rejected.id);
+    await completeTodo(project, rejected.id, 'rejected');
+    expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(1);
   });
 });

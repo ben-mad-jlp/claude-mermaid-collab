@@ -20,6 +20,7 @@ import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel } 
 import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
+import { runNotificationTick } from './session-notification-tick.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
@@ -119,6 +120,10 @@ export interface TickDeps {
   getLevel?: (project: string) => ReturnType<typeof getOrchestratorLevel>;
   build?: (project: string) => Promise<void>;
   reconcile?: (project: string) => Promise<void>;
+  /** Diff todos → enqueue subscription notifications → nudge idle subscribers.
+   *  Runs for every WATCHED project regardless of level (decoupled from build).
+   *  Default: runNotificationTick. */
+  notify?: (project: string) => Promise<unknown>;
   triage?: (project: string, opts: { autoResolve: boolean }) => Promise<void>;
   /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
    *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
@@ -136,6 +141,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const getLevel = deps.getLevel ?? getOrchestratorLevel;
   const build = deps.build ?? runBuildPass;
   const reconcile = deps.reconcile ?? runReconcilePass;
+  const notify = deps.notify ?? runNotificationTick;
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve }));
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
@@ -173,6 +179,18 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     } catch (err) {
       console.warn(`[orchestrator] Could not read level for ${project}:`, err);
       continue;
+    }
+
+    // Session-subscription notifications run for every WATCHED project regardless of
+    // level — you can subscribe-and-be-notified (e.g. a Planner monitoring its plan)
+    // without turning on autonomous building. Decoupled from runBuildPass on purpose;
+    // cheap (a no-op when nothing is subscribed to the project). Best-effort.
+    if (watched.has(project)) {
+      try {
+        await notify(project);
+      } catch (err) {
+        console.warn(`[orchestrator] notify failed for ${project}:`, err);
+      }
     }
 
     if (lvl === 'off') continue; // includes anything the sweep above just forced off

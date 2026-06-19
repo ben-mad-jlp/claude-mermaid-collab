@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
 import { isClaimable, claimReason, derivedStatus, type ClaimReason } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
+import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
@@ -806,6 +807,16 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     } else if (existing.heldAt != null && heldAt == null) {
       fireOrchestratorKick(`unheld:${id.slice(0, 8)}`);
     }
+    // Auto-cleanup: a todo transitioning INTO a terminal status (done/dropped)
+    // expires any todo/epic subscriptions pointing at it, so a subscriber that
+    // was watching it doesn't accumulate a dead subscription. (completeTodo does
+    // the same for its path incl. rolled-up epics; the notification tick is the
+    // backstop for out-of-band terminal transitions.)
+    const wasTerminal = existing.status === 'done' || existing.status === 'dropped';
+    const nowTerminal = status === 'done' || status === 'dropped';
+    if (nowTerminal && !wasTerminal) {
+      try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
+    }
     return getTodo(project, id)!;
   });
 }
@@ -1288,6 +1299,15 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // (not only when the still-materialized fan-out promoted something — that fan-out
     // is removed in S4, leaving this kick as the sole dependent-wake signal).
     if (accept !== 'rejected') fireOrchestratorKick(`dep-terminal:${id.slice(0, 8)}`);
+    // Auto-cleanup: this todo (and any epics that rolled up to done above) just went
+    // terminal — expire subscriptions targeting them so watchers don't strand dead
+    // subs. A rejected completion is NOT terminal (it parks), so it keeps its subs.
+    if (accept !== 'rejected') {
+      try {
+        expireSubscriptionsForTarget(project, id);
+        for (const epicId of rolledUp) expireSubscriptionsForTarget(project, epicId);
+      } catch { /* best-effort cleanup */ }
+    }
     return { completed: getTodo(project, id)!, promoted, rolledUp };
   });
 }

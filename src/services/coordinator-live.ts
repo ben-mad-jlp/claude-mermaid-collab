@@ -2170,10 +2170,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
 export async function runBuildPass(project: string): Promise<void> {
   const deps = makeCoordinatorDeps();
   await runTick(deps, project);
-  // Session-subscription notifications: diff todos → enqueue → nudge idle subscribers.
-  // Best-effort (never break the build pass) and a no-op when nothing is subscribed.
-  try {
-    const { runNotificationTick } = await import('./session-notification-tick');
-    await runNotificationTick(project);
-  } catch { /* notifications are best-effort */ }
+  // NOTE: session-subscription notifications used to run here, but they are now
+  // driven by the orchestrator tick (runOrchestratorTick → notify) for every
+  // WATCHED project regardless of level — so subscribe-and-be-notified works even
+  // when autonomous building is off. See orchestrator-live.ts.
 }

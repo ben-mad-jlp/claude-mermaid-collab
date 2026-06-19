@@ -23,6 +23,7 @@ import {
 } from '../orchestrator-live';
 
 const buildCalls: string[] = [];
+const notifyCalls: string[] = [];
 const reconcileCalls: string[] = [];
 const triageCalls: string[] = [];
 const triageAutoResolve: Array<{ project: string; autoResolve: boolean }> = [];
@@ -53,6 +54,7 @@ function makeDeps(): TickDeps {
       if (buildShouldThrow && project === buildShouldThrow) throw new Error(`simulated build failure for ${project}`);
       buildCalls.push(project);
     },
+    notify: async (project: string) => { notifyCalls.push(project); return { enqueued: 0, nudged: [] }; },
     reconcile: async (project: string) => { reconcileCalls.push(project); },
     triage: async (project: string, opts: { autoResolve: boolean }) => {
       triageCalls.push(project);
@@ -67,6 +69,7 @@ function makeDeps(): TickDeps {
 
 function reset() {
   buildCalls.length = 0;
+  notifyCalls.length = 0;
   reconcileCalls.length = 0;
   triageCalls.length = 0;
   triageAutoResolve.length = 0;
@@ -112,6 +115,19 @@ describe('runOrchestratorTick', () => {
 
     expect(buildCalls).toEqual([]);
     expect(reconcileCalls).toEqual([]);
+    // ...but notifications run even at off (decoupled from build) for watched projects.
+    expect(notifyCalls).toEqual(['/proj/a']);
+  });
+
+  it('notifications do NOT run for an UNWATCHED project (even though forced off)', async () => {
+    registeredProjects.push({ path: '/proj/unwatched', name: 'u', lastAccess: '' });
+    levelOverrides.set('/proj/unwatched', 'on'); // will be force-off by the sweep
+    watchedOverride = new Set(); // nothing is watched
+
+    await runOrchestratorTick(makeDeps());
+
+    expect(buildCalls).toEqual([]);
+    expect(notifyCalls).toEqual([]); // unwatched → no notify, matching unwatched-auto-off intent
   });
 
   it('on level: runs build + reconcile + triage (suggest), autoResolve=false', async () => {
