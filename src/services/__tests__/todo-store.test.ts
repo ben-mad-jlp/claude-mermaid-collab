@@ -977,3 +977,32 @@ describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
     expect(getTodo(project, t.id)!.claim?.epoch).toBeUndefined();
   });
 });
+
+describe('Inbox = planning-only — approval block (updateSessionTodo)', () => {
+  test('approving an Inbox child throws; re-homing then approving succeeds', async () => {
+    const { updateSessionTodo } = await import('../../mcp/tools/session-todos');
+    const inbox = await createTodo(project, { ownerSession: 's', title: '[EPIC] Inbox' });
+    const realEpic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Real' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
+
+    // Approve-in-Inbox is refused.
+    await expect(updateSessionTodo(project, 's', child.id, { status: 'ready' })).rejects.toThrow(
+      /\[EPIC\] Inbox/,
+    );
+    expect(getTodo(project, child.id)!.approvedAt).toBeNull();
+
+    // Move + approve in one call is allowed (effective parent is the real epic).
+    await updateSessionTodo(project, 's', child.id, { status: 'ready', parentId: realEpic.id });
+    expect(getTodo(project, child.id)!.approvedAt).not.toBeNull();
+    expect(derivedReason(getTodo(project, child.id)!)).toBe('claimable');
+  });
+
+  test('non-approve status transitions on an Inbox child are NOT blocked', async () => {
+    const { updateSessionTodo } = await import('../../mcp/tools/session-todos');
+    const inbox = await createTodo(project, { ownerSession: 's', title: '[EPIC] Inbox' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
+    // editing the title (no status:'ready') is fine
+    const updated = await updateSessionTodo(project, 's', child.id, { title: 'renamed' });
+    expect(updated.title).toBe('renamed');
+  });
+});

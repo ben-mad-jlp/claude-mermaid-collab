@@ -4,7 +4,15 @@
  * ordering, the orphan-as-null claim, the human-assignee split, and derivedStatus.
  */
 import { describe, it, expect } from 'bun:test';
-import { depSatisfied, claimReason, isClaimable, derivedStatus } from '../claimability';
+import {
+  depSatisfied,
+  claimReason,
+  isClaimable,
+  derivedStatus,
+  isInboxEpic,
+  parentIsInbox,
+  INBOX_EPIC_TITLE,
+} from '../claimability';
 import type { Todo } from '../todo-store';
 
 function mk(over: Partial<Todo> = {}): Todo {
@@ -80,6 +88,53 @@ describe('claimReason — each branch', () => {
     expect(claimReason(mk({ assigneeKind: 'human' }), map())).toBe('unapproved');
     const dep = mk({ id: 'D', status: 'in_progress' });
     expect(claimReason(mk({ assigneeKind: 'human', approvedAt: APPROVED, dependsOn: ['D'] }), map(dep))).toBe('deps-pending');
+  });
+});
+
+describe('Inbox = planning-only (inbox-planning gate)', () => {
+  const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null });
+  const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null });
+
+  it('isInboxEpic: only the [EPIC] Inbox root', () => {
+    expect(isInboxEpic(inbox)).toBe(true);
+    expect(isInboxEpic(realEpic)).toBe(false);
+    expect(isInboxEpic(mk({ title: 'Inbox' }))).toBe(false); // missing [EPIC] prefix
+    expect(isInboxEpic(undefined)).toBe(false);
+  });
+
+  it('parentIsInbox: true only when parent is the Inbox epic', () => {
+    const child = mk({ id: 'C', parentId: 'IB' });
+    expect(parentIsInbox(child, map(inbox))).toBe(true);
+    expect(parentIsInbox(mk({ id: 'C', parentId: 'EP' }), map(realEpic))).toBe(false);
+    expect(parentIsInbox(mk({ id: 'C', parentId: null }), map(inbox))).toBe(false);
+  });
+
+  it("child of Inbox → 'inbox-planning' EVEN when approved + deps done (above unapproved)", () => {
+    const child = mk({ id: 'C', parentId: 'IB', approvedAt: APPROVED });
+    expect(claimReason(child, map(inbox))).toBe('inbox-planning');
+    expect(isClaimable(child, map(inbox))).toBe(false);
+    // with deps satisfied too — still gated
+    const dep = mk({ id: 'D', status: 'done', acceptanceStatus: 'accepted' });
+    const child2 = mk({ id: 'C2', parentId: 'IB', approvedAt: APPROVED, dependsOn: ['D'] });
+    expect(claimReason(child2, map(inbox, dep))).toBe('inbox-planning');
+    expect(isClaimable(child2, map(inbox, dep))).toBe(false);
+  });
+
+  it('re-homed to a real epic → claimable (approved + deps done)', () => {
+    const child = mk({ id: 'C', parentId: 'EP', approvedAt: APPROVED });
+    expect(claimReason(child, map(realEpic))).toBe('claimable');
+    expect(isClaimable(child, map(realEpic))).toBe(true);
+  });
+
+  it('Inbox epic itself (root) is unaffected — gated only by normal rules', () => {
+    // The Inbox epic has no parent → never 'inbox-planning'. Unapproved → 'unapproved'.
+    expect(claimReason(inbox, map(inbox))).toBe('unapproved');
+    expect(claimReason(mk({ id: 'IB2', title: INBOX_EPIC_TITLE, approvedAt: APPROVED }), map())).toBe('claimable');
+  });
+
+  it('children of a real epic are unaffected', () => {
+    const child = mk({ id: 'C', parentId: 'EP' });
+    expect(claimReason(child, map(realEpic))).toBe('unapproved'); // normal gate, not inbox
   });
 });
 

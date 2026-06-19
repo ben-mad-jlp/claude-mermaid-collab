@@ -23,6 +23,7 @@ import {
 } from '../../services/todo-store.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
+import { INBOX_EPIC_TITLE, isInboxEpic } from '../../services/claimability.js';
 import type { ToolDef } from './registry.js';
 
 // ============= Type Re-exports =============
@@ -323,8 +324,10 @@ export async function listSessionTodos(
 
 /** The per-project default epic that orphan work todos are parented under so
  *  nothing floats at the top level (constraint 373a2d52 / every-todo-needs-an-epic).
- *  Matched/created by this exact title. Epics are roots (no parent themselves). */
-export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
+ *  Matched/created by this exact title. Epics are roots (no parent themselves).
+ *  Imported from claimability.ts (the single source of Inbox identity, shared
+ *  with the claim gate + approval block) and re-exported for back-compat. */
+export { INBOX_EPIC_TITLE };
 
 /** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention.
  *  Epics are exempt from auto-parenting (they ARE the parents). */
@@ -427,7 +430,21 @@ export async function updateSessionTodo(
   }
   // Snapshot the prior assignee so callers can notify the session a todo was
   // moved AWAY from — otherwise its list never refreshes (the reassign bug).
-  const previousAssigneeSession = getTodo(project, String(id))?.assigneeSession ?? null;
+  const existing = getTodo(project, String(id));
+  const previousAssigneeSession = existing?.assigneeSession ?? null;
+  // Inbox = planning-only: refuse to approve (status:'ready' stamps approvedAt) a
+  // triage child of [EPIC] Inbox. Check the EFFECTIVE parent — an explicit parentId
+  // in this same call (a re-home) is honored first, so "move + approve" is allowed.
+  if (updates.status === 'ready') {
+    const effectiveParentId =
+      updates.parentId !== undefined ? updates.parentId : (existing?.parentId ?? null);
+    const parent = effectiveParentId ? getTodo(project, effectiveParentId) : null;
+    if (parent && isInboxEpic(parent)) {
+      throw new Error(
+        'Cannot approve a todo parented under [EPIC] Inbox — re-home it to a real epic before approving.',
+      );
+    }
+  }
   const updated = await updateTodo(project, String(id), {
     title: titleValue?.trim(),
     completed: updates.completed,

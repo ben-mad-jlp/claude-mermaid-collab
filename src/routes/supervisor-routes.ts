@@ -21,6 +21,7 @@ import {
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo } from '../services/todo-store.ts';
+import { isInboxEpic } from '../services/claimability.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
 import { bom } from '../services/system-object-bom.ts';
@@ -198,8 +199,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       // status:'ready' the same way, but the Planner writes approvedAt directly with
       // its audit handle, and the seam fires kick('approved') on the null→non-null.
       let patch: import('../services/todo-store.ts').UpdateTodoPatch = {};
-      if (status === 'ready') patch = { approvedAt: new Date().toISOString(), approvedBy: 'planner' };
-      else if (status) patch = { status };
+      if (status === 'ready') {
+        // Inbox = planning-only: refuse to approve a triage child of [EPIC] Inbox.
+        // Approving it is itself the mistake — it would look ready but the daemon's
+        // claim gate ('inbox-planning') will never run it. Re-home to a real epic
+        // first. Only the approve/promote-to-ready action is blocked; other status
+        // transitions are unaffected.
+        const target = getTodo(project, id);
+        const parent = target?.parentId ? getTodo(project, target.parentId) : undefined;
+        if (parent && isInboxEpic(parent)) {
+          return jsonError(
+            'Cannot approve a todo parented under [EPIC] Inbox — re-home it to a real epic before approving.',
+            400,
+          );
+        }
+        patch = { approvedAt: new Date().toISOString(), approvedBy: 'planner' };
+      } else if (status) patch = { status };
       const todo = await updateTodo(project, id, patch);
       return Response.json({ todo });
     } catch (err) {
