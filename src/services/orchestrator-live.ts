@@ -16,7 +16,8 @@
  *             (behind the proof gate + rate limits).
  */
 
-import { getOrchestratorLevel, listOrchestratorProjects } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel } from './orchestrator-config.js';
+import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runTriagePass } from './triage-pass.js';
@@ -119,6 +120,11 @@ export interface TickDeps {
   build?: (project: string) => Promise<void>;
   reconcile?: (project: string) => Promise<void>;
   triage?: (project: string, opts: { autoResolve: boolean }) => Promise<void>;
+  /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
+   *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
+  watchedProjects?: () => Set<string>;
+  /** Persist a level (used to force an unwatched project off). Default: setOrchestratorLevel. */
+  setLevel?: (project: string, level: ReturnType<typeof getOrchestratorLevel>) => void;
 }
 
 /** One tick: enumerate registered projects and dispatch passes per level. */
@@ -128,6 +134,9 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const build = deps.build ?? runBuildPass;
   const reconcile = deps.reconcile ?? runReconcilePass;
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve }));
+  const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
+  const setLevel = deps.setLevel ?? setOrchestratorLevel;
+  const watched = watchedProjects();
 
   let projects: Array<{ path: string }>;
   try {
@@ -147,6 +156,15 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     }
 
     if (lvl === 'off') continue;
+
+    // Auto-off any project that's running but NOT watched — so the daemon never builds
+    // something the human isn't watching (e.g. stale/test projects left at 'on'). Persist
+    // the flip so it's visible + sticky, then skip this tick.
+    if (!watched.has(project)) {
+      try { setLevel(project, 'off'); } catch { /* best-effort */ }
+      console.warn(`[orchestrator] ${project} is at '${lvl}' but UNWATCHED — forcing off.`);
+      continue;
+    }
 
     const passes = passesForLevel(lvl);
 

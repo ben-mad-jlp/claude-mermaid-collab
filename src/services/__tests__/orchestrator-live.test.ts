@@ -29,11 +29,17 @@ const triageAutoResolve: Array<{ project: string; autoResolve: boolean }> = [];
 let buildShouldThrow: string | null = null; // project path whose build should throw
 const registeredProjects: Array<{ path: string; name: string; lastAccess: string }> = [];
 const levelOverrides = new Map<string, string>();
+const setLevelCalls: Array<{ project: string; level: string }> = [];
+// null → every registered project is treated as watched (existing tests' default); a Set
+// restricts the watched set so the unwatched-auto-off path can be exercised.
+let watchedOverride: Set<string> | null = null;
 
 function makeDeps(): TickDeps {
   return {
     listProjects: async () => [...registeredProjects],
     getLevel: (project: string) => (levelOverrides.get(project) ?? 'on') as 'off' | 'on' | 'auto',
+    watchedProjects: () => watchedOverride ?? new Set(registeredProjects.map((p) => p.path)),
+    setLevel: (project: string, level) => { setLevelCalls.push({ project, level }); },
     build: async (project: string) => {
       if (buildShouldThrow && project === buildShouldThrow) throw new Error(`simulated build failure for ${project}`);
       buildCalls.push(project);
@@ -58,6 +64,8 @@ function reset() {
   buildShouldThrow = null;
   registeredProjects.length = 0;
   levelOverrides.clear();
+  setLevelCalls.length = 0;
+  watchedOverride = null;
   stopOrchestrator();
 }
 
@@ -107,6 +115,21 @@ describe('runOrchestratorTick', () => {
     expect(triageCalls).toEqual(['/proj/b']);
     // `on` writes suggestions but does NOT auto-resolve.
     expect(triageAutoResolve).toEqual([{ project: '/proj/b', autoResolve: false }]);
+  });
+
+  it('unwatched project at a non-off level is forced off and skipped (no passes)', async () => {
+    reset();
+    registeredProjects.push(
+      { path: '/p/watched', name: 'w', lastAccess: '' },
+      { path: '/p/orphan', name: 'o', lastAccess: '' },
+    );
+    levelOverrides.set('/p/watched', 'auto');
+    levelOverrides.set('/p/orphan', 'on');
+    watchedOverride = new Set(['/p/watched']); // orphan is registered but NOT watched
+    await runOrchestratorTick(makeDeps());
+    expect(buildCalls).toEqual(['/p/watched']);            // orphan never built
+    expect(reconcileCalls).toEqual(['/p/watched']);
+    expect(setLevelCalls).toEqual([{ project: '/p/orphan', level: 'off' }]); // forced off
   });
 
   it('auto level: triage runs with autoResolve=true', async () => {
