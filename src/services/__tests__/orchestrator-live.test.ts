@@ -30,6 +30,9 @@ let buildShouldThrow: string | null = null; // project path whose build should t
 const registeredProjects: Array<{ path: string; name: string; lastAccess: string }> = [];
 const levelOverrides = new Map<string, string>();
 const setLevelCalls: Array<{ project: string; level: string }> = [];
+// Config rows that exist in orchestrator_config but are NOT in the registry (e.g. stale /tmp
+// test projects) — the sweep must still force these off.
+const configOnly: Array<{ project: string; level: 'off' | 'on' | 'auto' }> = [];
 // null → every registered project is treated as watched (existing tests' default); a Set
 // restricts the watched set so the unwatched-auto-off path can be exercised.
 let watchedOverride: Set<string> | null = null;
@@ -39,7 +42,13 @@ function makeDeps(): TickDeps {
     listProjects: async () => [...registeredProjects],
     getLevel: (project: string) => (levelOverrides.get(project) ?? 'on') as 'off' | 'on' | 'auto',
     watchedProjects: () => watchedOverride ?? new Set(registeredProjects.map((p) => p.path)),
-    setLevel: (project: string, level) => { setLevelCalls.push({ project, level }); },
+    setLevel: (project: string, level) => { setLevelCalls.push({ project, level }); levelOverrides.set(project, level); },
+    // Configured projects = the registered ones with their level (plus any config-only
+    // entries the test injects via configOnly), mirroring orchestrator_config.
+    listConfigured: () => [
+      ...registeredProjects.map((p) => ({ project: p.path, level: (levelOverrides.get(p.path) ?? 'on') as 'off' | 'on' | 'auto' })),
+      ...configOnly.map((c) => ({ project: c.project, level: c.level })),
+    ],
     build: async (project: string) => {
       if (buildShouldThrow && project === buildShouldThrow) throw new Error(`simulated build failure for ${project}`);
       buildCalls.push(project);
@@ -66,6 +75,7 @@ function reset() {
   levelOverrides.clear();
   setLevelCalls.length = 0;
   watchedOverride = null;
+  configOnly.length = 0;
   stopOrchestrator();
 }
 
@@ -117,19 +127,22 @@ describe('runOrchestratorTick', () => {
     expect(triageAutoResolve).toEqual([{ project: '/proj/b', autoResolve: false }]);
   });
 
-  it('unwatched project at a non-off level is forced off and skipped (no passes)', async () => {
+  it('unwatched projects are forced off — registered AND config-only (never built)', async () => {
     reset();
     registeredProjects.push(
       { path: '/p/watched', name: 'w', lastAccess: '' },
-      { path: '/p/orphan', name: 'o', lastAccess: '' },
+      { path: '/p/orphan', name: 'o', lastAccess: '' }, // registered but unwatched
     );
     levelOverrides.set('/p/watched', 'auto');
     levelOverrides.set('/p/orphan', 'on');
-    watchedOverride = new Set(['/p/watched']); // orphan is registered but NOT watched
+    configOnly.push({ project: '/tmp/stale', level: 'on' }); // config-only, not in the registry
+    watchedOverride = new Set(['/p/watched']);
     await runOrchestratorTick(makeDeps());
-    expect(buildCalls).toEqual(['/p/watched']);            // orphan never built
+    expect(buildCalls).toEqual(['/p/watched']); // neither orphan nor the /tmp entry built
     expect(reconcileCalls).toEqual(['/p/watched']);
-    expect(setLevelCalls).toEqual([{ project: '/p/orphan', level: 'off' }]); // forced off
+    // Both unwatched non-off projects forced off (the sweep covers the config-only one too).
+    expect(setLevelCalls.map((c) => c.project).sort()).toEqual(['/p/orphan', '/tmp/stale']);
+    expect(setLevelCalls.every((c) => c.level === 'off')).toBe(true);
   });
 
   it('auto level: triage runs with autoResolve=true', async () => {

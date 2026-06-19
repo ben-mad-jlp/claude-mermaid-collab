@@ -125,6 +125,9 @@ export interface TickDeps {
   watchedProjects?: () => Set<string>;
   /** Persist a level (used to force an unwatched project off). Default: setOrchestratorLevel. */
   setLevel?: (project: string, level: ReturnType<typeof getOrchestratorLevel>) => void;
+  /** All CONFIGURED projects + levels (the unwatched-auto-off sweep reads these so it also
+   *  catches config-only entries never in the registry). Default: listOrchestratorProjects. */
+  listConfigured?: () => Array<{ project: string; level: ReturnType<typeof getOrchestratorLevel> }>;
 }
 
 /** One tick: enumerate registered projects and dispatch passes per level. */
@@ -136,7 +139,24 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve }));
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
+  const listConfigured = deps.listConfigured ?? listOrchestratorProjects;
   const watched = watchedProjects();
+
+  // Unwatched-auto-off sweep: force off EVERY configured project that isn't watched — so the
+  // daemon never builds (or appears to be running) something the human isn't watching. This
+  // sweeps the ORCHESTRATOR-CONFIG rows (not just the registry the loop below iterates), so it
+  // also cleans CONFIG-ONLY stale entries that were never registered (e.g. /tmp test projects
+  // left at 'on'). Persisted + sticky; the loop below then sees them 'off' and skips.
+  try {
+    for (const { project, level } of listConfigured()) {
+      if (level !== 'off' && !watched.has(project)) {
+        setLevel(project, 'off');
+        console.warn(`[orchestrator] ${project} is at '${level}' but UNWATCHED — forcing off.`);
+      }
+    }
+  } catch (err) {
+    console.warn('[orchestrator] unwatched-auto-off sweep failed:', err);
+  }
 
   let projects: Array<{ path: string }>;
   try {
@@ -155,16 +175,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       continue;
     }
 
-    if (lvl === 'off') continue;
-
-    // Auto-off any project that's running but NOT watched — so the daemon never builds
-    // something the human isn't watching (e.g. stale/test projects left at 'on'). Persist
-    // the flip so it's visible + sticky, then skip this tick.
-    if (!watched.has(project)) {
-      try { setLevel(project, 'off'); } catch { /* best-effort */ }
-      console.warn(`[orchestrator] ${project} is at '${lvl}' but UNWATCHED — forcing off.`);
-      continue;
-    }
+    if (lvl === 'off') continue; // includes anything the sweep above just forced off
 
     const passes = passesForLevel(lvl);
 
