@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, reapStaleInflight, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, reapStaleInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -97,5 +97,45 @@ describe('leaf_inflight epoch heal (reapStaleInflight)', () => {
     setLeafInflight({ project: '/p', leafId: 'mine' });
     expect(reapStaleInflight()).toBe(0);
     expect(listLeafInflight().map((r) => r.leafId)).toContain('mine');
+  });
+});
+
+describe('leaf_resume durable budget recovery (slice 1b)', () => {
+  test('records and reads back nodesSpent + phase + attempt', () => {
+    recordLeafResume({ project: '/p', leafId: 'L1', nodesSpent: 7, phase: 'implement', attempt: 1 });
+    const r = getLeafResume('/p', 'L1');
+    expect(r?.nodesSpent).toBe(7);
+    expect(r?.phase).toBe('implement');
+    expect(r?.attempt).toBe(1);
+    expect(r?.merged).toBe(false);
+  });
+
+  test('survives a simulated process death (NOT epoch-reaped, unlike inflight)', () => {
+    recordLeafResume({ project: '/p', leafId: 'L1', nodesSpent: 12, phase: 'review' });
+    // reapStaleInflight would wipe a foreign-epoch inflight row; resume must persist.
+    reapStaleInflight();
+    expect(getLeafResume('/p', 'L1')?.nodesSpent).toBe(12);
+  });
+
+  test('per-node upsert advances nodesSpent but preserves the merged flag + epicBaseSha', () => {
+    recordLeafResume({ project: '/p', leafId: 'L1', nodesSpent: 3, phase: 'blueprint', epicBaseSha: 'abc123' });
+    markLeafMerged('L1');
+    recordLeafResume({ project: '/p', leafId: 'L1', nodesSpent: 4, phase: 'review' }); // later node, no sha passed
+    const r = getLeafResume('/p', 'L1');
+    expect(r?.nodesSpent).toBe(4);
+    expect(r?.merged).toBe(true); // preserved across the upsert
+    expect(r?.epicBaseSha).toBe('abc123'); // COALESCEd, not clobbered
+  });
+
+  test('clearLeafResume removes the row (terminal outcome)', () => {
+    recordLeafResume({ project: '/p', leafId: 'L1', nodesSpent: 5 });
+    clearLeafResume('L1');
+    expect(getLeafResume('/p', 'L1')).toBeNull();
+  });
+
+  test('getLeafResume is project-scoped', () => {
+    recordLeafResume({ project: '/a', leafId: 'L1', nodesSpent: 9 });
+    expect(getLeafResume('/b', 'L1')).toBeNull();
+    expect(getLeafResume('/a', 'L1')?.nodesSpent).toBe(9);
   });
 });

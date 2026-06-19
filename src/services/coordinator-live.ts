@@ -6,7 +6,7 @@ import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, g
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, getLeafResume, clearLeafResume } from './worker-ledger';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { tmuxBaseName } from './tmux-naming';
@@ -1604,8 +1604,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         try {
           const ledProject = todo.targetProject ?? project;
           // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
-          // NODE_BUDGET bounds total spawns across all pause/resume cycles.
-          const carried = pausedNodesSpent(project, todo.id);
+          // NODE_BUDGET bounds total spawns across all pause/resume cycles. The in-memory
+          // breaker record is freshest (graceful pause); the DURABLE leaf_resume row
+          // (slice 1b) is the fallback that survives a hard kill / hot-swap so a crashed
+          // mid-run leaf doesn't reset its budget to 20 and redo blueprint+implement.
+          const carried = pausedNodesSpent(project, todo.id) || getLeafResume(project, todo.id)?.nodesSpent || 0;
           const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo, carried));
           recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
           if (res.outcome === 'paused') {
@@ -1618,9 +1621,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
             return false;
           }
-          // A non-paused outcome means the leaf made progress past the cap (or never
-          // hit one) — clear any stale paused record so a future pause starts clean.
+          // A non-paused outcome is TERMINAL for this dispatch (accepted/blocked/
+          // rejected/pending) — clear the in-memory paused record AND the durable
+          // resume row so a future claim starts clean (no stale carried budget).
           recordResume(project, todo.id);
+          clearLeafResume(todo.id);
           // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
           // backoff STREAK (not the whole breaker) so the next isolated cap starts at
           // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.

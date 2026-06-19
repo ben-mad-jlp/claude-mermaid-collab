@@ -31,7 +31,7 @@ import { ClaudeNodeInvoker, assertSubscriptionAuth } from '../agent/node-invoker
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
-import { recordNode, setLeafInflight, clearLeafInflight } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
@@ -108,6 +108,12 @@ export interface LeafExecutorDeps {
    *  floor/tests run fine unwired. */
   setInflight?: (e: { project: string; leafId: string; epicId?: string | null; nodeKind?: string | null; model?: string | null; attempt?: number | null }) => void;
   clearInflight?: (leafId: string) => void;
+  /** DURABLE resume state (slice 1b): persist the budget already spent (+ phase/attempt)
+   *  so a hard kill recovers it on re-claim instead of resetting the budget. Best-effort;
+   *  unwired in tests. */
+  persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null }) => void;
+  /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
+  markMerged?: (leafId: string) => void;
   /** Master node budget override (TEST seam). Default {@link NODE_BUDGET}=20. The
    *  floor structurally spends ≤6 nodes (3/attempt × cap 2); this backstop catches a
    *  runaway node (e.g. one that internally loops). Lowerable in tests to exercise
@@ -840,6 +846,10 @@ export async function runLeaf(
     // LIVE signal: mark the leaf as running THIS node before the (slow) spawn, clear it
     // the instant the node returns — so the in-flight node is visible cross-process.
     deps.setInflight?.({ project, leafId: leaf.id, epicId, nodeKind: kind, model: nodeModel(kind), attempt: state.attempt });
+    // DURABLE budget checkpoint (slice 1b): nodesSpent was already incremented above,
+    // so persist it BEFORE the slow spawn — a kill mid-node then recovers the spend
+    // (the node counts toward budget whether or not it finishes, matching checkBudget).
+    deps.persistResume?.({ project, leafId: leaf.id, nodesSpent: state.nodesSpent, phase: kind, attempt: state.attempt });
     let res: NodeResult;
     try {
       res = await deps.invoker.invoke(spec);
@@ -1419,6 +1429,10 @@ export async function runLeaf(
           reviewVerdict,
         );
       }
+      // Work is now committed onto the epic branch. Flag it durably so a kill in the
+      // narrow window before the gate completes can skip straight to the gate on a
+      // future claim instead of redoing the whole leaf (consumed in slice 2).
+      deps.markMerged?.(leaf.id);
       const gate = await deps.complete(project, leaf.id, 'accepted');
       const effective = gate.effective ?? 'accepted';
       // RECORD THE TRUTH (§4a): the effective outcome IS the outcome — no longer
@@ -1519,6 +1533,8 @@ export async function makeLeafExecutorDeps(
     recordNode,
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,
+    persistResume: recordLeafResume,
+    markMerged: markLeafMerged,
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
     readBlueprint: async (cwd, lf) => {
       try {
