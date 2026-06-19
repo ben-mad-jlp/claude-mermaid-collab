@@ -31,10 +31,24 @@ describe('diffTodos', () => {
     expect(changes[0].event).toBe('todo_accepted');
   });
 
-  it('no change → nothing; a brand-new todo (no prev) is skipped', () => {
+  it('no change → nothing for the unchanged todo; a brand-new todo emits todo_new', () => {
     const prev = snapshotTodos([todo('a', { status: 'ready' })]);
     const changes = diffTodos(prev, [todo('a', { status: 'ready' }), todo('NEW', { status: 'blocked' })], P);
-    expect(changes).toEqual([]);
+    expect(changes.map((c) => `${c.todoId}:${c.event}`)).toEqual(['NEW:todo_new']);
+  });
+
+  it('emits on ANY status transition (started / ready / generic), not just terminal ones', () => {
+    const prev = snapshotTodos([
+      todo('a', { status: 'ready' }),
+      todo('b', { status: 'planned' }),
+      todo('c', { status: 'in_progress' }),
+    ]);
+    const changes = diffTodos(prev, [
+      todo('a', { status: 'in_progress' }), // claimed/started
+      todo('b', { status: 'ready' }),       // promoted to ready
+      todo('c', { status: 'planned' }),     // reset → generic 'todo_updated'
+    ], P);
+    expect(changes.map((c) => `${c.todoId}:${c.event}`).sort()).toEqual(['a:todo_started', 'b:todo_ready', 'c:todo_updated']);
   });
 
   it('resolves the epic ancestor id by walking parentId', () => {

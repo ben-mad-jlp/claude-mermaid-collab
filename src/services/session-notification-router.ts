@@ -23,8 +23,17 @@ export interface ChangeEvent {
   project: string;
   todoId: string;
   epicId: string | null;
-  /** notable transition kind */
-  event: 'todo_done' | 'todo_accepted' | 'todo_rejected' | 'todo_blocked' | 'todo_dropped';
+  /** lifecycle change kind */
+  event:
+    | 'todo_new'
+    | 'todo_started'
+    | 'todo_ready'
+    | 'todo_done'
+    | 'todo_accepted'
+    | 'todo_rejected'
+    | 'todo_blocked'
+    | 'todo_dropped'
+    | 'todo_updated';
   summary: string;
 }
 
@@ -55,11 +64,21 @@ function resolveEpicId(todo: Todo, byId: Map<string, Todo>): string | null {
   return null;
 }
 
+/** Stored-status → event kind. Anything not listed → 'todo_updated' (generic). */
+const STATUS_EVENT: Record<string, ChangeEvent['event']> = {
+  in_progress: 'todo_started',
+  ready: 'todo_ready',
+  done: 'todo_done',
+  blocked: 'todo_blocked',
+  dropped: 'todo_dropped',
+};
+
 /**
- * Diff a prior snapshot against the current todos and emit ONE ChangeEvent per NOTABLE
- * transition: a todo that newly reached done / blocked / dropped, or whose acceptance newly
- * became accepted/rejected. New todos (no prior snapshot) are NOT notified (outcomes matter
- * to a steward, not every spawn). First-ever run (empty prev) emits nothing — it just seeds.
+ * Diff a prior snapshot against the current todos and emit a ChangeEvent for ANY lifecycle
+ * change — a NEW todo, ANY stored-status transition (started/ready/done/blocked/dropped/other),
+ * or an acceptance flip (accepted/rejected). The user wants every update surfaced, not just
+ * the "needs assistance" ones; coalescing per subscriber (the tick) keeps a burst to one nudge.
+ * First-ever run (empty prev) emits nothing — it just seeds the snapshot.
  */
 export function diffTodos(prev: SnapshotMap, todos: Todo[], project: string): ChangeEvent[] {
   if (prev.size === 0) return []; // seed pass — no spurious burst on startup
@@ -67,10 +86,13 @@ export function diffTodos(prev: SnapshotMap, todos: Todo[], project: string): Ch
   const out: ChangeEvent[] = [];
   for (const t of todos) {
     const before = prev.get(t.id);
-    if (!before) continue; // new todo — skip (seed it via the returned snapshot)
     const epicId = resolveEpicId(t, byId);
     const title = t.title ?? t.id;
     const short = t.id.slice(0, 8);
+    if (!before) {
+      out.push({ project, todoId: t.id, epicId, event: 'todo_new', summary: `${short} new: ${title}` });
+      continue;
+    }
     // Acceptance transition takes priority (it's the real outcome).
     const acc = t.acceptanceStatus ?? null;
     if (acc !== before.acceptanceStatus && (acc === 'accepted' || acc === 'rejected')) {
@@ -78,9 +100,7 @@ export function diffTodos(prev: SnapshotMap, todos: Todo[], project: string): Ch
       continue;
     }
     if (t.status !== before.status) {
-      if (t.status === 'done') out.push({ project, todoId: t.id, epicId, event: 'todo_done', summary: `${short} done: ${title}` });
-      else if (t.status === 'blocked') out.push({ project, todoId: t.id, epicId, event: 'todo_blocked', summary: `${short} blocked: ${title}` });
-      else if (t.status === 'dropped') out.push({ project, todoId: t.id, epicId, event: 'todo_dropped', summary: `${short} dropped: ${title}` });
+      out.push({ project, todoId: t.id, epicId, event: STATUS_EVENT[t.status] ?? 'todo_updated', summary: `${short} ${t.status}: ${title}` });
     }
   }
   return out;
