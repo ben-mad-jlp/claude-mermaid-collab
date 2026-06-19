@@ -28,6 +28,7 @@ import { useSessionStatuses } from '@/hooks/useSessionStatuses';
 import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
 import { NeedsYouZone } from './NeedsYouZone';
 import { InflightPanel } from './InflightPanel';
+import { ReadyPanel } from './ReadyPanel';
 import { projectPlanStats } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
 import { HumanInbox } from '@/components/todos/HumanInbox';
@@ -408,7 +409,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'todos' | 'workers' | 'stream' | 'executor' | 'detail'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'todos' | 'workers' | 'stream' | 'executor' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -497,6 +498,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     { key: 'escalations', label: 'Escalations', count: blockerEscalations.length, loud: true },
                     { key: 'land', label: 'Land', count: landEscalations.length, info: true },
                     { key: 'inflight', label: 'In-flight', count: inflightCount, info: true },
+                    { key: 'ready', label: 'Ready', count: readyCount, info: true },
                     { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
                     { key: 'workers', label: 'Workers', count: workerSubs.length },
                     { key: 'stream', label: 'Stream' },
@@ -543,6 +545,9 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                   )}
                   {bridgeTab === 'inflight' && (
                     <div className="p-2"><InflightPanel todos={todos} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
+                  )}
+                  {bridgeTab === 'ready' && (
+                    <ReadyPanel todos={todos} onSelectTodo={handleSelectTodo} />
                   )}
                   {bridgeTab === 'todos' && (
                     <div className="p-2">
