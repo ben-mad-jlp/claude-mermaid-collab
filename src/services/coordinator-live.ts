@@ -9,6 +9,12 @@ import { filterClaimable } from './claim-guard';
 import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, getLeafResume, clearLeafResume } from './worker-ledger';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
+import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
+
+/** P1 breaker memory: lanes already SOFT-warned this process, so a soft (non-parking)
+ *  breach is surfaced once, not re-audited every 30s tick. HARD trips park the lane
+ *  out of in_progress, so they self-dedup; the escalation store dedups too. */
+const budgetSoftWarned = new Set<string>();
 import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
@@ -2031,6 +2037,57 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         questionText: `Todo "${todo?.title ?? todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
         todoId,
       });
+    },
+    enforceBudgetCaps: async (project: string): Promise<string[]> => {
+      // P1 governance breaker (87452094). Pure deterministic caps over OBSERVABLE
+      // lane telemetry — iteration count (retryCount), wall-clock (now-claimedAt).
+      // (Token budget is wired when per-lane usage telemetry is plumbed; the selector
+      // already tolerates an undefined tokens axis.) HARD breach → park BLOCKED via the
+      // SAME completion funnel parkBlocked/sweepExhaustedHeadless use (→ non-claimable,
+      // cannot re-spawn) + structured escalation + loud audit. Soft breach → warn once.
+      const now = Date.now();
+      const rows: LaneBudgetRow[] = listTodos(project, { status: 'in_progress' }).map((t) => ({
+        todoId: t.id,
+        title: t.title ?? undefined,
+        session: t.sessionName,
+        claimedAtMs: t.claimedAt ? new Date(t.claimedAt as unknown as string).getTime() : undefined,
+        iterations: typeof t.retryCount === 'number' ? t.retryCount : undefined,
+      }));
+      const trips = selectBudgetTrips(rows, now, DEFAULT_BUDGET_CONFIG);
+      const parked: string[] = [];
+      const deps = makeCoordinatorDeps();
+      for (const trip of trips) {
+        const todo = getTodo(project, trip.todoId);
+        const session = trip.session ?? todo?.sessionName ?? 'unassigned';
+        if (trip.tier === 'soft') {
+          // Surface once — non-parking warning that the lane is approaching a hard cap.
+          if (budgetSoftWarned.has(trip.todoId)) continue;
+          budgetSoftWarned.add(trip.todoId);
+          recordSupervisorAudit({ kind: 'nudge', project, session, detail: JSON.stringify({ todoId: trip.todoId, reason: 'budget-soft', breaches: trip.breaches }) });
+          continue;
+        }
+        // HARD: park BLOCKED (non-claimable) via the completion funnel, then escalate.
+        try { await handleWorkerComplete(deps, project, trip.todoId, 'rejected'); }
+        catch { /* park funnel best-effort; the escalation still files below */ }
+        // Structured payload (design §2.5): the literal trip trajectory + the exhausted
+        // action-class (it ran past its budget) + concrete options + recommendation.
+        createEscalation({
+          project,
+          session,
+          kind: 'blocker',
+          todoId: trip.todoId,
+          questionText:
+            `Lane "${todo?.title ?? trip.todoId}" hit a HARD budget cap and was PARKED (blocked, cannot re-spawn). ` +
+            `Trip: ${trip.reason}. ` +
+            `It burned its budget without completing — running longer is the same action class at higher cost. ` +
+            `Decide: (1) extend the cap and re-open (if it was genuinely close), ` +
+            `(2) split it into smaller lanes, or (3) drop it. (P1 deterministic breaker — 87452094.)`,
+        });
+        recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: trip.todoId, reason: 'budget-hard', breaches: trip.breaches }) });
+        budgetSoftWarned.delete(trip.todoId);
+        parked.push(trip.todoId);
+      }
+      return parked;
     },
     sweepExhaustedHeadless: async (project: string): Promise<void> => {
       // P3: any leaf paused on a rate cap past the 2h total-wait ceiling is parked

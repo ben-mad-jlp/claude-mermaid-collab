@@ -300,6 +300,25 @@ describe('runTick', () => {
     expect(stallCalls).toEqual(['proj']);
   });
 
+  test('enforceBudgetCaps (P1 governance breaker) is invoked each tick', async () => {
+    const capCalls: string[] = [];
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      enforceBudgetCaps: async (project) => { capCalls.push(project); return ['parked-x']; },
+    });
+    await runTick(deps, 'proj');
+    expect(capCalls).toEqual(['proj']);
+  });
+
+  test('enforceBudgetCaps throwing does NOT abort the tick (ready todos still processed)', async () => {
+    const deps = makeDeps({
+      listReadyTodos: () => [makeTodo('a')],
+      enforceBudgetCaps: async () => { throw new Error('breaker blew up'); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.claimed).toEqual(['a']);
+  });
+
   test('detectStalls throwing does NOT abort the tick (ready todos still processed)', async () => {
     const deps = makeDeps({
       listReadyTodos: () => [makeTodo('a')],

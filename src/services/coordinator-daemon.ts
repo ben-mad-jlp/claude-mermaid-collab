@@ -65,6 +65,13 @@ export interface CoordinatorDeps {
    *  awaiting input without filing an escalation — and surface them as escalations
    *  (DOGFOOD #6). Returns the stalled todo ids. Optional. */
   detectStalls?: (project: string) => Promise<string[]>;
+  /** P1 governance breaker (EPIC 01a1359f / 87452094): enforce per-lane HARD/soft
+   *  budget caps — iteration count, wall-clock, token budget — in pure deterministic
+   *  machinery (no LLM, no synthesized metric). On a HARD breach: park the lane
+   *  `blocked` (non-claimable → cannot re-spawn) + file a structured escalation +
+   *  fire a loud notification. A soft breach warns only. Returns the parked todo ids.
+   *  Optional — omitted ⇒ no budget enforcement. */
+  enforceBudgetCaps?: (project: string) => Promise<string[]>;
   /** Act on the supervisor decision queue (COORD handoff): apply resolved verdicts
    *  (escalate/nudge/resume/wait) and time-out unresolved requests to a fail-safe
    *  escalate, then mark them consumed. Returns the consumed decision ids. The
@@ -144,6 +151,13 @@ export async function runTick(
   // stalled workers so a silent stall surfaces instead of sitting until lease-expiry.
   if (deps.detectStalls) {
     try { await deps.detectStalls(project); } catch { /* stall detection must not abort the tick */ }
+  }
+  // P1 governance breaker: per-lane budget/iteration/wall-clock caps → park BLOCKED
+  // (non-claimable, cannot re-spawn) + escalate + loud notify. Deterministic; runs
+  // right after stall detection, before claiming new work, so a runaway lane is
+  // parked this tick rather than spawning alongside it.
+  if (deps.enforceBudgetCaps) {
+    try { await deps.enforceBudgetCaps(project); } catch { /* breaker must not abort the tick */ }
   }
   // P3: rate-cap exhaustion sweep — park leaves stuck paused past the 2h ceiling.
   if (deps.sweepExhaustedHeadless) {
