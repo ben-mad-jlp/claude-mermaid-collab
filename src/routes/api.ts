@@ -3077,8 +3077,14 @@ export async function handleAPI(
         leafId,
         blueprintId,
         manifest: {
+          estimatedFiles: manifest.estimatedFiles,
+          estimatedTasks: manifest.estimatedTasks,
+          nonEnumerableFanout: manifest.nonEnumerableFanout,
           filesToCreate: manifest.filesToCreate,
           filesToEdit: manifest.filesToEdit,
+          // tasks[] {id, files, description} drives the per-todo blueprint GRAPH in the
+          // detail view (the file lists alone power the "Proposed changes" card).
+          tasks: manifest.tasks,
         },
       });
     }
