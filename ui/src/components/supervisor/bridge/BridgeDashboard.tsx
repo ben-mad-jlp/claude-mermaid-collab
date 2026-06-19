@@ -31,11 +31,9 @@ import { InflightPanel } from './InflightPanel';
 import { ReadyPanel } from './ReadyPanel';
 import { projectPlanStats } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
-import { HumanInbox } from '@/components/todos/HumanInbox';
-import { selectHumanInbox } from '@/components/todos/humanInboxSelectors';
 import { FleetVitals } from './FleetVitals';
 import { DeployBanner } from './DeployBanner';
-import { WorkerRoster } from './WorkerRoster';
+import { SubscribersPanel } from './SubscribersPanel';
 import { StreamTicker } from './StreamTicker';
 import { PlanPanel } from '../PlanPanel';
 import { DecisionCard } from './focal/DecisionCard';
@@ -415,7 +413,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'todos' | 'workers' | 'stream' | 'executor' | 'detail'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'subscribers' | 'stream' | 'executor' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -426,11 +424,11 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     setSelectedEpic(epic);
     setBridgeTab('detail');
   };
-  /** Close the contextual detail tab: clear the selection and fall back to Todos. */
+  /** Close the contextual detail tab: clear the selection and fall back to Ready. */
   const closeDetail = () => {
     setSelectedTodoId(null);
     setSelectedEpic(null);
-    setBridgeTab('todos');
+    setBridgeTab('ready');
   };
 
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
@@ -505,8 +503,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     { key: 'land', label: 'Land', count: landEscalations.length, info: true },
                     { key: 'inflight', label: 'In-flight', count: inflightCount, info: true },
                     { key: 'ready', label: 'Ready', count: readyCount, info: true },
-                    { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
-                    { key: 'workers', label: 'Workers', count: workerSubs.length },
+                    { key: 'subscribers', label: 'Subscribers' },
                     { key: 'stream', label: 'Stream' },
                     { key: 'executor', label: 'Executor' },
                     ...((selectedTodoId || selectedEpic)
@@ -555,18 +552,9 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                   {bridgeTab === 'ready' && (
                     <ReadyPanel todos={todos} onSelectTodo={handleSelectTodo} />
                   )}
-                  {bridgeTab === 'todos' && (
-                    <div className="p-2">
-                      <HumanInbox
-                        embedded
-                        todos={todos}
-                        onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
-                        onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
-                        onOpen={handleSelectTodo}
-                      />
-                    </div>
+                  {bridgeTab === 'subscribers' && (
+                    <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />
                   )}
-                  {bridgeTab === 'workers' && <div className="p-2"><WorkerRoster embedded subscriptions={workerSubs} todos={todos} onJump={handleJump} /></div>}
                   {bridgeTab === 'stream' && (
                     <div className="p-2">
                       <StreamTicker

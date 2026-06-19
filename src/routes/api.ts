@@ -479,6 +479,21 @@ export async function handleAPI(
     }
   }
 
+  // GET /api/subscriptions?project=<abs> — list the session→{todo|epic|project} notification
+  // subscriptions for a project (the Bridge "Subscribers" tab). Read-only.
+  if (path === '/api/subscriptions' && req.method === 'GET') {
+    try {
+      const raw = url.searchParams.get('project');
+      const project = raw ? expandPath(raw) : null;
+      const { listAllSubscriptions } = await import('../services/session-subscriptions');
+      const all = listAllSubscriptions();
+      const subs = project ? all.filter((s) => s.project === project) : all;
+      return Response.json({ subscriptions: subs }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
   // POST /api/maintenance/kill-tmux { name } — kill one orphan tmux session.
   if (path === '/api/maintenance/kill-tmux' && req.method === 'POST') {
     try {
