@@ -796,8 +796,10 @@ export async function acceptTimeAncestorGate(
   // 2. NOT reachable yet — one-shot idempotent epic→integration land reconcile.
   // landEpicToMaster is a no-op when nothing is ahead (already up to date); a
   // conflict leaves integration untouched and we fall through to reversal below.
+  let landConflict = false;
   try {
     const land = await wm.landEpicToMaster(epicId, { baseRef: intRef });
+    landConflict = land.conflict === true;
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile', landed: land.landed, conflict: land.conflict, reason: land.reason }) });
   } catch (e) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
@@ -819,7 +821,12 @@ export async function acceptTimeAncestorGate(
   // (the build123d A1 ~5h burn). Bound it: under the cap, reverse to `ready` for a
   // re-attempt; at/over the cap, PARK held + escalate so a human integrates it once.
   const reversals = countStrandedReversals(project, todoId);
-  if (reversals >= STRANDED_REOPEN_CAP) {
+  // A merge CONFLICT at epic→integration (e.g. a long-stale epic that now conflicts with the
+  // integration ref) is STRUCTURAL — re-building the leaf can never resolve it, so reversing
+  // for a re-attempt just burns claim/quota cycles until the cap. Park-held IMMEDIATELY on a
+  // conflict (a human must rebase/resolve the epic). Only the non-conflict strand (a transient
+  // integration miss) benefits from the capped re-attempt below.
+  if (landConflict || reversals >= STRANDED_REOPEN_CAP) {
     await parkStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session, reversals);
     return false;
   }
