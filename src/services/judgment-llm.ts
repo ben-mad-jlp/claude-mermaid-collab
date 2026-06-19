@@ -13,16 +13,22 @@
  * DEFAULT behaviour is unchanged until a user picks a different provider.
  */
 
+import { buildNodeArgv, parseNodeJson } from '../agent/node-invoker.ts';
+
 export interface JudgmentLLM {
   complete(system: string, user: string): Promise<string>;
 }
 
-export type JudgmentProvider = 'xai' | 'openai' | 'anthropic';
+export type JudgmentProvider = 'xai' | 'openai' | 'anthropic' | 'claude';
 
 export interface JudgmentConfig {
   provider: JudgmentProvider;
   model: string;
+  /** API key for the keyed providers (xai/openai/anthropic). Unused by 'claude' (subscription). */
   apiKey: string;
+  /** TRUSTED cwd for the 'claude' (subscription) provider's `claude -p` spawn. Defaults to
+   *  process.cwd(); set to the project being triaged so the CLI trusts the folder. */
+  cwd?: string;
 }
 
 const OPENAI_STYLE_BASE: Record<'xai' | 'openai', string> = {
@@ -84,6 +90,34 @@ function makeAnthropic(model: string, apiKey: string): JudgmentLLM {
   };
 }
 
+/**
+ * Subscription provider: run `claude -p` — the SAME auth the leaf-executor uses — instead
+ * of a paid API key. A pure completion: no tools (allowedTools ''), system via
+ * --append-system-prompt, the user prompt on stdin; parse the stream-json result text.
+ * `cwd` must be a TRUSTED folder (else the CLI's trust prompt swallows the run).
+ */
+function makeClaudeSubscription(model: string | undefined, cwd: string): JudgmentLLM {
+  return {
+    async complete(system: string, user: string): Promise<string> {
+      const argv = buildNodeArgv({
+        prompt: user,
+        cwd,
+        allowedTools: '', // pure completion, no tools
+        appendSystemPrompt: system || undefined,
+        model: model || undefined,
+        permissionMode: 'bypassPermissions',
+      });
+      const proc = Bun.spawn(argv, { cwd, stdin: 'pipe', stdout: 'pipe', stderr: 'ignore' });
+      proc.stdin.write(user);
+      proc.stdin.end();
+      const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      const parsed = parseNodeJson(out);
+      if (parsed.parseError) throw new Error(`claude -p judgment failed: ${parsed.parseError}`);
+      return parsed.text ?? '';
+    },
+  };
+}
+
 /** Build a JudgmentLLM for the configured provider. */
 export function makeJudgmentLLM(cfg: JudgmentConfig): JudgmentLLM {
   switch (cfg.provider) {
@@ -93,6 +127,8 @@ export function makeJudgmentLLM(cfg: JudgmentConfig): JudgmentLLM {
       return makeOpenAIStyle(OPENAI_STYLE_BASE.openai, cfg.model, cfg.apiKey, 'OpenAI');
     case 'anthropic':
       return makeAnthropic(cfg.model, cfg.apiKey);
+    case 'claude':
+      return makeClaudeSubscription(cfg.model, cfg.cwd ?? process.cwd());
     default: {
       const _exhaustive: never = cfg.provider;
       throw new Error(`Unknown judgment provider: ${String(_exhaustive)}`);

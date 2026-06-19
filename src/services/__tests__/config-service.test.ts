@@ -139,33 +139,51 @@ describe('resolveTriageRoute (triage tier-role, L4)', () => {
     _resetConfigCache();
   });
 
-  test('no config → flat JUDGMENT_* default (xai / grok-build-0.1)', () => {
+  test('no config → SUBSCRIPTION default (claude / sonnet, no API key)', () => {
     const r = resolveTriageRoute();
-    expect(r.provider).toBe('xai');
-    expect(r.model).toBe('grok-build-0.1');
+    expect(r.provider).toBe('claude');
+    expect(r.model).toBe('sonnet');
+    expect(r.apiKey).toBe('');
   });
 
-  test('WORKER_PROVIDER_TRIAGE=claude (no model) → anthropic + default opus model', () => {
+  test('WORKER_PROVIDER_TRIAGE=claude → SUBSCRIPTION claude (not the anthropic API)', () => {
     process.env.WORKER_PROVIDER_TRIAGE = 'claude';
+    _resetConfigCache();
+    const r = resolveTriageRoute();
+    expect(r.provider).toBe('claude');
+    expect(r.model).toBe('sonnet');
+    expect(r.apiKey).toBe('');
+  });
+
+  test('WORKER_PROVIDER_TRIAGE=anthropic still selects the keyed Anthropic API (explicit opt-in)', () => {
+    process.env.WORKER_PROVIDER_TRIAGE = 'anthropic';
     _resetConfigCache();
     const r = resolveTriageRoute();
     expect(r.provider).toBe('anthropic');
     expect(r.model).toBe('claude-opus-4-8');
   });
 
-  test('WORKER_PROVIDER_TRIAGE + WORKER_MODEL_TRIAGE pin the model', () => {
+  test('WORKER_PROVIDER_TRIAGE=claude + WORKER_MODEL_TRIAGE pin the model', () => {
     process.env.WORKER_PROVIDER_TRIAGE = 'claude';
-    process.env.WORKER_MODEL_TRIAGE = 'claude-opus-4-7';
+    process.env.WORKER_MODEL_TRIAGE = 'opus';
     _resetConfigCache();
     const r = resolveTriageRoute();
-    expect(r.provider).toBe('anthropic');
-    expect(r.model).toBe('claude-opus-4-7');
+    expect(r.provider).toBe('claude');
+    expect(r.model).toBe('opus');
   });
 
-  test('a provider with no defaultable model + no explicit model → falls through to JUDGMENT_*', () => {
+  test('a provider with no defaultable model + no explicit model → falls through to the subscription default', () => {
     process.env.WORKER_PROVIDER_TRIAGE = 'codex'; // → openai, which has no default model
     _resetConfigCache();
     const r = resolveTriageRoute();
-    expect(r.provider).toBe('xai'); // fell back to the flat default
+    expect(r.provider).toBe('claude'); // fell back to the flat (now subscription) default
+  });
+
+  test('explicit JUDGMENT_PROVIDER=xai still works (keyed opt-out of subscription)', () => {
+    process.env.JUDGMENT_PROVIDER = 'xai';
+    _resetConfigCache();
+    const r = resolveTriageRoute();
+    expect(r.provider).toBe('xai');
+    expect(r.model).toBe('grok-build-0.1');
   });
 });

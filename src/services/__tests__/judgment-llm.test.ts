@@ -89,3 +89,15 @@ describe('makeJudgmentLLM — errors', () => {
     await expect(llm.complete('s', 'u')).rejects.toThrow('Anthropic API error 500');
   });
 });
+
+describe('makeJudgmentLLM — claude (subscription) path', () => {
+  it('routes to a JudgmentLLM with NO network/key dependency (spawns claude -p)', () => {
+    // The subscription provider needs no apiKey + no fetch — it shells out to `claude -p`.
+    // The real spawn is integration-only; here we just assert the factory routes it without
+    // requiring a key or touching fetch (a thrown error would mean a routing/typo bug).
+    const fetchSpy = (() => { throw new Error('fetch must not be called for the claude provider'); }) as any;
+    globalThis.fetch = fetchSpy;
+    const llm = makeJudgmentLLM({ provider: 'claude', model: 'sonnet', apiKey: '', cwd: '/tmp' });
+    expect(typeof llm.complete).toBe('function');
+  });
+});
