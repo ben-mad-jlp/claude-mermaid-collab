@@ -106,18 +106,56 @@ const DEFAULT_TIMEOUT_MS = 600_000;
 export const RATE_LIMIT_RE = /rate.?limit|429|too many requests|usage limit|overloaded|quota/i;
 
 /**
- * Best-effort scrape of a cap-RESET timestamp (epoch ms) from a node's output.
- *
- * UNCONFIRMED — v1 STUB returning `undefined`. `claude --help` documents no
- * reset-time field, so there is no safe format to parse yet. Pure exponential
- * backoff (owned by the daemon's headless-breaker) is the correct, dependency-free
- * default. See §1c/§5 of the P3 blueprint and the RUNTIME-CONFIRM TODO above: when a
- * REAL 429 is first observed, populate a CAP_RESET_RE (ISO-8601 / unix-epoch /
- * `retry after Ns`) here. Fail-safe: a wrong value only changes how long the daemon
- * waits, never loses work.
+ * The Claude subscription session-limit message the `-p` stream-json carries in its
+ * `result` field on a 429, e.g.:
+ *   "You've hit your session limit · resets 8:50pm (America/Chicago)"
+ * Captures HH, MM, am/pm and the IANA timezone. (Confirmed from a real 429, 2026-06-18.)
  */
-export function parseCapReset(_stdout: string, _stderr: string): number | undefined {
-  return undefined;
+export const CAP_RESET_RE = /resets\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*\(\s*([A-Za-z][A-Za-z0-9_+\-/]*)\s*\)/i;
+
+/** UTC offset (ms) of IANA `tz` at instant `at` (tz-wall-clock minus the UTC instant). */
+function tzOffsetMs(tz: string, at: number): number | undefined {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    const p: Record<string, number> = {};
+    for (const part of dtf.formatToParts(new Date(at))) {
+      if (part.type !== 'literal') p[part.type] = Number(part.value);
+    }
+    if ([p.year, p.month, p.day, p.hour, p.minute, p.second].some((n) => Number.isNaN(n))) return undefined;
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - at;
+  } catch { return undefined; } // invalid IANA name → caller falls back to backoff
+}
+
+/** Epoch (ms) of the NEXT time it is hour24:minute in `tz`, strictly after `now`. */
+function nextZonedEpoch(hour24: number, minute: number, tz: string, now: number): number | undefined {
+  const off = tzOffsetMs(tz, now);
+  if (off === undefined) return undefined;
+  const wall = new Date(now + off); // a Date whose UTC fields ARE tz's wall clock
+  const targetWallUTC = Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate(), hour24, minute, 0);
+  let epoch = targetWallUTC - off; // wall-clock-in-tz → real instant (off ≈ constant over <24h)
+  if (epoch <= now) epoch += 24 * 60 * 60 * 1000; // already passed today → tomorrow
+  return epoch;
+}
+
+/**
+ * Scrape the cap-RESET instant (epoch ms) from a 429 node's output. Parses the
+ * subscription session-limit message (see {@link CAP_RESET_RE}) into the next
+ * occurrence of that wall-clock time in the stated timezone. Returns `undefined` when
+ * the message is absent/unparseable — the daemon's headless-breaker then falls back to
+ * pure exponential backoff. Fail-safe: a wrong value only changes how long the daemon
+ * waits, never loses work. `now` is injectable for tests.
+ */
+export function parseCapReset(stdout: string, stderr: string, now: number = Date.now()): number | undefined {
+  const m = `${stdout}\n${stderr}`.match(CAP_RESET_RE);
+  if (!m) return undefined;
+  const minute = Number(m[2]);
+  let hour = Number(m[1]) % 12;
+  if (/pm/i.test(m[3])) hour += 12;
+  if (Number.isNaN(hour) || Number.isNaN(minute) || hour > 23 || minute > 59) return undefined;
+  return nextZonedEpoch(hour, minute, m[4], now);
 }
 
 /**
@@ -450,7 +488,8 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
     durationMs,
     usage: parsed.usage,
     rateLimited,
-    // v1 stub → always undefined; daemon uses pure backoff. See parseCapReset.
+    // Parse the subscription session-limit reset time so the breaker reopens exactly
+    // when the cap lifts; undefined (unparseable) → daemon falls back to backoff.
     capReset: rateLimited ? parseCapReset(stdout, stderr) : undefined,
     authMode,
     text: parsed.text,

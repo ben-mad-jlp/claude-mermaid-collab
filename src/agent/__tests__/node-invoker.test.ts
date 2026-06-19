@@ -10,6 +10,7 @@ import {
   authModeFromStatus,
   parseNodeJson,
   RATE_LIMIT_RE,
+  parseCapReset,
   type NodeSpec,
 } from '../node-invoker.ts';
 
@@ -138,5 +139,49 @@ describe('RATE_LIMIT_RE', () => {
   });
   it('does not match ordinary output', () => {
     expect(RATE_LIMIT_RE.test('OK done')).toBe(false);
+  });
+});
+
+describe('parseCapReset (subscription session-limit reset time)', () => {
+  // The real message captured from a live 429 (2026-06-18).
+  const MSG = "You've hit your session limit · resets 8:50pm (America/Chicago)";
+  const hhmm = (epoch: number, tz: string) =>
+    new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).format(new Date(epoch));
+
+  it('parses the reset into the next epoch at that wall-clock in the stated timezone', () => {
+    const now = Date.UTC(2026, 5, 18, 12, 0, 0); // noon UTC — well before 8:50pm Chicago
+    const r = parseCapReset(MSG, '', now);
+    expect(typeof r).toBe('number');
+    expect(r!).toBeGreaterThan(now);
+    expect(hhmm(r!, 'America/Chicago')).toBe('20:50');
+    expect(r! - now).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+  });
+
+  it('rolls to tomorrow when that wall-clock already passed today', () => {
+    // 03:00 UTC Jun 19 == ~22:00 Chicago Jun 18 (CDT) — past 20:50, so next 20:50 is Jun 19.
+    const now = Date.UTC(2026, 5, 19, 3, 0, 0);
+    const r = parseCapReset(MSG, '', now);
+    expect(r!).toBeGreaterThan(now);
+    expect(hhmm(r!, 'America/Chicago')).toBe('20:50');
+  });
+
+  it('reads the reset out of a full stream-json result line', () => {
+    const stdout = `{"type":"result","is_error":true,"api_error_status":429,"result":"${MSG}"}`;
+    const now = Date.UTC(2026, 5, 18, 12, 0, 0);
+    expect(hhmm(parseCapReset(stdout, '', now)!, 'America/Chicago')).toBe('20:50');
+  });
+
+  it('handles 12-hour edges (12:00am → 00:00, 12:30pm → 12:30)', () => {
+    const now = Date.UTC(2026, 5, 18, 6, 0, 0);
+    expect(hhmm(parseCapReset('resets 12:00am (America/Chicago)', '', now)!, 'America/Chicago')).toBe('00:00');
+    expect(hhmm(parseCapReset('resets 12:30pm (America/Chicago)', '', now)!, 'America/Chicago')).toBe('12:30');
+  });
+
+  it('returns undefined when no reset message is present (→ daemon backoff)', () => {
+    expect(parseCapReset('all good, no limit', '', Date.UTC(2026, 5, 18, 12, 0, 0))).toBeUndefined();
+  });
+
+  it('returns undefined for an unknown timezone (fail-safe → backoff)', () => {
+    expect(parseCapReset('resets 8:50pm (Not/AZone)', '', Date.UTC(2026, 5, 18, 12, 0, 0))).toBeUndefined();
   });
 });
