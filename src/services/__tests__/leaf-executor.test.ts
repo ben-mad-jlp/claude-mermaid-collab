@@ -25,6 +25,7 @@ import {
   NODE_BUDGET,
   deprecatePriorAttempts,
   blueprintAttemptName,
+  planResume,
   type LeafExecutorDeps,
   type LeafSizeManifest,
 } from '../leaf-executor';
@@ -171,6 +172,32 @@ function makeDeps(opts: {
   };
   return { deps, spies };
 }
+
+describe('planResume (resume decision — conservative, fresh on any doubt)', () => {
+  const SHA = 'abc123';
+  it('no resume row → fresh', () => {
+    expect(planResume(null, SHA)).toEqual({ mode: 'fresh', reason: 'no-resume-state' });
+  });
+  it('merged → skip-to-gate regardless of epic base', () => {
+    expect(planResume({ merged: true, phase: 'review', epicBaseSha: 'old' }, SHA).mode).toBe('skip-to-gate');
+    expect(planResume({ merged: true, phase: 'blueprint', epicBaseSha: null }, null).mode).toBe('skip-to-gate');
+  });
+  it('killed at/before blueprint → fresh (nothing durable to reuse)', () => {
+    expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: SHA }, SHA).reason).toBe('killed-before-blueprint');
+    expect(planResume({ merged: false, phase: null, epicBaseSha: SHA }, SHA).reason).toBe('killed-before-blueprint');
+  });
+  it('missing epic base on either side → fresh', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: null }, SHA).reason).toBe('no-epic-base');
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, null).reason).toBe('no-epic-base');
+  });
+  it('epic base moved → fresh (never resume against a changed world)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA)).toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
+  });
+  it('blueprint done + base unchanged → reattach-blueprint', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA)).toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+    expect(planResume({ merged: false, phase: 'review', epicBaseSha: SHA }, SHA).mode).toBe('reattach-blueprint');
+  });
+});
 
 describe('parseVerdict (fail-closed)', () => {
   it('PASS only on an explicit VERDICT: PASS line', () => {

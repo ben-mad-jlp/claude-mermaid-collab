@@ -847,6 +847,26 @@ export class WorktreeManager {
     return { epicId, branch, path: wtPath };
   }
 
+  /** SHA at the tip of the epic accumulation branch — the base a leaf's blueprint is
+   *  authored against. null if not a git repo or the branch doesn't exist yet. Used
+   *  by the resume decision (leaf-phase-checkpoint-design) to detect a moved base so
+   *  a stale blueprint is never reused. */
+  async epicHeadSha(epicId: string): Promise<string | null> {
+    try {
+      if (!(await this.isGitRepo())) return null;
+      const branch = this.epicBranchName(epicId);
+      const r = await this.runGit(
+        this.opts.projectRoot,
+        ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      const sha = r.stdout.trim();
+      return r.code === 0 && sha ? sha : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // commitAndMergeToEpic — on `accepted`, commit the worker's worktree and merge
   // its branch into the epic's accumulation branch (FBPE P1). A merge conflict

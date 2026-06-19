@@ -69,6 +69,9 @@ export interface LeafExecutorDeps {
   epicId: string;
   /** The epic's accumulation branch (worktrees are cut fresh off its tip). */
   epicBranch: string;
+  /** Epic tip SHA at run start — recorded into the durable resume row so a later
+   *  re-claim can detect a moved base (slice 2). Best-effort; may be null. */
+  epicBaseSha?: string | null;
   /** Once-per-run subscription auth assertion (throws if not the subscription). */
   assertAuth: () => AuthMode;
   /** Route a PASS/BLOCKED proposal through the EXISTING completion gate funnel.
@@ -111,7 +114,7 @@ export interface LeafExecutorDeps {
   /** DURABLE resume state (slice 1b): persist the budget already spent (+ phase/attempt)
    *  so a hard kill recovers it on re-claim instead of resetting the budget. Best-effort;
    *  unwired in tests. */
-  persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null }) => void;
+  persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
   /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
   markMerged?: (leafId: string) => void;
   /** Master node budget override (TEST seam). Default {@link NODE_BUDGET}=20. The
@@ -789,6 +792,40 @@ export function leafSessionKey(leaf: Todo): string {
  * @param leaf    The claimed leaf todo (already in_progress).
  * @param deps    Injected seam. Use {@link makeLeafExecutorDeps} for the real wiring.
  */
+/** How to (re)dispatch a leaf that may have durable resume state. */
+export type ResumeMode = 'fresh' | 'skip-to-gate' | 'reattach-blueprint';
+export interface ResumePlan { mode: ResumeMode; reason: string }
+
+/**
+ * Decide how to dispatch a leaf given its durable resume row and the CURRENT epic
+ * tip (leaf-phase-checkpoint-design slice 2). Pure + total — unit-tested without
+ * git/db. Conservatism is deliberate: any doubt resolves to a clean FRESH run.
+ *
+ * - no resume row                  → fresh (first dispatch)
+ * - merged                         → skip-to-gate (work is committed; the gate
+ *                                     re-verifies it — safe regardless of further
+ *                                     epic advance; redoing the leaf is pure waste)
+ * - killed at/before blueprint     → fresh (nothing durable to reuse)
+ * - epic base missing/moved        → fresh (the blueprint was authored against the
+ *                                     old tip; resuming against a changed world is
+ *                                     Grok's #1 risk — never do it)
+ * - blueprint done + base unchanged→ reattach-blueprint (reuse the DURABLE blueprint
+ *                                     plan in a FRESH worktree, re-run implement→
+ *                                     review; saves the ~4.5min blueprint without
+ *                                     reusing any partial implementation)
+ */
+export function planResume(
+  resume: { phase?: string | null; merged: boolean; epicBaseSha?: string | null } | null,
+  currentEpicSha: string | null,
+): ResumePlan {
+  if (!resume) return { mode: 'fresh', reason: 'no-resume-state' };
+  if (resume.merged) return { mode: 'skip-to-gate', reason: 'work-merged' };
+  if (!resume.phase || resume.phase === 'blueprint') return { mode: 'fresh', reason: 'killed-before-blueprint' };
+  if (!resume.epicBaseSha || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+  if (resume.epicBaseSha !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
+  return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+}
+
 export async function runLeaf(
   project: string,
   leaf: Todo,
@@ -849,7 +886,7 @@ export async function runLeaf(
     // DURABLE budget checkpoint (slice 1b): nodesSpent was already incremented above,
     // so persist it BEFORE the slow spawn — a kill mid-node then recovers the spend
     // (the node counts toward budget whether or not it finishes, matching checkBudget).
-    deps.persistResume?.({ project, leafId: leaf.id, nodesSpent: state.nodesSpent, phase: kind, attempt: state.attempt });
+    deps.persistResume?.({ project, leafId: leaf.id, nodesSpent: state.nodesSpent, phase: kind, attempt: state.attempt, epicBaseSha: deps.epicBaseSha });
     let res: NodeResult;
     try {
       res = await deps.invoker.invoke(spec);
@@ -1513,11 +1550,15 @@ export async function makeLeafExecutorDeps(
   // Materialise the epic accumulation branch so the off-tip base exists.
   const epic = await wm.ensureEpic(epicId, targetProject);
   const epicBranch = epic?.branch ?? 'master';
+  // Epic tip at run start — the base the blueprint will be authored against. Recorded
+  // durably so a re-claim can reject a stale resume if the base moved (slice 2).
+  const epicBaseSha = epic ? await wm.epicHeadSha(epicId) : null;
   return {
     invoker: ClaudeNodeInvoker,
     wm,
     epicId,
     epicBranch,
+    epicBaseSha,
     assertAuth: assertSubscriptionAuth,
     complete: async (p, t, a) => {
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
