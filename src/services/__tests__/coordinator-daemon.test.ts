@@ -5,6 +5,7 @@ import {
   handleWorkerComplete,
   COORDINATOR_ID,
   DEFAULT_LEASE_MS,
+  byClaimPriority,
   type CoordinatorDeps,
 } from '../coordinator-daemon';
 
@@ -82,6 +83,32 @@ function makeDeps(overrides: Partial<CoordinatorDeps> = {}): CoordinatorDeps & {
     _completeCalls,
   };
 }
+
+describe('byClaimPriority (priority-ordered claiming)', () => {
+  test('sorts by priority ASC (0 first), null last, ord as tiebreak', () => {
+    const todos = [
+      makeTodo('c', { priority: null, order: 1 }),
+      makeTodo('a', { priority: 0, order: 9 }),
+      makeTodo('b', { priority: 2, order: 2 }),
+      makeTodo('d', { priority: null, order: 0 }),
+    ];
+    expect([...todos].sort(byClaimPriority).map((t) => t.id)).toEqual(['a', 'b', 'd', 'c']);
+  });
+});
+
+describe('runTick — priority-ordered claiming', () => {
+  test('claims the eligible set in priority order, not creation order', async () => {
+    // ord says [low, high, mid]; priority should reorder to [high(0), mid(1), low(3)].
+    const todos = [
+      makeTodo('low', { priority: 3, order: 0 }),
+      makeTodo('high', { priority: 0, order: 1 }),
+      makeTodo('mid', { priority: 1, order: 2 }),
+    ];
+    const deps = makeDeps({ listReadyTodos: () => todos });
+    const res = await runTick(deps, 'proj');
+    expect(res.claimed).toEqual(['high', 'mid', 'low']);
+  });
+});
 
 describe('runTick', () => {
   test('notifyTodosChanged fires when the daemon changes a todo status (exhausted→blocked)', async () => {

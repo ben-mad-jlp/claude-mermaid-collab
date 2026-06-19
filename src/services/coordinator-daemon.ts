@@ -7,6 +7,15 @@ import { resolveCompletion } from '../agent/completion-resolver';
  *  spawn, the tick scheduler, worker-completion + acceptance gate) is Phase 2c. */
 
 export const COORDINATOR_ID = 'coordinator';
+
+/** Claim-order comparator for the eligible (ready) set: by priority ASC (0 = highest;
+ *  null/unset → last), then by `ord` (creation order) as a stable tiebreak. Deps already
+ *  gated eligibility upstream — this only orders WHICH eligible todo is claimed first, so
+ *  a human can push work ahead via priority without inventing a fake dependency. */
+export function byClaimPriority(a: Todo, b: Todo): number {
+  const rank = (t: Todo) => (t.priority == null ? Number.POSITIVE_INFINITY : t.priority);
+  return (rank(a) - rank(b)) || ((a.order ?? 0) - (b.order ?? 0));
+}
 /** Claim lease before a worker's todo is reclaimable. 40 min by default — big
  *  multi-component todos (e.g. a UI command-center build) exceed a short lease
  *  and get falsely reclaimed mid-work. Override with MERMAID_CLAIM_LEASE_MIN. */
@@ -149,6 +158,10 @@ export async function runTick(
   if (deps.claimGuard) {
     try { ready = await deps.claimGuard(project, ready); } catch { /* probe filter must not abort the tick */ }
   }
+  // Priority-ordered claiming: deps GATE eligibility; priority ORDERS the eligible set so a
+  // human can push work ahead without faking a dependency. Lower number = higher priority
+  // (0 first); null/unset sorts last; `ord` (creation order) is the stable tiebreak.
+  ready = [...ready].sort(byClaimPriority);
   const claimed: string[] = [];
   const spawned: string[] = [];
   // Concurrent dispatch (bounded by the per-project pool size): launchWorker awaits a
