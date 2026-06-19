@@ -140,10 +140,22 @@ export function buildEpicBranchStatus(
   return { project, baseRef, epics, strandedCount: epics.filter((e) => e.stranded).length };
 }
 
-/** Run git in `cwd`, returning { code, stdout }. Never throws. */
+/** Hard cap on any single git probe. `git merge-tree` on a badly-conflicted /
+ *  far-diverged branch (e.g. an epic branch 100s of commits stale) can run for a very
+ *  long time; because this runner is SYNCHRONOUS (Bun.spawnSync), an unbounded git call
+ *  blocks the whole event loop — which wedges the orchestrator tick for ALL projects.
+ *  The timeout kills the git process and we report the probe as "couldn't tell" (null). */
+const GIT_PROBE_TIMEOUT_MS = 15_000;
+
+/** Run git in `cwd`, returning { code, stdout }. Never throws; never hangs (timeout). */
 function runGit(cwd: string, gitArgs: string[]): { code: number; stdout: string } {
   try {
-    const p = Bun.spawnSync(['git', ...gitArgs], { cwd, stdout: 'pipe', stderr: 'ignore' });
+    const p = Bun.spawnSync(['git', ...gitArgs], {
+      cwd,
+      stdout: 'pipe',
+      stderr: 'ignore',
+      timeout: GIT_PROBE_TIMEOUT_MS, // kill a runaway git (e.g. merge-tree on a conflicted branch)
+    });
     return { code: p.exitCode ?? 1, stdout: p.stdout?.toString() ?? '' };
   } catch {
     return { code: 1, stdout: '' };

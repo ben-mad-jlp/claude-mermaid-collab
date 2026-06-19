@@ -36,6 +36,13 @@ let rerunRequested = false;
 let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
+// Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
+// `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a
+// tick wedges, getOrchestratorHealth().currentPhase shows EXACTLY which project+pass
+// is stuck — no logfile spelunking. `tickStartedAt` lets a reader compute how long the
+// in-flight tick has been running (lastTickAt only updates on COMPLETION).
+let currentPhase: string | null = null;
+let tickStartedAt: number | null = null;
 
 /** Coalesce a burst of state changes (e.g. a planner promoting several leaves) into
  *  one kicked tick. */
@@ -50,6 +57,7 @@ async function runTickGuarded(): Promise<void> {
     return;
   }
   tickRunning = true;
+  tickStartedAt = Date.now();
   try {
     getWebSocketHandler()?.broadcast({ type: 'orchestrator_tick', at: Date.now() });
   } catch {
@@ -64,6 +72,8 @@ async function runTickGuarded(): Promise<void> {
     console.warn('[orchestrator] Unhandled tick error:', err);
   } finally {
     lastTickAt = Date.now();
+    tickStartedAt = null;
+    currentPhase = null;
     tickRunning = false;
   }
 }
@@ -187,6 +197,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // cheap (a no-op when nothing is subscribed to the project). Best-effort.
     if (watched.has(project)) {
       try {
+        currentPhase = `${project}:notify`;
         await notify(project);
       } catch (err) {
         console.warn(`[orchestrator] notify failed for ${project}:`, err);
@@ -199,6 +210,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
     if (passes.build) {
       try {
+        currentPhase = `${project}:build`;
         await build(project);
       } catch (err) {
         console.warn(`[orchestrator] runBuildPass failed for ${project}:`, err);
@@ -207,6 +219,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
     if (passes.reconcile) {
       try {
+        currentPhase = `${project}:reconcile`;
         await reconcile(project);
       } catch (err) {
         console.warn(`[orchestrator] runReconcilePass failed for ${project}:`, err);
@@ -221,6 +234,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (passes.triage) {
       const autoResolve = lvl === 'auto';
       try {
+        currentPhase = `${project}:triage`;
         await triage(project, { autoResolve });
       } catch (err) {
         console.warn(`[orchestrator] runTriagePass failed for ${project}:`, err);
@@ -277,6 +291,11 @@ export function getOrchestratorHealth(): {
   running: boolean;
   tickMs: number;
   lastTickAt: number | null;
+  /** `<project>:<pass>` currently being awaited, or null when idle between ticks. */
+  currentPhase: string | null;
+  /** ms the in-flight tick has been running (null when idle). A large value here with a
+   *  non-null currentPhase = that pass is wedged — points straight at the culprit. */
+  tickRunningMs: number | null;
   projects: Array<{ project: string; level: string }>;
 } {
   // Synchronous snapshot of the projects with an explicitly-set level (SQLite is
@@ -291,6 +310,8 @@ export function getOrchestratorHealth(): {
     running: isOrchestratorRunning(),
     tickMs: configuredTickMs,
     lastTickAt,
+    currentPhase,
+    tickRunningMs: tickStartedAt != null ? Date.now() - tickStartedAt : null,
     projects,
   };
 }

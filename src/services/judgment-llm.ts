@@ -36,6 +36,14 @@ const OPENAI_STYLE_BASE: Record<'xai' | 'openai', string> = {
   openai: 'https://api.openai.com/v1',
 };
 
+/** Hard cap on a judgment call. These run INSIDE the orchestrator triage pass, so an
+ *  unbounded HTTP fetch or `claude -p` spawn (e.g. during a network outage, where a
+ *  socket stalls forever) would hang the whole tick and wedge the daemon. Every path
+ *  below is bounded by this. */
+const JUDGMENT_TIMEOUT_MS = 120_000;
+/** After SIGTERM, grace before SIGKILL for the subscription `claude -p` spawn. */
+const JUDGMENT_KILL_GRACE_MS = 3_000;
+
 /** xAI / OpenAI: identical OpenAI-style chat/completions request + parse. */
 function makeOpenAIStyle(base: string, model: string, apiKey: string, label: string): JudgmentLLM {
   return {
@@ -51,6 +59,7 @@ function makeOpenAIStyle(base: string, model: string, apiKey: string, label: str
             { role: 'user', content: user },
           ],
         }),
+        signal: AbortSignal.timeout(JUDGMENT_TIMEOUT_MS), // never hang the triage pass on a stalled socket
       });
       if (!res.ok) throw new Error(`${label} API error ${res.status}`);
       const data = (await res.json()) as any;
@@ -77,6 +86,7 @@ function makeAnthropic(model: string, apiKey: string): JudgmentLLM {
           system,
           messages: [{ role: 'user', content: user }],
         }),
+        signal: AbortSignal.timeout(JUDGMENT_TIMEOUT_MS), // never hang the triage pass on a stalled socket
       });
       if (!res.ok) throw new Error(`Anthropic API error ${res.status}`);
       const data = (await res.json()) as any;
@@ -110,7 +120,27 @@ function makeClaudeSubscription(model: string | undefined, cwd: string): Judgmen
       const proc = Bun.spawn(argv, { cwd, stdin: 'pipe', stdout: 'pipe', stderr: 'ignore' });
       proc.stdin.write(user);
       proc.stdin.end();
-      const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      // Drain CONCURRENTLY, then BOUND the wait — same un-hangable pattern as the
+      // leaf node-invoker. Without this, an outage stalls the read and the pipe never
+      // EOFs, hanging the triage pass (this is the DEFAULT judgment provider) → the
+      // whole orchestrator tick wedges. Escalate SIGTERM → SIGKILL on timeout.
+      const outP = new Response(proc.stdout).text().catch(() => '');
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let hardTimer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          try { proc.kill(); } catch { /* gone */ }
+          hardTimer = setTimeout(() => { try { proc.kill(9); } catch { /* gone */ } }, JUDGMENT_KILL_GRACE_MS);
+          resolve();
+        }, JUDGMENT_TIMEOUT_MS);
+      });
+      await Promise.race([proc.exited.then(() => undefined), timeout]);
+      const capped = <T>(p: Promise<T>, fallback: T): Promise<T> =>
+        Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), 5_000))]);
+      const out = await capped(outP, '');
+      await capped(proc.exited, -1);
+      if (timer) clearTimeout(timer);
+      if (hardTimer) clearTimeout(hardTimer);
       const parsed = parseNodeJson(out);
       if (parsed.parseError) throw new Error(`claude -p judgment failed: ${parsed.parseError}`);
       return parsed.text ?? '';
