@@ -22,6 +22,34 @@ import './index.css';
 import './styles/diagram.css';
 
 /**
+ * Recover from stale lazy-chunk loads after a hot-swap deploy.
+ *
+ * We deploy the UI by atomically swapping `ui/dist` under the live server, which
+ * renames the old hashed chunks aside into `dist.bak-*`. Any browser tab that was
+ * open before the swap is still running the previous entry bundle, so the first
+ * time it lazy-imports a code-split chunk (e.g. mermaid's flowDiagram-v2) it asks
+ * for a hash that no longer exists → 404 → "Failed to fetch dynamically imported
+ * module" and the diagram fails to render.
+ *
+ * Vite fires `vite:preloadError` on exactly this failure. The correct recovery is
+ * a one-time full reload to pick up the new index + chunk hashes. We guard with a
+ * sessionStorage flag so a genuinely-missing chunk (not just stale) can't trigger
+ * an infinite reload loop — we reload at most once per tab session, then let the
+ * original error surface so it stays visible/debuggable.
+ */
+const PRELOAD_RELOAD_FLAG = 'vite-preload-reloaded';
+window.addEventListener('vite:preloadError', (event) => {
+  if (sessionStorage.getItem(PRELOAD_RELOAD_FLAG)) {
+    // Already reloaded once this session and still failing — don't loop.
+    // Let the error propagate so it's visible rather than silently swallowed.
+    return;
+  }
+  event.preventDefault();
+  sessionStorage.setItem(PRELOAD_RELOAD_FLAG, '1');
+  window.location.reload();
+});
+
+/**
  * Mount the root React component to the DOM
  * Using StrictMode for development warnings and additional checks
  */
@@ -51,3 +79,8 @@ ReactDOM.createRoot(root).render(
     </BrowserRouter>
   </React.StrictMode>
 );
+
+// We mounted successfully — clear the one-shot recovery guard so a LATER hot-swap
+// in this same tab session can also auto-recover (the flag only suppresses an
+// immediate reload loop when a chunk genuinely can't be fetched).
+sessionStorage.removeItem(PRELOAD_RELOAD_FLAG);
