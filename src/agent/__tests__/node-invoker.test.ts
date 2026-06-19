@@ -10,6 +10,7 @@ import {
   authModeFromStatus,
   parseNodeJson,
   RATE_LIMIT_RE,
+  CONN_ERR_RE,
   parseCapReset,
   type NodeSpec,
 } from '../node-invoker.ts';
@@ -139,6 +140,26 @@ describe('RATE_LIMIT_RE', () => {
   });
   it('does not match ordinary output', () => {
     expect(RATE_LIMIT_RE.test('OK done')).toBe(false);
+  });
+});
+
+describe('CONN_ERR_RE (network-outage signatures)', () => {
+  it('matches connection/DNS/TLS failures', () => {
+    for (const s of [
+      'getaddrinfo ENOTFOUND api.anthropic.com',
+      'connect ECONNREFUSED 127.0.0.1:443',
+      'request to https://api.anthropic.com failed, reason: ETIMEDOUT',
+      'fetch failed',
+      'Connection error',
+      'EAI_AGAIN',
+      'socket hang up',
+    ]) {
+      expect(CONN_ERR_RE.test(s)).toBe(true);
+    }
+  });
+  it('does not match ordinary output or a model error', () => {
+    expect(CONN_ERR_RE.test('OK done')).toBe(false);
+    expect(CONN_ERR_RE.test('the function returned an error value')).toBe(false);
   });
 });
 
