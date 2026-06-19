@@ -439,7 +439,7 @@ interface SupervisorState {
    * Server hard-gates self-project; the deploy is detached and will kill+relaunch
    * the sidecar, so this resolves immediately and the UI should then poll for the
    * new live version. */
-  deploySelf: (serverId: string, project: string) => Promise<{ ok: boolean; started: boolean; reason: string; logPath?: string }>;
+  deploySelf: (serverId: string, project: string, force?: boolean) => Promise<{ ok: boolean; started: boolean; reason: string; logPath?: string; inflightLeaves?: string[] }>;
   /** Read the deploy-drift status for the banner (live version, staleness, gate). */
   fetchDeployStatus: (serverId: string, project: string) => Promise<DeployStatus | null>;
   /** Orch P2: confirm an inline Grok suggestion → server re-validates the proof
@@ -828,14 +828,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     };
   },
 
-  deploySelf: async (serverId, project) => {
-    const res = await invoke(serverId, '/api/supervisor/deploy', 'POST', { project });
-    const result = (res?.body as { ok?: boolean; started?: boolean; reason?: string; logPath?: string }) ?? {};
+  deploySelf: async (serverId, project, force) => {
+    const res = await invoke(serverId, '/api/supervisor/deploy', 'POST', { project, force: !!force });
+    const result = (res?.body as { ok?: boolean; started?: boolean; reason?: string; logPath?: string; inflightLeaves?: string[] }) ?? {};
     return {
       ok: !!result.ok,
       started: !!result.started,
       reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed'),
       logPath: result.logPath,
+      inflightLeaves: result.inflightLeaves,
     };
   },
 

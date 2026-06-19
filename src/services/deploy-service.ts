@@ -27,6 +27,7 @@ import { openSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
+import { listLeafInflight, reapStaleInflight } from './worker-ledger';
 
 /**
  * package.json `name` of this very app. The self-project is identified by this
@@ -58,11 +59,15 @@ export interface DeployRequestResult {
     | 'not-self-project'
     | 'unsupported-platform'
     | 'deploy-script-missing'
+    | 'leaves-in-flight'
     | 'spawn-failed';
   /** Absolute path to the deploy log (tail this to watch progress), when started. */
   logPath?: string;
   /** pid of the detached deploy process, when started. */
   pid?: number;
+  /** When refused with 'leaves-in-flight': the leaf ids currently running (so the
+   *  caller can show what would be hard-killed). Pass force to deploy anyway. */
+  inflightLeaves?: string[];
 }
 
 /** Relative path of the deploy script inside a self-project checkout. */
@@ -118,10 +123,31 @@ export function selfDeployEligibility(project: string): DeployEligibility {
   return { eligible: true, reason: 'ok' };
 }
 
-export function requestSelfDeploy(project: string): DeployRequestResult {
+export function requestSelfDeploy(
+  project: string,
+  opts: { force?: boolean } = {},
+): DeployRequestResult {
   const gate = selfDeployEligibility(project);
   if (!gate.eligible) {
     return { ok: false, started: false, reason: gate.reason as DeployRequestResult['reason'] };
+  }
+  // Refuse-while-building guard (leaf-phase-checkpoint-design, slice 1): a deploy
+  // hard-kills the sidecar (and with it any in-flight leaf executor), wasting the
+  // 4.5min blueprint / 2.5min implement already spent — and orphaning the claim
+  // until its lease expires. Until reattach-on-resume exists, the safe default is
+  // to NOT deploy while a leaf is mid-flight. reapStaleInflight() first drops
+  // phantom rows from any prior-process death, so what remains is genuinely live.
+  if (!opts.force) {
+    reapStaleInflight();
+    const inflight = listLeafInflight({ project });
+    if (inflight.length > 0) {
+      return {
+        ok: false,
+        started: false,
+        reason: 'leaves-in-flight',
+        inflightLeaves: inflight.map((r) => r.leafId),
+      };
+    }
   }
   const scriptPath = join(project, DEPLOY_SCRIPT_REL);
 

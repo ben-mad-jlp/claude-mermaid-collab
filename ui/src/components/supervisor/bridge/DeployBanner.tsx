@@ -54,14 +54,27 @@ export const DeployBanner: React.FC<DeployBannerProps> = ({ project, serverScope
     return () => clearInterval(id);
   }, [poll]);
 
-  const onDeploy = useCallback(async () => {
+  const onDeploy = useCallback(async (force = false) => {
     setError(null);
     deployingFromRef.current = status?.liveStartedAt ?? null;
     setDeploying(true);
-    const res = await deploySelf(serverScope, project);
+    const res = await deploySelf(serverScope, project, force);
     if (!res.started) {
       setDeploying(false);
       deployingFromRef.current = null;
+      // A deploy hard-kills the sidecar; refuse while a leaf is mid-flight unless
+      // the human confirms the in-flight work will be lost (re-runs from scratch).
+      if (res.reason === 'leaves-in-flight') {
+        const n = res.inflightLeaves?.length ?? 0;
+        if (
+          window.confirm(
+            `${n} leaf${n === 1 ? ' is' : 'es are'} still building. Deploying now hard-kills the worker and the in-flight work is lost (it re-runs from scratch on the next claim).\n\nDeploy anyway?`,
+          )
+        ) {
+          void onDeploy(true);
+        }
+        return;
+      }
       setError(`Deploy not started: ${res.reason}`);
     }
     // On success the sidecar restarts; poll() detects the new liveStartedAt.

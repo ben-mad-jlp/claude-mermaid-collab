@@ -393,9 +393,9 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // immediately; the detached child owns the actual deploy regardless.
   if (url.pathname === '/api/supervisor/deploy' && req.method === 'POST') {
     try {
-      const { project } = (await req.json()) as { project?: string };
+      const { project, force } = (await req.json()) as { project?: string; force?: boolean };
       if (!project) return jsonError('project is required', 400);
-      const result = requestSelfDeploy(project);
+      const result = requestSelfDeploy(project, { force: !!force });
       return Response.json(result, { status: result.ok ? 200 : 409 });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
