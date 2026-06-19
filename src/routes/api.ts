@@ -3139,6 +3139,17 @@ export async function handleAPI(
     try { recentSpawns = listSupervisorAudit({ kind: 'spawn', limit: 10 }); } catch { /* best-effort */ }
     const failures = listLeafRuns({ project, epicId, limit: failLimit })
       .filter((r) => r.finalOutcome != null && r.finalOutcome !== 'accepted');
+    // Transparency: when scoped to a project, report WHY ready leaves aren't claimed
+    // (over-budget / breaker / probe-down / stranded-foundation / not-headless) so the
+    // fleet panel can show "8 ready, 0 claimed — 3 stranded-foundation" instead of an
+    // unexplained idle daemon. Best-effort; never block the live read on it.
+    let claimSuppression: unknown;
+    if (project) {
+      try {
+        const { diagnoseClaimSuppression } = await import('../services/coordinator-live');
+        claimSuppression = await diagnoseClaimSuppression(project);
+      } catch { /* best-effort transparency */ }
+    }
     return Response.json({
       now,
       inflight,
@@ -3146,6 +3157,7 @@ export async function handleAPI(
       paused,
       recentSpawns,
       failures,
+      ...(claimSuppression ? { claimSuppression } : {}),
     });
   }
 

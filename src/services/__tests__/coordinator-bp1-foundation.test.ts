@@ -8,7 +8,7 @@ import * as path from 'node:path';
 // (the BP1 filter records a supervisor-audit row when it blocks a dependent).
 process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(path.join(os.tmpdir(), 'mc-bp1-supervisor-'));
 
-import { bp1FilterStrandedFoundations, getWorktreeManager } from '../coordinator-live';
+import { bp1FilterStrandedFoundations, getWorktreeManager, classifyClaimSuppression } from '../coordinator-live';
 import { createTodo, completeTodo, getTodo } from '../todo-store';
 import { setOrchestratorLevel } from '../orchestrator-config';
 
@@ -115,5 +115,52 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     const dep = getTodo(repo, dependent.id)!;
     const out = await bp1FilterStrandedFoundations(repo, [dep]);
     expect(out.map((t) => t.id)).toContain(dependent.id); // null probe → satisfied
+  });
+});
+
+describe('classifyClaimSuppression (transparency — attribute each held leaf to the first filter that dropped it)', () => {
+  const leaf = (id: string, over: Partial<{ title: string; claimProbe: string | null; notHeadlessReason: string | null }> = {}) =>
+    ({ id, title: over.title ?? id, claimProbe: over.claimProbe ?? null, notHeadlessReason: over.notHeadlessReason ?? null });
+
+  it('a leaf surviving all three filters is claimable (not reported)', () => {
+    const ready = [leaf('a')];
+    const r = classifyClaimSuppression(ready, new Set(['a']), new Set(['a']), new Set(['a']));
+    expect(r).toEqual([]);
+  });
+
+  it('probe-down: dropped at the probe filter', () => {
+    const ready = [leaf('a', { claimProbe: 'tcp://127.0.0.1:8082' })];
+    const r = classifyClaimSuppression(ready, new Set(), new Set(), new Set());
+    expect(r).toEqual([{ todoId: 'a', title: 'a', reason: 'probe-down: tcp://127.0.0.1:8082' }]);
+  });
+
+  it('stranded-foundation: passed probe, dropped at bp1', () => {
+    const ready = [leaf('a')];
+    const r = classifyClaimSuppression(ready, new Set(['a']), new Set(), new Set());
+    expect(r[0].reason).toMatch(/stranded-foundation/);
+  });
+
+  it('not-headless: passed probe + bp1, dropped at headless with its exclusion reason', () => {
+    const ready = [leaf('a', { notHeadlessReason: 'epic-or-gate' })];
+    const r = classifyClaimSuppression(ready, new Set(['a']), new Set(['a']), new Set());
+    expect(r[0].reason).toBe('not-headless: epic-or-gate');
+  });
+
+  it('attributes to the FIRST filter only (probe wins over later drops)', () => {
+    const ready = [leaf('a', { claimProbe: 'x:1' })];
+    // dropped by all three, but probe is first → single probe-down reason
+    const r = classifyClaimSuppression(ready, new Set(), new Set(), new Set());
+    expect(r).toHaveLength(1);
+    expect(r[0].reason).toMatch(/^probe-down/);
+  });
+
+  it('mixed set: reports only the suppressed, each with its own reason', () => {
+    const ready = [leaf('ok'), leaf('p', { claimProbe: 'h:1' }), leaf('s'), leaf('h', { notHeadlessReason: 'human' })];
+    const r = classifyClaimSuppression(ready, new Set(['ok', 's', 'h']), new Set(['ok', 'h']), new Set(['ok']));
+    expect(r.map((x) => [x.todoId, x.reason.split(':')[0].split(' ')[0]])).toEqual([
+      ['p', 'probe-down'],
+      ['s', 'stranded-foundation'],
+      ['h', 'not-headless'],
+    ]);
   });
 });

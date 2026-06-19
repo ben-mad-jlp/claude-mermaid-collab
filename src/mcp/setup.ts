@@ -89,7 +89,7 @@ import { runtimeConfig } from '../services/runtime-config.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig, getSecret } from '../services/config-service.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
-import { makeCoordinatorDeps, landEpic } from '../services/coordinator-live.js';
+import { makeCoordinatorDeps, landEpic, diagnoseClaimSuppression } from '../services/coordinator-live.js';
 import { requestSelfDeploy } from '../services/deploy-service.js';
 import { awaitHumanDecision } from '../services/decision-relay.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
@@ -4766,7 +4766,12 @@ IMPORTANT - Common pitfalls to avoid:
               elapsedMs: now - r.startedAt,
               stale: now - r.startedAt > STALE_MS,
             }));
-            return JSON.stringify({ now, inflight, breaker: { open: breakerOpen() } }, null, 2);
+            // Transparency: when scoped to a project, also report WHY ready leaves
+            // aren't being claimed (over-budget / breaker / probe-down / stranded-
+            // foundation / not-headless) — so "auto, ticking, 0 in_progress" is never
+            // an unexplained silence. Omitted for the all-projects view (no single set).
+            const claimSuppression = project ? await diagnoseClaimSuppression(project) : undefined;
+            return JSON.stringify({ now, inflight, breaker: { open: breakerOpen() }, ...(claimSuppression ? { claimSuppression } : {}) }, null, 2);
           }
           case 'leaf_inspect': {
             const { leafId, todoId, fullOutput } = args as { leafId?: string; todoId?: string; fullOutput?: boolean };

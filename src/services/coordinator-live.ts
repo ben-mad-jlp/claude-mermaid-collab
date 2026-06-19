@@ -913,6 +913,80 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
   return out;
 }
 
+// --- TRANSPARENCY: why is a project not claiming? -------------------------------
+// The claim pipeline (claimGuard) silently DROPS ready leaves for several distinct
+// reasons — over daily budget, an open rate-cap breaker, a failing env probe, a
+// stranded foundation (stale base), or a non-headless todo. From the outside you see
+// only "auto, ticking, 0 in_progress" and have to grep reconcile-audit blobs to learn
+// why (observed live: 20min spelunking to find a single bp1:blocked-stranded-foundation).
+// This runs the SAME predicates the tick uses — in the SAME order — but REPORTS the
+// reason each ready leaf was held instead of filtering silently. Reusing the real
+// functions (not a reimplementation) guarantees it can't drift from actual behavior.
+export interface ClaimSuppressionReport {
+  level: ReturnType<typeof getOrchestratorLevel>;
+  ready: number;
+  claimable: number;
+  /** Project-wide gate that suppresses ALL claiming this tick, or null. */
+  projectGate: 'over-daily-budget' | 'breaker-open' | null;
+  /** Per-leaf hold reasons (only the suppressed ones). */
+  suppressed: Array<{ todoId: string; title: string; reason: string }>;
+  claimableIds: string[];
+}
+
+export async function diagnoseClaimSuppression(project: string): Promise<ClaimSuppressionReport> {
+  const level = getOrchestratorLevel(project);
+  const ready = listReadyTodos(project);
+  const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: t.title ?? t.id, reason }));
+  // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
+  if (overDailyBudget(project)) {
+    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [] };
+  }
+  // Per-leaf pipeline, in claimGuard order: probe → stranded-foundation → headless.
+  const ids = (ts: Todo[]) => new Set(ts.map((t) => t.id));
+  const afterProbe = await filterClaimable(ready);
+  const probeOk = ids(afterProbe);
+  const afterBp1 = await bp1FilterStrandedFoundations(project, afterProbe);
+  const bp1Ok = ids(afterBp1);
+  const afterHeadless = afterBp1.filter((t) => isHeadlessLeaf(t, project));
+  const headlessOk = ids(afterHeadless);
+  const suppressed = classifyClaimSuppression(
+    ready.map((t) => ({ id: t.id, title: t.title ?? t.id, claimProbe: t.claimProbe ?? null, notHeadlessReason: headlessExclusionReason(t, project) })),
+    probeOk, bp1Ok, headlessOk,
+  );
+  // The breaker gate applies AFTER the per-leaf filters in claimGuard, suppressing the
+  // remaining set; report it as the project gate when open (the per-leaf reasons above
+  // still hold and are kept for detail).
+  const projectGate = breakerOpen() ? 'breaker-open' as const : null;
+  const claimable = projectGate ? [] : afterHeadless;
+  return {
+    level,
+    ready: ready.length,
+    claimable: claimable.length,
+    projectGate,
+    suppressed,
+    claimableIds: claimable.map((t) => t.id),
+  };
+}
+
+/** Pure classification (exported for tests): given the ready leaves and the id-sets
+ *  that SURVIVED each successive claimGuard filter, attribute each suppressed leaf to
+ *  the FIRST filter that dropped it — same order claimGuard applies them (probe →
+ *  stranded-foundation → headless). A leaf in all three sets is claimable (omitted). */
+export function classifyClaimSuppression(
+  ready: Array<{ id: string; title: string; claimProbe: string | null; notHeadlessReason: string | null }>,
+  probeOk: Set<string>,
+  bp1Ok: Set<string>,
+  headlessOk: Set<string>,
+): Array<{ todoId: string; title: string; reason: string }> {
+  const out: Array<{ todoId: string; title: string; reason: string }> = [];
+  for (const t of ready) {
+    if (!probeOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `probe-down: ${t.claimProbe ?? '?'}` });
+    else if (!bp1Ok.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: 'stranded-foundation (dep accepted but not on integration — stale base; drops at auto only)' });
+    else if (!headlessOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `not-headless: ${t.notHeadlessReason ?? 'unknown'}` });
+  }
+  return out;
+}
+
 // --- BP0: sweep already-stranded accepted todos ---------------------------------
 // A repair pass (Part 3 of the fix): scan the work-graph for leaf todos that are
 // done+accepted but whose work is NOT reachable from their epic branch (the
