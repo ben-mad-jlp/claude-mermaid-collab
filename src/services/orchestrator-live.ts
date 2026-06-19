@@ -48,6 +48,38 @@ let tickStartedAt: number | null = null;
  *  one kicked tick. */
 const KICK_DEBOUNCE_MS = 250;
 
+// Per-pass BACKSTOP timeouts. The single-flight tick awaits each pass inline, and the
+// build pass in turn awaits full leaf runs (coordinator-daemon runTick). Every inner
+// call is individually bounded already (node-invoker 10min wall-clock kill; git via
+// worktree-manager runCmd SIGKILL; Grok/judgment via AbortSignal) — but a single
+// residual unbounded await (or a pathological cold-start on a stale/conflicted branch
+// like the build123d trigger) would wedge `tickRunning` FOREVER (lastTickAt stuck),
+// which is the failure this guards. These deadlines convert a permanent wedge into a
+// logged timeout + the tick moving on. NOT a force-clear of tickRunning (which would
+// risk overlapping ticks per the design note) — we bound the awaited pass promise; the
+// finally then clears the flag normally. An in-flight leaf is NOT killed by this: it
+// keeps running under its claim (the lease + reattach make any true interruption cheap),
+// and the next tick skips it (still claimed) and services other projects. The build
+// ceiling sits well above a normal single leaf; tripping it means genuinely stuck or an
+// unusually deep wave — either way the daemon stays alive.
+const NOTIFY_PASS_TIMEOUT_MS = 90_000; // 1.5min — git-diff probes only
+const BUILD_PASS_TIMEOUT_MS = 30 * 60_000; // 30min — awaits leaf run(s)
+const RECONCILE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — reconcile harness
+const TRIAGE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — bounded Grok calls
+
+/** Race a pass against a backstop deadline. Rejects with a labelled error on timeout so
+ *  the caller's existing try/catch logs it and the tick proceeds. The underlying work is
+ *  abandoned (JS can't cancel it) but NOT killed — its own inner bounds + claim/lease own
+ *  its lifecycle. */
+export function withPassTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    t = setTimeout(() => reject(new Error(`pass-timeout after ${ms}ms: ${label}`)), ms);
+    (t as { unref?: () => void }).unref?.();
+  });
+  return Promise.race([p, deadline]).finally(() => { if (t) clearTimeout(t); }) as Promise<T>;
+}
+
 /** Run one tick under the overlap guard, coalescing any kick that arrives mid-tick
  *  (so a todo that becomes ready WHILE a tick runs still gets serviced immediately
  *  after, not 30s later). Shared by the interval and kickOrchestrator(). */
@@ -198,7 +230,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (watched.has(project)) {
       try {
         currentPhase = `${project}:notify`;
-        await notify(project);
+        await withPassTimeout(notify(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:notify`);
       } catch (err) {
         console.warn(`[orchestrator] notify failed for ${project}:`, err);
       }
@@ -211,7 +243,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (passes.build) {
       try {
         currentPhase = `${project}:build`;
-        await build(project);
+        await withPassTimeout(build(project), BUILD_PASS_TIMEOUT_MS, `${project}:build`);
       } catch (err) {
         console.warn(`[orchestrator] runBuildPass failed for ${project}:`, err);
       }
@@ -220,7 +252,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (passes.reconcile) {
       try {
         currentPhase = `${project}:reconcile`;
-        await reconcile(project);
+        await withPassTimeout(reconcile(project), RECONCILE_PASS_TIMEOUT_MS, `${project}:reconcile`);
       } catch (err) {
         console.warn(`[orchestrator] runReconcilePass failed for ${project}:`, err);
       }
@@ -235,7 +267,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       const autoResolve = lvl === 'auto';
       try {
         currentPhase = `${project}:triage`;
-        await triage(project, { autoResolve });
+        await withPassTimeout(triage(project, { autoResolve }), TRIAGE_PASS_TIMEOUT_MS, `${project}:triage`);
       } catch (err) {
         console.warn(`[orchestrator] runTriagePass failed for ${project}:`, err);
       }

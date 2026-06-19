@@ -19,6 +19,7 @@ import {
   stopOrchestrator,
   isOrchestratorRunning,
   getOrchestratorHealth,
+  withPassTimeout,
   type TickDeps,
 } from '../orchestrator-live';
 
@@ -97,6 +98,21 @@ describe('passesForLevel', () => {
 
   it('auto → build + reconcile + triage', () => {
     expect(passesForLevel('auto')).toEqual({ build: true, reconcile: true, triage: true });
+  });
+});
+
+describe('withPassTimeout (per-pass backstop)', () => {
+  it('resolves with the value when the pass beats the deadline', async () => {
+    await expect(withPassTimeout(Promise.resolve(42), 1000, 'x')).resolves.toBe(42);
+  });
+
+  it('rejects with a labelled error when the pass exceeds the deadline', async () => {
+    const never = new Promise<number>(() => {}); // never settles → simulates a wedge
+    await expect(withPassTimeout(never, 20, 'proj:build')).rejects.toThrow(/pass-timeout.*proj:build/);
+  });
+
+  it('propagates the pass\'s own rejection (does not swallow real errors)', async () => {
+    await expect(withPassTimeout(Promise.reject(new Error('boom')), 1000, 'x')).rejects.toThrow('boom');
   });
 });
 
