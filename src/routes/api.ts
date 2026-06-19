@@ -96,6 +96,10 @@ function expandPath(path: string): string {
 async function cleanupSessionRegistrations(project: string, session: string): Promise<void> {
   try { removeSupervised(project, session); } catch { /* best-effort: supervisor row */ }
   try {
+    const { dropSubscriptionsForSession } = await import('../services/session-subscriptions');
+    dropSubscriptionsForSession(project, session);
+  } catch { /* best-effort: subscriptions + queued notifications */ }
+  try {
     const entries = await fsReaddir('/tmp');
     await Promise.all(
       entries
