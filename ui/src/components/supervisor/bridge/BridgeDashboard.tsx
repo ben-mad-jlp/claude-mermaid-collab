@@ -561,7 +561,20 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     </div>
                   )}
                   {bridgeTab === 'workers' && <div className="p-2"><WorkerRoster embedded subscriptions={workerSubs} todos={todos} onJump={handleJump} /></div>}
-                  {bridgeTab === 'stream' && <div className="p-2"><StreamTicker embedded events={projectStreamEvents} /></div>}
+                  {bridgeTab === 'stream' && (
+                    <div className="p-2">
+                      <StreamTicker
+                        embedded
+                        events={projectStreamEvents}
+                        onSelectEvent={(e) => {
+                          // Jump to the detail of what the event is about, when it carries a
+                          // todo target we can resolve in the current set. Targetless events no-op.
+                          const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined;
+                          if (t) handleSelectTodo(t);
+                        }}
+                      />
+                    </div>
+                  )}
                   {bridgeTab === 'executor' && (
                     <div className="p-2">
                       <ExecutorStatsPanel project={project} serverScope={serverScope} />
