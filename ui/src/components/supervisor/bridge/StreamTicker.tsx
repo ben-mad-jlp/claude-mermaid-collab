@@ -17,10 +17,12 @@ export interface StreamTickerProps {
   /** Click an event → jump to what it's about (e.g. its todo's detail). Forwarded to
    *  EventStream, which renders rows clickable when set. */
   onSelectEvent?: (event: StreamEvent) => void;
+  /** todoId→title map so thin todo-lifecycle events show what they're about. */
+  titleByTodoId?: Map<string, string>;
 }
 
-export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded, onSelectEvent }) => {
-  if (embedded) return <EventStream events={events} className="min-h-0" onSelectEvent={onSelectEvent} />;
+export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded, onSelectEvent, titleByTodoId }) => {
+  if (embedded) return <EventStream events={events} className="min-h-0" onSelectEvent={onSelectEvent} titleByTodoId={titleByTodoId} />;
   return (
     <div
       data-testid="bridge-stream-ticker"

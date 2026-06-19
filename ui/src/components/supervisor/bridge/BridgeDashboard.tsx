@@ -366,6 +366,12 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     [todos],
   );
 
+  // todoId→title for enriching the stream's thin todo-lifecycle events (render-time join).
+  const titleByTodoId = useMemo(
+    () => new Map(todos.map((t) => [t.id, t.title ?? t.id])),
+    [todos],
+  );
+
   // The single source of "needs you" — same selector the CommandBarBadge, the
   // Z-rail and the FleetGraph danger ring derive from (badge ⟺ ring parity).
   const openEscalations = useMemo(
@@ -566,6 +572,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                       <StreamTicker
                         embedded
                         events={projectStreamEvents}
+                        titleByTodoId={titleByTodoId}
                         onSelectEvent={(e) => {
                           // Jump to the detail of what the event is about, when it carries a
                           // todo target we can resolve in the current set. Targetless events no-op.
