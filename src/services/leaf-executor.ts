@@ -31,7 +31,7 @@ import { ClaudeNodeInvoker, assertSubscriptionAuth } from '../agent/node-invoker
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
@@ -117,6 +117,11 @@ export interface LeafExecutorDeps {
   persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
   /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
   markMerged?: (leafId: string) => void;
+  /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
+  resumePlan?: ResumePlan;
+  /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
+   *  worktree instead of re-running the blueprint node). null ⇒ fall back to running it. */
+  restoreBlueprint?: (leafId: string) => string | null;
   /** Master node budget override (TEST seam). Default {@link NODE_BUDGET}=20. The
    *  floor structurally spends ≤6 nodes (3/attempt × cap 2); this backstop catches a
    *  runaway node (e.g. one that internally loops). Lowerable in tests to exercise
@@ -1314,6 +1319,21 @@ export async function runLeaf(
     return runVerifyPipeline();
   }
 
+  // RESUME: SKIP-TO-GATE (slice 2). A prior (killed) run already committed this
+  // leaf's work onto the epic branch but died before the acceptance gate finished.
+  // Re-running the whole leaf would be pure waste — just run the gate, which
+  // re-verifies the already-committed work. Safe regardless of further epic advance.
+  if (deps.resumePlan?.mode === 'skip-to-gate') {
+    const gate = await deps.complete(project, leaf.id, 'accepted');
+    const effective = gate.effective ?? 'accepted';
+    const reason =
+      effective === 'pending' ? 'gate-pending'
+      : effective === 'rejected' ? 'gate-rejected'
+      : 'resumed-skip-to-gate';
+    recordOutcome(effective, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
+    return { outcome: effective, attempts: state.attempt, nodesSpent: state.nodesSpent, reason };
+  }
+
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
   // iteration (no surgical reuse of the prior attempt's edits — that's P6).
   for (state.attempt = 0; state.attempt < ATTEMPT_CAP; ) {
@@ -1323,11 +1343,27 @@ export async function runLeaf(
     const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
     const cwd = wt.path;
 
-    // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
-    // must not interpret its empty/error output as a FAIL nor advance the attempt).
-    let bp = await runNode('blueprint', buildSpec('blueprint', cwd));
-    if (bp.rateLimited) return pausedResult('blueprint', bp);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    // RESUME: REATTACH-BLUEPRINT (slice 2). On the FIRST attempt of a resumed run
+    // whose blueprint already completed (against an UNCHANGED epic base — guarded in
+    // planResume), reuse the durable blueprint PLAN instead of re-running the ~4.5min
+    // blueprint node. The worktree is still FRESH off the epic tip — we reuse only the
+    // plan, never partial implementation — so this can't be "worse than fresh". If the
+    // durable plan is gone, fall back to running the blueprint node normally.
+    let bp: NodeResult;
+    const reattach = state.attempt === 1 && deps.resumePlan?.mode === 'reattach-blueprint';
+    const restored = reattach ? (deps.restoreBlueprint?.(leaf.id) ?? null) : null;
+    if (reattach && restored && restored.trim()) {
+      await deps.writeArtifact?.(cwd, blueprintPath(leaf), restored);
+      // Synthetic OK result — no node spent (the whole point); text feeds the size
+      // gate + implement just like a fresh blueprint node's final message.
+      bp = { ok: true, exitCode: 0, stdout: restored, durationMs: 0, rateLimited: false, authMode: 'subscription', text: restored };
+    } else {
+      // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
+      // must not interpret its empty/error output as a FAIL nor advance the attempt).
+      bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      if (bp.rateLimited) return pausedResult('blueprint', bp);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    }
 
     // L1-pilot finding (ce02d796): a blueprint node that FAILED (non-zero exit /
     // errored — NOT rate-limited, which is handled above) wrote no usable blueprint.
@@ -1553,12 +1589,25 @@ export async function makeLeafExecutorDeps(
   // Epic tip at run start — the base the blueprint will be authored against. Recorded
   // durably so a re-claim can reject a stale resume if the base moved (slice 2).
   const epicBaseSha = epic ? await wm.epicHeadSha(epicId) : null;
+  // RESUME DECISION (slice 2): compare the durable resume row against the current
+  // epic tip. fresh | skip-to-gate | reattach-blueprint. On a FRESH decision with a
+  // stale row (e.g. the epic base moved under a killed run), drop the row and ignore
+  // any carried budget so the clean run starts at 0; otherwise carry it forward.
+  const existingResume = getLeafResume(project, leaf.id);
+  const resumePlan = planResume(existingResume, epicBaseSha);
+  let effectiveStart = startNodesSpent;
+  if (resumePlan.mode === 'fresh' && existingResume) {
+    clearLeafResume(leaf.id);
+    effectiveStart = 0;
+  }
   return {
     invoker: ClaudeNodeInvoker,
     wm,
     epicId,
     epicBranch,
     epicBaseSha,
+    resumePlan,
+    startNodesSpent: effectiveStart,
     assertAuth: assertSubscriptionAuth,
     complete: async (p, t, a) => {
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
@@ -1576,6 +1625,7 @@ export async function makeLeafExecutorDeps(
     clearInflight: clearLeafInflight,
     persistResume: recordLeafResume,
     markMerged: markLeafMerged,
+    restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
     readBlueprint: async (cwd, lf) => {
       try {
@@ -1620,7 +1670,6 @@ export async function makeLeafExecutorDeps(
       }
     },
     resolveVerifyGate,
-    startNodesSpent,
     // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at
     // the call site). Writes a collab document scoped to a fixed `leaf-blueprints`
     // session under the TRACKING `project`, then points the leaf todo's

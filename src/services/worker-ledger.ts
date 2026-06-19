@@ -386,6 +386,19 @@ export function clearLeafResume(leafId: string): void {
   try { openDb().prepare('DELETE FROM leaf_resume WHERE leafId=?').run(leafId); } catch { /* best-effort */ }
 }
 
+/** Most recent persisted output text for a leaf's node of the given kind (newest
+ *  first). Unlike getLeafRun this ignores run-gap scoping — the kill→re-claim gap
+ *  (~lease) far exceeds the 2-min run gap, so reattach must fetch the blueprint
+ *  plan directly. null if no such row. */
+export function getLatestNodeOutput(leafId: string, nodeKind: string): string | null {
+  try {
+    const r = openDb().query(
+      'SELECT outputText FROM worker_ledger WHERE leafId=? AND nodeKind=? AND outputText IS NOT NULL ORDER BY ts DESC, id DESC LIMIT 1',
+    ).get(leafId, nodeKind) as { outputText?: string } | undefined;
+    return r?.outputText ?? null;
+  } catch { return null; }
+}
+
 /** List currently-running leaves (newest-started first). Optional project filter. */
 export function listLeafInflight(opts: { project?: string } = {}): InflightRow[] {
   try {

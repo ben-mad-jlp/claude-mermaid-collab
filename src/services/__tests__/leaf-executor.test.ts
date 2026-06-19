@@ -1350,3 +1350,54 @@ describe('deprecatePriorAttempts (only the live attempt blueprint stays undeprec
     expect(mm.getItemMetadata(live).deprecated ?? false).toBe(false);
   });
 });
+
+describe('runLeaf resume consumption (slice 2)', () => {
+  it('skip-to-gate: runs only the gate, no worktree / blueprint / merge', async () => {
+    const { deps, spies } = makeDeps({ gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'skip-to-gate', reason: 'work-merged' };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).toBe('resumed-skip-to-gate');
+    expect(spies.invokeSpecs.length).toBe(0); // no nodes spawned at all
+    expect(spies.ensureCalls.length).toBe(0); // no worktree cut
+    expect(spies.mergeCalls).toBe(0); // already merged by the prior run
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('skip-to-gate: a pending gate is reported as pending', async () => {
+    const { deps } = makeDeps({ gateEffective: 'pending' });
+    deps.resumePlan = { mode: 'skip-to-gate', reason: 'work-merged' };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('pending');
+    expect(res.reason).toBe('gate-pending');
+  });
+
+  it('reattach-blueprint: reuses the durable plan (no blueprint node), runs implement+review', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => 'RESTORED PLAN — implement these files';
+    const writes: Array<{ rel: string; content: string }> = [];
+    deps.writeArtifact = async (_cwd, rel, content) => { writes.push({ rel, content }); };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // No node with the blueprint's Write profile was invoked — the plan was reused.
+    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(ranBlueprint).toBe(false);
+    // implement + review still ran.
+    expect(spies.invokeSpecs.length).toBe(2);
+    expect(spies.mergeCalls).toBe(1);
+    // The restored plan was written into the fresh worktree.
+    expect(writes.some((w) => w.content === 'RESTORED PLAN — implement these files')).toBe(true);
+    expect(spies.ensureCalls[0].opts.fresh).toBe(true); // still a FRESH worktree
+  });
+
+  it('reattach-blueprint: falls back to running the blueprint node when the durable plan is gone', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => null; // plan vanished
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(ranBlueprint).toBe(true); // had to author it after all
+  });
+});
