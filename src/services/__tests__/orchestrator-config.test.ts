@@ -196,7 +196,7 @@ describe('copyNodeProfilesTo (push to all projects)', () => {
     setNodeProfileOverride('/proj/dst', 'implement', 'haiku', 'low'); // pre-existing → wiped
     const n = copyNodeProfilesTo('/proj/src', ['/proj/src', '/proj/dst', '/proj/dst2']);
     expect(n).toBe(2); // source skipped
-    const expected = { blueprint: { model: 'sonnet', effort: 'max' }, review: { model: null, effort: 'high' } };
+    const expected: ReturnType<typeof listNodeProfileOverrides> = { blueprint: { model: 'sonnet', effort: 'max' }, review: { model: null, effort: 'high' } };
     expect(listNodeProfileOverrides('/proj/dst')).toEqual(expected);
     expect(listNodeProfileOverrides('/proj/dst2')).toEqual(expected);
     expect(listNodeProfileOverrides('/proj/src')).toEqual(expected); // source untouched

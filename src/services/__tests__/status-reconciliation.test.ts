@@ -76,6 +76,8 @@ describe('orchestrator_status vs system_status reconciliation (7fb16985)', () =>
       running: true,
       tickMs: 30_000,
       lastTickAt: 123,
+      currentPhase: null,
+      tickRunningMs: null,
       projects: [{ project: '/proj/drive', level: 'drive' }],
     };
     const sys = summarizeSystemStatus(inputsFor('/proj/drive', health));
@@ -88,7 +90,7 @@ describe('orchestrator_status vs system_status reconciliation (7fb16985)', () =>
 
   it('a project with NO level row defaults to build in BOTH read-models', () => {
     const health: ReturnType<typeof getOrchestratorHealth> = {
-      running: true, tickMs: 30_000, lastTickAt: 1, projects: [],
+      running: true, tickMs: 30_000, lastTickAt: 1, currentPhase: null, tickRunningMs: null, projects: [],
     };
     const sys = summarizeSystemStatus(inputsFor('/proj/unset', health));
     expect(sys.orchestrator.level).toBe('build');
