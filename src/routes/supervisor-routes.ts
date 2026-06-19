@@ -20,7 +20,7 @@ import {
 } from '../services/supervisor-store.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
 import { projectRegistry } from '../services/project-registry.ts';
-import { listTodos, updateTodo, getTodo } from '../services/todo-store.ts';
+import { listTodos, updateTodo, getTodo, removeTodo } from '../services/todo-store.ts';
 import { isInboxEpic } from '../services/claimability.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
@@ -217,6 +217,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       } else if (status) patch = { status };
       const todo = await updateTodo(project, id, patch);
       return Response.json({ todo });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // DELETE A PROJECT TODO (work-graph) — project-scoped by id. Backs the Kanban
+  // "Clear completed" housekeeping action. Earlier this path wrongly hit
+  // /api/supervisor/roadmap → deleteItem (the roadmap_item table), so the DELETE
+  // matched 0 rows and clear-completed silently no-opped on every work-graph todo
+  // (most visibly the Inbox epic). removeTodo deletes from the todos table.
+  if (url.pathname === '/api/supervisor/todos' && req.method === 'DELETE') {
+    try {
+      const { project, id } = (await req.json()) as { project?: string; id?: string };
+      if (!project || !id) return jsonError('project and id are required', 400);
+      await removeTodo(project, id);
+      return Response.json({ ok: true });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

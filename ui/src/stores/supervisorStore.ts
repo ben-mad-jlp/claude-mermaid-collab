@@ -682,7 +682,10 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   },
 
   deleteTodo: async (serverId, project, id) => {
-    const res = await invoke(serverId, '/api/supervisor/roadmap', 'DELETE', { project, id });
+    // Work-graph todo delete. Must hit the todos table, NOT /api/supervisor/roadmap
+    // (deleteItem on the roadmap_item table) — kanban items are work-graph todos, so
+    // the old roadmap route matched 0 rows and "Clear completed" silently no-opped.
+    const res = await invoke(serverId, '/api/supervisor/todos', 'DELETE', { project, id });
     return !!res?.ok;
   },
 
