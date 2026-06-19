@@ -94,7 +94,7 @@ function TerminalConsoleInner({
     const term = new Terminal({
       // NB: do NOT set convertEol — the PTY/tmux already emits explicit \r\n.
       fontSize: 13,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, "Symbols Nerd Font Mono", "Apple Color Emoji", monospace',
       // Initial palette; the [palette] effect live-updates it on a theme switch.
       theme: { background: palette.bg, foreground: palette.fg, cursor: palette.cursor, cursorAccent: palette.bg },
       cursorBlink: true,
@@ -351,7 +351,7 @@ function DisconnectedOverlay({ onReconnect }: { onReconnect: () => void }) {
         gap: 8,
         background: 'rgba(13, 17, 23, 0.85)',
         color: '#c9d1d9',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, "Symbols Nerd Font Mono", "Apple Color Emoji", monospace',
         fontSize: 13,
       }}
     >
@@ -415,7 +415,7 @@ class TerminalErrorBoundary extends Component<
             gap: 8,
             background: '#0d1117',
             color: '#c9d1d9',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, "Symbols Nerd Font Mono", "Apple Color Emoji", monospace',
             fontSize: 13,
           }}
         >
