@@ -18,6 +18,16 @@
  * Z7: Interpreter pass — behind change-gate + throttle + single-in-flight, fires
  * invokeNode with the configured summary model to produce a structured paragraph +
  * status. A frozen (wedged) pane costs zero model calls.
+ *
+ * Z9 mobile-parity invariant: the in-memory cache (`listSessionSummaries()` /
+ * `getSessionSummary()`) is the canonical HTTP read-model. Every field the zen UI
+ * renders — `progressState`, `firstClause`, `summaryText`, `structured`
+ * (incl. `question`/`options`/`recommended`), `refreshState`, `paneSeenAt`,
+ * `updatedAt` — is stored on `SessionSummaryEntry` and populated before or by
+ * `runInterpretAndEmit`. The WS `session_summary_updated` broadcast is a pure
+ * superset of this entry (assembled via `summaryFields(cur)`). No field is computed
+ * only inside a broadcast and withheld from the cache. The Phase-2 mobile thin-client
+ * is therefore a straight HTTP+WS port with no hover/desktop-only data path.
  */
 
 import { createHash } from 'crypto';
@@ -293,6 +303,63 @@ function shouldSummarize(
 }
 
 // ---------------------------------------------------------------------------
+// Shared interpreter-finish helper (used by both tick and refreshSummaryNow)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the interpreter for one session and fold the result into the live cache entry.
+ * Assumes the caller has already stamped summaryInFlight=true + lastSummaryAt on the
+ * entry under `key`. Re-reads cache by key after the await (entry may be pruned mid-call).
+ * On success advances summaryPaneHash to `hash` (closes the change-gate). On failure
+ * leaves summaryPaneHash untouched so a later tick retries. Always clears summaryInFlight
+ * and emits one enriched session_summary_updated.
+ */
+async function runInterpretAndEmit(args: {
+  key: string;
+  project: string;
+  session: string;
+  pane: string;
+  hash: string;
+  pendingQuestion: string | null;
+  model: string;
+  effort: EffortLevel;
+  interpret: NonNullable<SummaryTickDeps['interpret']>;
+  broadcast: (msg: unknown) => void;
+  now: () => number;
+}): Promise<InterpreterStructured | null> {
+  let structured: InterpreterStructured | null = null;
+  try {
+    structured = await args.interpret({
+      project: args.project, session: args.session, pane: args.pane,
+      pendingQuestion: args.pendingQuestion, model: args.model, effort: args.effort,
+    });
+  } catch {
+    structured = null;
+  }
+  const cur = cache.get(args.key);
+  if (!cur) return structured; // session pruned mid-call — drop
+  cur.summaryInFlight = false;
+  if (structured) {
+    cur.structured = structured;
+    cur.summaryText = structured.paragraph;
+    cur.firstClause = firstClauseOf(structured.paragraph);
+    cur.summaryPaneHash = args.hash;
+    cur.summaryUpdatedAt = args.now();
+    cur.refreshState = 'fresh';
+  } else {
+    cur.refreshState = 'stale-failing';
+  }
+  cache.set(args.key, cur);
+  args.broadcast({
+    type: 'session_summary_updated',
+    project: args.project, session: args.session,
+    progressState: cur.progressState, paneSeenAt: cur.paneSeenAt, updatedAt: cur.updatedAt,
+    ...summaryFields(cur),
+  });
+  return structured;
+}
+
+// ---------------------------------------------------------------------------
 // Tick
 // ---------------------------------------------------------------------------
 
@@ -505,38 +572,9 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
       entry.summaryInFlight = true;
       entry.lastSummaryAt = ts; // stamp at LAUNCH so throttle counts attempts, not completions
       cache.set(key, entry);
+      const pendingQuestion = isWaiting(pane) ? extractPendingQuestion(pane) : null;
       const p = (async () => {
-        const pendingQuestion = isWaiting(pane) ? extractPendingQuestion(pane) : null;
-        let structured: InterpreterStructured | null = null;
-        try {
-          structured = await interpret({ project, session, pane, pendingQuestion, model, effort });
-        } catch {
-          structured = null;
-        }
-        const cur = cache.get(key);
-        if (!cur) return; // session pruned mid-call — drop
-        cur.summaryInFlight = false;
-        if (structured) {
-          cur.structured = structured;
-          cur.summaryText = structured.paragraph;
-          cur.firstClause = firstClauseOf(structured.paragraph);
-          cur.summaryPaneHash = hash; // close change-gate until pane moves
-          cur.summaryUpdatedAt = now();
-          cur.refreshState = 'fresh';
-        } else {
-          cur.refreshState = 'stale-failing'; // do NOT advance summaryPaneHash → retry later
-        }
-        cache.set(key, cur);
-        // SECOND enriched emit — carries structured + refreshState
-        broadcast({
-          type: 'session_summary_updated',
-          project,
-          session,
-          progressState: cur.progressState,
-          paneSeenAt: cur.paneSeenAt,
-          updatedAt: cur.updatedAt,
-          ...summaryFields(cur),
-        });
+        await runInterpretAndEmit({ key, project, session, pane, hash, pendingQuestion, model, effort, interpret, broadcast, now });
       })();
       trackInterpreter(p);
     }
@@ -550,4 +588,91 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
   }
 
   return { scanned: sessions.length, emitted, byState };
+}
+
+// ---------------------------------------------------------------------------
+// Force-proof out-of-band refresh
+// ---------------------------------------------------------------------------
+
+/**
+ * Re-summarize a single session immediately, bypassing the change-gate and throttle
+ * that `shouldSummarize` enforces. Intended for explicit user actions ("force refresh")
+ * and the optimistic-clear reconcile path. Awaited (not fire-and-forget) so callers
+ * receive a definite result. Does NOT register in `inFlightInterpreters` — the await
+ * is the caller's synchronization.
+ *
+ * Guards retained: WS presence, capture success, single-in-flight (never duplicates
+ * an in-flight model call).
+ */
+export async function refreshSummaryNow(
+  project: string,
+  session: string,
+  deps: SummaryTickDeps = {},
+): Promise<{ ok: boolean; reason?: 'no-ws' | 'capture-failed' | 'in-flight' | 'no-session'; structured?: InterpreterStructured | null }> {
+  const listSessions = deps.listSessions ?? listSupervised;
+  const watchedProjects = deps.watchedProjects ?? (() => new Set<string>());
+  const capture = deps.capture ?? capturePaneLocal;
+  const isWaiting = deps.isWaiting ?? ((pane: string) => detectPermissionPrompt(pane).isPermission);
+  const broadcast =
+    deps.broadcast ??
+    ((msg: unknown) => { getWebSocketHandler()?.broadcast(msg as WSMessage); });
+  const wsPresent = deps.hasWs ?? hasWebSocketHandler;
+  const now = deps.now ?? Date.now;
+  const resolveModel =
+    deps.summaryModel ??
+    ((proj: string) => {
+      const overrides = listNodeProfileOverrides(proj) as Record<string, { model: string | null; effort: EffortLevel | null } | undefined>;
+      const ov = overrides.summary;
+      return {
+        model: ov?.model ?? NODE_PROFILE.summary.model,
+        effort: ov?.effort ?? getProjectEffort(proj) ?? NODE_PROFILE.summary.effort,
+      };
+    });
+  const interpret = deps.interpret ?? interpretViaNode;
+
+  if (!wsPresent()) return { ok: false, reason: 'no-ws' };
+
+  const key = `${project}::${session}`;
+  const prev = cache.get(key);
+
+  // Resolve tmux name: prefer the cached entry; else look up the supervised row so a
+  // cold cache (no prior tick) can still be force-refreshed.
+  let tmux = prev?.tmux;
+  if (!tmux) {
+    const row = listSessions().find(
+      (r) => r.project === project && r.session === session && watchedProjects().has(r.project),
+    );
+    if (!row) return { ok: false, reason: 'no-session' };
+    const launchProject = (row as { launchProject?: string | null }).launchProject ?? null;
+    tmux = tmuxBaseName(launchProject ?? project, session);
+  }
+
+  // Single-in-flight guard: never launch a duplicate model call.
+  if (prev?.summaryInFlight) return { ok: false, reason: 'in-flight' };
+
+  const pane = await capture(tmux);
+  if (pane === '') return { ok: false, reason: 'capture-failed' };
+
+  const hash = createHash('sha1').update(pane).digest('hex');
+  const ts = now();
+
+  // Ensure a live cache entry exists to fold the result into (cold-cache case).
+  const entry: SessionSummaryEntry = prev ?? {
+    project, session, tmux, paneHash: hash, paneSeenAt: ts, quietWindows: 0,
+    progressState: 'unknown', updatedAt: ts,
+  };
+  entry.summaryInFlight = true;
+  entry.lastSummaryAt = ts;
+  cache.set(key, entry);
+
+  const pendingQuestion = isWaiting(pane) ? extractPendingQuestion(pane) : null;
+  const { model, effort } = resolveModel(project);
+
+  // FORCE-PROOF: awaited (not fire-and-forget), deliberately skips shouldSummarize
+  // (no change-gate, no throttle).
+  const structured = await runInterpretAndEmit({
+    key, project, session, pane, hash, pendingQuestion, model, effort,
+    interpret, broadcast, now,
+  });
+  return { ok: structured != null, structured };
 }
