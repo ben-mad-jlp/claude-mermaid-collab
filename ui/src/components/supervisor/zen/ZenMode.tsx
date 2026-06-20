@@ -6,6 +6,7 @@ import { useFreshnessStore } from '@/stores/freshnessStore';
 import { selectFreshness } from '@/lib/freshnessSelectors';
 import { computePlanTotals } from '@/components/supervisor/PlanTotals';
 import { selectTriageTop } from '@/lib/triageSelectors';
+import { selectParagraphStack } from '@/lib/paragraphStack';
 import { VerdictBar } from './VerdictBar';
 import { CalmCanvas } from './CalmCanvas';
 import { FocusCard } from './FocusCard';
@@ -13,6 +14,7 @@ import { WedgeFocusCard } from './WedgeFocusCard';
 import { PillList } from './PillList';
 import { ProjectPill } from './ProjectPill';
 import { SessionPill } from './SessionPill';
+import { SessionParagraphCard } from './SessionParagraphCard';
 
 export const ZenMode: React.FC = () => {
   const toggleZenMode = useUIStore((s) => s.toggleZenMode);
@@ -25,6 +27,7 @@ export const ZenMode: React.FC = () => {
   const sessionSummaries = useSupervisorStore((s) => s.sessionSummaries);
   const snoozeSession = useSupervisorStore((s) => s.snoozeSession);
   const nudge = useSupervisorStore((s) => s.nudge);
+  const capturePane = useSupervisorStore((s) => s.capturePane);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
@@ -52,6 +55,10 @@ export const ZenMode: React.FC = () => {
   const triageTop = useMemo(
     () => selectTriageTop(openEscalations, sessionSummaries, now),
     [openEscalations, sessionSummaries, now],
+  );
+  const paragraphStack = useMemo(
+    () => selectParagraphStack(sessionSummaries, 5),
+    [sessionSummaries],
   );
 
   const serverFor = (p: string, s: string) =>
@@ -90,6 +97,35 @@ export const ZenMode: React.FC = () => {
             onKill={handleKillSession}
             onSnooze={(p, s) => snoozeSession(p, s, Date.now() + 10 * 60_000)}
           />
+        )}
+
+        {/* Z8 — always-visible interpreter paragraph stack (recency-sorted ≤5) */}
+        {paragraphStack.length > 0 && (
+          <div className={`space-y-2 ${!freshness.live ? 'grayscale opacity-60 transition-all' : ''}`}>
+            <div className="text-3xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              Watched sessions
+            </div>
+            <div className="space-y-2">
+              {paragraphStack.map((m) => (
+                <SessionParagraphCard
+                  key={m.key}
+                  summary={m.summary}
+                  now={now}
+                  serverId={serverFor(m.project, m.session)}
+                  escalation={
+                    openEscalations.find(
+                      (e) => e.project === m.project && e.session === m.session && e.status === 'open',
+                    ) ?? null
+                  }
+                  onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
+                  onAnswerPane={(sid, p, s, v) => void nudge(sid, p, s, v)}
+                  onResolve={(sid, id, st) => void resolveEscalation(sid, id, st)}
+                  onSnooze={(p, s) => snoozeSession(p, s, Date.now() + 10 * 60_000)}
+                  onFetchPane={(p, s) => capturePane(serverFor(p, s), p, s)}
+                />
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Zone 1 — project totals */}

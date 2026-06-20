@@ -34,6 +34,7 @@ import { execFileSync } from 'node:child_process';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
+import { capturePaneText } from '../services/tmux-capture.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -495,6 +496,34 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       }
       getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
       return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/capture-pane — on-demand raw tmux pane read ("show the
+  // lines it read"). Mirrors the nudge route's peer/local branch but READS instead
+  // of writes (NOT a stream): peer → forward to peer's /api/ide/capture-pane;
+  // local → capturePaneText helper. No WS broadcast (pure read).
+  if (url.pathname === '/api/supervisor/capture-pane' && req.method === 'POST') {
+    try {
+      const { project, session, serverId } = (await req.json()) as {
+        project?: string;
+        session?: string;
+        serverId?: string;
+      };
+      if (!project || !session) return jsonError('project and session are required', 400);
+      if (serverId && getPeer(serverId)) {
+        const peer = getPeer(serverId)!;
+        const res = await fetch(peer.baseUrl + '/api/ide/capture-pane', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project, session }),
+        });
+        return Response.json(await res.json());
+      }
+      const lines = await capturePaneText(project, session);
+      return Response.json({ lines });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
