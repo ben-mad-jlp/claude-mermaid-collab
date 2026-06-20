@@ -40,7 +40,8 @@ import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 export type LeafNodeKind =
   | 'blueprint' | 'implement' | 'review' // floor (unchanged)
   | 'research' | 'wimplement' | 'verify' | 'fix' // waves (P5)
-  | 'driveplan' | 'driveexec' | 'report'; // verify pipeline (epic f5c7fc46)
+  | 'driveplan' | 'driveexec' | 'report' // verify pipeline (epic f5c7fc46)
+  | 'summary'; // zen mode (design-zen-mode Phase 4): session-summary model knob
 
 /**
  * P5 — structured size manifest the BLUEPRINT node emits as a trailing ```json
@@ -281,6 +282,7 @@ export const LEAF_NODE_KINDS: LeafNodeKind[] = [
   'blueprint', 'implement', 'review',
   'research', 'wimplement', 'verify', 'fix',
   'driveplan', 'driveexec', 'report',
+  'summary',
 ];
 
 /** One-line description of what each node kind does — surfaced in the matrix editor. */
@@ -295,6 +297,7 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
   driveplan: 'Verify pipeline: authors an AssemblyBuildPlan — plan only, no code.',
   driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
   report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
+  summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
 };
 
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
@@ -316,6 +319,9 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
   // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
   report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__add_session_todo', effort: 'medium' },
+  // zen mode (design-zen-mode Phase 4): summarizes a watched session's progress. Read-only;
+  // emits the summary as its final message (consumed by Z7). Default sonnet (claude-sonnet-4-6).
+  summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
 };
 
 /** Process-wide effort override: MERMAID_NODE_EFFORT forces every spawned node to a
