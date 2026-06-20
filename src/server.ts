@@ -12,6 +12,7 @@ import { checkAuth } from './auth';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { writeLock, releaseLock, currentExePath, serverOwner } from './services/port-ownership';
 import { SERVER_VERSION } from './mcp/server';
+import { snapshotSummaryMessages } from './services/session-summary-loop';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
 import { MetadataManager } from './services/metadata-manager';
@@ -599,6 +600,13 @@ const server = Bun.serve<WsData>({
           type: 'connected',
           diagramCount: wsHandler.getConnectionCount(),
         }));
+        // Re-hydrate Zen session summaries: the loop change-gates broadcasts and
+        // summaries aren't persisted client-side, so a fresh/reconnected client would
+        // show "No summary yet" for every idle session until its pane next changes.
+        // Send the server's last-known summaries (incl. interpreter paragraphs) once.
+        try {
+          for (const msg of snapshotSummaryMessages()) ws.send(JSON.stringify(msg));
+        } catch { /* best-effort hydrate — never break the connection */ }
       }
     },
 

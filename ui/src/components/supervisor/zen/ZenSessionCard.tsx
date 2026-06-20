@@ -115,16 +115,45 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     escalation?.questionText ?? structured?.question ?? (structured?.status === 'needs-input' ? 'Waiting for input' : null);
   const hasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (paneOptions && paneOptions.length > 0) || structured?.status === 'needs-input');
 
+  // Status (interpreter status, else structural progressState) → a calm dot + label so
+  // even a summary-less card conveys state at a glance.
+  const status: string = structured?.status ?? summary?.progressState ?? 'unknown';
+  const STATUS_META: Record<string, { dot: string; label: string }> = {
+    working: { dot: 'bg-success-500', label: 'working' },
+    active: { dot: 'bg-success-500', label: 'working' },
+    idle: { dot: 'bg-gray-400', label: 'idle' },
+    quiet: { dot: 'bg-gray-400', label: 'idle' },
+    stuck: { dot: 'bg-danger-500', label: 'stuck' },
+    wedged: { dot: 'bg-danger-500', label: 'stuck' },
+    stalled: { dot: 'bg-warning-500', label: 'stalling' },
+    'needs-input': { dot: 'bg-warning-500', label: 'needs you' },
+    unknown: { dot: 'bg-gray-300 dark:bg-gray-600', label: 'unknown' },
+  };
+  const meta = STATUS_META[status] ?? STATUS_META.unknown;
+
+  // Relative "updated Xm ago" from the interpreter write, so staleness is visible.
+  const updatedAgo = (() => {
+    const ts = summary?.summaryUpdatedAt;
+    if (!ts) return null;
+    const mins = Math.max(0, Math.floor((Date.now() - ts) / 60_000));
+    return mins === 0 ? 'just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
+  })();
+
   return (
     <div
       data-testid="zen-session-card"
-      className="w-full max-w-2xl mx-auto rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden"
+      className={`w-full max-w-2xl mx-auto rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow ${
+        hasQuestion
+          ? 'border-warning-300 dark:border-warning-700/70 ring-1 ring-warning-200 dark:ring-warning-900/40'
+          : 'border-gray-200 dark:border-gray-700'
+      }`}
     >
       <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} onOpen={onOpen} />
 
       {/* Body — centered paragraph */}
       <div className="px-6 py-8 flex flex-col items-center text-center gap-2 min-h-[7rem] justify-center">
-        <span className="text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+        <span className="flex items-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
           {sessionName}
         </span>
         {paragraph ? (
@@ -132,7 +161,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             {paragraph}
           </p>
         ) : (
-          <p className="text-sm italic text-gray-400 dark:text-gray-500">No summary yet</p>
+          <p className="text-sm italic text-gray-400 dark:text-gray-500">No summary yet · {meta.label}</p>
+        )}
+        {updatedAgo && (
+          <span className="text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
         )}
       </div>
 

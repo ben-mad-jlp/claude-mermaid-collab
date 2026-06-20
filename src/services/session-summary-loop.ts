@@ -95,6 +95,24 @@ export function listSessionSummaries(): SessionSummaryEntry[] {
   return [...cache.values()];
 }
 
+/** Re-hydration snapshot: the current cache as ready-to-send `session_summary_updated`
+ *  messages, byte-identical to the live broadcast (incl. the interpreter paragraph). The
+ *  loop change-gates broadcasts (a frozen pane never re-emits), and summaries are NOT
+ *  persisted client-side — so a freshly (re)connected client would otherwise show "No
+ *  summary yet" for every idle session. Sent once to each new WS client on connect so it
+ *  starts from the server's last-known state instead of empty. */
+export function snapshotSummaryMessages(): Array<Record<string, unknown>> {
+  return listSessionSummaries().map((e) => ({
+    type: 'session_summary_updated',
+    project: e.project,
+    session: e.session,
+    progressState: e.progressState,
+    paneSeenAt: e.paneSeenAt,
+    updatedAt: e.updatedAt,
+    ...summaryFields(e),
+  }));
+}
+
 export function __resetSummaryState(): void {
   cache.clear();
   STALL_WINDOWS = DEFAULT_STALL_WINDOWS;
