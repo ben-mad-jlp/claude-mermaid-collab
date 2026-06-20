@@ -1,11 +1,16 @@
-import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useFreshnessStore } from '@/stores/freshnessStore';
 import { selectFreshness } from '@/lib/freshnessSelectors';
 import { computePlanTotals } from '@/components/supervisor/PlanTotals';
-import { selectTriageTop } from '@/lib/triageSelectors';
+import {
+  selectTriageTop,
+  DEFAULT_SNOOZE_MS,
+  nextSnoozeWakeup,
+  isRefreshable,
+} from '@/lib/triageSelectors';
 import { selectParagraphStack } from '@/lib/paragraphStack';
 import { VerdictBar } from './VerdictBar';
 import { CalmCanvas } from './CalmCanvas';
@@ -16,18 +21,21 @@ import { ProjectPill } from './ProjectPill';
 import { SessionPill } from './SessionPill';
 import { SessionParagraphCard } from './SessionParagraphCard';
 
-const THRESHOLDS = [60, 70, 80, 90] as const;
-
 export const ZenMode: React.FC = () => {
   const toggleZenMode = useUIStore((s) => s.toggleZenMode);
 
   const openEscalations = useSupervisorStore((s) => s.openEscalations);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
-  const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
   const sessionSummaries = useSupervisorStore((s) => s.sessionSummaries);
-  const snoozeSession = useSupervisorStore((s) => s.snoozeSession);
+  const snoozeSessionFor = useSupervisorStore((s) => s.snoozeSessionFor);
+  const refreshSummaryNow = useSupervisorStore((s) => s.refreshSummaryNow);
+  const clearWithUndo = useSupervisorStore((s) => s.clearWithUndo);
+  const undoClear = useSupervisorStore((s) => s.undoClear);
+  const markOperatorOnly = useSupervisorStore((s) => s.markOperatorOnly);
+  const setWatchdogThreshold = useSupervisorStore((s) => s.setWatchdogThreshold);
+  const pendingClears = useSupervisorStore((s) => s.pendingClears);
   const nudge = useSupervisorStore((s) => s.nudge);
   const capturePane = useSupervisorStore((s) => s.capturePane);
 
@@ -43,64 +51,39 @@ export const ZenMode: React.FC = () => {
     return () => clearInterval(id);
   }, []);
 
-  // §2 — escalation-level client snooze
-  const [snoozedEsc, setSnoozedEsc] = useState<Record<string, number>>({});
-  const snoozeItem = useCallback(
-    (id: string, ms: number) => setSnoozedEsc((m) => ({ ...m, [id]: Date.now() + ms })),
-    [],
+  // Re-surface ticker: arm one timer for the earliest snoozed wakeup so ZenMode
+  // re-renders when a session resurfaces (ZenMode doesn't subscribe to hydrateEpoch).
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const wake = nextSnoozeWakeup(sessionSummaries, Date.now());
+    if (wake == null) return;
+    const t = setTimeout(() => forceTick((n) => n + 1), Math.max(0, wake - Date.now()) + 50);
+    return () => clearTimeout(t);
+  }, [sessionSummaries]);
+
+  // Watchdog threshold UI state (percent, 1–100)
+  const [thresholdVal, setThresholdVal] = useState<string>('80');
+
+  // Zone 2: ordered session list
+  const sessions = useMemo(
+    () => order.map((k) => subscriptions[k]).filter(Boolean),
+    [order, subscriptions],
   );
 
-  // §4 — optimistic clear + toast + 5s undo
-  const [cleared, setCleared] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState<{ serverId: string; id: string; label: string } | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverFor = (p: string, s: string) =>
+    sessions.find((x) => x.project === p && x.session === s)?.serverId ?? 'local';
 
-  const clearItem = useCallback(
-    (serverId: string, id: string, label: string) => {
-      setCleared((s) => new Set(s).add(id));
-      setToast({ serverId, id, label });
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        void resolveEscalation(serverId, id, 'resolved');
-        setToast(null);
-      }, 5000);
-    },
-    [resolveEscalation],
+  // clearedIds: pending-clear window items are excluded from triage focus slot
+  const clearedIds = useMemo(() => new Set(Object.keys(pendingClears)), [pendingClears]);
+
+  const freshness = useMemo(() => selectFreshness(lastWsMessageAt, now), [lastWsMessageAt, now]);
+  const triageTop = useMemo(
+    () => selectTriageTop(openEscalations, sessionSummaries, now, { clearedIds }),
+    [openEscalations, sessionSummaries, now, clearedIds],
   );
-
-  const undoClear = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setToast((t) => {
-      if (t) setCleared((s) => { const n = new Set(s); n.delete(t.id); return n; });
-      return null;
-    });
-  }, []);
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
-
-  // §3 — operator-gated "only you" mark for deterministic top-tier outranking
-  const [onlyYou, setOnlyYou] = useState<Set<string>>(new Set());
-  const markOnlyYou = useCallback(
-    (id: string) =>
-      setOnlyYou((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }),
-    [],
-  );
-
-  // §5 — watchdog sensitivity threshold (local optimistic state; commit is TODO)
-  const [threshold, setThreshold] = useState(80);
-
-  // Derived: snoozed + cleared items hidden; onlyYou items boosted to gated tier
-  const visibleEscalations = useMemo(
-    () =>
-      openEscalations.filter(
-        (e) => !(snoozedEsc[e.id] && snoozedEsc[e.id] > now) && !cleared.has(e.id),
-      ),
-    [openEscalations, snoozedEsc, cleared, now],
-  );
-
-  const gatedEscalations = useMemo(
-    () => visibleEscalations.map((e) => (onlyYou.has(e.id) ? { ...e, operatorGated: true } : e)),
-    [visibleEscalations, onlyYou],
+  const paragraphStack = useMemo(
+    () => selectParagraphStack(sessionSummaries, 5),
+    [sessionSummaries],
   );
 
   // Zone 1: per-project plan totals
@@ -113,104 +96,125 @@ export const ZenMode: React.FC = () => {
     [todosByProject],
   );
 
-  // Zone 2: ordered session list
-  const sessions = useMemo(
-    () => order.map((k) => subscriptions[k]).filter(Boolean),
-    [order, subscriptions],
-  );
-
-  const freshness = useMemo(() => selectFreshness(lastWsMessageAt, now), [lastWsMessageAt, now]);
-  const triageTop = useMemo(
-    () => selectTriageTop(gatedEscalations, sessionSummaries, now),
-    [gatedEscalations, sessionSummaries, now],
-  );
-  const paragraphStack = useMemo(
-    () => selectParagraphStack(sessionSummaries, 5),
-    [sessionSummaries],
-  );
-
-  const serverFor = (p: string, s: string) =>
-    sessions.find((x) => x.project === p && x.session === s)?.serverId ?? 'local';
+  // Focus project for watchdog threshold control
+  const focusProject = triageTop
+    ? triageTop.kind === 'escalation'
+      ? triageTop.escalation.project
+      : triageTop.summary.project
+    : projectTotals[0]?.project;
+  const focusServerId =
+    (triageTop?.kind === 'escalation' ? triageTop.escalation.serverId : null) ??
+    sessions.find((s) => s.project === focusProject)?.serverId ??
+    'local';
 
   const handleOpenSession = (_project: string, _session: string) => {
-    // TODO(zen): no session-jump helper exists yet; best-effort leave Zen.
+    // No session-jump helper exists yet; leave Zen.
     toggleZenMode();
   };
   const handleKillSession = (_project: string, _session: string) => {
-    // TODO(zen): backend kill route does not exist yet.
     console.warn('kill not yet wired');
   };
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-gray-50 dark:bg-gray-900">
-      <VerdictBar openEscalations={gatedEscalations} freshness={freshness} now={now} />
+      <VerdictBar openEscalations={openEscalations} freshness={freshness} now={now} />
 
       <CalmCanvas>
         {/* Focus card — triage-top: escalation or wedge/unknown session */}
         {triageTop?.kind === 'escalation' && (
           <div className="space-y-2">
-            {/* §2/§3 — inline snooze + only-you mark (FocusCard has no such props) */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => markOnlyYou(triageTop.escalation.id)}
-                className={`px-2 py-1 rounded text-3xs font-semibold transition-colors ${
-                  onlyYou.has(triageTop.escalation.id)
-                    ? 'bg-warning-500 text-white hover:bg-warning-600'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                }`}
-                title="Boost to top priority (only you)"
-              >
-                {onlyYou.has(triageTop.escalation.id) ? '★ Only you' : '☆ Mark priority'}
-              </button>
-              <button
-                type="button"
-                onClick={() => snoozeItem(triageTop.escalation.id, 10 * 60_000)}
-                className="px-2 py-1 rounded text-3xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                title="Snooze for 10 minutes"
-              >
-                Snooze 10m
-              </button>
-            </div>
             <FocusCard
               escalation={triageTop.escalation}
               serverScope={triageTop.escalation.serverId ?? 'local'}
               onDecide={(sid, id, optId) => void decideEscalation(sid, id, optId)}
-              onResolve={(sid, id, _status) =>
-                clearItem(
-                  sid,
-                  id,
-                  triageTop.escalation.questionText?.slice(0, 40) ?? id,
-                )
-              }
+              onResolve={(sid, id, _status) => clearWithUndo(sid, id, 'resolved')}
               onLand={(sid, project, id) => void landEpic(sid, project, id)}
             />
+            {/* Z9 affordance row: operator-gated only-you toggle + optimistic clear */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void markOperatorOnly(
+                    triageTop.escalation.serverId ?? 'local',
+                    triageTop.escalation.id,
+                    !((triageTop.escalation as { operatorGated?: number | boolean }).operatorGated),
+                  )
+                }
+                className={`px-2 py-1 rounded text-3xs font-semibold transition-colors ${
+                  (triageTop.escalation as { operatorGated?: number | boolean }).operatorGated
+                    ? 'bg-warning-500 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}
+              >
+                {(triageTop.escalation as { operatorGated?: number | boolean }).operatorGated
+                  ? '✓ Only you'
+                  : 'Only you'}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  clearWithUndo(
+                    triageTop.escalation.serverId ?? 'local',
+                    triageTop.escalation.id,
+                    'resolved',
+                  )
+                }
+                className="px-2 py-1 rounded text-3xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
           </div>
         )}
         {(triageTop?.kind === 'wedge' || triageTop?.kind === 'unknown') && (
-          <WedgeFocusCard
-            summary={triageTop.summary}
-            now={now}
-            onOpen={handleOpenSession}
-            onNudge={(p, s) =>
-              void nudge(serverFor(p, s), p, s, 'Are you stuck? Reply with status or next step.')
-            }
-            onKill={handleKillSession}
-            onSnooze={(p, s) => snoozeSession(p, s, Date.now() + 10 * 60_000)}
-          />
+          <div className="space-y-1">
+            <WedgeFocusCard
+              summary={triageTop.summary}
+              now={now}
+              onOpen={handleOpenSession}
+              onNudge={(p, s) =>
+                void nudge(serverFor(p, s), p, s, 'Are you stuck? Reply with status or next step.')
+              }
+              onKill={handleKillSession}
+              onSnooze={(p, s) => snoozeSessionFor(p, s, DEFAULT_SNOOZE_MS)}
+            />
+            {isRefreshable(triageTop.summary, now) && (
+              <button
+                type="button"
+                onClick={() =>
+                  void refreshSummaryNow(
+                    serverFor(triageTop.summary.project, triageTop.summary.session),
+                    triageTop.summary.project,
+                    triageTop.summary.session,
+                  )
+                }
+                className="px-2 py-1 rounded text-3xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
+              >
+                Refresh now
+              </button>
+            )}
+          </div>
         )}
 
-        {/* §4 — sent → X toast with undo */}
-        {toast && (
-          <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-gray-800 dark:bg-gray-700 text-white text-xs">
-            <span>sent → {toast.label}</span>
-            <button
-              type="button"
-              onClick={undoClear}
-              className="font-semibold underline hover:no-underline"
-            >
-              Undo
-            </button>
+        {/* Z9 undo toasts — optimistic clears pending server commit */}
+        {Object.values(pendingClears).length > 0 && (
+          <div className="space-y-1" data-testid="zen-undo-toasts">
+            {Object.values(pendingClears).map((pc) => (
+              <div
+                key={pc.id}
+                className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-gray-800 dark:bg-gray-700 text-white text-xs"
+              >
+                <span>sent → {pc.status}</span>
+                <button
+                  type="button"
+                  onClick={() => undoClear(pc.id)}
+                  className="font-semibold underline"
+                >
+                  Undo
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -222,28 +226,34 @@ export const ZenMode: React.FC = () => {
             </div>
             <div className="space-y-2">
               {paragraphStack.map((m) => (
-                <SessionParagraphCard
-                  key={m.key}
-                  summary={m.summary}
-                  now={now}
-                  serverId={serverFor(m.project, m.session)}
-                  escalation={
-                    visibleEscalations.find(
-                      (e) => e.project === m.project && e.session === m.session && e.status === 'open',
-                    ) ?? null
-                  }
-                  onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
-                  onAnswerPane={(sid, p, s, v) => void nudge(sid, p, s, v)}
-                  onResolve={(sid, id, _st) =>
-                    clearItem(
-                      sid,
-                      id,
-                      visibleEscalations.find((e) => e.id === id)?.questionText?.slice(0, 40) ?? id,
-                    )
-                  }
-                  onSnooze={(p, s) => snoozeSession(p, s, Date.now() + 10 * 60_000)}
-                  onFetchPane={(p, s) => capturePane(serverFor(p, s), p, s)}
-                />
+                <div key={m.key} className="space-y-1">
+                  <SessionParagraphCard
+                    summary={m.summary}
+                    now={now}
+                    serverId={serverFor(m.project, m.session)}
+                    escalation={
+                      openEscalations.find(
+                        (e) => e.project === m.project && e.session === m.session && e.status === 'open',
+                      ) ?? null
+                    }
+                    onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
+                    onAnswerPane={(sid, p, s, v) => void nudge(sid, p, s, v)}
+                    onResolve={(sid, id, _st) => clearWithUndo(sid, id, 'resolved')}
+                    onSnooze={(p, s) => snoozeSessionFor(p, s, DEFAULT_SNOOZE_MS)}
+                    onFetchPane={(p, s) => capturePane(serverFor(p, s), p, s)}
+                  />
+                  {isRefreshable(m.summary, now) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void refreshSummaryNow(serverFor(m.project, m.session), m.project, m.session)
+                      }
+                      className="px-2 py-1 rounded text-3xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
+                    >
+                      Refresh now
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -267,31 +277,39 @@ export const ZenMode: React.FC = () => {
           ))}
         </PillList>
 
-        {/* §5 — watchdog sensitivity (tap-uniform; commit wiring is TODO once route lands) */}
-        <div className="space-y-1.5">
-          <div className="text-3xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-            Watchdog sensitivity
-          </div>
-          <div className="flex gap-1">
-            {THRESHOLDS.map((t) => (
+        {/* Watchdog threshold — percent-clamped numeric input wired to setWatchdogThreshold */}
+        {focusProject && (
+          <div className="space-y-1.5">
+            <div className="text-3xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              Watchdog threshold
+            </div>
+            <div className="flex items-center gap-2">
+              {/* clampWatchdogThreshold is the minutes-domain helper; route uses thresholdPercent (1–100), hence the inline percent clamp */}
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={thresholdVal}
+                onChange={(e) => setThresholdVal(e.target.value)}
+                className="w-16 px-2 py-1 rounded text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+              />
+              <span className="text-3xs text-gray-400">%</span>
               <button
-                key={t}
                 type="button"
-                onClick={() => {
-                  setThreshold(t);
-                  // TODO(z9): wire to set_watchdog_threshold once a /api/supervisor/watchdog-threshold route + store action land (sibling leaf).
-                }}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                  threshold === t
-                    ? 'bg-accent-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                }`}
+                onClick={() =>
+                  void setWatchdogThreshold(
+                    focusServerId,
+                    focusProject,
+                    Math.min(100, Math.max(1, Math.round(Number(thresholdVal)))),
+                  )
+                }
+                className="px-2 py-1 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors"
               >
-                {t}%
+                Set
               </button>
-            ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Bridge toggle */}
         <div className="pt-2">
