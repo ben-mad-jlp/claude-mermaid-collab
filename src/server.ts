@@ -432,8 +432,11 @@ const server = Bun.serve<WsData>({
     // mid-session. When a WS client is connected, idle is already cancelled.
     if (MERMAID_IDLE_SHUTDOWN_MS > 0 && wsHandler.getConnectionCount() === 0) armIdle();
 
-    // Auth gate — precedes WS upgrades, /mcp, and all /api routes.
-    const denied = checkAuth(req, url);
+    // Auth gate — precedes WS upgrades, /mcp, and all /api routes. The peer IP
+    // drives the loopback exemption: the desktop UI + local MCP (loopback) stay
+    // tokenless; a non-loopback peer (the phone over Tailscale) must present the
+    // token once MERMAID_AUTH_TOKEN is set and the server is bound beyond loopback.
+    const denied = checkAuth(req, url, server.requestIP(req)?.address);
     if (denied) return denied;
 
     // WebSocket upgrade for collaboration

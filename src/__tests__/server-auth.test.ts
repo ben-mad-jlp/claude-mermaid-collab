@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { checkAuth } from '../auth.js';
+import { checkAuth, isLoopbackPeer } from '../auth.js';
 
 // checkAuth reads process.env.MERMAID_AUTH_TOKEN at call-time, so we just
 // set/restore the env per case — no module resets needed.
@@ -48,5 +48,45 @@ describe('checkAuth', () => {
     process.env.MERMAID_AUTH_TOKEN = 'sekret';
     expect(checkAuth(reqWith(), u('/mcp'))).toBeNull();
     expect(checkAuth(reqWith(), u('/mcp/messages'))).toBeNull();
+  });
+
+  // Mobile-app v1: loopback peers (the desktop UI / local MCP) stay tokenless even
+  // when a token is configured; only non-loopback peers must present it.
+  it('exempts a loopback peer with no header even when a token is set', () => {
+    process.env.MERMAID_AUTH_TOKEN = 'sekret';
+    expect(checkAuth(reqWith(), u('/api/diagrams'), '127.0.0.1')).toBeNull();
+    expect(checkAuth(reqWith(), u('/api/diagrams'), '::1')).toBeNull();
+    expect(checkAuth(reqWith(), u('/api/diagrams'), '::ffff:127.0.0.1')).toBeNull();
+  });
+
+  it('401s a non-loopback peer (the phone) with no token', () => {
+    process.env.MERMAID_AUTH_TOKEN = 'sekret';
+    expect(checkAuth(reqWith(), u('/api/diagrams'), '100.88.1.2')?.status).toBe(401);
+  });
+
+  it('allows a non-loopback peer that presents the correct token', () => {
+    process.env.MERMAID_AUTH_TOKEN = 'sekret';
+    expect(checkAuth(reqWith('Bearer sekret'), u('/api/diagrams'), '100.88.1.2')).toBeNull();
+  });
+
+  it('an unresolved peer (undefined) is treated as remote — fail safe', () => {
+    process.env.MERMAID_AUTH_TOKEN = 'sekret';
+    expect(checkAuth(reqWith(), u('/api/diagrams'), undefined)?.status).toBe(401);
+  });
+});
+
+describe('isLoopbackPeer', () => {
+  it('recognizes IPv4/IPv6 loopback incl. mapped form', () => {
+    expect(isLoopbackPeer('127.0.0.1')).toBe(true);
+    expect(isLoopbackPeer('127.5.5.5')).toBe(true);
+    expect(isLoopbackPeer('::1')).toBe(true);
+    expect(isLoopbackPeer('::ffff:127.0.0.1')).toBe(true);
+  });
+  it('rejects tailnet / lan / undefined', () => {
+    expect(isLoopbackPeer('100.88.1.2')).toBe(false); // tailnet CGNAT
+    expect(isLoopbackPeer('192.168.1.5')).toBe(false);
+    expect(isLoopbackPeer(undefined)).toBe(false);
+    expect(isLoopbackPeer(null)).toBe(false);
+    expect(isLoopbackPeer('')).toBe(false);
   });
 });
