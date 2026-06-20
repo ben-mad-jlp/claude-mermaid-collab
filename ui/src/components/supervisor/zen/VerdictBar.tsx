@@ -1,6 +1,7 @@
 import React from 'react';
 import { type Escalation } from '@/stores/supervisorStore';
 import { selectVerdict, type Freshness, type VerdictTone } from '@/lib/freshnessSelectors';
+import { type SessionSummary, type TriageStackOpts } from '@/lib/triageSelectors';
 import { FreshnessPulse } from './FreshnessPulse';
 
 const TONE_CLASS: Record<VerdictTone, string> = {
@@ -12,12 +13,15 @@ const TONE_CLASS: Record<VerdictTone, string> = {
 
 export interface VerdictBarProps {
   openEscalations: Escalation[];
+  sessionSummaries: Record<string, SessionSummary>;
   freshness: Freshness;
   now: number;
+  /** Same cleared/only-you marks the triage stack uses, so the bar drops in lockstep. */
+  opts?: TriageStackOpts;
 }
 
-export const VerdictBar: React.FC<VerdictBarProps> = ({ openEscalations, freshness, now }) => {
-  const verdict = selectVerdict(openEscalations, freshness, now);
+export const VerdictBar: React.FC<VerdictBarProps> = ({ openEscalations, sessionSummaries, freshness, now, opts }) => {
+  const verdict = selectVerdict(openEscalations, sessionSummaries, freshness, now, opts);
   return (
     <div
       data-testid="verdict-bar"

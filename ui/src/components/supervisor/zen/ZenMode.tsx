@@ -117,7 +117,7 @@ export const ZenMode: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-gray-50 dark:bg-gray-900">
-      <VerdictBar openEscalations={openEscalations} freshness={freshness} now={now} />
+      <VerdictBar openEscalations={openEscalations} sessionSummaries={sessionSummaries} freshness={freshness} now={now} opts={{ clearedIds }} />
 
       <CalmCanvas>
         {/* Focus card — triage-top: escalation or wedge/unknown session */}
