@@ -39,6 +39,11 @@ export interface CoordinatorDeps {
    *  tick processes ready leaves strictly one-at-a-time. Returns the project's
    *  concurrency budget; omitted ⇒ 1 (the prior serial behaviour). */
   maxConcurrency?: (project: string) => number;
+  /** Count of leaves CURRENTLY in_progress for the project (claimed, running detached
+   *  in the background). The build pass now claims only up to (maxConcurrency - this)
+   *  and launches WITHOUT awaiting, so total in-flight stays bounded ACROSS ticks while
+   *  a long leaf no longer holds the single-flight tick. Omitted ⇒ 0. */
+  countInProgress?: (project: string) => number;
   /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
   escalateExhausted?: (project: string, todoId: string) => Promise<void>;
   /** P3 headless circuit-breaker exhaustion sweep: for any leaf paused on a rate cap
@@ -177,33 +182,40 @@ export async function runTick(
   // (0 first); null/unset sorts last; `ord` (creation order) is the stable tiebreak.
   ready = [...ready].sort(byClaimPriority);
   const claimed: string[] = [];
-  const spawned: string[] = [];
-  // Concurrent dispatch (bounded by the per-project pool size): launchWorker awaits a
-  // full headless leaf run (minutes), so a serial loop would run leaves one-at-a-time
-  // and block the whole tick on the first. Run up to `concurrency` runners that each
-  // pull the next ready todo, claim it, and await its launch. `next++` is atomic in
-  // single-threaded JS (no await between read and increment) so no todo is processed
-  // twice. concurrency=1 (the default when maxConcurrency is unwired) is byte-identical
-  // to the prior serial loop, including claim/launch ordering.
+  // CAPACITY-GATED BACKGROUND dispatch (roadmap 4c14bdbe). launchWorker awaits a full
+  // headless leaf run (minutes). Previously the tick AWAITED it inline under the single-
+  // flight global tick, so ONE long leaf serialized the whole fleet — every project's
+  // passes and every sibling leaf waited until it finished (or the 30min build-pass
+  // timeout fired). Now we claim only up to (concurrency - already-in-progress) and
+  // launch each DETACHED, returning the tick promptly. Total in-flight stays bounded
+  // ACROSS ticks by the in-progress count (NOT within one tick), and a long leaf no
+  // longer holds the tick. A detached launchWorker owns the leaf's lifecycle
+  // (run → gate → complete); on throw it already release+escalates, and the lease
+  // backstops a silent death — so the void-catch here is safe.
   const concurrency = Math.max(1, deps.maxConcurrency?.(project) ?? 1);
-  let next = 0;
-  const runner = async (): Promise<void> => {
-    for (;;) {
-      const i = next++;
-      if (i >= ready.length) return;
-      const t = ready[i];
-      try {
-        const c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
-        if (!c) continue; // lost the race / already claimed
-        claimed.push(c.id);
-        const ok = await deps.launchWorker(project, c);
-        if (ok) spawned.push(c.id);
-      } catch {
-        // one bad todo must not abort the whole tick; the lease handles recovery
-      }
+  const active = deps.countInProgress?.(project) ?? 0;
+  let capacity = Math.max(0, concurrency - active);
+  for (const t of ready) {
+    if (capacity <= 0) break; // pool full (this tick's claims + already-running)
+    let c: Todo | null;
+    try {
+      c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
+    } catch {
+      continue; // a claim failure must not abort the tick; the lease handles recovery
     }
-  };
-  await Promise.all(Array.from({ length: concurrency }, () => runner()));
+    if (!c) continue; // lost the race / already claimed
+    claimed.push(c.id);
+    capacity -= 1;
+    const leaf = c;
+    // DETACHED — do NOT await (that is the whole point). launchWorker handles its own
+    // completion and, on throw, release+escalate; the lease backstops.
+    void Promise.resolve()
+      .then(() => deps.launchWorker(project, leaf))
+      .catch(() => { /* launchWorker already release+escalates on throw; lease backstops */ });
+  }
+  // Every claimed leaf is dispatched in the background; kept under `spawned` for the
+  // return shape (the awaited-boolean distinction is gone now that launches are detached).
+  const spawned = [...claimed];
   // Push the daemon-driven status changes to the UI (reclaim/exhaust/claim) so the
   // Bridge doesn't show a stale in-flight card after a block/reclaim happened
   // entirely server-side (no MCP tool call to ride the existing broadcast).

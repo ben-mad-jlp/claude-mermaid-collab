@@ -1364,6 +1364,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // defaulting to DEFAULT_SLOTS_PER_TYPE when unset. Lets the daemon run up to N
     // headless leaves at once instead of awaiting each serially.
     maxConcurrency: (project: string) => getProjectPoolSize(project) ?? DEFAULT_SLOTS_PER_TYPE,
+    // Count leaves currently CLAIMED (running detached in the background). The build pass
+    // claims only up to maxConcurrency minus this, so total in-flight stays bounded across
+    // ticks now that launches aren't awaited inline (roadmap 4c14bdbe). A paused leaf
+    // releases its claim (claimedBy null) so it stops counting → capacity reopens.
+    countInProgress: (project: string) =>
+      listTodos(project, { includeCompleted: false }).filter(
+        (t) => t.claimedBy != null && t.status !== 'done' && t.status !== 'dropped',
+      ).length,
     listReadyTodos,
     // Readiness-gates P4: claim-time liveness probe filter. A todo carrying a
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set

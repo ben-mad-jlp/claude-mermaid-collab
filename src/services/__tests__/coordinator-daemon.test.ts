@@ -104,7 +104,7 @@ describe('runTick — priority-ordered claiming', () => {
       makeTodo('high', { priority: 0, order: 1 }),
       makeTodo('mid', { priority: 1, order: 2 }),
     ];
-    const deps = makeDeps({ listReadyTodos: () => todos });
+    const deps = makeDeps({ listReadyTodos: () => todos, maxConcurrency: () => 3 });
     const res = await runTick(deps, 'proj');
     expect(res.claimed).toEqual(['high', 'mid', 'low']);
   });
@@ -133,14 +133,16 @@ describe('runTick', () => {
     expect(calls).toEqual([]);
   });
 
-  test('two ready todos, both claimed and spawned', async () => {
+  test('two ready todos within capacity → both claimed + dispatched', async () => {
     const todos = [makeTodo('a'), makeTodo('b')];
     const deps = makeDeps({
       listReadyTodos: () => todos,
+      maxConcurrency: () => 2, // capacity 2 → claim both this tick
     });
     const result = await runTick(deps, 'proj');
     expect(result.claimed).toEqual(['a', 'b']);
-    expect(result.spawned).toEqual(['a', 'b']);
+    expect(result.spawned).toEqual(['a', 'b']); // spawned === claimed (detached dispatch)
+    await new Promise((r) => setTimeout(r, 10)); // let the detached launches fire
     expect(deps._launchCalls).toHaveLength(2);
   });
 
@@ -150,6 +152,7 @@ describe('runTick', () => {
     let serviceUp = false;
     const deps = makeDeps({
       listReadyTodos: () => [probeUp, probeDown],
+      maxConcurrency: () => 2, // capacity 2 → not concurrency-gated; isolates the probe filter
       // Pure filter: drop the down-probe todo; never mutate status.
       claimGuard: async (_p, todos) => todos.filter((t) => t.id === 'up' ? true : serviceUp),
     });
@@ -176,73 +179,84 @@ describe('runTick', () => {
     expect(result.spawned).toEqual(['a']);
   });
 
-  test('launchWorker returns false → in claimed but NOT spawned', async () => {
+  test('detached dispatch: claimed leaves are launched regardless of launchWorker outcome (no inline await)', async () => {
+    // The awaited-boolean distinction is gone — launchWorker runs detached and owns its
+    // own completion. claimed === spawned; a false/slow result no longer affects the tick.
     const todos = [makeTodo('a'), makeTodo('b')];
     const deps = makeDeps({
       listReadyTodos: () => todos,
-      launchWorker: async (_project, todo) => todo.id !== 'b',
+      maxConcurrency: () => 2,
+      launchWorker: async (_project, todo) => todo.id !== 'b', // 'b' returns false — irrelevant now
     });
     const result = await runTick(deps, 'proj');
     expect(result.claimed).toEqual(['a', 'b']);
-    expect(result.spawned).toEqual(['a']);
-    expect(result.spawned).not.toContain('b');
+    expect(result.spawned).toEqual(['a', 'b']);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(deps._launchCalls.map((c) => c[1].id).sort()).toEqual(['a', 'b']);
   });
 
-  test('concurrent dispatch: runs up to maxConcurrency leaves at once', async () => {
+  test('capacity-gated dispatch: claims up to maxConcurrency per tick (not all ready), detached', async () => {
+    // New model (roadmap 4c14bdbe): the tick no longer AWAITS leaf runs; it claims up to
+    // `capacity` (maxConcurrency - in-progress) and launches detached, returning promptly.
+    // So a single tick claims `capacity` leaves — the rest are picked up on later ticks as
+    // running leaves finish (the in-progress count reopens capacity).
     const todos = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => makeTodo(id));
-    let inFlight = 0;
-    let maxInFlight = 0;
+    const deps = makeDeps({
+      listReadyTodos: () => todos,
+      maxConcurrency: () => 3, // capacity = 3 - 0 in-progress
+      launchWorker: async () => { await new Promise((r) => setTimeout(r, 10)); return true; },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.claimed.length).toBe(3); // only capacity this tick, NOT all 6
+    expect(result.spawned.length).toBe(3);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(deps._launchCalls.length).toBe(3); // 3 launched detached
+  });
+
+  test('capacity respects in-progress: claims only (maxConcurrency - countInProgress)', async () => {
+    const todos = ['a', 'b', 'c', 'd'].map((id) => makeTodo(id));
     const deps = makeDeps({
       listReadyTodos: () => todos,
       maxConcurrency: () => 3,
-      launchWorker: async () => {
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((r) => setTimeout(r, 10));
-        inFlight -= 1;
-        return true;
-      },
+      countInProgress: () => 2, // 2 already running detached → capacity 1
     });
     const result = await runTick(deps, 'proj');
-    expect(maxInFlight).toBe(3); // bounded by the pool size
-    expect(result.spawned.length).toBe(6); // all eventually dispatched
-    expect(deps._launchCalls.length).toBe(6);
+    expect(result.claimed.length).toBe(1);
   });
 
-  test('default (no maxConcurrency) dispatches serially — at most 1 in flight', async () => {
-    const todos = ['a', 'b', 'c'].map((id) => makeTodo(id));
-    let inFlight = 0;
-    let maxInFlight = 0;
+  test('pool full (in-progress == maxConcurrency) → claims nothing this tick', async () => {
     const deps = makeDeps({
-      listReadyTodos: () => todos,
-      // no maxConcurrency → defaults to 1 (prior serial behaviour)
-      launchWorker: async () => {
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((r) => setTimeout(r, 5));
-        inFlight -= 1;
-        return true;
-      },
+      listReadyTodos: () => ['a', 'b'].map((id) => makeTodo(id)),
+      maxConcurrency: () => 2,
+      countInProgress: () => 2, // capacity 0
     });
     const result = await runTick(deps, 'proj');
-    expect(maxInFlight).toBe(1);
-    expect(result.spawned.length).toBe(3);
+    expect(result.claimed).toEqual([]);
+    expect(deps._claimCalls).toHaveLength(0); // never even attempts a claim
   });
 
-  test('launchWorker throws for one todo → tick still completes, other todos processed', async () => {
+  test('default (no maxConcurrency) → capacity 1: claims one leaf per tick', async () => {
+    const todos = ['a', 'b', 'c'].map((id) => makeTodo(id));
+    const deps = makeDeps({ listReadyTodos: () => todos });
+    const result = await runTick(deps, 'proj');
+    expect(result.claimed).toEqual(['a']); // capacity 1; b/c wait for later ticks
+  });
+
+  test('launchWorker throws → detached catch, tick still completes, leaf still claimed', async () => {
     const todos = [makeTodo('a'), makeTodo('b')];
     const deps = makeDeps({
       listReadyTodos: () => todos,
+      maxConcurrency: () => 2,
       launchWorker: async (_project, todo) => {
         if (todo.id === 'a') throw new Error('launch error');
         return true;
       },
     });
-    const result = await runTick(deps, 'proj');
+    const result = await runTick(deps, 'proj'); // must not reject
     expect(result.claimed).toContain('a');
     expect(result.claimed).toContain('b');
-    expect(result.spawned).not.toContain('a');
-    expect(result.spawned).toContain('b');
+    expect(result.spawned).toEqual(['a', 'b']); // both dispatched; the throw is swallowed detached
+    await new Promise((r) => setTimeout(r, 10)); // no unhandled rejection
   });
 
   test('releaseExpiredClaims released ["x"] → result.released === ["x"]', async () => {
