@@ -21,10 +21,16 @@ import type { SessionTodo } from '@/types/sessionTodo';
  *
  * Persistence is manual (localStorage.setItem on every mutation) rather than via
  * zustand's persist middleware, matching `subscriptionStore.ts`.
+ *
+ * Z9: every action is pure HTTP (`invoke`) + WS-ingest; no hover/desktop-only state —
+ * the Phase-2 mobile app is a straight thin-client port.
  */
 export interface WatchedProject {
   project: string;
   addedAt: number;
+  /** Z9: per-project context-watchdog trigger threshold (%). Null/absent = default 80%.
+   *  Server-persisted (supervisor-store watchdogThresholdPercent). */
+  watchdogThresholdPercent?: number | null;
 }
 
 /** Deploy-drift read-model for the self-deploy banner. From
@@ -343,6 +349,17 @@ function hydrate<T>(key: string, fallback: T): T {
   }
 }
 
+// Z9: module-scope snooze resurface timers, keyed by `${project}::${session}`.
+const snoozeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function scheduleResurface(key: string, ms: number, bump: () => void) {
+  const prev = snoozeTimers.get(key);
+  if (prev) clearTimeout(prev);
+  snoozeTimers.set(key, setTimeout(() => { snoozeTimers.delete(key); bump(); }, Math.max(0, ms)));
+}
+
+// Z9: module-scope pending-clear control records for the undo window, keyed by escalation id.
+const pendingClearCtl = new Map<string, { timer: ReturnType<typeof setTimeout>; prev: Escalation }>();
+
 /** An escalation is "open" (belongs in the open slice) only while its status is
  *  literally 'open' — a 'resolved'/'decided' item belongs in the resolved slice. */
 const isOpen = (e: Escalation) => e.status === 'open';
@@ -432,6 +449,31 @@ interface SupervisorState {
   }) => void;
   /** Locally snooze a session out of the triage stack until `untilMs`. */
   snoozeSession: (project: string, session: string, untilMs: number) => void;
+  /** Z9: snooze relative — re-surfaces after `ms`. Client-side timer guarantees a
+   *  re-render at expiry without depending on the freshness pulse. */
+  snoozeSessionFor: (project: string, session: string, ms: number) => void;
+  /** Z9: out-of-band re-hash/re-summarize for force-proof. POST → server re-reads
+   *  the pane and re-runs the interpreter immediately, then broadcasts
+   *  `session_summary_updated` (folded by ingestSessionSummary). Returns whether the
+   *  request was accepted. No local state write — the WS event is the source of truth. */
+  refreshSummaryNow: (serverId: string, project: string, session: string) => Promise<boolean>;
+  /** Z9: in-flight optimistic clears awaiting their 5s undo window. Keyed by
+   *  escalation id. Live/ephemeral — NOT persisted. The toast UI selects over this. */
+  pendingClears: Record<string, { id: string; status: string; project?: string; sentAt: number }>;
+  /** Z9: optimistically clear an escalation with a 5s undo window. Moves it to
+   *  resolved locally, registers a pendingClear (for the toast), and after `undoMs`
+   *  (default 5000) commits to the server. Server failure → revert into open. */
+  clearWithUndo: (serverId: string, id: string, status: string, undoMs?: number) => void;
+  /** Z9: cancel a pending clear before its window elapses — restores the item to open. */
+  undoClear: (id: string) => void;
+  /** Z9: operator marks/unmarks an open escalation as "only you" — sets the local
+   *  operatorGated flag so it deterministically outranks routine approvals in the
+   *  Zen triage stack (reuses escalationSeverity's SEV_GATED_OR_WEDGED tier). Local-
+   *  first (optimistic); best-effort server persist so a reload/hydrate keeps the mark. */
+  markOperatorOnly: (serverId: string, id: string, on: boolean) => Promise<void>;
+  /** Z9: set (number 1-100) or clear (null → default 80%) a project's watchdog
+   *  trigger threshold. Mirrors the set_watchdog_threshold MCP tool. Reloads projects. */
+  setWatchdogThreshold: (serverId: string, project: string, thresholdPercent: number | null) => Promise<boolean>;
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
   liveness: SupervisorLiveness | null;
@@ -542,6 +584,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
   unlandedEpicsByProject: {},
   sessionSummaries: {},
+  pendingClears: {},
   openEscalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   resolvedEscalations: hydrate<Escalation[]>(RESOLVED_ESCALATIONS_KEY, []),
   // Deprecated alias — seeded from the same cache as openEscalations (§4).
@@ -582,13 +625,65 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         },
       };
     }),
-  snoozeSession: (project, session, untilMs) =>
+  snoozeSession: (project, session, untilMs) => {
+    const key = `${project}::${session}`;
     set((state) => {
-      const key = `${project}::${session}`;
       const prev = state.sessionSummaries[key];
       if (!prev) return {};
       return { sessionSummaries: { ...state.sessionSummaries, [key]: { ...prev, snoozedUntil: untilMs } } };
-    }),
+    });
+    scheduleResurface(key, untilMs - Date.now(), get().bumpEpoch);
+  },
+  snoozeSessionFor: (project, session, ms) => {
+    get().snoozeSession(project, session, Date.now() + ms);
+  },
+  refreshSummaryNow: async (serverId, project, session) => {
+    const res = await invoke(serverId, '/api/supervisor/refresh-summary', 'POST', { project, session });
+    return !!res?.ok;
+  },
+  clearWithUndo: (serverId, id, status, undoMs = 5000) => {
+    const state = get();
+    const prev = state.openEscalations.find((e) => e.id === id);
+    if (!prev) return;
+    set((s) => ({
+      ...moveOpenToResolved(s, id, { status, resolvedAt: Date.now() }),
+      pendingClears: { ...s.pendingClears, [id]: { id, status, project: prev.project, sentAt: Date.now() } },
+    }));
+    const timer = setTimeout(async () => {
+      pendingClearCtl.delete(id);
+      const res = await invoke(serverId, '/api/supervisor/escalations/resolve', 'POST', { id, status });
+      set((s) => {
+        const { [id]: _drop, ...rest } = s.pendingClears;
+        if (res?.ok) return { pendingClears: rest };
+        const resolved = s.resolvedEscalations.filter((e) => e.id !== id);
+        const open = [prev, ...s.openEscalations.filter((e) => e.id !== id)];
+        return { ...writeOpen(open), ...writeResolved(resolved), pendingClears: rest, hydrateEpoch: s.hydrateEpoch + 1 };
+      });
+    }, undoMs);
+    pendingClearCtl.set(id, { timer, prev });
+  },
+  undoClear: (id) => {
+    const ctl = pendingClearCtl.get(id);
+    if (!ctl) return;
+    clearTimeout(ctl.timer);
+    pendingClearCtl.delete(id);
+    set((s) => {
+      const { [id]: _drop, ...rest } = s.pendingClears;
+      const resolved = s.resolvedEscalations.filter((e) => e.id !== id);
+      const open = [ctl.prev, ...s.openEscalations.filter((e) => e.id !== id)];
+      return { ...writeOpen(open), ...writeResolved(resolved), pendingClears: rest, hydrateEpoch: s.hydrateEpoch + 1 };
+    });
+  },
+  markOperatorOnly: async (serverId, id, on) => {
+    set((state) => updateOpenItem(state, id, { operatorGated: on ? 1 : 0 }));
+    await invoke(serverId, '/api/supervisor/escalation/' + encodeURIComponent(id) + '/operator-gate', 'POST', { on });
+  },
+  setWatchdogThreshold: async (serverId, project, thresholdPercent) => {
+    const res = await invoke(serverId, '/api/supervisor/watchdog-threshold', 'POST', { project, thresholdPercent });
+    if (!res?.ok) return false;
+    await get().loadProjects(serverId);
+    return true;
+  },
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
   liveness: null,
