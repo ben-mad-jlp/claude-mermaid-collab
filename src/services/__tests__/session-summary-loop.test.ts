@@ -5,11 +5,13 @@ import { join } from 'path';
 import {
   runSessionSummaryTick,
   __resetSummaryState,
+  __drainInterpreters,
   getSessionSummary,
   listSessionSummaries,
   setSummaryThresholds,
   getSummaryThresholds,
   type SummaryTickDeps,
+  type InterpreterStructured,
 } from '../session-summary-loop.ts';
 
 // Isolate SQLite per test via MERMAID_DATA_DIR.
@@ -261,5 +263,203 @@ describe('runSessionSummaryTick', () => {
     // tmuxBaseName('/proj/other', S) should have been called — name starts with mc-other-
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatch(/^mc-other-/);
+  });
+});
+
+describe('interpreter pass', () => {
+  it('fires on pane change + throttle elapsed; emits enriched second broadcast', async () => {
+    let pane = 'version-A';
+    let t = 1000;
+    let interpretCallCount = 0;
+    const structured: InterpreterStructured = { paragraph: 'The session is working steadily.', status: 'working' };
+    const broadcasts: unknown[] = [];
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      broadcast: (m) => broadcasts.push(m),
+      interpret: async () => { interpretCallCount++; return structured; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed — throttle blocks (1000 < 45000) and no prior summaryPaneHash
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(0);
+
+    // Change pane and advance past throttle
+    pane = 'version-B';
+    t = 50_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+
+    expect(interpretCallCount).toBe(1);
+    const entry = getSessionSummary(P, S)!;
+    expect(entry.structured).toEqual(structured);
+    expect(entry.summaryText).toBe(structured.paragraph);
+    expect(entry.summaryPaneHash).toBeTruthy();
+    expect(entry.refreshState).toBe('fresh');
+
+    // The second (enriched) broadcast must have been emitted
+    type SummaryMsg = { type: string; structured?: InterpreterStructured };
+    const enriched = (broadcasts as SummaryMsg[]).filter(m => m.type === 'session_summary_updated' && m.structured != null);
+    expect(enriched).toHaveLength(1);
+    expect(enriched[0]!.structured).toEqual(structured);
+  });
+
+  it('frozen session = zero calls after first summary (KEYSTONE)', async () => {
+    let interpretCallCount = 0;
+    const structured: InterpreterStructured = { paragraph: 'Session is idle.', status: 'idle' };
+    const frozenPane = 'frozen-content';
+    let t = 1000;
+    const deps = makeDeps({
+      capture: async () => frozenPane,
+      now: () => t,
+      interpret: async () => { interpretCallCount++; return structured; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed — throttle blocks
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(0);
+
+    // Advance past throttle — first summary fires (pane not yet summarized)
+    t = 50_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(1);
+
+    // Pane is frozen; many more ticks must NOT fire interpret (change-gate blocks)
+    for (const tick of [100_000, 150_000, 200_000, 250_000]) {
+      t = tick;
+      await runSessionSummaryTick(deps);
+    }
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(1); // change-gate: summaryPaneHash===hash → zero additional cost
+  });
+
+  it('throttle: pane changes every tick but within 45s; interpret not called', async () => {
+    let interpretCallCount = 0;
+    let pane = 'pane-0';
+    let t = 1000;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Working.', status: 'working' as const }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed
+    await runSessionSummaryTick(deps);
+
+    // Change pane every tick but stay within 45s window from lastSummaryAt=0
+    for (let i = 1; i <= 4; i++) {
+      pane = `pane-${i}`;
+      t = 1000 + i * 5_000; // 6000, 11000, 16000, 21000 — all < MIN_SUMMARY_INTERVAL_MS
+      await runSessionSummaryTick(deps);
+    }
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(0);
+  });
+
+  it('became-idle edge bypasses throttle: active→quiet with unsummarized pane fires interpret', async () => {
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+    let t = 1000;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Now idle.', status: 'idle' as const }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed: pane-A → active; throttle blocks interpret (t=1000 < 45000)
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(0);
+
+    // Pane changes to B → active again; throttle still blocks
+    pane = 'pane-B';
+    t = 2_000;
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(0);
+
+    // Same pane-B → quiet (active→quiet transition); becameIdle bypasses throttle
+    t = 3_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(1);
+  });
+
+  it('single in-flight: second tick does not launch a second interpret call', async () => {
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+    let t = 1000;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      // Never resolves — simulates a long-running call
+      interpret: () => { interpretCallCount++; return new Promise<InterpreterStructured | null>(() => {}); },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed
+    await runSessionSummaryTick(deps);
+
+    // Tick that fires interpret (pane changed + throttle elapsed)
+    pane = 'pane-B';
+    t = 50_000;
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(1);
+    // summaryInFlight=true is now set on the entry
+
+    // Another tick with another pane change — in-flight guard blocks second call
+    pane = 'pane-C';
+    t = 100_000;
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(1);
+  });
+
+  it('failure → stale-failing; summaryPaneHash not advanced; later tick retries after throttle', async () => {
+    // Use stallWindows=1 so pane quickly reaches 'stalled'. Once the entry's progressState
+    // is 'stalled', subsequent stalled→stalled ticks do NOT fire becameIdle, so the pure
+    // throttle gate controls retries — testable within a single test.
+    setSummaryThresholds({ stallWindows: 1, wedgeWindows: 10 });
+    let interpretCallCount = 0;
+    const pane = 'pane-static';
+    let t = 1000;
+    let interpretResult: InterpreterStructured | null = null;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      interpret: async () => { interpretCallCount++; return interpretResult; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed → active
+    await runSessionSummaryTick(deps);
+
+    // Same pane → stalled (qw=1 >= stallWindows=1); active→stalled is a becameIdle transition
+    // and summaryPaneHash is still unset → fires call #1 (returns null → failure)
+    t = 2_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(1);
+
+    const entry = getSessionSummary(P, S)!;
+    expect(entry.refreshState).toBe('stale-failing');
+    expect(entry.summaryPaneHash).toBeUndefined(); // NOT advanced on failure
+
+    // Same stalled pane, within throttle (1s < 45s): prev.progressState='stalled' so
+    // becameIdle=false, throttle 1000ms < 45000ms → blocked
+    t = 3_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(1);
+
+    // Throttle clears (48s ≥ 45s); summaryPaneHash still undefined → change-gate open → retries
+    interpretResult = { paragraph: 'Session recovered.', status: 'working' };
+    t = 50_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(2);
+    expect(getSessionSummary(P, S)!.refreshState).toBe('fresh');
   });
 });
