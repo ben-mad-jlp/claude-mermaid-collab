@@ -134,8 +134,12 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
   }
 
   const handleOtherSend = () => {
-    if (!otherText.trim()) return;
-    onAnswerPane(serverId, summary.project, summary.session, otherText.trim());
+    const text = otherText.trim();
+    if (!text) return;
+    clearItemOptimistic(itemId, text, async () => {
+      onAnswerPane(serverId, summary.project, summary.session, text);
+      return true;
+    });
     setOtherText('');
     setOtherOpen(false);
   };
