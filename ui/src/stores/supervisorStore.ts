@@ -494,6 +494,10 @@ interface SupervisorState {
   /** Orch P2: dismiss an inline Grok suggestion → clears it; escalation stays open. */
   dismissSuggestion: (serverId: string, project: string, id: string) => Promise<void>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
+  /** Z8: fetch the raw tmux capture-pane text for a session ON DEMAND (not a
+   *  stream) — backs the PaneLinesPopover "show the lines it read". Returns the
+   *  raw pane string, or '' on failure (keep-prior-on-failure convention). */
+  capturePane: (serverId: string, project: string, session: string) => Promise<string>;
   loadConfig: (serverId: string) => Promise<void>;
   saveConfig: (serverId: string, supervisorProject: string, supervisorSession: string) => Promise<void>;
   // SPEC API surface (design-system-object-ui §8). Coverage/objects/bom are live
@@ -854,6 +858,13 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   nudge: async (serverId, project, session, text) => {
     const res = await invoke(serverId, '/api/supervisor/nudge', 'POST', { project, session, text });
     return !!res?.ok;
+  },
+
+  capturePane: async (serverId, project, session) => {
+    const res = await invoke(serverId, '/api/supervisor/capture-pane', 'POST', { project, session });
+    if (!res?.ok) return '';
+    const lines = res.body?.lines;
+    return typeof lines === 'string' ? lines : '';
   },
 
   loadConfig: async (serverId) => {
