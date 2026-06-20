@@ -821,6 +821,25 @@ export function resolveEscalation(id: string, status: string, resolvedBy?: 'ai' 
 }
 
 /**
+ * Reopen a previously-resolved escalation — the server reconcile for the
+ * optimistic-clear UNDO when the undo lands after the 5s clear already committed.
+ * Restores status='open' and clears resolvedAt/resolvedBy so the card re-surfaces
+ * in the triage stack exactly as before. Idempotent and SAFE: only a currently
+ * non-open row is reopened (a row a human/steward already re-decided is left
+ * alone — guarded by `status != 'open'`), so a stale undo can't clobber a fresh
+ * resolution. Returns the updated escalation (mapped) for broadcast, or null when
+ * id is unknown or the row was already open (nothing to undo).
+ */
+export function reopenEscalation(id: string): Escalation | null {
+  const d = openDb();
+  const info = d
+    .prepare("UPDATE escalation SET status = 'open', resolvedAt = NULL, resolvedBy = NULL WHERE id = ? AND status != 'open'")
+    .run(id);
+  if (info.changes === 0) return null;
+  return getEscalation(id);
+}
+
+/**
  * Re-route an open escalation (the steward proof gate flips routedTo='human' when
  * an auto-act lacks valid proof — design §3 "No-proof → flip routedTo='human'").
  * Records the proof string that was cited (for the loud audit panel) when given.
@@ -832,6 +851,24 @@ export function setEscalationRoute(id: string, routedTo: string, proof?: string 
   } else {
     d.prepare('UPDATE escalation SET routedTo = ? WHERE id = ?').run(routedTo, id);
   }
+}
+
+/**
+ * Operator-gate ('only you') an escalation — the human marking it as theirs alone.
+ * Sets/clears the operatorGated column. When SETTING it, force routedTo='human'
+ * (the irreversible/outward floor — operator-gated never routes to the steward),
+ * matching routeOf()'s create-time invariant. Clearing leaves routedTo untouched
+ * (a later re-route is the steward proof gate's job, not an un-mark's). Idempotent;
+ * returns the updated escalation (mapped) for broadcast, or null if id is unknown.
+ */
+export function setEscalationOperatorGated(id: string, operatorGated: boolean): Escalation | null {
+  const d = openDb();
+  if (operatorGated) {
+    d.prepare("UPDATE escalation SET operatorGated = 1, routedTo = 'human' WHERE id = ?").run(id);
+  } else {
+    d.prepare('UPDATE escalation SET operatorGated = 0 WHERE id = ?').run(id);
+  }
+  return getEscalation(id);
 }
 
 /**
