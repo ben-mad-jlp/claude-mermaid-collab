@@ -73,6 +73,30 @@ describe('WorktreeManager — integration-branch recombination (DOGFOOD #5)', ()
     expect(again!.path).toBe(integ!.path);
   });
 
+  it('concurrent ensureEpic on a NEW epic (cold-start race) — all succeed, none throws', async () => {
+    // Reproduces the Zen-epic failure: N workers first-claim a brand-new epic at once,
+    // each sees "branch doesn't exist", each runs `worktree add -b` → one wins, the rest
+    // hit "branch already exists". The retry must recover (attach the existing branch /
+    // use the materialised worktree) instead of throwing. Before the fix this threw.
+    const epicId = 'race-cold-start-epic';
+    const branch = mgr.epicBranchName(epicId);
+    const results = await Promise.all([
+      mgr.ensureEpic(epicId),
+      mgr.ensureEpic(epicId),
+      mgr.ensureEpic(epicId),
+    ]);
+    for (const r of results) {
+      expect(r).not.toBeNull();
+      expect(r!.branch).toBe(branch);
+    }
+    // All resolve to the same single worktree path.
+    expect(results[1]!.path).toBe(results[0]!.path);
+    expect(results[2]!.path).toBe(results[0]!.path);
+    // The branch was created exactly once and exists.
+    const verify = await runGit(repo, ['rev-parse', '--verify', `refs/heads/${branch}`]);
+    expect(verify.code).toBe(0);
+  });
+
   it('commits a worker worktree and merges it into integration', async () => {
     const integ = await mgr.ensureEpic(INBOX_EPIC_ID);
     const wt = await mgr.ensure('worker-a', { baseBranch: integ!.branch });

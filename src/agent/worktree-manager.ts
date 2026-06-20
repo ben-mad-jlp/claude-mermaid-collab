@@ -826,8 +826,18 @@ export class WorktreeManager {
 
     let result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
 
-    // The dir may be left dangling from a crashed run — prune + retry once.
+    // Retry once. Two distinct failure modes:
+    //  (a) a dir left dangling from a crashed run → prune + retry.
+    //  (b) COLD-START RACE: on the first wave of a brand-NEW epic, N workers each saw
+    //      "branch doesn't exist" and ran `add -b` concurrently — one wins, the rest
+    //      fail with "branch already exists" (observed live on the Zen epic). Re-resolve:
+    //      if a sibling already MATERIALISED the worktree, return it; if it created the
+    //      BRANCH but not the worktree, attach the existing branch (no -b).
     if (result.code !== 0) {
+      // (b) sibling already materialised the worktree → just use it.
+      if (await this.pathExists(path.join(wtPath, '.git'))) {
+        return { epicId, branch, path: wtPath };
+      }
       await this.runGit(
         this.opts.projectRoot,
         ['worktree', 'remove', '--force', wtPath],
@@ -836,8 +846,23 @@ export class WorktreeManager {
       await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
         () => ({ code: 0, stdout: '', stderr: '' }),
       );
-      result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
+      // Re-resolve branch existence (a sibling may have created it since our first check)
+      // and pick the matching add form — attach an existing branch, never re-`-b` it.
+      const branchNowExists =
+        (
+          await this.runGit(
+            this.opts.projectRoot,
+            ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
+            QUICK_TIMEOUT_MS,
+          ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
+        ).code === 0;
+      const retryArgs = branchNowExists ? ['worktree', 'add', wtPath, branch] : addArgs;
+      result = await this.runGit(this.opts.projectRoot, retryArgs, DEFAULT_STEP_TIMEOUT_MS);
       if (result.code !== 0) {
+        // Final fallback: if the worktree exists now (a sibling won the retry race too), use it.
+        if (await this.pathExists(path.join(wtPath, '.git'))) {
+          return { epicId, branch, path: wtPath };
+        }
         throw new Error(
           `git worktree add (epic ${this.epicId8(epicId)}) failed (code ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
         );
