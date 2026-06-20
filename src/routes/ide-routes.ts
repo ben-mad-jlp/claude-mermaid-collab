@@ -6,6 +6,7 @@ import { getSupervisedLaunchProject } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { launchAndBind } from '../services/claude-launch.ts';
 import { mux, argvNewSession, argvLs } from '../services/session-mux/index.ts';
+import { capturePaneText } from '../services/tmux-capture.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -142,6 +143,18 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
         wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text, sent: result.sent });
       }
       return Response.json({ success: true, tmux: result.sent });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  if (url.pathname === '/api/ide/capture-pane' && req.method === 'POST') {
+    try {
+      const { project, session } = await req.json() as { project?: string; session?: string };
+      if (!project || typeof project !== 'string') return jsonError('project is required', 400);
+      if (!session || typeof session !== 'string') return jsonError('session is required', 400);
+      const lines = await capturePaneText(project, session);
+      return Response.json({ lines });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
