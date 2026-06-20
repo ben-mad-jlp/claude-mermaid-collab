@@ -10,6 +10,7 @@ import {
   listSessionSummaries,
   setSummaryThresholds,
   getSummaryThresholds,
+  refreshSummaryNow,
   type SummaryTickDeps,
   type InterpreterStructured,
 } from '../session-summary-loop.ts';
@@ -461,5 +462,218 @@ describe('interpreter pass', () => {
     await __drainInterpreters();
     expect(interpretCallCount).toBe(2);
     expect(getSessionSummary(P, S)!.refreshState).toBe('fresh');
+  });
+});
+
+describe('refreshSummaryNow (force-proof)', () => {
+  it('forces interpret even when change-gate would block (frozen pane)', async () => {
+    const frozenPane = 'frozen-pane-content';
+    let t = 1000;
+    let seedInterpretCount = 0;
+    const structured: InterpreterStructured = { paragraph: 'Session is idle.', status: 'idle' };
+
+    // Seed with a tick that fires interpret (past throttle + pane change)
+    const seedDeps = makeDeps({
+      capture: async () => frozenPane,
+      now: () => t,
+      interpret: async () => { seedInterpretCount++; return structured; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    await runSessionSummaryTick(seedDeps); // seed → active, throttle blocks
+    t = 50_000;
+    await runSessionSummaryTick(seedDeps); // past throttle, fires interpret (summaryPaneHash not set yet)
+    await __drainInterpreters();
+    expect(seedInterpretCount).toBe(1);
+
+    // Pane is frozen: another tick must NOT fire interpret (change-gate now closed)
+    t = 100_000;
+    let extraCount = 0;
+    await runSessionSummaryTick(makeDeps({
+      capture: async () => frozenPane,
+      now: () => t,
+      interpret: async () => { extraCount++; return structured; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    }));
+    await __drainInterpreters();
+    expect(extraCount).toBe(0); // change-gate blocked it
+
+    // Now refreshSummaryNow must bypass the change-gate and call interpret
+    let refreshInterpretCount = 0;
+    const refreshDeps = makeDeps({
+      capture: async () => frozenPane,
+      now: () => t,
+      interpret: async () => { refreshInterpretCount++; return structured; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+    const result = await refreshSummaryNow(P, S, refreshDeps);
+    expect(refreshInterpretCount).toBe(1);
+    expect(result.ok).toBe(true);
+  });
+
+  it('forces interpret even within the throttle window', async () => {
+    let t = 1000; // well under MIN_SUMMARY_INTERVAL_MS
+    let interpretCallCount = 0;
+    const structured: InterpreterStructured = { paragraph: 'Active session.', status: 'working' };
+    const deps = makeDeps({
+      capture: async () => 'pane-content',
+      now: () => t,
+      interpret: async () => { interpretCallCount++; return structured; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed an entry
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(0); // throttle blocks
+
+    // refreshSummaryNow at t=1000 (within throttle) must still call interpret
+    const result = await refreshSummaryNow(P, S, deps);
+    expect(interpretCallCount).toBe(1);
+    expect(result.ok).toBe(true);
+    expect(getSessionSummary(P, S)!.refreshState).toBe('fresh');
+  });
+
+  it('commits structured + advances summaryPaneHash + stamps refreshState=fresh', async () => {
+    let t = 1000;
+    const structured: InterpreterStructured = { paragraph: 'Detailed progress here.', status: 'working' };
+    const deps = makeDeps({
+      capture: async () => 'test-pane',
+      now: () => t,
+      interpret: async () => structured,
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed an entry so a prev exists
+    await runSessionSummaryTick(deps);
+
+    const result = await refreshSummaryNow(P, S, deps);
+    expect(result.ok).toBe(true);
+
+    const entry = getSessionSummary(P, S)!;
+    expect(entry.structured).toEqual(structured);
+    expect(entry.summaryText).toBe(structured.paragraph);
+    expect(entry.firstClause).toBeTruthy();
+    expect(entry.summaryPaneHash).toBeTruthy();
+    expect(entry.refreshState).toBe('fresh');
+    expect(entry.summaryInFlight).toBeFalsy();
+  });
+
+  it('emits an enriched session_summary_updated broadcast', async () => {
+    let t = 1000;
+    const structured: InterpreterStructured = { paragraph: 'Broadcasting now.', status: 'working' };
+    const broadcasts: unknown[] = [];
+    const deps = makeDeps({
+      capture: async () => 'pane-broadcast',
+      now: () => t,
+      broadcast: (m) => broadcasts.push(m),
+      interpret: async () => structured,
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed an entry
+    await runSessionSummaryTick(deps);
+    broadcasts.length = 0; // clear seed broadcasts
+
+    await refreshSummaryNow(P, S, deps);
+
+    type SummaryMsg = { type: string; structured?: InterpreterStructured };
+    const enriched = (broadcasts as SummaryMsg[]).filter(
+      m => m.type === 'session_summary_updated' && m.structured != null,
+    );
+    expect(enriched.length).toBeGreaterThanOrEqual(1);
+    expect(enriched[0]!.structured).toEqual(structured);
+  });
+
+  it('returns ok:false and does not call interpret when WS is absent', async () => {
+    let interpretCallCount = 0;
+    const deps = makeDeps({
+      capture: async () => 'pane-content',
+      hasWs: () => false,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'x', status: 'working' as const }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    const result = await refreshSummaryNow(P, S, deps);
+    expect(result.ok).toBe(false);
+    expect(interpretCallCount).toBe(0);
+  });
+
+  it('returns ok:false on empty capture (cannot read pane)', async () => {
+    let interpretCallCount = 0;
+    // Seed an entry with real content first
+    const seedDeps = makeDeps({
+      capture: async () => 'initial-pane',
+      now: () => 1000,
+      interpret: async () => ({ paragraph: 'seed', status: 'working' as const }),
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+    await runSessionSummaryTick(seedDeps);
+
+    // Refresh with empty capture
+    const refreshDeps = makeDeps({
+      capture: async () => '',
+      now: () => 2000,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'x', status: 'working' as const }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+    const result = await refreshSummaryNow(P, S, refreshDeps);
+    expect(result.ok).toBe(false);
+    expect(interpretCallCount).toBe(0);
+  });
+
+  it('single-in-flight: refresh while a tick interpret is pending does not double-fire', async () => {
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+    let t = 1000;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      // Never resolves — simulates a long-running call
+      interpret: () => { interpretCallCount++; return new Promise<InterpreterStructured | null>(() => {}); },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed
+    await runSessionSummaryTick(deps);
+
+    // Tick that fires interpret (pane changed + throttle elapsed) — sets summaryInFlight=true
+    pane = 'pane-B';
+    t = 50_000;
+    await runSessionSummaryTick(deps);
+    expect(interpretCallCount).toBe(1);
+
+    // refreshSummaryNow must detect in-flight and refuse to launch a second call
+    const result = await refreshSummaryNow(P, S, deps);
+    expect(interpretCallCount).toBe(1); // NOT incremented again
+    expect(result.ok).toBe(false);
+    // Do NOT await __drainInterpreters — the promise never resolves by design
+  });
+
+  it('failure path: interpret returns null → refreshState=stale-failing, hash not advanced', async () => {
+    let t = 1000;
+    const preSeedDeps = makeDeps({
+      capture: async () => 'initial-pane',
+      now: () => t,
+      interpret: async () => ({ paragraph: 'seed', status: 'working' as const }),
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed an entry first
+    await runSessionSummaryTick(preSeedDeps);
+    const hashBefore = getSessionSummary(P, S)?.summaryPaneHash;
+
+    // Now refresh with a failing interpret
+    const refreshDeps = makeDeps({
+      capture: async () => 'initial-pane',
+      now: () => t,
+      interpret: async () => null,
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+    const result = await refreshSummaryNow(P, S, refreshDeps);
+
+    const entry = getSessionSummary(P, S)!;
+    expect(result.ok).toBe(false);
+    expect(entry.refreshState).toBe('stale-failing');
+    expect(entry.summaryPaneHash).toBe(hashBefore); // unchanged
   });
 });
