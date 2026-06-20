@@ -1786,6 +1786,16 @@ const App: React.FC = () => {
     );
   }
 
+  // Zen mode takes over the ENTIRE window (redesign 2026-06-20) — no Header, no
+  // sidebar, no chat panel. Just the calm card scroll; its own button exits back.
+  if (zenMode) {
+    return (
+      <ErrorBoundary>
+        <ZenMode />
+      </ErrorBoundary>
+    );
+  }
+
   // Desktop layout
   return (
     <ErrorBoundary>
@@ -1852,7 +1862,8 @@ const App: React.FC = () => {
                         <PanelResizeHandle className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-accent-400 transition-colors" />
                       )}
                       <Panel id={p} order={i} minSize={15} className="min-w-0 h-full bg-white dark:bg-gray-800">
-                        {p === 'bridge' && (zenMode ? <ZenMode /> : <BridgeDashboard />)}
+                        {/* zenMode is handled by a full-window short-circuit above. */}
+                        {p === 'bridge' && <BridgeDashboard />}
                         {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
                         {p === 'spec' && <SpecWorkspace />}
                         {p === 'browser' && <BrowserPanel embedded />}

@@ -141,67 +141,65 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
     useFreshnessStore.setState({ lastWsMessageAt: NOW });
   });
 
-  it('Projects pill renders when todosByProject is seeded', () => {
+  // The redesign renders ONE card per WATCHED session (subscriptions/order), so a
+  // session must be subscribed to get a card; its summary enriches the card body.
+  function seedSession(session: string, sum?: Partial<SessionSummary>): void {
+    const key = `srv1:/repo:${session}`;
+    useSubscriptionStore.setState({ subscriptions: { [key]: subSess(session) }, order: [key] });
+    if (sum) {
+      useSupervisorStore.setState({ sessionSummaries: { [`/repo::${session}`]: summary(session, sum) } });
+    }
+  }
+
+  it('empty state when no sessions are watched', () => {
+    render(<ZenMode />);
+    expect(screen.getByText('No watched sessions')).toBeInTheDocument();
+  });
+
+  it('renders one card per watched session, showing the session name', () => {
+    seedSession('my-session');
+    render(<ZenMode />);
+    expect(screen.getByTestId('zen-session-card')).toBeInTheDocument();
+    expect(screen.getByText('my-session')).toBeInTheDocument();
+  });
+
+  it('card body shows the session paragraph from sessionSummaries', () => {
+    seedSession('para-session', {
+      structured: { paragraph: 'Currently implementing the auth module.', status: 'working' },
+    });
+    render(<ZenMode />);
+    expect(screen.getByText('Currently implementing the auth module.')).toBeInTheDocument();
+  });
+
+  it('a needs-input session renders the question with selectable answers', () => {
+    const key = `srv1:/repo:asking`;
+    useSubscriptionStore.setState({ subscriptions: { [key]: subSess('asking') }, order: [key] });
     useSupervisorStore.setState({
-      todosByProject: { '/repo': [] },
+      openEscalations: [esc('e-ask', { session: 'asking', questionText: 'Deploy now?',
+        options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }], recommended: 'yes' })],
+      sessionSummaries: { '/repo::asking': summary('asking', { progressState: 'stalled' }) },
     });
     render(<ZenMode />);
-    expect(screen.getByText('Projects')).toBeInTheDocument();
+    expect(screen.getByText('Deploy now?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Yes/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /No/ })).toBeInTheDocument();
   });
 
-  it('Sessions pill renders when subscriptions/order are seeded', () => {
-    const sub = subSess('my-session');
-    const key = `srv1:/repo:my-session`;
-    useSubscriptionStore.setState({
-      subscriptions: { [key]: sub },
-      order: [key],
-    });
+  it('exposes an Exit Zen button (tap-uniform)', () => {
     render(<ZenMode />);
-    expect(screen.getByText('Sessions')).toBeInTheDocument();
-  });
-
-  it('"Watched sessions" heading renders when sessionSummaries has a paragraph', () => {
-    const key = '/repo::para-session';
-    useSupervisorStore.setState({
-      sessionSummaries: {
-        [key]: summary('para-session', {
-          structured: {
-            paragraph: 'Currently implementing the auth module.',
-            status: 'working',
-          },
-        }),
-      },
-    });
-    render(<ZenMode />);
-    expect(screen.getByText('Watched sessions')).toBeInTheDocument();
-  });
-
-  it('all action affordances include at least one button (⤢ Bridge toggle)', () => {
-    render(<ZenMode />);
-    const buttons = screen.getAllByRole('button');
-    expect(buttons.length).toBeGreaterThan(0);
-    const bridgeBtn = buttons.find((b) =>
-      b.textContent?.includes('⤢') || b.getAttribute('title') === 'Switch to Bridge view',
+    const exit = screen.getAllByRole('button').find((b) =>
+      b.textContent?.includes('Exit Zen') || b.getAttribute('title')?.startsWith('Exit Zen'),
     );
-    expect(bridgeBtn).toBeDefined();
+    expect(exit).toBeDefined();
   });
 
   it('re-seeding store changes the view (pure function of store state)', () => {
     const { rerender } = render(<ZenMode />);
-    // Initially no "Watched sessions"
-    expect(screen.queryByText('Watched sessions')).toBeNull();
-
-    // Seed a paragraph summary
-    const key = '/repo::dynamic-session';
-    useSupervisorStore.setState({
-      sessionSummaries: {
-        [key]: summary('dynamic-session', {
-          summaryText: 'Working on feature X',
-        }),
-      },
-    });
+    expect(screen.queryByTestId('zen-session-card')).toBeNull();
+    seedSession('dynamic-session', { summaryText: 'Working on feature X' });
     rerender(<ZenMode />);
-    expect(screen.getByText('Watched sessions')).toBeInTheDocument();
+    expect(screen.getByTestId('zen-session-card')).toBeInTheDocument();
+    expect(screen.getByText('Working on feature X')).toBeInTheDocument();
   });
 });
 
