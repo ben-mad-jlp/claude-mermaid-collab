@@ -32,6 +32,7 @@
 
 import { createHash } from 'crypto';
 import { listSupervised } from './supervisor-store.js';
+import { getStatuses } from './session-status-store.js';
 import { tmuxBaseName } from './tmux-naming.js';
 import { mux } from './session-mux/index.js';
 import { argvCapturePane } from './session-mux/tmux-argv.js';
@@ -169,6 +170,10 @@ export async function __drainInterpreters(): Promise<void> {
 
 export interface SummaryTickDeps {
   listSessions?: () => Array<{ project: string; session: string; launchProject?: string | null }>;
+  /** Registered/known collab sessions for a project (the user-watched `design`/`planner`
+   *  sessions), unioned with listSessions() so the loop summarizes the sessions Zen
+   *  actually shows — not only daemon-supervised pool slots. Default: session-status rows. */
+  listKnownSessions?: (project: string) => Array<{ project: string; session: string }>;
   watchedProjects?: () => Set<string>;
   capture?: (tmux: string) => Promise<string>;
   isActive?: (pane: string) => boolean;
@@ -421,8 +426,31 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
     });
   const interpret = deps.interpret ?? interpretViaNode;
 
+  const listKnownSessions =
+    deps.listKnownSessions ??
+    ((project: string) => {
+      try {
+        return getStatuses(project).map((r) => ({ project: r.project, session: r.session }));
+      } catch {
+        return []; // no status DB (tests / fresh project) → contribute nothing
+      }
+    });
+
   const watched = watchedProjects();
-  const sessions = listSessions().filter((s) => watched.has(s.project));
+  // Union daemon-supervised pool slots with the registered collab sessions (the
+  // user-watched design/planner sessions that Zen renders). Both have live tmux panes;
+  // summarizing only listSupervised() left every watched session showing "No summary
+  // yet". Dedup by project::session — the supervised row wins (it carries launchProject).
+  const sessionMap = new Map<string, { project: string; session: string; launchProject?: string | null }>();
+  for (const p of watched) {
+    for (const k of listKnownSessions(p)) {
+      if (watched.has(k.project)) sessionMap.set(`${k.project}::${k.session}`, k);
+    }
+  }
+  for (const s of listSessions()) {
+    if (watched.has(s.project)) sessionMap.set(`${s.project}::${s.session}`, s);
+  }
+  const sessions = [...sessionMap.values()];
 
   const byState: Record<ProgressState, number> = {
     active: 0,

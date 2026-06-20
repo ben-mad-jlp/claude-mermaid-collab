@@ -62,6 +62,27 @@ describe('runSessionSummaryTick', () => {
     expect((broadcasts[0] as { progressState: string }).progressState).toBe('active');
   });
 
+  it('union: summarizes a watched/known session even when no supervised rows exist', async () => {
+    // The user-watched design/planner sessions come from listKnownSessions (session-status),
+    // NOT listSupervised (pool slots). The loop must summarize them too.
+    const r = await runSessionSummaryTick(makeDeps({
+      listSessions: () => [],
+      listKnownSessions: () => [{ project: P, session: S }],
+      now: () => 3000,
+    }));
+    expect(r.scanned).toBe(1);
+    expect(getSessionSummary(P, S)).toBeTruthy();
+  });
+
+  it('union: dedups a session present in BOTH supervised and known (scanned once)', async () => {
+    const r = await runSessionSummaryTick(makeDeps({
+      listSessions: () => [{ project: P, session: S }],
+      listKnownSessions: () => [{ project: P, session: S }],
+      now: () => 4000,
+    }));
+    expect(r.scanned).toBe(1);
+  });
+
   it('change-gate: changed pane bumps paneSeenAt + resets quietWindows', async () => {
     let pane = 'version-A';
     const deps = makeDeps({ capture: async () => pane, now: () => 1000 });
