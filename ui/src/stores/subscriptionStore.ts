@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
 
-interface SubscribedSession {
+export interface SubscribedSession {
   serverId: string;
   project: string;
   session: string;
