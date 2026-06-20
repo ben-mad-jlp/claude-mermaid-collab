@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useFreshnessStore } from '@/stores/freshnessStore';
+import { selectFreshness } from '@/lib/freshnessSelectors';
 import { computePlanTotals } from '@/components/supervisor/PlanTotals';
 import { selectTriageTop } from '@/lib/triageSelectors';
 import { VerdictBar } from './VerdictBar';
@@ -27,6 +29,8 @@ export const ZenMode: React.FC = () => {
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
 
+  const lastWsMessageAt = useFreshnessStore((s) => s.lastWsMessageAt);
+
   // Zone 1: per-project plan totals
   const projectTotals = useMemo(
     () =>
@@ -44,6 +48,7 @@ export const ZenMode: React.FC = () => {
   );
 
   const now = Date.now();
+  const freshness = useMemo(() => selectFreshness(lastWsMessageAt, now), [lastWsMessageAt, now]);
   const triageTop = useMemo(
     () => selectTriageTop(openEscalations, sessionSummaries, now),
     [openEscalations, sessionSummaries, now],
@@ -63,7 +68,7 @@ export const ZenMode: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-gray-50 dark:bg-gray-900">
-      <VerdictBar openEscalations={openEscalations} />
+      <VerdictBar openEscalations={openEscalations} freshness={freshness} now={now} />
 
       <CalmCanvas>
         {/* Focus card — triage-top: escalation or wedge/unknown session */}
@@ -88,14 +93,14 @@ export const ZenMode: React.FC = () => {
         )}
 
         {/* Zone 1 — project totals */}
-        <PillList title="Projects" emptyLabel="No projects tracked">
+        <PillList title="Projects" emptyLabel="No projects tracked" desaturated={!freshness.live}>
           {projectTotals.map(({ project, totals }) => (
             <ProjectPill key={project} project={project} totals={totals} />
           ))}
         </PillList>
 
         {/* Zone 2 — session status pills */}
-        <PillList title="Sessions" emptyLabel="No subscribed sessions">
+        <PillList title="Sessions" emptyLabel="No subscribed sessions" desaturated={!freshness.live}>
           {sessions.map((s) => (
             <SessionPill
               key={`${s.serverId}:${s.project}:${s.session}`}

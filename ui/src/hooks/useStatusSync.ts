@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
 import { useSupervisorStore, type Escalation, type ProgressState } from '@/stores/supervisorStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
+import { useFreshnessStore } from '@/stores/freshnessStore';
 
 /**
  * useStatusSync — the single owner of status refresh
@@ -46,6 +47,7 @@ export function useStatusSync(serverIds: string[]) {
 
     const hydrate = () => {
       if (cancelled) return;
+      useFreshnessStore.getState().noteWsMessage();
       void useSupervisorStore.getState().hydrateOpenEscalations(serverIdsRef.current);
     };
 
@@ -61,6 +63,7 @@ export function useStatusSync(serverIds: string[]) {
   useEffect(() => {
     const client = getWebSocketClient();
     const sub = client.onMessage((message) => {
+      useFreshnessStore.getState().noteWsMessage();
       const msg = message as { type?: string; project?: unknown; escalation?: unknown };
       if (!msg || typeof msg.type !== 'string') return;
       switch (msg.type) {
