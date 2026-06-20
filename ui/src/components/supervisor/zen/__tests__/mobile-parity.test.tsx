@@ -185,6 +185,13 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
     expect(screen.getByRole('button', { name: /No/ })).toBeInTheDocument();
   });
 
+  it('each card has an Open button (bring the session up in full collab)', () => {
+    seedSession('openable');
+    render(<ZenMode />);
+    const open = screen.getAllByRole('button').find((b) => /Open/.test(b.textContent || ''));
+    expect(open).toBeDefined();
+  });
+
   it('exposes an Exit Zen button (tap-uniform)', () => {
     render(<ZenMode />);
     const exit = screen.getAllByRole('button').find((b) =>

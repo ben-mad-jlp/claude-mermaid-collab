@@ -6,6 +6,9 @@ import { MermaidPreview } from '../MermaidPreview';
 vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
+    // The component validates with mermaid.parse() BEFORE mermaid.render(); without
+    // this the parse call throws and render is never reached (render-assertion tests fail).
+    parse: vi.fn().mockResolvedValue(true),
     render: vi.fn(),
     registerExternalDiagrams: vi.fn().mockResolvedValue(undefined),
   },
@@ -30,6 +33,7 @@ describe('MermaidPreview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (mermaid.initialize as any).mockResolvedValue(undefined);
+    (mermaid.parse as any).mockResolvedValue(true);
     (mermaid.render as any).mockResolvedValue({
       svg: '<svg><rect/></svg>',
     });

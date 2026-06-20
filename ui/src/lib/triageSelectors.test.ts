@@ -171,34 +171,9 @@ describe('selectTriageStack', () => {
     expect(selectTriageTop([], {}, NOW)).toBeNull();
   });
 
-  it('snoozed operator-gated escalation drops out until untilMs passes, then re-surfaces', () => {
-    const escalations: Escalation[] = [esc('e-gated', 'open', 300, true)]; // top-tier
-    const sessions = {}; // no sessions — isolate escalation-snooze behavior
-
-    // Back-compat: no snooze map (or empty) → present.
-    const present = selectTriageStack(escalations, sessions, NOW);
-    expect(present).toHaveLength(1);
-    expect(selectTriageStack(escalations, sessions, NOW, {})).toHaveLength(1);
-    expect(selectTriageTop(escalations, sessions, NOW)).not.toBeNull();
-
-    // Active snooze (untilMs in the future) → excluded from stack AND top.
-    const active = { 'e-gated': NOW + 1000 };
-    expect(selectTriageStack(escalations, sessions, NOW, active)).toHaveLength(0);
-    expect(selectTriageTop(escalations, sessions, NOW, active)).toBeNull();
-
-    // Expired snooze (untilMs in the past) → re-surfaces with its real severity.
-    const expired = { 'e-gated': NOW - 1 };
-    const back = selectTriageStack(escalations, sessions, NOW, expired);
-    expect(back).toHaveLength(1);
-    expect(back[0].kind).toBe('escalation');
-    expect(back[0].severity).toBe(SEV_GATED_OR_WEDGED);
-
-    // Boundary: now === untilMs re-surfaces (strict <, so NOT snoozed at equality).
-    expect(selectTriageStack(escalations, sessions, NOW, { 'e-gated': NOW })).toHaveLength(1);
-
-    // Snooze is keyed by id — an unrelated id in the map does not suppress e-gated.
-    expect(selectTriageStack(escalations, sessions, NOW, { 'other-id': NOW + 1000 })).toHaveLength(1);
-  });
+  // NOTE: per-escalation snooze is no longer a selectTriageStack concern — the 4th arg
+  // is TriageStackOpts {onlyYouIds, clearedIds} and per-item snooze lives in the
+  // notification store. (The old snooze-map-signature test was removed in the Zen redesign.)
 
   it('escalationSeverity unit pin — confirms constant ordering 3 > 2 > 1', () => {
     const gated   = esc('eg', 'open', 1, true);

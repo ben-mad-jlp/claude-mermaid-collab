@@ -8,41 +8,85 @@ import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/fu
 // big centered progress paragraph, and — only when the session is asking — the
 // question with selectable answers along the bottom. Nothing else; calm by default.
 
+/** Per-project daemon (leaf-executor) rollup — derived from the fleet read-model. */
+export interface DaemonTotals {
+  /** Lanes actively running a node right now. */
+  working: number;
+  /** Claimed in-progress lanes (working + idle). */
+  lanes: number;
+  /** Lanes parked on a permission prompt. */
+  permission: number;
+}
+
 export interface ZenSessionCardProps {
   project: string;
   session: string;
   serverId: string;
   summary?: SessionSummary;
-  /** The project's rollup totals, shown as symbols in the top bar. */
+  /** The project's plan rollup totals, shown as symbols in the top bar. */
   totals?: PlanTotals;
+  /** The project's daemon (leaf-executor) totals, shown alongside the plan totals. */
+  daemon?: DaemonTotals;
   /** Open escalation for THIS session, if any (structured options → decide). */
   escalation?: Escalation | null;
   onDecideEscalation: (serverId: string, id: string, optionId: string) => void;
   onAnswerPane: (serverId: string, project: string, session: string, value: string) => void;
+  /** Bring this session up in the full collab UI (sets current session + exits Zen). */
+  onOpen: (project: string, session: string, serverId: string) => void;
 }
 
-/** Project bar: project name on the left, the funnel rollup as colored dot+count
- *  symbols on the right (the "project totals with the symbols"). */
-const ProjectBar: React.FC<{ project: string; totals?: PlanTotals }> = ({ project, totals }) => {
+/** Project bar: project name on the left; the plan funnel rollup + daemon totals as
+ *  colored dot+count symbols, then an Open button, on the right. */
+const ProjectBar: React.FC<{
+  project: string;
+  session: string;
+  serverId: string;
+  totals?: PlanTotals;
+  daemon?: DaemonTotals;
+  onOpen: (project: string, session: string, serverId: string) => void;
+}> = ({ project, session, serverId, totals, daemon, onOpen }) => {
   const name = project.split('/').pop() || project;
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-1.5 border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/80 dark:bg-gray-800/50 rounded-t-2xl">
       <span className="text-3xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 truncate" title={project}>
         {name}
       </span>
-      {totals && totals.total > 0 && (
-        <div className="flex items-center gap-2.5 shrink-0">
-          {FUNNEL_SEGMENTS.map((seg) =>
-            seg.key !== 'done' && totals.counts[seg.key] > 0 ? (
-              <span key={seg.key} className="flex items-center gap-1 text-3xs font-medium" title={seg.label}>
-                <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[seg.key].dot}`} />
-                <span className={seg.tint}>{totals.counts[seg.key]}</span>
-              </span>
-            ) : null,
-          )}
-          <span className="text-3xs text-gray-400 dark:text-gray-500">{totals.total} open</span>
-        </div>
-      )}
+      <div className="flex items-center gap-2.5 shrink-0">
+        {/* Plan totals — funnel buckets as colored dots */}
+        {totals && totals.total > 0 && (
+          <>
+            {FUNNEL_SEGMENTS.map((seg) =>
+              seg.key !== 'done' && totals.counts[seg.key] > 0 ? (
+                <span key={seg.key} className="flex items-center gap-1 text-3xs font-medium" title={seg.label}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[seg.key].dot}`} />
+                  <span className={seg.tint}>{totals.counts[seg.key]}</span>
+                </span>
+              ) : null,
+            )}
+            <span className="text-3xs text-gray-400 dark:text-gray-500">{totals.total} open</span>
+          </>
+        )}
+        {/* Daemon totals — leaf-executor lanes (⚙ working / claimed / ⚠ permission) */}
+        {daemon && daemon.lanes > 0 && (
+          <span className="flex items-center gap-1.5 text-3xs font-medium pl-2 border-l border-gray-200 dark:border-gray-600" title="Daemon lanes (working / claimed)">
+            <span className="text-gray-400 dark:text-gray-500">⚙</span>
+            <span className="text-info-600 dark:text-info-400">{daemon.working}</span>
+            <span className="text-gray-400 dark:text-gray-500">/ {daemon.lanes}</span>
+            {daemon.permission > 0 && (
+              <span className="text-warning-600 dark:text-warning-400" title="awaiting permission">⚠ {daemon.permission}</span>
+            )}
+          </span>
+        )}
+        {/* Open in full collab */}
+        <button
+          type="button"
+          onClick={() => onOpen(project, session, serverId)}
+          title="Open this session in the full collab"
+          className="px-2 py-0.5 rounded-full text-3xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-700 transition-colors"
+        >
+          Open ↗
+        </button>
+      </div>
     </div>
   );
 };
@@ -53,9 +97,11 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   serverId,
   summary,
   totals,
+  daemon,
   escalation,
   onDecideEscalation,
   onAnswerPane,
+  onOpen,
 }) => {
   const sessionName = session.split('/').pop() || session;
   const structured = summary?.structured;
@@ -74,7 +120,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       data-testid="zen-session-card"
       className="w-full max-w-2xl mx-auto rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden"
     >
-      <ProjectBar project={project} totals={totals} />
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} onOpen={onOpen} />
 
       {/* Body — centered paragraph */}
       <div className="px-6 py-8 flex flex-col items-center text-center gap-2 min-h-[7rem] justify-center">

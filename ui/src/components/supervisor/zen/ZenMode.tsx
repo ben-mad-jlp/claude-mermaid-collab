@@ -2,8 +2,10 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { computePlanTotals, type PlanTotals } from '@/components/supervisor/PlanTotals';
-import { ZenSessionCard } from './ZenSessionCard';
+import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
+import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 
 // ZenMode (redesign 2026-06-20) — the ENTIRE window is Zen: a calm vertical scroll
 // of one card per watched session. Each card is its project bar + a centered
@@ -34,6 +36,9 @@ export const ZenMode: React.FC = () => {
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
 
+  const allSessions = useSessionStore((s) => s.sessions);
+  const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+
   // Live-ticking clock so recency ordering refreshes (cheap; once a second).
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -47,6 +52,34 @@ export const ZenMode: React.FC = () => {
     for (const [project, todos] of Object.entries(todosByProject)) m[project] = computePlanTotals(todos);
     return m;
   }, [todosByProject]);
+
+  // Watched sessions + their projects (for the fleet poll). serverScope is the
+  // dominant server of the watched sessions (desktop is effectively single-server).
+  const watched = useMemo(() => order.map((k) => subscriptions[k]).filter(Boolean), [order, subscriptions]);
+  const projects = useMemo(() => [...new Set(watched.map((s) => s.project))], [watched]);
+  const serverScope = watched[0]?.serverId ?? 'local';
+
+  // Daemon (leaf-executor) totals per project, derived from the fleet read-model.
+  const fleet = useFleetStatusByProject(serverScope, projects);
+  const daemonByProject = useMemo(() => {
+    const m: Record<string, DaemonTotals> = {};
+    for (const e of Object.values(fleet)) {
+      const d = (m[e.project] ??= { working: 0, lanes: 0, permission: 0 });
+      d.lanes++;
+      if (e.state === 'working') d.working++;
+      if (e.state === 'permission') d.permission++;
+    }
+    return m;
+  }, [fleet]);
+
+  // Open a watched session in the full collab UI: select it (prefer the real Session
+  // object so no field is lost) then exit Zen back to the Bridge shell.
+  const openSession = (project: string, session: string, serverId: string) => {
+    const real = allSessions.find((s) => s.project === project && s.name === session && s.serverId === serverId)
+      ?? allSessions.find((s) => s.project === project && s.name === session);
+    setCurrentSession(real ?? { project, serverId, name: session });
+    toggleZenMode();
+  };
 
   // All watched sessions, enriched + ordered (needs-you → stuck → active → rest).
   const cards = useMemo(() => {
@@ -95,9 +128,11 @@ export const ZenMode: React.FC = () => {
                 serverId={s.serverId ?? 'local'}
                 summary={summary}
                 totals={totalsByProject[s.project]}
+                daemon={daemonByProject[s.project]}
                 escalation={escalation}
                 onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
                 onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
+                onOpen={openSession}
               />
             ))}
           </div>
