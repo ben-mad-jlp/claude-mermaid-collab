@@ -34,6 +34,9 @@ interface SubscriptionState {
 const STORAGE_KEY = 'session-subscriptions';
 const ORDER_KEY = 'session-subscriptions-order';
 
+/** Past this age a persisted/last-heard status is too old to trust as live. */
+export const GONE_MS = 15 * 60_000;
+
 const compositeKey = (serverId: string, project: string, session: string) => `${serverId}:${project}:${session}`;
 
 /**
@@ -58,9 +61,6 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
     // (no live source yet). Identity + user-set fields stay persisted.
     const now = Date.now();
     const VALID = new Set(['active', 'waiting', 'permission', 'unknown']);
-    // Past this age the persisted status is too old to trust as "idle a while" —
-    // show it gray (genuinely unknown) rather than a dimmed live-looking color.
-    const GONE_MS = 15 * 60_000;
     for (const [k, v] of Object.entries(raw)) {
       const age = typeof v.lastUpdate === 'number' ? now - v.lastUpdate : Infinity;
       const lastKnown = VALID.has(v.status) && age <= GONE_MS ? v.status : 'unknown';
