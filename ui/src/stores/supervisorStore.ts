@@ -229,6 +229,14 @@ export interface SupervisedSession {
 
 export type ProgressState = 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
 
+export interface ZenStructured {
+  paragraph: string;
+  status: 'working' | 'idle' | 'stuck' | 'needs-input';
+  question?: string;
+  options?: Array<{ label: string; valueToSend: string }>;
+  recommended?: number;
+}
+
 /** Z3: mirror of the server session-summary heartbeat (session-summary-loop.ts).
  *  Keyed `${project}::${session}`. LIVE signal — NOT persisted to localStorage
  *  (a hydrated stale value would falsely read as wedged on first paint, same
@@ -241,6 +249,11 @@ export interface SessionSummary {
   paneSeenAt: number;
   updatedAt: number;
   snoozedUntil?: number;
+  summaryText?: string;
+  firstClause?: string;
+  summaryUpdatedAt?: number;
+  refreshState?: 'fresh' | 'stale-failing';
+  structured?: ZenStructured;
 }
 
 const PROJECTS_KEY = 'supervisor-projects';
@@ -414,6 +427,8 @@ interface SupervisorState {
   ingestSessionSummary: (s: {
     project: string; session: string; progressState: ProgressState;
     paneSeenAt: number; updatedAt: number;
+    summaryText?: string; firstClause?: string; summaryUpdatedAt?: number;
+    refreshState?: 'fresh' | 'stale-failing'; structured?: ZenStructured;
   }) => void;
   /** Locally snooze a session out of the triage stack until `untilMs`. */
   snoozeSession: (project: string, session: string, untilMs: number) => void;
@@ -551,7 +566,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       return {
         sessionSummaries: {
           ...state.sessionSummaries,
-          [key]: { ...s, snoozedUntil: prev?.snoozedUntil },
+          [key]: {
+            ...s,
+            snoozedUntil: prev?.snoozedUntil,
+            structured: s.structured ?? prev?.structured,
+            summaryText: s.summaryText ?? prev?.summaryText,
+            firstClause: s.firstClause ?? prev?.firstClause,
+            summaryUpdatedAt: s.summaryUpdatedAt ?? prev?.summaryUpdatedAt,
+            refreshState: s.refreshState ?? prev?.refreshState,
+          },
         },
       };
     }),

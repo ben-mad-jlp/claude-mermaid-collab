@@ -111,7 +111,18 @@ export type WSMessage =
   | { type: 'orchestrator_tick'; at: number }
   | { type: 'session_summary_updated'; project: string; session: string;
       progressState: 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
-      paneSeenAt: number; updatedAt: number }
+      paneSeenAt: number; updatedAt: number;
+      summaryText?: string;
+      firstClause?: string;
+      summaryUpdatedAt?: number;
+      refreshState?: 'fresh' | 'stale-failing';
+      structured?: {
+        paragraph: string;
+        status: 'working' | 'idle' | 'stuck' | 'needs-input';
+        question?: string;
+        options?: Array<{ label: string; valueToSend: string }>;
+        recommended?: number;
+      } }
   | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string; escalation?: unknown }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
   // Drive (level=drive) autonomous-decision narration — observational only, NOT

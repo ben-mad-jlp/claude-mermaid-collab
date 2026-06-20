@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
-import { useSupervisorStore, type Escalation, type ProgressState } from '@/stores/supervisorStore';
+import { useSupervisorStore, type Escalation, type ProgressState, type ZenStructured } from '@/stores/supervisorStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
 
 /**
@@ -86,6 +86,8 @@ export function useStatusSync(serverIds: string[]) {
           const m = msg as {
             project?: unknown; session?: unknown; progressState?: unknown;
             paneSeenAt?: unknown; updatedAt?: unknown;
+            summaryText?: unknown; firstClause?: unknown; summaryUpdatedAt?: unknown;
+            refreshState?: unknown; structured?: unknown;
           };
           if (typeof m.project !== 'string' || typeof m.session !== 'string') break;
           if (typeof m.progressState !== 'string') break;
@@ -95,6 +97,17 @@ export function useStatusSync(serverIds: string[]) {
             progressState: m.progressState as ProgressState,
             paneSeenAt: typeof m.paneSeenAt === 'number' ? m.paneSeenAt : Date.now(),
             updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt : Date.now(),
+            summaryText: typeof m.summaryText === 'string' ? m.summaryText : undefined,
+            firstClause: typeof m.firstClause === 'string' ? m.firstClause : undefined,
+            summaryUpdatedAt: typeof m.summaryUpdatedAt === 'number' ? m.summaryUpdatedAt : undefined,
+            refreshState:
+              m.refreshState === 'fresh' || m.refreshState === 'stale-failing'
+                ? m.refreshState
+                : undefined,
+            structured:
+              m.structured && typeof m.structured === 'object'
+                ? (m.structured as ZenStructured)
+                : undefined,
           });
           break;
         }
