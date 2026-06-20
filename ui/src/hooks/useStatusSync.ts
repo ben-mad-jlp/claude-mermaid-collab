@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
-import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { useSupervisorStore, type Escalation, type ProgressState } from '@/stores/supervisorStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
 
 /**
@@ -17,6 +17,9 @@ import { useDaemonPulse } from '@/stores/daemonPulseStore';
  *        • session_todos_updated → targeted loadProjectTodos(project) for the
  *          watched servers (already the Bridge behavior; centralized here so it is
  *          live app-wide, not only while the Bridge is mounted).
+ *        • session_summary_updated → ingestSessionSummary(s) — fold the structural
+ *          heartbeat (session-summary-loop.ts) into the sessionSummaries slice; the
+ *          WS payload is complete so NO REST reload.
  *        • claude_session_*    → left to the existing useWatchEvents handler
  *          (subscriptionStore) — NOT duplicated here.
  *
@@ -77,6 +80,22 @@ export function useStatusSync(serverIds: string[]) {
           if (!project) break;
           const ids = serverIdsRef.current.length ? serverIdsRef.current : ['local'];
           for (const id of ids) void useSupervisorStore.getState().loadProjectTodos(id, project);
+          break;
+        }
+        case 'session_summary_updated': {
+          const m = msg as {
+            project?: unknown; session?: unknown; progressState?: unknown;
+            paneSeenAt?: unknown; updatedAt?: unknown;
+          };
+          if (typeof m.project !== 'string' || typeof m.session !== 'string') break;
+          if (typeof m.progressState !== 'string') break;
+          useSupervisorStore.getState().ingestSessionSummary({
+            project: m.project,
+            session: m.session,
+            progressState: m.progressState as ProgressState,
+            paneSeenAt: typeof m.paneSeenAt === 'number' ? m.paneSeenAt : Date.now(),
+            updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt : Date.now(),
+          });
           break;
         }
         case 'orchestrator_tick': {

@@ -112,6 +112,10 @@ export interface Escalation {
   // on to the human — the provenance tag distinguishes triaged-and-deferred from
   // never-seen. Absent on payloads written before the field existed → 'human'.
   routedTo?: string;
+  /** Server-stamped operator-gate flag (irreversible/outward action). Arrives as
+   *  0|1 from mapEscalationRow's column spread; truthy = a hard human floor that
+   *  MUST outrank routine approvals in the Zen triage stack (Z3/Z4). */
+  operatorGated?: boolean | number;
   /** How many times the steward auto-attempted this escalation (thrash guard). */
   stewardAttempts?: number;
   /** Orch P2: an inline Grok-suggested action at level `propose` (or null). The
@@ -221,6 +225,22 @@ export interface SupervisedSession {
   source?: string;
   addedAt?: number;
   serverId?: string;
+}
+
+export type ProgressState = 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
+
+/** Z3: mirror of the server session-summary heartbeat (session-summary-loop.ts).
+ *  Keyed `${project}::${session}`. LIVE signal — NOT persisted to localStorage
+ *  (a hydrated stale value would falsely read as wedged on first paint, same
+ *  rationale as `liveness`). `snoozedUntil` is a LOCAL-only suppression set by
+ *  the Zen wedge card's Snooze button — never sent by the server. */
+export interface SessionSummary {
+  project: string;
+  session: string;
+  progressState: ProgressState;
+  paneSeenAt: number;
+  updatedAt: number;
+  snoozedUntil?: number;
 }
 
 const PROJECTS_KEY = 'supervisor-projects';
@@ -386,6 +406,17 @@ interface SupervisorState {
    *  server-stamped) and bump the epoch — the incremental refresh path (design §2),
    *  replacing App.tsx's blanket `loadEscalations` reload. */
   ingestEscalationCreated: (e: Escalation) => void;
+  /** Z3: live mirror of the server session-summary heartbeat. Keyed
+   *  `${project}::${session}`. NOT persisted (live signal). */
+  sessionSummaries: Record<string, SessionSummary>;
+  /** Fold a `session_summary_updated` WS event into the map (upsert by key).
+   *  Preserves any local `snoozedUntil` already set for that key. */
+  ingestSessionSummary: (s: {
+    project: string; session: string; progressState: ProgressState;
+    paneSeenAt: number; updatedAt: number;
+  }) => void;
+  /** Locally snooze a session out of the triage stack until `untilMs`. */
+  snoozeSession: (project: string, session: string, untilMs: number) => void;
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
   liveness: SupervisorLiveness | null;
@@ -491,6 +522,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
   unlandedEpicsByProject: {},
+  sessionSummaries: {},
   openEscalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   resolvedEscalations: hydrate<Escalation[]>(RESOLVED_ESCALATIONS_KEY, []),
   // Deprecated alias — seeded from the same cache as openEscalations (§4).
@@ -511,6 +543,24 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       }
       const open = [e, ...state.openEscalations.filter((x) => x.id !== e.id)];
       return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
+    }),
+  ingestSessionSummary: (s) =>
+    set((state) => {
+      const key = `${s.project}::${s.session}`;
+      const prev = state.sessionSummaries[key];
+      return {
+        sessionSummaries: {
+          ...state.sessionSummaries,
+          [key]: { ...s, snoozedUntil: prev?.snoozedUntil },
+        },
+      };
+    }),
+  snoozeSession: (project, session, untilMs) =>
+    set((state) => {
+      const key = `${project}::${session}`;
+      const prev = state.sessionSummaries[key];
+      if (!prev) return {};
+      return { sessionSummaries: { ...state.sessionSummaries, [key]: { ...prev, snoozedUntil: untilMs } } };
     }),
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),

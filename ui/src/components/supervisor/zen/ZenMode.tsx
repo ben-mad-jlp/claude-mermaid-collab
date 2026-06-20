@@ -3,9 +3,11 @@ import { useUIStore } from '@/stores/uiStore';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { computePlanTotals } from '@/components/supervisor/PlanTotals';
+import { selectTriageTop } from '@/lib/triageSelectors';
 import { VerdictBar } from './VerdictBar';
 import { CalmCanvas } from './CalmCanvas';
 import { FocusCard } from './FocusCard';
+import { WedgeFocusCard } from './WedgeFocusCard';
 import { PillList } from './PillList';
 import { ProjectPill } from './ProjectPill';
 import { SessionPill } from './SessionPill';
@@ -18,6 +20,9 @@ export const ZenMode: React.FC = () => {
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const resolveEscalation = useSupervisorStore((s) => s.resolveEscalation);
   const landEpic = useSupervisorStore((s) => s.landEpic);
+  const sessionSummaries = useSupervisorStore((s) => s.sessionSummaries);
+  const snoozeSession = useSupervisorStore((s) => s.snoozeSession);
+  const nudge = useSupervisorStore((s) => s.nudge);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
@@ -38,22 +43,47 @@ export const ZenMode: React.FC = () => {
     [order, subscriptions],
   );
 
-  const topEscalation = openEscalations[0] ?? null;
-  const serverScope = topEscalation?.serverId ?? 'local';
+  const now = Date.now();
+  const triageTop = useMemo(
+    () => selectTriageTop(openEscalations, sessionSummaries, now),
+    [openEscalations, sessionSummaries, now],
+  );
+
+  const serverFor = (p: string, s: string) =>
+    sessions.find((x) => x.project === p && x.session === s)?.serverId ?? 'local';
+
+  const handleOpenSession = (_project: string, _session: string) => {
+    // TODO(zen): no session-jump helper exists yet; best-effort leave Zen.
+    toggleZenMode();
+  };
+  const handleKillSession = (_project: string, _session: string) => {
+    // TODO(zen): backend kill route does not exist yet.
+    console.warn('kill not yet wired');
+  };
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-gray-50 dark:bg-gray-900">
       <VerdictBar openEscalations={openEscalations} />
 
       <CalmCanvas>
-        {/* Focus card — only when there's an open escalation */}
-        {topEscalation && (
+        {/* Focus card — triage-top: escalation or wedge/unknown session */}
+        {triageTop?.kind === 'escalation' && (
           <FocusCard
-            escalation={topEscalation}
-            serverScope={serverScope}
+            escalation={triageTop.escalation}
+            serverScope={triageTop.escalation.serverId ?? 'local'}
             onDecide={(sid, id, optId) => void decideEscalation(sid, id, optId)}
             onResolve={(sid, id, status) => void resolveEscalation(sid, id, status)}
             onLand={(sid, project, id) => void landEpic(sid, project, id)}
+          />
+        )}
+        {(triageTop?.kind === 'wedge' || triageTop?.kind === 'unknown') && (
+          <WedgeFocusCard
+            summary={triageTop.summary}
+            now={now}
+            onOpen={handleOpenSession}
+            onNudge={(p, s) => void nudge(serverFor(p, s), p, s, 'Are you stuck? Reply with status or next step.')}
+            onKill={handleKillSession}
+            onSnooze={(p, s) => snoozeSession(p, s, Date.now() + 10 * 60_000)}
           />
         )}
 
@@ -67,7 +97,11 @@ export const ZenMode: React.FC = () => {
         {/* Zone 2 — session status pills */}
         <PillList title="Sessions" emptyLabel="No subscribed sessions">
           {sessions.map((s) => (
-            <SessionPill key={`${s.serverId}:${s.project}:${s.session}`} session={s} />
+            <SessionPill
+              key={`${s.serverId}:${s.project}:${s.session}`}
+              session={s}
+              progressState={sessionSummaries[`${s.project}::${s.session}`]?.progressState}
+            />
           ))}
         </PillList>
 
