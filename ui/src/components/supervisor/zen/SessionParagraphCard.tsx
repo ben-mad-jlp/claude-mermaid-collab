@@ -4,6 +4,7 @@ import { fmtHHMM } from '@/lib/freshnessSelectors';
 import { ageOpacityClass, summaryFreshness } from '@/lib/paragraphStack';
 import { FreshnessPulse } from './FreshnessPulse';
 import { PaneLinesPopover } from './PaneLinesPopover';
+import { useNotificationStore } from '@/stores/notificationStore';
 
 export interface SessionParagraphCardProps {
   summary: SessionSummary;
@@ -25,6 +26,9 @@ const STATUS_PILL: Record<ZenStructured['status'], { dot: string; text: string; 
   'needs-input': { dot: 'bg-warning-500', text: 'text-warning-700 dark:text-warning-400', label: 'needs input' },
 };
 
+const THRESH_MIN = 50;
+const THRESH_MAX = 95;
+
 export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
   summary,
   now,
@@ -38,6 +42,24 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
 }) => {
   const [otherOpen, setOtherOpen] = useState(false);
   const [otherText, setOtherText] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [threshOpen, setThreshOpen] = useState(false);
+  const [threshVal, setThreshVal] = useState(75);
+
+  // Stable item id — matches triageItemId session: style
+  const itemId = escalation?.id ?? `session:${summary.project}::${summary.session}`;
+
+  // Store subscriptions
+  const snoozedEntry        = useNotificationStore((s) => s.snoozed[itemId]);
+  const operatorOnly        = useNotificationStore((s) => !!s.operatorOnly[itemId]);
+  const pendingClear        = useNotificationStore((s) => s.pendingClears[itemId]);
+  const refreshSummaryNow   = useNotificationStore((s) => s.refreshSummaryNow);
+  const snoozeItem          = useNotificationStore((s) => s.snoozeItem);
+  const unsnoozeItem        = useNotificationStore((s) => s.unsnoozeItem);
+  const markOperatorOnly    = useNotificationStore((s) => s.markOperatorOnly);
+  const clearItemOptimistic = useNotificationStore((s) => s.clearItemOptimistic);
+  const undoClear           = useNotificationStore((s) => s.undoClear);
+  const setWatchdogThreshold = useNotificationStore((s) => s.setWatchdogThreshold);
 
   const status: ZenStructured['status'] = summary.structured?.status ?? 'idle';
   const pill = STATUS_PILL[status];
@@ -66,6 +88,51 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
   const hasEscalationOptions = !!(escalation?.options && escalation.options.length > 0);
   const hasPaneOptions = !!(structured?.options && structured.options.length > 0);
 
+  // Snooze check using the `now` prop (single clock source — no Date.now() here)
+  const isSnoozed = !!snoozedEntry && snoozedEntry.expiresAt > now;
+
+  // Early return: snoozed
+  if (isSnoozed) {
+    return (
+      <div
+        data-testid="session-paragraph-card"
+        className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex items-center gap-2 opacity-40"
+      >
+        <span className="text-sm text-gray-500 dark:text-gray-400 flex-1 min-w-0 truncate">
+          {sessionName}
+        </span>
+        <button
+          type="button"
+          onClick={() => unsnoozeItem(itemId)}
+          className="text-3xs text-accent-600 dark:text-accent-400 underline decoration-dotted shrink-0"
+        >
+          Un-snooze
+        </button>
+      </div>
+    );
+  }
+
+  // Early return: optimistic clear pending
+  if (pendingClear) {
+    return (
+      <div
+        data-testid="session-paragraph-card"
+        className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex items-center gap-2"
+      >
+        <span className="text-sm text-gray-500 dark:text-gray-400 flex-1 min-w-0 truncate">
+          sent → {pendingClear.label}
+        </span>
+        <button
+          type="button"
+          onClick={() => undoClear(itemId)}
+          className="text-3xs text-accent-600 dark:text-accent-400 underline decoration-dotted shrink-0 font-medium"
+        >
+          Undo
+        </button>
+      </div>
+    );
+  }
+
   const handleOtherSend = () => {
     if (!otherText.trim()) return;
     onAnswerPane(serverId, summary.project, summary.session, otherText.trim());
@@ -75,24 +142,53 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
 
   const handleApprove = () => {
     if (escalation && escalation.recommended) {
-      onDecideEscalation(serverId, escalation.id, escalation.recommended);
+      clearItemOptimistic(itemId, 'approved', async () => {
+        onDecideEscalation(serverId, escalation.id, escalation.recommended!);
+        return true;
+      });
     } else {
-      onAnswerPane(serverId, summary.project, summary.session, 'yes');
+      clearItemOptimistic(itemId, 'approved', async () => {
+        onAnswerPane(serverId, summary.project, summary.session, 'yes');
+        return true;
+      });
     }
   };
 
   const handleSkip = () => {
     if (escalation) {
-      onResolve(serverId, escalation.id, 'resolved');
+      clearItemOptimistic(itemId, 'skipped', async () => {
+        onResolve(serverId, escalation.id, 'resolved');
+        return true;
+      });
     } else {
+      snoozeItem(itemId, 10 * 60_000);
       onSnooze(summary.project, summary.session);
     }
+  };
+
+  const handleSnoozeBottom = () => {
+    snoozeItem(itemId, 10 * 60_000);
+    onSnooze(summary.project, summary.session);
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    void refreshSummaryNow(serverId, summary.project, summary.session).finally(() =>
+      setRefreshing(false)
+    );
+  };
+
+  const handleThresholdApply = () => {
+    const pct = Math.min(THRESH_MAX, Math.max(THRESH_MIN, Math.round(threshVal)));
+    void setWatchdogThreshold(serverId, summary.project, pct).then((ok) => {
+      if (ok) setThreshOpen(false);
+    });
   };
 
   return (
     <div
       data-testid="session-paragraph-card"
-      className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-2 transition-opacity duration-500 ${opacityClass}`}
+      className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 space-y-2 transition-opacity duration-500 ${opacityClass}${operatorOnly ? ' border-l-2 border-l-accent-500' : ''}`}
     >
       {/* Header row */}
       <div className="flex items-center gap-2">
@@ -106,6 +202,26 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
         <span className={`text-3xs font-semibold shrink-0 ${pill.text}`}>
           {pill.label}
         </span>
+        {/* Only-you toggle */}
+        <button
+          type="button"
+          aria-pressed={operatorOnly}
+          onClick={() => markOperatorOnly(itemId, !operatorOnly)}
+          title="Pin to top — only you can clear"
+          className="shrink-0 text-sm leading-none text-gray-400 dark:text-gray-500 aria-pressed:text-accent-500 transition-colors"
+        >
+          {operatorOnly ? '★' : '☆'}
+        </button>
+        {/* Refresh */}
+        <button
+          type="button"
+          disabled={refreshing}
+          onClick={handleRefresh}
+          title="Re-summarize now (force-proof)"
+          className={`shrink-0 text-sm leading-none text-gray-400 dark:text-gray-500 disabled:opacity-40 transition-colors ${refreshing ? 'animate-pulse' : ''}`}
+        >
+          ⟳
+        </button>
       </div>
 
       {/* Paragraph (ALWAYS visible) */}
@@ -139,6 +255,37 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
         onFetch={onFetchPane}
       />
 
+      {/* Threshold control */}
+      <div className="pt-1">
+        <button
+          type="button"
+          onClick={() => setThreshOpen((o) => !o)}
+          className="text-3xs text-gray-400 dark:text-gray-500 underline decoration-dotted transition-colors"
+        >
+          ⚙ threshold
+        </button>
+        {threshOpen && (
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="number"
+              min={THRESH_MIN}
+              max={THRESH_MAX}
+              value={threshVal}
+              onChange={(e) => setThreshVal(Number(e.target.value))}
+              className="w-16 px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-accent-500"
+            />
+            <span className="text-3xs text-gray-400 dark:text-gray-500">%</span>
+            <button
+              type="button"
+              onClick={handleThresholdApply}
+              className="px-2 py-1 text-3xs font-medium rounded bg-accent-600 text-white transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Needs-input block */}
       {needsInput && (
         <div className="space-y-2 pt-1 border-t border-gray-100 dark:border-gray-700">
@@ -156,12 +303,15 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
                   <button
                     key={opt.id}
                     type="button"
-                    onClick={() => onDecideEscalation(serverId, escalation!.id, opt.id)}
+                    onClick={() => clearItemOptimistic(itemId, opt.label, async () => {
+                      onDecideEscalation(serverId, escalation!.id, opt.id);
+                      return true;
+                    })}
                     title={opt.detail ? `${opt.label} — ${opt.detail}` : opt.label}
                     className={`w-full flex items-start gap-1.5 px-3 py-1.5 rounded text-left text-sm transition-colors border ${
                       recommended
-                        ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/30 text-accent-800 dark:text-accent-200 hover:bg-accent-100 dark:hover:bg-accent-900/50'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/30 text-accent-800 dark:text-accent-200'
+                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200'
                     }`}
                   >
                     <span className="flex-1 min-w-0">
@@ -189,11 +339,14 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
                   <button
                     key={i}
                     type="button"
-                    onClick={() => onAnswerPane(serverId, summary.project, summary.session, opt.valueToSend)}
+                    onClick={() => clearItemOptimistic(itemId, opt.label, async () => {
+                      onAnswerPane(serverId, summary.project, summary.session, opt.valueToSend);
+                      return true;
+                    })}
                     className={`w-full flex items-start gap-1.5 px-3 py-1.5 rounded text-left text-sm transition-colors border ${
                       recommended
-                        ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/30 text-accent-800 dark:text-accent-200 hover:bg-accent-100 dark:hover:bg-accent-900/50'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/30 text-accent-800 dark:text-accent-200'
+                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200'
                     }`}
                   >
                     <span className="flex-1 min-w-0">
@@ -215,7 +368,7 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
             <button
               type="button"
               onClick={() => setOtherOpen((o) => !o)}
-              className="text-3xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline decoration-dotted transition-colors"
+              className="text-3xs text-gray-500 dark:text-gray-400 underline decoration-dotted transition-colors"
             >
               {otherOpen ? 'Cancel' : 'Other…'}
             </button>
@@ -232,7 +385,7 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
                   type="button"
                   onClick={handleOtherSend}
                   disabled={!otherText.trim()}
-                  className="px-3 py-1 text-sm font-medium rounded bg-accent-600 text-white hover:bg-accent-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="px-3 py-1 text-sm font-medium rounded bg-accent-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   Send
                 </button>
@@ -242,21 +395,21 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
                   <button
                     type="button"
                     onClick={handleApprove}
-                    className="px-3 py-1.5 text-sm font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 transition-colors"
                   >
                     Approve
                   </button>
                   <button
                     type="button"
                     onClick={handleSkip}
-                    className="px-3 py-1.5 text-sm font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 transition-colors"
                   >
                     Skip
                   </button>
                   <button
                     type="button"
-                    onClick={() => onSnooze(summary.project, summary.session)}
-                    className="px-3 py-1.5 text-sm font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                    onClick={handleSnoozeBottom}
+                    className="px-3 py-1.5 text-sm font-medium rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200 transition-colors"
                   >
                     Snooze
                   </button>
