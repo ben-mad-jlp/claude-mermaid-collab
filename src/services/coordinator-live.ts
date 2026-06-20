@@ -500,13 +500,12 @@ export function workerIsolationEnabled(): boolean {
 export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   if (todo.assigneeKind === 'human') return false;
   if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return false;
-  // NON-CODE leaves don't fit the code executor: a 'reviewer' leaf's deliverable is a
-  // judgment, not a commit, so it produces NO work on the epic branch and the
-  // work-committed re-verify (accepted ⇒ commit on branch) wrongly reverses its accept
-  // to 'ready' (the L7 completeness-review case). Keep reviewer leaves out of the headless
-  // path — they go the legacy/human route. (A code 'review' NODE inside the executor is
-  // unrelated; this is the leaf TYPE.)
-  if (todo.type === 'reviewer') return false;
+  // NOTE: 'reviewer' leaves USED to be excluded here (a review's deliverable is a judgment,
+  // not a commit, so the code path's work-committed re-verify wrongly reversed accept→ready —
+  // the L7 case). That exclusion stranded every epic that ends with a completeness-review leaf
+  // before review→[LAND]. FIXED (epic d8ac1a18): the leaf-executor now has a 'review' execution
+  // shape (leafExecutionMode → runReviewPipeline) whose deliverable IS a committed report, so
+  // it survives the re-verify exactly like the 'verify' shape. Reviewer leaves are now headless.
   // Leaf = no child todos parented to it in the tracking work-graph.
   const hasChildren = listTodos(project, {}).some((t) => t.parentId === todo.id);
   return !hasChildren;
@@ -521,7 +520,7 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
 export function headlessExclusionReason(todo: Todo, project: string): string | null {
   if (todo.assigneeKind === 'human') return 'human';
   if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return 'epic-or-gate';
-  if (todo.type === 'reviewer') return 'reviewer';
+  // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
   if (listTodos(project, {}).some((t) => t.parentId === todo.id)) return 'has-children';
   return null;
 }

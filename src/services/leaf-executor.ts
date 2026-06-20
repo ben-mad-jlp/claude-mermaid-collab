@@ -361,6 +361,14 @@ function verifyReportPath(leaf: Todo): string {
   return `docs/verify/${leaf.id}.report.md`;
 }
 
+/** The committed deliverable of a `review`-shape leaf (epic d8ac1a18 dogfood): a
+ *  completeness-review report over the epic's union change-set. Worktree-relative;
+ *  the executor writes + commits it (the node only emits the markdown), so the
+ *  completion gate's work-committed re-verify sees real work. */
+function reviewReportPath(leaf: Todo): string {
+  return `docs/review/${leaf.id}.report.md`;
+}
+
 /** Build the inline prompt for a node kind (clones the LOGIC of vibe-blueprint /
  *  vibe-go worker / vibe-review as a self-contained string — references NOTHING
  *  in skills/). */
@@ -508,6 +516,55 @@ export function buildVerifyPrompt(
   }
 }
 
+/** Build the inline prompt for a REVIEW-shape leaf (epic d8ac1a18 dogfood): a single
+ *  read-only LLM judgment node that reviews the EPIC's union change-set against the leaf's
+ *  spec (the spec is inlined — it carries the LOCKED DECISIONS), files one session-todo per
+ *  gap, and EMITS the full report markdown as its final message (the executor writes +
+ *  commits it — a node Write resolves to the project root, not the worktree, so a
+ *  node-written report never reaches mergeToEpic → accept reverses; same L5 gotcha as
+ *  verify's report node). The trailing `VERDICT:` line is the content gate that re-arms the
+ *  hallucination guard at the content layer (a vacuous report has no parseable verdict →
+ *  the executor parks it blocked). Self-contained (references nothing in skills/). */
+export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
+  const title = leaf.title ?? leaf.id;
+  const spec = leaf.description ?? '(no spec provided)';
+  return [
+    'You are the REVIEW node for a COMPLETENESS REVIEW leaf, READ-ONLY (Read/Grep/Glob and',
+    'Bash for inspection ONLY — make NO edits, do NOT run git commit/push, do NOT run the',
+    'acceptance gate). The executor commits your report for you.',
+    `Title: ${title}`,
+    '',
+    'REVIEW SPEC (the acceptance criteria — it carries the LOCKED DECISIONS to check against):',
+    '--- SPEC START ---',
+    spec,
+    '--- SPEC END ---',
+    '',
+    'You are reviewing the UNION change-set of the whole epic (all sibling leaves\' work,',
+    `accumulated on this branch). Inspect it with git from the repo root:`,
+    `  • the file list:  \`git diff --stat ${baseRef}...HEAD\``,
+    `  • the full diff:  \`git diff ${baseRef}...HEAD\``,
+    `  • per-commit log: \`git log --oneline ${baseRef}..HEAD\``,
+    `(If \`${baseRef}\` is not resolvable, fall back to \`git merge-base HEAD @{u} 2>/dev/null\` or`,
+    'review the working tree directly — do the best honest review you can and SAY which base you used.)',
+    'Read the actual changed source to confirm behavior — do not review from the diff alone.',
+    '',
+    'Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or',
+    'unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.',
+    '',
+    'For EACH distinct gap/finding, file one session-todo via the collab MCP tool',
+    '`mcp__mermaid__add_session_todo` (title = the finding, description = detail + where + why it',
+    'matters) if that tool is available; if it is not, list the would-be todos as a section in the report.',
+    '',
+    'Then compose a REVIEW REPORT (markdown): what was reviewed (and the diff base you used), the',
+    'per-decision check results, and each finding with enough detail to act on.',
+    'End your reply with EXACTLY one line, nothing after it:',
+    '`VERDICT: PASS`  (the change-set fully satisfies the spec — no material gaps)',
+    '`VERDICT: FAIL — <one-line summary>`  (material gaps exist; they are filed as todos above)',
+    'OUTPUT the COMPLETE report markdown (ending with that VERDICT line) as your FINAL reply',
+    'message, verbatim — that final message IS the deliverable the executor commits.',
+  ].join('\n');
+}
+
 /** A unit of wave work — a single task (research) or a single file
  *  (wimplement/verify/fix). */
 export interface WaveTarget {
@@ -648,13 +705,19 @@ export function shouldUseFloor(m: LeafSizeManifest | null): boolean {
 
 /** Which EXECUTION SHAPE a leaf runs (epic f5c7fc46). 'code' (default) is the proven
  *  blueprint→implement/waves→tsc-review AUTHORING pipeline; 'verify' is the non-code
- *  dogfood pipeline (plan → deterministic driver verb → domain gate → committed report).
- *  Keyed off the leaf's `type`: a 'verify'/'cad-dogfood'/'dogfood' type → verify; else
- *  code. THIN dispatch, deliberately NOT a recipe registry (YAGNI — only two real shapes;
- *  see the recipe-space analysis in doc executor-recipe-registry-design). Pure. */
-export function leafExecutionMode(leaf: Todo): 'code' | 'verify' {
+ *  dogfood pipeline (plan → deterministic driver verb → domain gate → committed report);
+ *  'review' (epic d8ac1a18 dogfood) is a completeness review over an epic's union change-set
+ *  (one LLM judgment node → committed report → file gap todos). Both verify and review are
+ *  NON-AUTHORING shapes whose deliverable is a COMMITTED report (so they survive the
+ *  completion gate's work-committed re-verify, exactly like the code path's commit).
+ *  Keyed off the leaf's `type`: 'verify'/'cad-dogfood'/'dogfood' → verify; 'reviewer' →
+ *  review; else code. THIN dispatch, deliberately NOT a recipe registry (YAGNI — only a few
+ *  real shapes; see the recipe-space analysis in doc executor-recipe-registry-design). Pure. */
+export function leafExecutionMode(leaf: Todo): 'code' | 'verify' | 'review' {
   const t = (leaf.type ?? '').toLowerCase();
-  return t === 'verify' || t === 'cad-dogfood' || t === 'dogfood' ? 'verify' : 'code';
+  if (t === 'verify' || t === 'cad-dogfood' || t === 'dogfood') return 'verify';
+  if (t === 'reviewer') return 'review';
+  return 'code';
 }
 
 /** The verify pipeline's domain gate, made PLUGGABLE in L3 (epic f5c7fc46 e9ce8693). A gate
@@ -856,7 +919,7 @@ export async function runLeaf(
   const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0 };
   // Which execution path the last attempt took — recorded on the terminal record so a
   // run's shape (and which path a failure came from) is legible without re-deriving.
-  let pathTaken: 'floor' | 'waves' | null = null;
+  let pathTaken: 'floor' | 'waves' | 'review' | null = null;
 
   // Per-(project, node-kind) model + effort overrides, resolved once per run.
   // model  : per-kind override → NODE_PROFILE default.
@@ -1204,6 +1267,112 @@ export async function runLeaf(
    * command gate (e.g. pytest) compose into the findings. Spends 3–4 nodes through the
    * shared budget/runNode.
    */
+  /** SHARED REPORT TAIL for the non-authoring shapes (verify + review). The committed
+   *  report .md has already been written into the worktree; merge it onto the epic branch
+   *  (so the completion gate's work-committed re-verify sees committed work, exactly like
+   *  the code path), then propose acceptance and record the terminal outcome. `gateVerdict`
+   *  is informational telemetry — BOTH pass and fail ACCEPT (a finding is the deliverable,
+   *  filed as todos, not a rejection). Only a merge failure parks blocked. */
+  const finalizeReportLeaf = async (
+    gateVerdict: 'pass' | 'fail',
+    commitMessage: string,
+  ): Promise<LeafRunResult> => {
+    try {
+      await deps.mergeToEpic(sessionKey, epicId, commitMessage, leaf.id);
+    } catch (e) {
+      return parkBlocked(
+        `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
+        gateVerdict,
+      );
+    }
+    const g = await deps.complete(project, leaf.id, 'accepted');
+    const effective = g.effective ?? 'accepted';
+    const reason =
+      effective === 'pending' ? 'gate-pending'
+      : effective === 'rejected' ? 'gate-rejected'
+      : undefined;
+    recordOutcome(effective, gateVerdict, {
+      reason,
+      pendingReason: g.pendingReason,
+      gateReasons: g.gateReasons,
+    });
+    return {
+      outcome: effective,
+      attempts: state.attempt,
+      nodesSpent: state.nodesSpent,
+      ...(reason ? { reason } : {}),
+    };
+  };
+
+  /**
+   * REVIEW pipeline (epic d8ac1a18 dogfood): a single read-only LLM judgment node reviews
+   * the epic's UNION change-set (git diff <epic-base>...HEAD) against the leaf's inlined spec,
+   * files one session-todo per gap, and emits the report markdown. The EXECUTOR writes +
+   * commits that report (docs/review/<id>.report.md) and merges it onto the epic branch —
+   * so the deliverable is a COMMITTED report that survives the work-committed re-verify, the
+   * same way verify does. The trailing `VERDICT:` line is the CONTENT GATE (re-arms the
+   * hallucination guard at the content layer): an empty report or one with no parseable
+   * verdict parks the leaf blocked. A FAIL verdict still ACCEPTS — gaps are the deliverable
+   * (filed as todos), not a rejection; the human reads the report before [LAND]. Single pass,
+   * one in-place retry on a failed node (mirrors the verify plan-node retry).
+   */
+  const runReviewPipeline = async (): Promise<LeafRunResult> => {
+    state.attempt = 1; // single pass (no fresh-worktree retry loop)
+    pathTaken = 'review';
+    const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+    const cwd = wt.path;
+    // The union change-set base: the epic branch was cut off master, so master..HEAD is the
+    // epic's accumulated work. The node is told to fall back if the ref doesn't resolve.
+    const baseRef = 'master';
+    // The review node needs add_session_todo (file gap todos) on top of the read-only set;
+    // NO Write (the executor commits the report — a node Write resolves to the project root).
+    const buildReviewSpec = (): NodeSpec => ({
+      prompt: buildReviewPrompt(leaf, baseRef),
+      model: nodeModel('review'),
+      effort: nodeEffort('review'),
+      allowedTools: `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`,
+      cwd,
+      leafId: leaf.id,
+      epicId,
+      permissionMode: 'bypassPermissions',
+      transcriptPath: leafTranscriptPath(project, leaf.id),
+      transcriptLabel: 'review',
+    });
+
+    let rev = await runNode('review', buildReviewSpec());
+    if (rev.rateLimited) return pausedResult('review', rev);
+    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    if (!rev.ok) {
+      rev = await runNode('review', buildReviewSpec());
+      if (rev.rateLimited) return pausedResult('review', rev);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    }
+    if (!rev.ok) return parkBlocked('review-node-failed');
+
+    // CONTENT GATE (Grok #3): a committed report would trivially pass the work-committed
+    // re-verify, so re-arm the hallucination guard HERE — the report must be non-empty AND
+    // end with a parseable VERDICT line, else the reviewer did no real work → park blocked.
+    const reportMd = (rev.text ?? '').trim();
+    if (!reportMd) return parkBlocked('review-report-empty');
+    if (!/^\s*VERDICT:\s*(PASS|FAIL)\b/im.test(stripSentinelFmt(reportMd))) {
+      return parkBlocked('review-report-no-verdict');
+    }
+    const verdict = parseVerdict(reportMd); // pass|fail — informational; BOTH accept.
+
+    // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
+    // node's new-file Write resolves to the project root, not the worktree, so it would never
+    // reach mergeToEpic.
+    try {
+      await deps.writeArtifact?.(cwd, reviewReportPath(leaf), reportMd);
+    } catch (e) {
+      return parkBlocked(
+        `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
+        verdict,
+      );
+    }
+    return finalizeReportLeaf(verdict, `review: ${leaf.title ?? leaf.id}`);
+  };
+
   const runVerifyPipeline = async (): Promise<LeafRunResult> => {
     state.attempt = 1; // single pass (no fresh-worktree retry loop) — telemetry shows attempts=1
     const cfg = (deps.resolveVerifyGate ?? resolveVerifyGate)(leaf); // L3: pluggable {verb, command}
@@ -1282,47 +1451,25 @@ export async function runLeaf(
     }
 
     // Overall verdict: clean ONLY if BOTH the verb gate passed AND no command-gate finding.
+    // COMMIT-SHAPED DELIVERABLE: the shared report tail merges the committed report onto the
+    // epic branch BEFORE proposing acceptance, exactly like the code path, so the gate's
+    // work-committed re-verify sees committed work. A failing DOMAIN gate is captured in the
+    // report + filed findings, not a rejected leaf.
     const gateVerdict: 'pass' | 'fail' = findings.length === 0 ? 'pass' : 'fail';
-
-    // COMMIT-SHAPED DELIVERABLE: merge the worktree (the committed report) onto the epic
-    // branch BEFORE proposing acceptance, exactly like the code path, so the gate's
-    // work-committed re-verify sees committed work. The verify leaf's success is "it verified
-    // and reported" — a failing DOMAIN gate is captured in the report + filed findings, not a
-    // rejected leaf.
-    try {
-      await deps.mergeToEpic(sessionKey, epicId, `verify: ${leaf.title ?? leaf.id}`, leaf.id);
-    } catch (e) {
-      return parkBlocked(
-        `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
-        gateVerdict,
-      );
-    }
-    const g = await deps.complete(project, leaf.id, 'accepted');
-    const effective = g.effective ?? 'accepted';
-    const reason =
-      effective === 'pending' ? 'gate-pending'
-      : effective === 'rejected' ? 'gate-rejected'
-      : undefined;
-    recordOutcome(effective, gateVerdict, {
-      reason,
-      pendingReason: g.pendingReason,
-      gateReasons: g.gateReasons,
-    });
-    return {
-      outcome: effective,
-      attempts: state.attempt,
-      nodesSpent: state.nodesSpent,
-      ...(reason ? { reason } : {}),
-    };
+    return finalizeReportLeaf(gateVerdict, `verify: ${leaf.title ?? leaf.id}`);
   };
 
-  // EXECUTION-MODE DISPATCH (epic f5c7fc46): a 'verify' leaf runs the non-code dogfood
-  // pipeline above (plan → deterministic build_assembly_plan → domain gate → committed
-  // report), NOT the code authoring loop below — force-fitting it into blueprint→implement→
-  // tsc is exactly the build123d T14 failure this epic fixes (vacuous "TSC: CLEAN" on a CAD
-  // task). L1 dispatched to a stub; L2 lands the real pipeline.
+  // EXECUTION-MODE DISPATCH. A 'verify' leaf (epic f5c7fc46) runs the non-code dogfood
+  // pipeline (plan → deterministic build_assembly_plan → domain gate → committed report);
+  // a 'review' leaf (epic d8ac1a18) runs the completeness-review pipeline (one judgment
+  // node over the epic union diff → committed report → gap todos). Both are NON-authoring
+  // shapes — force-fitting either into blueprint→implement→tsc is exactly the build123d T14
+  // failure (vacuous "TSC: CLEAN") and the reviewer-strands-the-epic failure this dispatch fixes.
   if (leafExecutionMode(leaf) === 'verify') {
     return runVerifyPipeline();
+  }
+  if (leafExecutionMode(leaf) === 'review') {
+    return runReviewPipeline();
   }
 
   // RESUME: SKIP-TO-GATE (slice 2). A prior (killed) run already committed this

@@ -499,6 +499,10 @@ describe('leafExecutionMode (epic f5c7fc46 — thin code/verify dispatch)', () =
     expect(leafExecutionMode(mk('cad-dogfood'))).toBe('verify');
     expect(leafExecutionMode(mk('Dogfood'))).toBe('verify');
   });
+  it("reviewer type → 'review' (epic d8ac1a18 — completeness-review shape)", () => {
+    expect(leafExecutionMode(mk('reviewer'))).toBe('review');
+    expect(leafExecutionMode(mk('Reviewer'))).toBe('review');
+  });
   it("everything else (incl. backend/ui/null) → 'code' (default, proven path)", () => {
     expect(leafExecutionMode(mk('backend'))).toBe('code');
     expect(leafExecutionMode(mk('ui'))).toBe('code');
