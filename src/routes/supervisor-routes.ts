@@ -20,6 +20,7 @@ import {
   getWatchdogThreshold,
   setWatchdogThreshold,
   setEscalationRoute,
+  setEscalationOperatorGated,
 } from '../services/supervisor-store.ts';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
@@ -480,6 +481,32 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // POST /api/supervisor/escalation/:id/operator-gate — operator-gated "only you" mark.
+  // body {on}: setEscalationOperatorGated flips operatorGated AND forces routedTo='human'
+  // (deterministic outranking). Broadcasts escalation_created full-row for peer re-sort.
+  {
+    const gateMatch = url.pathname.match(/^\/api\/supervisor\/escalation\/([^/]+)\/operator-gate$/);
+    if (gateMatch && req.method === 'POST') {
+      try {
+        const id = decodeURIComponent(gateMatch[1]);
+        const { on } = (await req.json()) as { on?: boolean };
+        const esc = getEscalation(id);
+        if (!esc) return jsonError(`escalation not found: ${id}`, 404);
+        const updated = setEscalationOperatorGated(id, !!on);
+        if (updated) {
+          getWebSocketHandler()?.broadcast({
+            type: 'escalation_created',
+            project: updated.project, session: updated.session, kind: updated.kind,
+            id: updated.id, routedTo: updated.routedTo, escalation: updated,
+          });
+        }
+        return Response.json({ ok: true, escalation: updated });
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+  }
+
   if (url.pathname === '/api/supervisor/config' && req.method === 'GET') {
     const stored = getSupervisorConfig();
     if (stored) {
@@ -536,6 +563,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       }
       setWatchdogThreshold(project, thresholdPercent ?? null);
       return Response.json({
+        ok: true,
         project,
         thresholdPercent: getWatchdogThreshold(project),
         default: DEFAULT_WATCHDOG_CONFIG.thresholdPercent,
@@ -626,10 +654,9 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         return Response.json(await res.json());
       }
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mod: any = await import('../services/session-summary-loop.ts');
-        const summary = await mod.refreshSummaryNow(project, session, { force: true });
-        return Response.json({ ok: true, summary });
+        const { refreshSummaryNow } = await import('../services/session-summary-loop.ts');
+        const result = await refreshSummaryNow(project, session);
+        return Response.json(result);
       } catch {
         // Loop service not yet deployed → degrade, never error the Bridge.
         return Response.json({ ok: false, reason: 'summary loop unavailable', summary: null });
