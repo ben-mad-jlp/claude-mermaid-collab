@@ -21,6 +21,7 @@ import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
+import { runSessionSummaryTick } from './session-summary-loop.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
@@ -175,6 +176,9 @@ export interface TickDeps {
   /** All CONFIGURED projects + levels (the unwatched-auto-off sweep reads these so it also
    *  catches config-only entries never in the registry). Default: listOrchestratorProjects. */
   listConfigured?: () => Array<{ project: string; level: ReturnType<typeof getOrchestratorLevel> }>;
+  /** Structural heartbeat: tmux pane hashing + graded progressState for watched supervised
+   *  sessions. Global (not per-project) — runs once per tick. Default: runSessionSummaryTick. */
+  summary?: () => Promise<unknown>;
 }
 
 /** One tick: enumerate registered projects and dispatch passes per level. */
@@ -188,6 +192,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
   const listConfigured = deps.listConfigured ?? listOrchestratorProjects;
+  const summary = deps.summary ?? (() => runSessionSummaryTick({ watchedProjects }));
   const watched = watchedProjects();
 
   // Unwatched-auto-off sweep: force off EVERY configured project that isn't watched — so the
@@ -204,6 +209,15 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     }
   } catch (err) {
     console.warn('[orchestrator] unwatched-auto-off sweep failed:', err);
+  }
+
+  // Structural heartbeat: pane hashing + graded progressState for watched supervised
+  // sessions. Global (not per-project — listSupervised() returns all). Best-effort.
+  try {
+    currentPhase = 'summary';
+    await withPassTimeout(summary(), NOTIFY_PASS_TIMEOUT_MS, 'summary');
+  } catch (err) {
+    console.warn('[orchestrator] session summary tick failed:', err);
   }
 
   let projects: Array<{ path: string }>;

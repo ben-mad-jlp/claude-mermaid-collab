@@ -109,6 +109,9 @@ export type WSMessage =
   | { type: 'pair_mode_changed'; pairMode: boolean; project: string; session: string }
   | { type: 'supervisor_nudge'; project: string; session: string; serverId: string; text: string; sent: boolean }
   | { type: 'orchestrator_tick'; at: number }
+  | { type: 'session_summary_updated'; project: string; session: string;
+      progressState: 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
+      paneSeenAt: number; updatedAt: number }
   | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string; escalation?: unknown }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
   // Drive (level=drive) autonomous-decision narration — observational only, NOT

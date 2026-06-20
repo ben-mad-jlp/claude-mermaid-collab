@@ -84,12 +84,15 @@ export interface UIState {
   bridgeOpen: boolean;
   planOpen: boolean;
   specOpen: boolean;
+  zenMode: boolean;
   setBridgeOpen: (open: boolean) => void;
   setPlanOpen: (open: boolean) => void;
   setSpecOpen: (open: boolean) => void;
+  setZenMode: (open: boolean) => void;
   toggleBridge: () => void;
   togglePlan: () => void;
   toggleSpec: () => void;
+  toggleZenMode: () => void;
   paneOrder: PaneKey[];
   setPaneOrder: (order: PaneKey[]) => void;
 
@@ -255,12 +258,15 @@ export const useUIStore = create<UIState>()(
       bridgeOpen: true,
       planOpen: false,
       specOpen: false,
+      zenMode: false,
       setBridgeOpen: (open: boolean) => set({ bridgeOpen: open }),
       setPlanOpen: (open: boolean) => set({ planOpen: open }),
       setSpecOpen: (open: boolean) => set({ specOpen: open }),
+      setZenMode: (open: boolean) => set({ zenMode: open }),
       toggleBridge: () => set((s) => ({ bridgeOpen: !s.bridgeOpen })),
       togglePlan: () => set((s) => ({ planOpen: !s.planOpen })),
       toggleSpec: () => set((s) => ({ specOpen: !s.specOpen })),
+      toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })),
       paneOrder: [...ALL_PANE_KEYS],
       setPaneOrder: (order) => set({ paneOrder: order }),
 
@@ -348,6 +354,7 @@ export const useUIStore = create<UIState>()(
           proposedEditObserveMode: false,
           diffSideBySide: true,
           mode: 'studio',
+          zenMode: false,
           modeSplit: { studio: DEFAULT_EDITOR_SPLIT_POSITION, bridge: DEFAULT_EDITOR_SPLIT_POSITION, plan: DEFAULT_EDITOR_SPLIT_POSITION },
           sidebarSplitPosition: DEFAULT_SIDEBAR_POSITION,
           sessionPanelSplitPosition: DEFAULT_SESSION_PANEL_POSITION,
@@ -429,7 +436,11 @@ export const useUIStore = create<UIState>()(
           // 'plan' from the persisted pane order so the header has no Plan toggle.
           const old = persistedState as Record<string, unknown>;
           const prev = Array.isArray(old.paneOrder) ? (old.paneOrder as string[]) : [];
-          return { ...old, paneOrder: prev.filter((p) => p !== 'plan') } as UIState;
+          return {
+            ...old,
+            paneOrder: prev.filter((p) => p !== 'plan'),
+            zenMode: typeof (old as Record<string, unknown>).zenMode === 'boolean' ? (old as Record<string, unknown>).zenMode : false,
+          } as UIState;
         }
         return persistedState as UIState;
       },
