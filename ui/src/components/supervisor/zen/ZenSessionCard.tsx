@@ -146,7 +146,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       probe.style.cssText = [
         'position:absolute', 'visibility:hidden', 'pointer-events:none',
         `width:${bw}px`, 'word-break:break-word', 'white-space:normal',
-        'text-align:justify', `line-height:${txt.style.lineHeight || '1.5'}`,
+        'text-align:left', `line-height:${txt.style.lineHeight || '1.5'}`,
         `font-weight:${getComputedStyle(txt).fontWeight}`,
         `font-family:${getComputedStyle(txt).fontFamily}`,
       ].join(';');
@@ -183,7 +183,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       <span
         ref={txtRef}
         style={{ fontSize: `${fs}px` }}
-        className={`block w-full text-justify leading-[1.5] font-semibold break-words ${className ?? ''}`}
+        className={`block w-full text-left leading-[1.5] font-semibold break-words ${className ?? ''}`}
       >
         {text}
       </span>
@@ -300,7 +300,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           >
             {expanded ? (
               <div className="flex-1 min-h-0 overflow-auto py-1">
-                <p className="text-sm sm:text-base leading-snug text-gray-800 dark:text-gray-100 whitespace-pre-wrap text-justify">
+                <p className="text-sm sm:text-base leading-snug text-gray-800 dark:text-gray-100 whitespace-pre-wrap text-left">
                   {expandedText}
                 </p>
               </div>
