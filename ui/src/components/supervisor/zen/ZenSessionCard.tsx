@@ -146,7 +146,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       probe.style.cssText = [
         'position:absolute', 'visibility:hidden', 'pointer-events:none',
         `width:${bw}px`, 'word-break:break-word', 'white-space:normal',
-        'text-align:center', `line-height:${txt.style.lineHeight || '1.5'}`,
+        'text-align:justify', `line-height:${txt.style.lineHeight || '1.5'}`,
         `font-weight:${getComputedStyle(txt).fontWeight}`,
         `font-family:${getComputedStyle(txt).fontFamily}`,
       ].join(';');
@@ -183,7 +183,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       <span
         ref={txtRef}
         style={{ fontSize: `${fs}px` }}
-        className={`block w-full text-center leading-[1.5] font-semibold break-words ${className ?? ''}`}
+        className={`block w-full text-justify leading-[1.5] font-semibold break-words ${className ?? ''}`}
       >
         {text}
       </span>
@@ -286,7 +286,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
 
       {/* Body — the glance line grows (FitText) to fill the card; click to expand to the
           full paragraph(s), which render at a readable size and scroll if needed. */}
-      <div className={`flex-1 min-h-0 flex flex-col items-stretch text-center ${SZ.body}`}>
+      <div className={`flex-1 min-h-0 flex flex-col items-stretch ${SZ.body}`}>
         <span className="shrink-0 flex items-center justify-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
           <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
           {sessionName}
@@ -300,7 +300,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           >
             {expanded ? (
               <div className="flex-1 min-h-0 overflow-auto py-1">
-                <p className="text-sm sm:text-base leading-snug text-gray-800 dark:text-gray-100 whitespace-pre-wrap text-center">
+                <p className="text-sm sm:text-base leading-snug text-gray-800 dark:text-gray-100 whitespace-pre-wrap text-justify">
                   {expandedText}
                 </p>
               </div>
@@ -326,7 +326,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       {/* Question — only when the session is asking */}
       {hasQuestion && (
         <div className="px-6 pb-6 pt-2 border-t border-gray-100 dark:border-gray-700/60 flex flex-col items-center gap-3">
-          <p className={`${SZ.q} text-center text-gray-700 dark:text-gray-200 max-w-prose`}>{questionText}</p>
+          <p className={`${SZ.q} text-left text-gray-700 dark:text-gray-200 max-w-prose`}>{questionText}</p>
           <div className="flex flex-wrap items-center justify-center gap-2">
             {escOptions && escOptions.length > 0
               ? escOptions.map((opt) => {
