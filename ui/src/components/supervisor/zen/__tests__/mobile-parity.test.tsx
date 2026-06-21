@@ -192,12 +192,29 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
     expect(open).toBeDefined();
   });
 
-  it('Wheel toggle switches to the rotatable wheel layout', () => {
-    seedSession('wheelable');
+  it('expanding a card collapses any other expanded one (single-open accordion)', () => {
+    // Two sessions, both with a long paragraph (so each shows a "more" toggle).
+    const longPara = 'First sentence here. Second sentence with more detail to expand into.';
+    useSubscriptionStore.setState({
+      subscriptions: {
+        'srv1:/repo:a': subSess('a'),
+        'srv1:/repo:b': subSess('b'),
+      },
+      order: ['srv1:/repo:a', 'srv1:/repo:b'],
+    });
+    useSupervisorStore.setState({
+      sessionSummaries: {
+        '/repo::a': summary('a', { structured: { paragraph: longPara, status: 'working' } }),
+        '/repo::b': summary('b', { structured: { paragraph: longPara, status: 'working' } }),
+      },
+    });
     render(<ZenMode />);
-    expect(screen.queryByTestId('zen-wheel')).toBeNull(); // grid by default
-    fireEvent.click(screen.getByRole('button', { name: 'Wheel' }));
-    expect(screen.getByTestId('zen-wheel')).toBeInTheDocument();
+    const mores = screen.getAllByText('more');
+    expect(mores.length).toBe(2); // both collapsed
+    fireEvent.click(mores[0]); // expand A
+    expect(screen.getAllByText('more').length).toBe(1); // A expanded → shows "less"
+    fireEvent.click(screen.getAllByText('more')[0]); // expand B → A must collapse
+    expect(screen.getAllByText('more').length).toBe(1); // still exactly one expanded
   });
 
   it('exposes an Exit Zen button (tap-uniform)', () => {

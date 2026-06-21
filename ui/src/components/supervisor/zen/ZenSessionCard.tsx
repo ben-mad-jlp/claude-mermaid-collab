@@ -31,6 +31,13 @@ export interface ZenSessionCardProps {
   escalation?: Escalation | null;
   /** Current epoch ms (from parent's ticking clock) — drives the freshness tint. */
   now?: number;
+  /** Size tier — grows fonts/padding to fill space when few cards; shrinks others when
+   *  one is expanded (focus + context). Default 'sm'. */
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+  /** Controlled expand (single-open accordion owned by ZenMode). If onToggleExpand is
+   *  omitted the card falls back to its own local toggle. */
+  expanded?: boolean;
+  onToggleExpand?: () => void;
   onDecideEscalation: (serverId: string, id: string, optionId: string) => void;
   onAnswerPane: (serverId: string, project: string, session: string, value: string) => void;
   /** Bring this session up in the full collab UI (sets current session + exits Zen). */
@@ -120,11 +127,27 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   daemon,
   escalation,
   now = Date.now(),
+  size = 'sm',
+  expanded: expandedProp,
+  onToggleExpand,
   onDecideEscalation,
   onAnswerPane,
   onOpen,
 }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const controlled = onToggleExpand != null;
+  const expanded = controlled ? !!expandedProp : localExpanded;
+  const toggleExpand = () => (controlled ? onToggleExpand!() : setLocalExpanded((e) => !e));
+
+  // Size tier → fonts + padding. Grows to fill space (few cards) and shrinks the
+  // non-focused cards when one is expanded.
+  const SZ = {
+    xs: { body: 'px-3 py-2 gap-1', text: 'text-xs', q: 'text-xs', btn: 'px-2.5 py-1 text-xs' },
+    sm: { body: 'px-4 py-3 gap-1.5', text: 'text-sm', q: 'text-sm', btn: 'px-3 py-1.5 text-sm' },
+    md: { body: 'px-6 py-5 gap-2', text: 'text-base', q: 'text-base', btn: 'px-4 py-2 text-sm' },
+    lg: { body: 'px-8 py-8 gap-3', text: 'text-lg', q: 'text-lg', btn: 'px-5 py-2.5 text-base' },
+  }[size];
+
   const sessionName = session.split('/').pop() || session;
   const structured = summary?.structured;
   const paragraph = structured?.paragraph ?? summary?.summaryText ?? '';
@@ -185,7 +208,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} onOpen={onOpen} />
 
       {/* Body — one glance line; click to expand to the full paragraph(s) */}
-      <div className="px-5 py-4 flex flex-col items-center text-center gap-1.5 justify-center">
+      <div className={`flex flex-col items-center text-center justify-center ${SZ.body}`}>
         <span className="flex items-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
           <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
           {sessionName}
@@ -193,9 +216,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
         {paragraph ? (
           <button
             type="button"
-            onClick={() => hasMore && setExpanded((e) => !e)}
+            onClick={() => hasMore && toggleExpand()}
             title={hasMore ? (expanded ? 'Show less' : 'Show full description') : undefined}
-            className={`text-sm leading-snug text-gray-800 dark:text-gray-100 max-w-prose whitespace-pre-wrap text-center ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
+            className={`${SZ.text} leading-snug text-gray-800 dark:text-gray-100 max-w-prose whitespace-pre-wrap text-center ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
           >
             {expanded ? paragraph : firstSentence}
             {hasMore && (
@@ -205,7 +228,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             )}
           </button>
         ) : (
-          <p className="text-sm italic text-gray-400 dark:text-gray-500">No summary yet · {meta.label}</p>
+          <p className={`${SZ.text} italic text-gray-400 dark:text-gray-500`}>No summary yet · {meta.label}</p>
         )}
         {updatedAgo && (
           <span className="text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
@@ -215,7 +238,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       {/* Question — only when the session is asking */}
       {hasQuestion && (
         <div className="px-6 pb-6 pt-2 border-t border-gray-100 dark:border-gray-700/60 flex flex-col items-center gap-3">
-          <p className="text-sm text-center text-gray-700 dark:text-gray-200 max-w-prose">{questionText}</p>
+          <p className={`${SZ.q} text-center text-gray-700 dark:text-gray-200 max-w-prose`}>{questionText}</p>
           <div className="flex flex-wrap items-center justify-center gap-2">
             {escOptions && escOptions.length > 0
               ? escOptions.map((opt) => {
@@ -226,7 +249,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
                       type="button"
                       onClick={() => onDecideEscalation(serverId, escalation!.id, opt.id)}
                       title={opt.detail ?? opt.label}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
+                      className={`${SZ.btn} rounded-full font-medium transition-colors border ${
                         recommended
                           ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
                           : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
@@ -244,7 +267,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
                       key={i}
                       type="button"
                       onClick={() => onAnswerPane(serverId, project, session, opt.valueToSend)}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
+                      className={`${SZ.btn} rounded-full font-medium transition-colors border ${
                         recommended
                           ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
                           : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'

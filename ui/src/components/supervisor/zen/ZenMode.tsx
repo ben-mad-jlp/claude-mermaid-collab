@@ -6,7 +6,6 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { computePlanTotals, type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
-import { ZenWheel } from './ZenWheel';
 
 // ZenMode (redesign 2026-06-20) — the ENTIRE window is Zen: a calm vertical scroll
 // of one card per watched session. Each card is its project bar + a centered
@@ -40,8 +39,8 @@ export const ZenMode: React.FC = () => {
   const allSessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
 
-  // Layout: calm masonry grid (default) or a user-rotatable wheel to browse.
-  const [layout, setLayout] = useState<'grid' | 'wheel'>('grid');
+  // Which card is expanded (key = `serverId:project:session`). Only one at a time.
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   // Live-ticking clock so recency ordering refreshes (cheap; once a second).
   const [now, setNow] = useState(() => Date.now());
@@ -101,37 +100,30 @@ export const ZenMode: React.FC = () => {
     return decorated.sort((a, b) => (a.rank - b.rank) || (b.recency - a.recency));
   }, [order, subscriptions, sessionSummaries, openEscalations]);
 
+  // Density: with few cards, grow fonts/columns to fill the space; shrink as more pile
+  // in. When a card is expanded it takes the large tier and every other card drops to
+  // the smallest (focus + context) — only one is expanded at a time (expandedKey).
+  const n = cards.length;
+  const baseTier: 'xs' | 'sm' | 'md' | 'lg' = n <= 3 ? 'lg' : n <= 6 ? 'md' : n <= 12 ? 'sm' : 'xs';
+  const colWidth = expandedKey
+    ? '32rem'
+    : baseTier === 'lg' ? '34rem' : baseTier === 'md' ? '26rem' : baseTier === 'sm' ? '20rem' : '16rem';
+  const cardSize = (key: string): 'xs' | 'sm' | 'md' | 'lg' =>
+    expandedKey ? (key === expandedKey ? 'lg' : 'xs') : baseTier;
+
   return (
     <div className="flex flex-col h-screen min-h-0 bg-gray-50 dark:bg-gray-900">
-      {/* Minimal top strip — title + layout toggle + exit. Nothing else. */}
+      {/* Minimal top strip — title + exit. Nothing else. */}
       <div className="flex items-center justify-between px-5 py-2.5 shrink-0">
         <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wide">Zen</span>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-full bg-gray-200/70 dark:bg-gray-800 p-0.5 text-xs font-medium">
-            {(['grid', 'wheel'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setLayout(m)}
-                className={`px-2.5 py-0.5 rounded-full transition-colors ${
-                  layout === m
-                    ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400'
-                }`}
-              >
-                {m === 'grid' ? 'Grid' : 'Wheel'}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={toggleZenMode}
-            title="Exit Zen — back to the Bridge"
-            className="px-3 py-1 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-800 transition-colors"
-          >
-            ⤢ Exit Zen
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={toggleZenMode}
+          title="Exit Zen — back to the Bridge"
+          className="px-3 py-1 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-800 transition-colors"
+        >
+          ⤢ Exit Zen
+        </button>
       </div>
 
       {/* The cards — responsive grid, uses available space. */}
@@ -140,37 +132,34 @@ export const ZenMode: React.FC = () => {
           <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
             No watched sessions
           </div>
-        ) : layout === 'wheel' ? (
-          <ZenWheel
-            items={cards.map(({ s, summary, escalation }) => ({ s, summary, escalation }))}
-            now={now}
-            totalsByProject={totalsByProject}
-            daemonByProject={daemonByProject}
-            onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
-            onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
-            onOpen={openSession}
-          />
         ) : (
-          // Masonry: CSS columns pack compact cards tightly with no row gaps; cards flow
-          // down each ~20rem column then wrap (recency reads top→bottom, left→right).
-          <div className="columns-[20rem] gap-3 py-2">
-            {cards.map(({ s, summary, escalation }) => (
-              <div key={`${s.serverId}:${s.project}:${s.session}`} className="break-inside-avoid mb-3">
-                <ZenSessionCard
-                  project={s.project}
-                  session={s.session}
-                  serverId={s.serverId ?? 'local'}
-                  summary={summary}
-                  totals={totalsByProject[s.project]}
-                  daemon={daemonByProject[s.project]}
-                  escalation={escalation}
-                  now={now}
-                  onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
-                  onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
-                  onOpen={openSession}
-                />
-              </div>
-            ))}
+          // Masonry: CSS columns pack cards tightly with no row gaps; cards flow down
+          // each column then wrap (recency reads top→bottom, left→right). Column width
+          // grows when few cards / one is expanded, so the layout fills the space.
+          <div className="gap-3 py-2 transition-all" style={{ columnWidth: colWidth, columnGap: '0.75rem' }}>
+            {cards.map(({ s, summary, escalation }) => {
+              const key = `${s.serverId}:${s.project}:${s.session}`;
+              return (
+                <div key={key} className="break-inside-avoid mb-3">
+                  <ZenSessionCard
+                    project={s.project}
+                    session={s.session}
+                    serverId={s.serverId ?? 'local'}
+                    summary={summary}
+                    totals={totalsByProject[s.project]}
+                    daemon={daemonByProject[s.project]}
+                    escalation={escalation}
+                    now={now}
+                    size={cardSize(key)}
+                    expanded={expandedKey === key}
+                    onToggleExpand={() => setExpandedKey((k) => (k === key ? null : key))}
+                    onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
+                    onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
+                    onOpen={openSession}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
