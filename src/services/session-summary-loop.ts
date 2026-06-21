@@ -31,6 +31,9 @@
  */
 
 import { createHash } from 'crypto';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
 import { listSupervised } from './supervisor-store.js';
 import { getStatuses } from './session-status-store.js';
 import { tmuxBaseName } from './tmux-naming.js';
@@ -88,11 +91,51 @@ export interface SessionSummaryEntry {
 
 const cache = new Map<string, SessionSummaryEntry>();
 
+// --- Durable cache (survives restarts/deploys) ------------------------------------
+// The in-memory cache is wiped on every server restart, so a deploy blanked every Zen
+// card ("No summary yet") until the loop re-summarized. Persist the cache to disk and
+// reload it on first use so the interpreter paragraphs survive a restart. The loop still
+// re-derives the LIVE progressState on its next tick, so a stale wedged/active never
+// sticks. `transient` mutations (summaryInFlight) are dropped on save.
+const PERSIST_PATH = join(process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab'), 'session-summaries.json');
+let persistEnabled = true; // disabled by __resetSummaryState so tests never touch disk
+let cacheLoaded = false;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+function loadCacheOnce(): void {
+  if (cacheLoaded) return;
+  cacheLoaded = true;
+  if (!persistEnabled) return;
+  try {
+    const arr = JSON.parse(readFileSync(PERSIST_PATH, 'utf8')) as SessionSummaryEntry[];
+    for (const e of arr) {
+      if (e?.project && e?.session) cache.set(`${e.project}::${e.session}`, { ...e, summaryInFlight: false });
+    }
+  } catch {
+    /* no file yet / unreadable → start empty */
+  }
+}
+
+function scheduleSave(): void {
+  if (!persistEnabled || saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = undefined;
+    try {
+      mkdirSync(dirname(PERSIST_PATH), { recursive: true });
+      writeFileSync(PERSIST_PATH, JSON.stringify([...cache.values()]));
+    } catch {
+      /* best-effort persistence — never break the loop */
+    }
+  }, 1000);
+}
+
 export function getSessionSummary(project: string, session: string): SessionSummaryEntry | undefined {
+  loadCacheOnce();
   return cache.get(`${project}::${session}`);
 }
 
 export function listSessionSummaries(): SessionSummaryEntry[] {
+  loadCacheOnce();
   return [...cache.values()];
 }
 
@@ -103,6 +146,7 @@ export function listSessionSummaries(): SessionSummaryEntry[] {
  *  summary yet" for every idle session. Sent once to each new WS client on connect so it
  *  starts from the server's last-known state instead of empty. */
 export function snapshotSummaryMessages(): Array<Record<string, unknown>> {
+  loadCacheOnce(); // a client may connect before the first tick — hydrate from disk
   return listSessionSummaries().map((e) => ({
     type: 'session_summary_updated',
     project: e.project,
@@ -119,6 +163,10 @@ export function __resetSummaryState(): void {
   STALL_WINDOWS = DEFAULT_STALL_WINDOWS;
   WEDGE_WINDOWS = DEFAULT_WEDGE_WINDOWS;
   inFlightInterpreters.clear();
+  // Tests own the cache deterministically — never load from or write to disk.
+  persistEnabled = false;
+  cacheLoaded = true;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = undefined; }
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +421,7 @@ async function runInterpretAndEmit(args: {
     cur.refreshState = 'stale-failing';
   }
   cache.set(args.key, cur);
+  scheduleSave(); // persist the new interpreter paragraph so it survives a restart
   args.broadcast({
     type: 'session_summary_updated',
     project: args.project, session: args.session,
@@ -391,6 +440,7 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
   emitted: number;
   byState: Record<ProgressState, number>;
 }> {
+  loadCacheOnce(); // seed from disk on the first tick after a restart
   const listSessions = deps.listSessions ?? listSupervised;
   const watchedProjects = deps.watchedProjects ?? (() => new Set<string>());
   const capture = deps.capture ?? capturePaneLocal;
@@ -630,9 +680,11 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
   for (const key of cache.keys()) {
     if (!liveKeys.has(key)) {
       cache.delete(key);
+      scheduleSave();
     }
   }
 
+  scheduleSave(); // persist structural updates (paneSeenAt/progressState) once per tick
   return { scanned: sessions.length, emitted, byState };
 }
 
