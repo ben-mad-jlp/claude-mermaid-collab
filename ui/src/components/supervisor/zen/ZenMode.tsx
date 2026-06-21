@@ -119,7 +119,7 @@ export const ZenMode: React.FC = () => {
             No watched sessions
           </div>
         ) : (
-          <div className="grid gap-4 py-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 28rem), 1fr))' }}>
+          <div className="grid gap-3 py-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 20rem), 1fr))' }}>
             {cards.map(({ s, summary, escalation }) => (
               <ZenSessionCard
                 key={`${s.serverId}:${s.project}:${s.session}`}

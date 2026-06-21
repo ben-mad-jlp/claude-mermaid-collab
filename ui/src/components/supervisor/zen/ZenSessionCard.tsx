@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { SessionSummary, Escalation } from '@/stores/supervisorStore';
 import { type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
@@ -124,9 +124,19 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onAnswerPane,
   onOpen,
 }) => {
+  const [expanded, setExpanded] = useState(false);
   const sessionName = session.split('/').pop() || session;
   const structured = summary?.structured;
   const paragraph = structured?.paragraph ?? summary?.summaryText ?? '';
+  // Glance line: one sentence (the interpreter's first clause, else the first sentence of
+  // the paragraph). Click expands to the full paragraph(s) so cards stay compact.
+  const firstSentence = (() => {
+    const fc = summary?.firstClause?.trim();
+    if (fc) return fc;
+    const dot = paragraph.indexOf('. ');
+    return dot > 0 ? paragraph.slice(0, dot + 1) : paragraph;
+  })();
+  const hasMore = paragraph.length > firstSentence.length;
 
   // A question is live when the interpreter flags needs-input OR an open escalation
   // carries options. Options come from the escalation (decide) or the pane (answer).
@@ -174,16 +184,26 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     >
       <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} onOpen={onOpen} />
 
-      {/* Body — centered paragraph */}
-      <div className="px-6 py-8 flex flex-col items-center text-center gap-2 min-h-[7rem] justify-center">
+      {/* Body — one glance line; click to expand to the full paragraph(s) */}
+      <div className="px-5 py-4 flex flex-col items-center text-center gap-1.5 justify-center">
         <span className="flex items-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
           <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
           {sessionName}
         </span>
         {paragraph ? (
-          <p className="text-base leading-relaxed text-gray-800 dark:text-gray-100 max-w-prose whitespace-pre-wrap">
-            {paragraph}
-          </p>
+          <button
+            type="button"
+            onClick={() => hasMore && setExpanded((e) => !e)}
+            title={hasMore ? (expanded ? 'Show less' : 'Show full description') : undefined}
+            className={`text-sm leading-snug text-gray-800 dark:text-gray-100 max-w-prose whitespace-pre-wrap text-center ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
+          >
+            {expanded ? paragraph : firstSentence}
+            {hasMore && (
+              <span className="ml-1 text-3xs font-medium text-accent-600 dark:text-accent-400 align-baseline">
+                {expanded ? 'less' : 'more'}
+              </span>
+            )}
+          </button>
         ) : (
           <p className="text-sm italic text-gray-400 dark:text-gray-500">No summary yet · {meta.label}</p>
         )}
