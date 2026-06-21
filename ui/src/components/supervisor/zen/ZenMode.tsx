@@ -119,22 +119,26 @@ export const ZenMode: React.FC = () => {
             No watched sessions
           </div>
         ) : (
-          <div className="grid gap-3 py-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 20rem), 1fr))' }}>
+          {/* Masonry: CSS columns pack compact cards tightly with no row gaps. Cards
+              flow down each ~20rem column then wrap, so recency reads top→bottom,
+              left→right (newest at top-left). break-inside-avoid keeps a card whole. */}
+          <div className="columns-[20rem] gap-3 py-2">
             {cards.map(({ s, summary, escalation }) => (
-              <ZenSessionCard
-                key={`${s.serverId}:${s.project}:${s.session}`}
-                project={s.project}
-                session={s.session}
-                serverId={s.serverId ?? 'local'}
-                summary={summary}
-                totals={totalsByProject[s.project]}
-                daemon={daemonByProject[s.project]}
-                escalation={escalation}
-                now={now}
-                onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
-                onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
-                onOpen={openSession}
-              />
+              <div key={`${s.serverId}:${s.project}:${s.session}`} className="break-inside-avoid mb-3">
+                <ZenSessionCard
+                  project={s.project}
+                  session={s.session}
+                  serverId={s.serverId ?? 'local'}
+                  summary={summary}
+                  totals={totalsByProject[s.project]}
+                  daemon={daemonByProject[s.project]}
+                  escalation={escalation}
+                  now={now}
+                  onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
+                  onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
+                  onOpen={openSession}
+                />
+              </div>
             ))}
           </div>
         )}
