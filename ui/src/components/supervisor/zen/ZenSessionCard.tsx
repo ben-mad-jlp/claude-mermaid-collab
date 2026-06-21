@@ -223,16 +223,16 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
 
   const sessionName = session.split('/').pop() || session;
   const structured = summary?.structured;
-  const paragraph = structured?.paragraph ?? summary?.summaryText ?? '';
-  // Glance line: one sentence (the interpreter's first clause, else the first sentence of
-  // the paragraph). Click expands to the full paragraph(s) so cards stay compact.
-  const firstSentence = (() => {
-    const fc = summary?.firstClause?.trim();
-    if (fc) return fc;
-    const dot = paragraph.indexOf('. ');
-    return dot > 0 ? paragraph.slice(0, dot + 1) : paragraph;
+  const paragraph = (structured?.paragraph ?? summary?.summaryText ?? '').trim();
+  // Glance: the first TWO whole sentences taken from the FULL paragraph (NOT the server's
+  // `firstClause`, which is truncated mid-word — the source of the "…the Zen vie" cutoff).
+  // Falls back to the whole paragraph when it has no sentence punctuation. Click expands.
+  const glance = (() => {
+    const sentences = paragraph.match(/[^.!?]+[.!?]+(?:["')\]]+)?/g);
+    if (!sentences || sentences.length === 0) return paragraph;
+    return sentences.slice(0, 2).join(' ').trim();
   })();
-  const hasMore = paragraph.length > firstSentence.length;
+  const hasMore = glance.length < paragraph.length;
 
   // A question is live when the interpreter flags needs-input OR an open escalation
   // carries options. Options come from the escalation (decide) or the pane (answer).
@@ -301,7 +301,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
                 </p>
               </div>
             ) : (
-              <FitText text={firstSentence} className="text-gray-800 dark:text-gray-100" />
+              <FitText text={glance} className="text-gray-800 dark:text-gray-100" />
             )}
             {hasMore && (
               <span className="shrink-0 mt-1 text-3xs font-medium text-accent-600 dark:text-accent-400">

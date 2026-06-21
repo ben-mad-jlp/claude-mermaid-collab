@@ -194,7 +194,8 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
 
   it('expanding a card collapses any other expanded one (single-open accordion)', () => {
     // Two sessions, both with a long paragraph (so each shows a "more" toggle).
-    const longPara = 'First sentence here. Second sentence with more detail to expand into.';
+    // Three sentences so the 2-sentence glance still leaves a third → a "more" toggle.
+    const longPara = 'First sentence here. Second sentence with more detail. Third sentence to expand into.';
     useSubscriptionStore.setState({
       subscriptions: {
         'srv1:/repo:a': subSess('a'),
