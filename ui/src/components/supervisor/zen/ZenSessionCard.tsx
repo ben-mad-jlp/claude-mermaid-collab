@@ -118,10 +118,9 @@ function freshnessStyle(updatedAt: number | undefined, now: number): React.CSSPr
   return { boxShadow: `inset 0 0 0 9999px rgba(56, 189, 248, ${opacity}), ${baseShadow}` };
 }
 
-/** FitText — the custom layout piece: grows `text` to the LARGEST font that still fits
- *  its box in BOTH dimensions (binary search), re-fitting on resize. This is what makes
- *  the glance line fill a card instead of sitting small in a big empty box. Pure measure,
- *  no deps; degrades to the min size where ResizeObserver/layout is unavailable (tests). */
+/** FitText — grows `text` to the largest font that fits the box in both dimensions.
+ *  Measures in an off-screen absolute clone so the flex layout never shifts during the
+ *  binary search, then commits the winning size as inline style on the real span. */
 const FitText: React.FC<{ text: string; min?: number; max?: number; className?: string }> = ({
   text,
   min = 13,
@@ -140,22 +139,33 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       const bw = box.clientWidth;
       const bh = box.clientHeight;
       if (!bw || !bh) return;
-      let lo = min;
-      let hi = max;
-      let best = min;
+
+      // Measure in an absolute clone with a fixed width = box width, so the flex
+      // layout is never disturbed and scrollHeight reflects true wrapped text height.
+      const probe = document.createElement('span');
+      probe.style.cssText = [
+        'position:absolute', 'visibility:hidden', 'pointer-events:none',
+        `width:${bw}px`, 'word-break:break-word', 'white-space:normal',
+        'text-align:center', `line-height:${txt.style.lineHeight || '1.08'}`,
+        `font-weight:${getComputedStyle(txt).fontWeight}`,
+        `font-family:${getComputedStyle(txt).fontFamily}`,
+      ].join(';');
+      probe.textContent = text;
+      document.body.appendChild(probe);
+
+      let lo = min, hi = max, best = min;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        txt.style.fontSize = `${mid}px`;
-        // The span is block w-full, so the text WRAPS to the box width — the binding
-        // constraint is HEIGHT. That's what lets a short headline grow to fill a tall
-        // card. The +1/scrollWidth guard only catches a single word too wide to wrap.
-        if (txt.scrollHeight <= bh && txt.scrollWidth <= bw + 1) {
+        probe.style.fontSize = `${mid}px`;
+        if (probe.scrollHeight <= bh && probe.scrollWidth <= bw + 1) {
           best = mid;
           lo = mid + 1;
         } else {
           hi = mid - 1;
         }
       }
+      document.body.removeChild(probe);
+
       txt.style.fontSize = `${best}px`;
       setFs(best);
     };
