@@ -19,6 +19,40 @@ struct ZenOption: Codable, Equatable {
     let valueToSend: String
 }
 
+/// A structured escalation option (decide path): server-side id + label.
+struct EscOption: Codable, Equatable, Identifiable {
+    let id: String
+    let label: String
+    let detail: String?
+}
+
+/// An open escalation needing a human decision (from /api/supervisor/escalations + the
+/// `escalation_created` WS broadcast). Answered via POST …/decide { optionId }.
+struct Escalation: Codable, Equatable, Identifiable {
+    let id: String
+    let project: String
+    let session: String
+    let questionText: String
+    let status: String?
+    let options: [EscOption]?
+    let recommended: String?  // option id the worker recommends
+    var key: String { "\(project)::\(session)" }
+}
+
+/// Wrapper for GET /api/supervisor/escalations.
+struct EscalationsResponse: Codable { let escalations: [Escalation] }
+
+/// The `escalation_created` WS message carries the full escalation under `escalation`.
+struct EscalationCreatedMsg: Codable {
+    let type: String
+    let escalation: Escalation?
+}
+/// The `escalation_decided` / resolve WS messages identify the escalation by id.
+struct EscalationGoneMsg: Codable {
+    let type: String
+    let id: String?
+}
+
 /// One `session_summary_updated` message (also the hydrate snapshot shape).
 struct ZenSummary: Codable, Equatable, Identifiable {
     let type: String
