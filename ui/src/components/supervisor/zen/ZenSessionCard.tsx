@@ -125,7 +125,7 @@ function freshnessStyle(updatedAt: number | undefined, now: number): React.CSSPr
 const FitText: React.FC<{ text: string; min?: number; max?: number; className?: string }> = ({
   text,
   min = 13,
-  max = 56,
+  max = 300,
   className,
 }) => {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -146,14 +146,17 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
         txt.style.fontSize = `${mid}px`;
-        if (txt.scrollWidth <= bw && txt.scrollHeight <= bh) {
+        // The span is block w-full, so the text WRAPS to the box width — the binding
+        // constraint is HEIGHT. That's what lets a short headline grow to fill a tall
+        // card. The +1/scrollWidth guard only catches a single word too wide to wrap.
+        if (txt.scrollHeight <= bh && txt.scrollWidth <= bw + 1) {
           best = mid;
           lo = mid + 1;
         } else {
           hi = mid - 1;
         }
       }
-      txt.style.fontSize = '';
+      txt.style.fontSize = `${best}px`;
       setFs(best);
     };
     fit();
@@ -166,8 +169,12 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
   }, [text, min, max]);
 
   return (
-    <div ref={boxRef} className="w-full h-full flex items-center justify-center overflow-hidden">
-      <span ref={txtRef} style={{ fontSize: `${fs}px` }} className={`block leading-snug ${className ?? ''}`}>
+    <div ref={boxRef} className="flex-1 min-h-0 w-full flex flex-col justify-center overflow-hidden">
+      <span
+        ref={txtRef}
+        style={{ fontSize: `${fs}px` }}
+        className={`block w-full text-center leading-[1.08] font-semibold break-words ${className ?? ''}`}
+      >
         {text}
       </span>
     </div>
