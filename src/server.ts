@@ -9,6 +9,8 @@ import { existsSync } from 'fs';
 import { config } from './config';
 import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
 import { checkAuth } from './auth';
+import { handlePairRoutes } from './routes/pair-routes.js';
+import { migrateEnvAuthToken } from './services/config-file.js';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { writeLock, releaseLock, currentExePath, serverOwner } from './services/port-ownership';
 import { SERVER_VERSION } from './mcp/server';
@@ -505,6 +507,14 @@ const server = Bun.serve<WsData>({
       if (res) return res;
     }
 
+    // Phone pairing (loopback-only) + the gated auth liveness probe. Mounted
+    // before the catch-all; checkAuth already ran (pairing routes 403 non-loopback
+    // themselves; /api/auth/check is gated normally).
+    if (url.pathname === '/api/pair' || url.pathname === '/api/pair/rotate' || url.pathname === '/api/auth/check') {
+      const res = handlePairRoutes(req, url, server.requestIP(req)?.address);
+      if (res) return res;
+    }
+
     if (url.pathname.startsWith('/api/supervisor')) {
       const res = await handleSupervisorRoutes(req, url);
       if (res) return res;
@@ -746,6 +756,15 @@ if (MERMAID_IDLE_SHUTDOWN_MS > 0) {
     if (n === 0) armIdle(); else cancelIdle();
   });
   armIdle(); // cover startup gap before any client connects
+}
+
+// One-time auth-token migration: make config.json the single source of truth so a
+// later rotate (config write) isn't shadowed by a stale launch-time env var. Env is
+// only a bootstrap mechanism (design: zen-phone-pairing-design).
+{
+  const m = migrateEnvAuthToken();
+  if (m === 'migrated') console.log('🔑 Auth token migrated from env → config.json (config is now authoritative)');
+  else if (m === 'diverged') console.warn('🔑 MERMAID_AUTH_TOKEN env differs from config.json — using the config value (rotate to change it)');
 }
 
 console.log(`mermaid-collab listening on :${actualPort}, advertised as ${sessionId}`);

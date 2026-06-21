@@ -3,6 +3,8 @@
  *  IPv6 `::1`, and the IPv4-mapped-IPv6 form Bun reports on dual-stack listeners
  *  (`::ffff:127.0.0.1`). An `undefined` address (couldn't resolve the peer) is
  *  treated as NON-loopback — fail safe: require the token rather than exempt. */
+import { getAuthToken } from './services/config-file.ts';
+
 export function isLoopbackPeer(address: string | undefined | null): boolean {
   if (!address) return false;
   const a = address.toLowerCase();
@@ -37,7 +39,7 @@ export function isLoopbackPeer(address: string | undefined | null): boolean {
  * the full server (which runs Bun.serve and the jsdom renderer at import time).
  */
 export function checkAuth(req: Request, url: URL, peerAddress?: string | null): Response | null {
-  const token = process.env.MERMAID_AUTH_TOKEN ?? '';
+  const token = getAuthToken();
   if (!token) return null; // auth disabled — today's open-localhost behavior
   if (url.pathname === '/api/health' || url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return null;
   if (isLoopbackPeer(peerAddress)) return null; // desktop UI / local MCP — tokenless

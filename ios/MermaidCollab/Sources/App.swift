@@ -2,13 +2,21 @@ import SwiftUI
 
 @main
 struct MermaidCollabApp: App {
-    @StateObject private var store = ZenStore()
+    @StateObject private var app = AppModel()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(store)
-                .onAppear { store.start() }
+            Group {
+                if app.credentials == nil {
+                    PairingView()
+                } else {
+                    ContentView()
+                }
+            }
+            .environmentObject(app)
+            .environmentObject(app.store)
+            // mermaidcollab://pair?host=…&token=… from the desktop QR (scanned in Camera).
+            .onOpenURL { app.handle(url: $0) }
         }
     }
 }

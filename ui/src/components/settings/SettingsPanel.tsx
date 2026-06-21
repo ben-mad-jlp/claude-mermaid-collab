@@ -3,10 +3,11 @@ import { PermissionRulesEditor } from './PermissionRulesEditor';
 import { EnvVarsEditor } from './EnvVarsEditor';
 import { SecretsEditor } from './SecretsEditor';
 import { JudgmentLLMEditor } from './JudgmentLLMEditor';
+import { PhoneAccessEditor } from './PhoneAccessEditor';
 import { McpServersPanel } from '../mcp/McpServersPanel';
 import { AddMcpServerDialog } from '../mcp/AddMcpServerDialog';
 
-export type SettingsTab = 'permissions' | 'mcp' | 'env' | 'secrets' | 'policy';
+export type SettingsTab = 'permissions' | 'mcp' | 'env' | 'secrets' | 'phone' | 'policy';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -20,6 +21,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'mcp', label: 'MCP Servers' },
   { id: 'env', label: 'Env Vars' },
   { id: 'secrets', label: 'Secrets / API Keys' },
+  { id: 'phone', label: 'Phone access' },
   { id: 'policy', label: 'Managed Policy' },
 ];
 
@@ -114,6 +116,7 @@ export function SettingsPanel({ open, onClose, openTab, project }: SettingsPanel
               <SecretsEditor />
             </div>
           )}
+          {activeTab === 'phone' && <PhoneAccessEditor />}
           {activeTab === 'policy' && (
             <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
               Managed Policy — coming soon

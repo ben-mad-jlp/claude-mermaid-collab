@@ -13,9 +13,21 @@ final class ZenStore: ObservableObject {
     private var task: URLSessionWebSocketTask?
     private var closed = false
     /// Default host: the simulator shares the Mac's localhost → the sidecar on :9002.
-    /// (A real device over Tailscale will set this to the tailnet host + a bearer token.)
+    /// (A real device over Tailscale is configured with the tailnet host + bearer token.)
     var host = "localhost:9002"
     var token: String?
+
+    /// Fired when an authenticated HTTP call returns 401 (stale/rotated token).
+    /// AppModel hooks this to drop creds and show the PairingView (re-pair). The
+    /// WS upgrade 401 is opaque on URLSessionWebSocketTask, so re-pair is driven
+    /// off HTTP — we probe GET /api/auth/check on start + each reconnect.
+    var onUnauthorized: (() -> Void)?
+
+    /// Point the store at a paired sidecar (host:port + bearer token).
+    func configure(host: String, token: String) {
+        self.host = host
+        self.token = token
+    }
     private var wsURL: URL { URL(string: "ws://\(host)/ws")! }
     private func apiURL(_ path: String) -> URL { URL(string: "http://\(host)\(path)")! }
 
@@ -32,8 +44,19 @@ final class ZenStore: ObservableObject {
 
     func start() {
         closed = false
-        Task { await hydrateEscalations() }
+        Task {
+            // Validate creds first: a 401 here fires onUnauthorized → re-pair,
+            // instead of the WS silently looping on a bad token.
+            await verifyAuth()
+            await hydrateEscalations()
+        }
         connect()
+    }
+
+    /// Probe the gated liveness endpoint. A 401 means the token is stale/rotated
+    /// → onUnauthorized (handled inside `send`). 200/other = creds still valid.
+    func verifyAuth() async {
+        _ = await send(request("/api/auth/check"))
     }
 
     func stop() {
@@ -66,7 +89,12 @@ final class ZenStore: ObservableObject {
                 case .failure:
                     self.connected = false
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if !self.closed { self.connect() }
+                    if !self.closed {
+                        // A rotated token surfaces as an opaque WS upgrade failure;
+                        // probe HTTP so a 401 triggers re-pair instead of looping.
+                        await self.verifyAuth()
+                        if !self.closed { self.connect() }
+                    }
                 }
             }
         }
@@ -105,14 +133,26 @@ final class ZenStore: ObservableObject {
         return r
     }
 
-    func hydrateEscalations() async {
+    /// Single authenticated-HTTP path: returns the body on 2xx, nil otherwise.
+    /// A 401 (stale/rotated token) fires onUnauthorized → re-pair.
+    @discardableResult
+    private func send(_ req: URLRequest) async -> Data? {
         do {
-            let (data, _) = try await URLSession.shared.data(for: request("/api/supervisor/escalations?status=open"))
-            let resp = try JSONDecoder().decode(EscalationsResponse.self, from: data)
-            for e in resp.escalations { escalations[e.id] = e }
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            if let http = resp as? HTTPURLResponse, http.statusCode == 401 {
+                onUnauthorized?()
+                return nil
+            }
+            return data
         } catch {
-            // best-effort; WS escalation_created will still populate new ones
+            return nil
         }
+    }
+
+    func hydrateEscalations() async {
+        guard let data = await send(request("/api/supervisor/escalations?status=open")) else { return }
+        guard let resp = try? JSONDecoder().decode(EscalationsResponse.self, from: data) else { return }
+        for e in resp.escalations { escalations[e.id] = e }
     }
 
     // MARK: Actions
@@ -121,16 +161,14 @@ final class ZenStore: ObservableObject {
     func decide(_ escalationId: String, optionId: String) {
         escalations.removeValue(forKey: escalationId)
         Task {
-            _ = try? await URLSession.shared.data(
-                for: request("/api/supervisor/escalation/\(escalationId)/decide", method: "POST", body: ["optionId": optionId]))
+            await send(request("/api/supervisor/escalation/\(escalationId)/decide", method: "POST", body: ["optionId": optionId]))
         }
     }
 
     /// Answer a pane-derived question by nudging text into the session.
     func answer(project: String, session: String, text: String) {
         Task {
-            _ = try? await URLSession.shared.data(
-                for: request("/api/supervisor/nudge", method: "POST", body: ["project": project, "session": session, "text": text]))
+            await send(request("/api/supervisor/nudge", method: "POST", body: ["project": project, "session": session, "text": text]))
         }
     }
 }

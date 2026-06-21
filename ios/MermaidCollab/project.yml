@@ -24,6 +24,12 @@ targets:
         # Dev only: allow ws://localhost (cleartext) to the sidecar from the simulator.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        # Pairing deep link: the desktop "Phone access" QR encodes
+        # mermaidcollab://pair?host=…&token=… — scanning it in Camera opens the app.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.mermaidcollab.app.pair
+            CFBundleURLSchemes:
+              - mermaidcollab
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mermaidcollab.app

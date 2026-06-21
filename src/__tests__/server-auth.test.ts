@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { checkAuth, isLoopbackPeer } from '../auth.js';
+import { _resetConfigCache } from '../services/config-file.js';
 
-// checkAuth reads process.env.MERMAID_AUTH_TOKEN at call-time, so we just
-// set/restore the env per case — no module resets needed.
+// checkAuth now resolves the token config-FIRST (getAuthToken). Point the config
+// file at a non-existent path so these cases are hermetic — the token comes only
+// from the per-case env var, never a real ~/.mermaid-collab/config.json.
+const PRIOR_CONFIG_PATH = process.env.MERMAID_CONFIG_PATH;
 function reqWith(auth?: string): Request {
   const headers = new Headers();
   if (auth !== undefined) headers.set('authorization', auth);
@@ -12,10 +15,17 @@ const u = (p: string) => new URL(`http://x${p}`);
 
 describe('checkAuth', () => {
   const orig = process.env.MERMAID_AUTH_TOKEN;
-  beforeEach(() => delete process.env.MERMAID_AUTH_TOKEN);
+  beforeEach(() => {
+    delete process.env.MERMAID_AUTH_TOKEN;
+    process.env.MERMAID_CONFIG_PATH = '/tmp/mermaid-collab-test-nonexistent-config.json';
+    _resetConfigCache();
+  });
   afterEach(() => {
     if (orig === undefined) delete process.env.MERMAID_AUTH_TOKEN;
     else process.env.MERMAID_AUTH_TOKEN = orig;
+    if (PRIOR_CONFIG_PATH === undefined) delete process.env.MERMAID_CONFIG_PATH;
+    else process.env.MERMAID_CONFIG_PATH = PRIOR_CONFIG_PATH;
+    _resetConfigCache();
   });
 
   it('allows everything when no token is configured', () => {
