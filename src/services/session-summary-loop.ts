@@ -57,6 +57,8 @@ export type ProgressState = 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown
 
 export interface InterpreterStructured {
   paragraph: string;
+  /** A fuller summary shown on "more" — richer than the glance, not a restatement. */
+  detail?: string;
   status: 'working' | 'idle' | 'stuck' | 'needs-input';
   question?: string;
   options?: Array<{ label: string; valueToSend: string }>;
@@ -195,7 +197,7 @@ export function getSummaryThresholds(): { stallWindows: number; wedgeWindows: nu
 export const MIN_SUMMARY_INTERVAL_MS = 45_000;
 export const INTERPRETER_TIMEOUT_MS = 60_000;
 
-const INTERPRETER_SYSTEM = `You are a calm session interpreter. You are given the last ~100 lines of a terminal pane from one Claude Code worker session, and optionally a pending question it is asking. Describe the **state** of the session, NOT live action. Reply with ONE JSON object and nothing else: { "paragraph": string (3-5 sentences describing the STATE; if the pane is ambiguous say "unclear from the pane" rather than confabulate), "status": "working"|"idle"|"stuck"|"needs-input", "question"?: string (the verbatim or lightly paraphrased ask, only if it is waiting on a human), "options"?: [{"label": string, "valueToSend": string}], "recommended"?: integer (index into options) }. Never invent progress that is not visible in the pane.`;
+const INTERPRETER_SYSTEM = `You are a calm session interpreter. You are given the last ~100 lines of a terminal pane from one Claude Code worker session, and optionally a pending question it is asking. Describe the **state** of the session, NOT live action. Reply with ONE JSON object and nothing else: { "paragraph": string (the GLANCE — 1-2 short sentences, the single most important thing to know right now; if the pane is ambiguous say "unclear from the pane" rather than confabulate), "detail": string (a FULLER summary — 3-6 sentences giving the deeper context the glance omits: what led here, what was done, what is next or blocking. It must ADD information beyond the glance, NOT restate it), "status": "working"|"idle"|"stuck"|"needs-input", "question"?: string (the verbatim or lightly paraphrased ask, only if it is waiting on a human), "options"?: [{"label": string, "valueToSend": string}], "recommended"?: integer (index into options) }. Never invent progress that is not visible in the pane.`;
 
 // ---------------------------------------------------------------------------
 // In-flight interpreter tracking
@@ -305,6 +307,7 @@ function coerceStructured(raw: unknown): InterpreterStructured | null {
   const STATUSES = ['working', 'idle', 'stuck', 'needs-input'];
   if (!paragraph || typeof o.status !== 'string' || !STATUSES.includes(o.status)) return null;
   const out: InterpreterStructured = { paragraph, status: o.status as InterpreterStructured['status'] };
+  if (typeof o.detail === 'string' && o.detail.trim()) out.detail = o.detail.trim();
   if (typeof o.question === 'string' && o.question.trim()) out.question = o.question.trim();
   if (Array.isArray(o.options)) {
     const opts = o.options.filter((x): x is { label: string; valueToSend: string } =>

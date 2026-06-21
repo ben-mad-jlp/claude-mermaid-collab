@@ -237,6 +237,8 @@ export type ProgressState = 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown
 
 export interface ZenStructured {
   paragraph: string;
+  /** Fuller summary shown on "more" — richer than the glance paragraph, not a restatement. */
+  detail?: string;
   status: 'working' | 'idle' | 'stuck' | 'needs-input';
   question?: string;
   options?: Array<{ label: string; valueToSend: string }>;

@@ -232,7 +232,11 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     if (!sentences || sentences.length === 0) return paragraph;
     return sentences.slice(0, 2).join(' ').trim();
   })();
-  const hasMore = glance.length < paragraph.length;
+  // "more" reveals the LARGER summary: the interpreter's richer `detail` (distinct from the
+  // glance), falling back to the full paragraph for entries summarized before `detail` existed.
+  const detail = structured?.detail?.trim() ?? '';
+  const expandedText = detail || paragraph;
+  const hasMore = expandedText.length > glance.length;
 
   // A question is live when the interpreter flags needs-input OR an open escalation
   // carries options. Options come from the escalation (decide) or the pane (answer).
@@ -297,7 +301,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             {expanded ? (
               <div className="flex-1 min-h-0 overflow-auto py-1">
                 <p className="text-sm sm:text-base leading-snug text-gray-800 dark:text-gray-100 whitespace-pre-wrap text-center">
-                  {paragraph}
+                  {expandedText}
                 </p>
               </div>
             ) : (
