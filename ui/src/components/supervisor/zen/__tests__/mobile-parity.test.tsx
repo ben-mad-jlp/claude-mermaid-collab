@@ -3,7 +3,7 @@
 // This file is self-contained and robust to sibling Z9 implementation timing —
 // it only imports symbols confirmed to exist at blueprint authoring time.
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -190,6 +190,14 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
     render(<ZenMode />);
     const open = screen.getAllByRole('button').find((b) => /Open/.test(b.textContent || ''));
     expect(open).toBeDefined();
+  });
+
+  it('Wheel toggle switches to the rotatable wheel layout', () => {
+    seedSession('wheelable');
+    render(<ZenMode />);
+    expect(screen.queryByTestId('zen-wheel')).toBeNull(); // grid by default
+    fireEvent.click(screen.getByRole('button', { name: 'Wheel' }));
+    expect(screen.getByTestId('zen-wheel')).toBeInTheDocument();
   });
 
   it('exposes an Exit Zen button (tap-uniform)', () => {
