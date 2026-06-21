@@ -119,9 +119,8 @@ export const ZenMode: React.FC = () => {
             No watched sessions
           </div>
         ) : (
-          {/* Masonry: CSS columns pack compact cards tightly with no row gaps. Cards
-              flow down each ~20rem column then wrap, so recency reads top→bottom,
-              left→right (newest at top-left). break-inside-avoid keeps a card whole. */}
+          // Masonry: CSS columns pack compact cards tightly with no row gaps; cards flow
+          // down each ~20rem column then wrap (recency reads top→bottom, left→right).
           <div className="columns-[20rem] gap-3 py-2">
             {cards.map(({ s, summary, escalation }) => (
               <div key={`${s.serverId}:${s.project}:${s.session}`} className="break-inside-avoid mb-3">
