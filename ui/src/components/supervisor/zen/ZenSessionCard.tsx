@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
 import type { SessionSummary, Escalation } from '@/stores/supervisorStore';
 import { type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
@@ -118,6 +118,62 @@ function freshnessStyle(updatedAt: number | undefined, now: number): React.CSSPr
   return { boxShadow: `inset 0 0 0 9999px rgba(56, 189, 248, ${opacity}), ${baseShadow}` };
 }
 
+/** FitText — the custom layout piece: grows `text` to the LARGEST font that still fits
+ *  its box in BOTH dimensions (binary search), re-fitting on resize. This is what makes
+ *  the glance line fill a card instead of sitting small in a big empty box. Pure measure,
+ *  no deps; degrades to the min size where ResizeObserver/layout is unavailable (tests). */
+const FitText: React.FC<{ text: string; min?: number; max?: number; className?: string }> = ({
+  text,
+  min = 13,
+  max = 56,
+  className,
+}) => {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const txtRef = useRef<HTMLSpanElement>(null);
+  const [fs, setFs] = useState(min);
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const txt = txtRef.current;
+    if (!box || !txt) return;
+    const fit = () => {
+      const bw = box.clientWidth;
+      const bh = box.clientHeight;
+      if (!bw || !bh) return;
+      let lo = min;
+      let hi = max;
+      let best = min;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        txt.style.fontSize = `${mid}px`;
+        if (txt.scrollWidth <= bw && txt.scrollHeight <= bh) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      txt.style.fontSize = '';
+      setFs(best);
+    };
+    fit();
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(fit);
+      ro.observe(box);
+    }
+    return () => ro?.disconnect();
+  }, [text, min, max]);
+
+  return (
+    <div ref={boxRef} className="w-full h-full flex items-center justify-center overflow-hidden">
+      <span ref={txtRef} style={{ fontSize: `${fs}px` }} className={`block leading-snug ${className ?? ''}`}>
+        {text}
+      </span>
+    </div>
+  );
+};
+
 export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   project,
   session,
@@ -207,9 +263,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     >
       <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} onOpen={onOpen} />
 
-      {/* Body — one glance line; click to expand to the full paragraph(s) */}
-      <div className={`flex-1 flex flex-col items-center text-center justify-center ${SZ.body}`}>
-        <span className="flex items-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+      {/* Body — the glance line grows (FitText) to fill the card; click to expand to the
+          full paragraph(s), which render at a readable size and scroll if needed. */}
+      <div className={`flex-1 min-h-0 flex flex-col items-stretch text-center ${SZ.body}`}>
+        <span className="shrink-0 flex items-center justify-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
           <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
           {sessionName}
         </span>
@@ -218,20 +275,30 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             type="button"
             onClick={() => hasMore && toggleExpand()}
             title={hasMore ? (expanded ? 'Show less' : 'Show full description') : undefined}
-            className={`${SZ.text} leading-snug text-gray-800 dark:text-gray-100 max-w-prose whitespace-pre-wrap text-center ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
+            className={`flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
           >
-            {expanded ? paragraph : firstSentence}
+            {expanded ? (
+              <div className="flex-1 min-h-0 overflow-auto py-1">
+                <p className="text-sm sm:text-base leading-snug text-gray-800 dark:text-gray-100 whitespace-pre-wrap text-center">
+                  {paragraph}
+                </p>
+              </div>
+            ) : (
+              <FitText text={firstSentence} className="text-gray-800 dark:text-gray-100" />
+            )}
             {hasMore && (
-              <span className="ml-1 text-3xs font-medium text-accent-600 dark:text-accent-400 align-baseline">
+              <span className="shrink-0 mt-1 text-3xs font-medium text-accent-600 dark:text-accent-400">
                 {expanded ? 'less' : 'more'}
               </span>
             )}
           </button>
         ) : (
-          <p className={`${SZ.text} italic text-gray-400 dark:text-gray-500`}>No summary yet · {meta.label}</p>
+          <div className="flex-1 min-h-0">
+            <FitText text="No summary yet" min={12} max={26} className="italic text-gray-400 dark:text-gray-500" />
+          </div>
         )}
         {updatedAgo && (
-          <span className="text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
+          <span className="shrink-0 mt-1 text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
         )}
       </div>
 
