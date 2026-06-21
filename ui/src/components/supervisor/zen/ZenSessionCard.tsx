@@ -199,7 +199,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     <div
       data-testid="zen-session-card"
       style={tintStyle}
-      className={`w-full rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors ${
+      className={`w-full h-full flex flex-col rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors ${
         hasQuestion
           ? 'border-warning-300 dark:border-warning-700/70 ring-1 ring-warning-200 dark:ring-warning-900/40'
           : 'border-gray-200 dark:border-gray-700'
@@ -208,7 +208,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} onOpen={onOpen} />
 
       {/* Body — one glance line; click to expand to the full paragraph(s) */}
-      <div className={`flex flex-col items-center text-center justify-center ${SZ.body}`}>
+      <div className={`flex-1 flex flex-col items-center text-center justify-center ${SZ.body}`}>
         <span className="flex items-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
           <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
           {sessionName}

@@ -105,7 +105,8 @@ export const ZenMode: React.FC = () => {
   // the smallest (focus + context) — only one is expanded at a time (expandedKey).
   const n = cards.length;
   const baseTier: 'xs' | 'sm' | 'md' | 'lg' = n <= 3 ? 'lg' : n <= 6 ? 'md' : n <= 12 ? 'sm' : 'xs';
-  const colWidth = expandedKey
+  // Minimum column width — wider for fewer cards so the grid fills horizontal space.
+  const minColWidth = expandedKey
     ? '32rem'
     : baseTier === 'lg' ? '34rem' : baseTier === 'md' ? '26rem' : baseTier === 'sm' ? '20rem' : '16rem';
   const cardSize = (key: string): 'xs' | 'sm' | 'md' | 'lg' =>
@@ -126,21 +127,26 @@ export const ZenMode: React.FC = () => {
         </button>
       </div>
 
-      {/* The cards — responsive grid, uses available space. */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-10">
+      {/* The cards — CSS grid that fills the full height, rows stretch to share space. */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
         {cards.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
             No watched sessions
           </div>
         ) : (
-          // Masonry: CSS columns pack cards tightly with no row gaps; cards flow down
-          // each column then wrap (recency reads top→bottom, left→right). Column width
-          // grows when few cards / one is expanded, so the layout fills the space.
-          <div className="gap-3 py-2 transition-all" style={{ columnWidth: colWidth, columnGap: '0.75rem' }}>
+          // Grid: auto-fill columns of minColWidth, rows divide height equally (1fr) so
+          // cards fill the screen instead of bunching at the top.
+          <div
+            className="h-full grid gap-3 py-2 transition-all"
+            style={{
+              gridTemplateColumns: `repeat(auto-fill, minmax(${minColWidth}, 1fr))`,
+              gridAutoRows: '1fr',
+            }}
+          >
             {cards.map(({ s, summary, escalation }) => {
               const key = `${s.serverId}:${s.project}:${s.session}`;
               return (
-                <div key={key} className="break-inside-avoid mb-3">
+                <div key={key} className="min-h-0 h-full">
                   <ZenSessionCard
                     project={s.project}
                     session={s.session}
