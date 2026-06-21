@@ -146,7 +146,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       probe.style.cssText = [
         'position:absolute', 'visibility:hidden', 'pointer-events:none',
         `width:${bw}px`, 'word-break:break-word', 'white-space:normal',
-        'text-align:center', `line-height:${txt.style.lineHeight || '1.08'}`,
+        'text-align:center', `line-height:${txt.style.lineHeight || '1.5'}`,
         `font-weight:${getComputedStyle(txt).fontWeight}`,
         `font-family:${getComputedStyle(txt).fontFamily}`,
       ].join(';');
@@ -183,7 +183,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       <span
         ref={txtRef}
         style={{ fontSize: `${fs}px` }}
-        className={`block w-full text-center leading-[1.08] font-semibold break-words ${className ?? ''}`}
+        className={`block w-full text-center leading-[1.5] font-semibold break-words ${className ?? ''}`}
       >
         {text}
       </span>
@@ -215,10 +215,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // Size tier → fonts + padding. Grows to fill space (few cards) and shrinks the
   // non-focused cards when one is expanded.
   const SZ = {
-    xs: { body: 'px-3 py-2 gap-1', text: 'text-xs', q: 'text-xs', btn: 'px-2.5 py-1 text-xs' },
-    sm: { body: 'px-4 py-3 gap-1.5', text: 'text-sm', q: 'text-sm', btn: 'px-3 py-1.5 text-sm' },
-    md: { body: 'px-6 py-5 gap-2', text: 'text-base', q: 'text-base', btn: 'px-4 py-2 text-sm' },
-    lg: { body: 'px-8 py-8 gap-3', text: 'text-lg', q: 'text-lg', btn: 'px-5 py-2.5 text-base' },
+    xs: { body: 'px-4 py-3 gap-2', text: 'text-xs', q: 'text-xs', btn: 'px-2.5 py-1 text-xs' },
+    sm: { body: 'px-5 py-4 gap-2.5', text: 'text-sm', q: 'text-sm', btn: 'px-3 py-1.5 text-sm' },
+    md: { body: 'px-8 py-7 gap-3', text: 'text-base', q: 'text-base', btn: 'px-4 py-2 text-sm' },
+    lg: { body: 'px-10 py-10 gap-4', text: 'text-lg', q: 'text-lg', btn: 'px-5 py-2.5 text-base' },
   }[size];
 
   const sessionName = session.split('/').pop() || session;
