@@ -112,14 +112,14 @@ export const ZenMode: React.FC = () => {
         </button>
       </div>
 
-      {/* The cards — calm vertical scroll, one per session. */}
+      {/* The cards — responsive grid, uses available space. */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-10">
         {cards.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
             No watched sessions
           </div>
         ) : (
-          <div className="flex flex-col gap-4 py-2">
+          <div className="grid gap-4 py-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 28rem), 1fr))' }}>
             {cards.map(({ s, summary, escalation }) => (
               <ZenSessionCard
                 key={`${s.serverId}:${s.project}:${s.session}`}
@@ -130,6 +130,7 @@ export const ZenMode: React.FC = () => {
                 totals={totalsByProject[s.project]}
                 daemon={daemonByProject[s.project]}
                 escalation={escalation}
+                now={now}
                 onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
                 onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
                 onOpen={openSession}

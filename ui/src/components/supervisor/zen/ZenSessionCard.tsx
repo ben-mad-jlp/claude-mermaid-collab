@@ -29,6 +29,8 @@ export interface ZenSessionCardProps {
   daemon?: DaemonTotals;
   /** Open escalation for THIS session, if any (structured options → decide). */
   escalation?: Escalation | null;
+  /** Current epoch ms (from parent's ticking clock) — drives the freshness tint. */
+  now?: number;
   onDecideEscalation: (serverId: string, id: string, optionId: string) => void;
   onAnswerPane: (serverId: string, project: string, session: string, value: string) => void;
   /** Bring this session up in the full collab UI (sets current session + exits Zen). */
@@ -91,6 +93,24 @@ const ProjectBar: React.FC<{
   );
 };
 
+/** Freshness wash for a recently-updated card: a soft light-blue tint laid OVER the
+ *  card's real surface (an inset box-shadow, NOT a background — so it doesn't replace
+ *  bg-white/dark:bg-gray-800 and make the card translucent). Full strength ≤ 2 min,
+ *  linearly fading to nothing at 20 min, so a fresh update is obvious but never jarring.
+ *  Works in both themes (a wash over white reads light-blue; over gray-800 reads a touch
+ *  lighter). The base drop shadow is preserved so the card keeps its elevation. */
+function freshnessStyle(updatedAt: number | undefined, now: number): React.CSSProperties {
+  const baseShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+  if (!updatedAt) return { boxShadow: baseShadow };
+  const ageMs = now - updatedAt;
+  const FULL_MS = 2 * 60_000;
+  const FADE_MS = 20 * 60_000;
+  if (ageMs >= FADE_MS) return { boxShadow: baseShadow };
+  const t = Math.min(1, Math.max(0, (FADE_MS - ageMs) / (FADE_MS - FULL_MS)));
+  const opacity = (t * 0.14).toFixed(3); // max 14% wash — visible but calm
+  return { boxShadow: `inset 0 0 0 9999px rgba(56, 189, 248, ${opacity}), ${baseShadow}` };
+}
+
 export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   project,
   session,
@@ -99,6 +119,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   totals,
   daemon,
   escalation,
+  now = Date.now(),
   onDecideEscalation,
   onAnswerPane,
   onOpen,
@@ -135,14 +156,17 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const updatedAgo = (() => {
     const ts = summary?.summaryUpdatedAt;
     if (!ts) return null;
-    const mins = Math.max(0, Math.floor((Date.now() - ts) / 60_000));
+    const mins = Math.max(0, Math.floor((now - ts) / 60_000));
     return mins === 0 ? 'just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
   })();
+
+  const tintStyle = freshnessStyle(summary?.summaryUpdatedAt, now);
 
   return (
     <div
       data-testid="zen-session-card"
-      className={`w-full max-w-2xl mx-auto rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow ${
+      style={tintStyle}
+      className={`w-full rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors ${
         hasQuestion
           ? 'border-warning-300 dark:border-warning-700/70 ring-1 ring-warning-200 dark:ring-warning-900/40'
           : 'border-gray-200 dark:border-gray-700'
