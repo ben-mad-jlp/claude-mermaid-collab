@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { id8, startLeafDirective, type PulseStage, type NextUp } from '@/lib/zenPulse';
 
 // The Pulse footer line (design doc design-zen-spark-work). Absorbs the plain
@@ -24,8 +24,18 @@ interface ZenPulseLineProps {
 export const ZenPulseLine: React.FC<ZenPulseLineProps> = ({ stage, nextUp, aiOption, action, onSend, onDismiss }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const glowing = stage === 'glowing';
   const armed = stage === 'warm' || stage === 'glowing';
+
+  // Auto-grow the free-text floor so the full reply stays visible instead of
+  // scrolling off a one-line input. Re-measure on every value change.
+  useEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draft, open, armed]);
 
   // After a tap, show the same calm confirmation the question UI uses.
   if (action && action.kind !== 'error') {
@@ -103,12 +113,14 @@ export const ZenPulseLine: React.FC<ZenPulseLineProps> = ({ stage, nextUp, aiOpt
       {/* Free-text floor — always reachable at warm+, or on tapping the whisper. The
           confabulation fence: the human always has the floor, the model never has to invent. */}
       {(open || armed) && (
-        <input
+        <textarea
+          ref={taRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
           placeholder="tell me what's next…"
-          className="w-full px-2 py-1 text-3xs rounded-md bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-violet-300 dark:focus:ring-violet-700"
+          rows={1}
+          className="w-full px-2 py-1 text-3xs rounded-md bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-violet-300 dark:focus:ring-violet-700 resize-none overflow-hidden leading-relaxed"
         />
       )}
     </div>
