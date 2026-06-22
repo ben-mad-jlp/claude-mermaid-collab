@@ -20,10 +20,10 @@ export interface SessionParagraphCardProps {
 }
 
 const STATUS_PILL: Record<ZenStructured['status'], { dot: string; text: string; label: string }> = {
-  working:       { dot: 'bg-success-500', text: 'text-success-700 dark:text-success-400', label: 'working' },
-  idle:          { dot: 'bg-gray-400',    text: 'text-gray-500 dark:text-gray-400',       label: 'idle' },
-  stuck:         { dot: 'bg-danger-500',  text: 'text-danger-700 dark:text-danger-400',   label: 'stuck' },
-  'needs-input': { dot: 'bg-warning-500', text: 'text-warning-700 dark:text-warning-400', label: 'needs input' },
+  working:       { dot: 'bg-amber-400 dark:bg-amber-500',   text: 'text-amber-600 dark:text-amber-400',   label: 'working' },
+  idle:          { dot: 'bg-emerald-400 dark:bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', label: 'done' },
+  stuck:         { dot: 'bg-rose-400 dark:bg-rose-500',     text: 'text-rose-600 dark:text-rose-400',     label: 'stuck' },
+  'needs-input': { dot: 'bg-rose-400 dark:bg-rose-500',     text: 'text-rose-600 dark:text-rose-400',     label: 'needs input' },
 };
 
 const THRESH_MIN = 50;
@@ -197,6 +197,7 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
       {/* Header row */}
       <div className="flex items-center gap-2">
         <span className="font-medium text-gray-700 dark:text-gray-300 truncate flex-1 min-w-0 text-sm">
+          <span className="text-gray-400 dark:text-gray-500 font-normal">{summary.project} /</span>{' '}
           {sessionName}
         </span>
         {/* Dual indicator: structural status dot + freshness pulse */}
@@ -230,16 +231,18 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
 
       {/* Paragraph (ALWAYS visible) */}
       {paragraphText ? (
-        <div className="text-sm leading-snug whitespace-pre-wrap">
+        <div className="text-sm leading-snug space-y-1">
           {firstClauseText ? (
             <>
-              <span className="font-medium text-gray-900 dark:text-gray-100">{firstClauseText}</span>
-              {remainder && (
-                <span className="text-gray-600 dark:text-gray-300"> {remainder}</span>
-              )}
+              <div className="font-medium text-gray-900 dark:text-gray-100">{firstClauseText}</div>
+              {remainder && remainder.split(/(?<=\.)\s+/).map((s, i) => (
+                <div key={i} className="text-gray-600 dark:text-gray-300">{s}</div>
+              ))}
             </>
           ) : (
-            <span className="text-gray-600 dark:text-gray-300">{paragraphText}</span>
+            paragraphText.split(/(?<=\.)\s+/).map((s, i) => (
+              <div key={i} className={i === 0 ? 'font-medium text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-300'}>{s}</div>
+            ))
           )}
         </div>
       ) : null}
