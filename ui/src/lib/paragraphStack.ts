@@ -11,6 +11,7 @@ export interface ZenStructured {
   options?: Array<{ label: string; valueToSend: string }>;
   recommended?: number;
   multiSelect?: boolean;
+  suggestedAnswers?: string[];
 }
 
 export interface SessionSummary {

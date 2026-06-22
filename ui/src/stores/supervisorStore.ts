@@ -244,6 +244,8 @@ export interface ZenStructured {
   options?: Array<{ label: string; valueToSend: string }>;
   recommended?: number;
   multiSelect?: boolean;
+  /** AI-proposed canned replies for an open end-of-turn question (no on-screen menu). */
+  suggestedAnswers?: string[];
 }
 
 /** Z3: mirror of the server session-summary heartbeat (session-summary-loop.ts).

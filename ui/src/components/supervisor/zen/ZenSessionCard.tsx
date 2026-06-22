@@ -639,50 +639,68 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           </div>
         ) : hasOpenQuestion ? (
           /* OPEN QUESTION FILLS THE CARD (blue) — Claude ended its turn asking the user
-             something with no on-screen option list. Surface the ask + a free-text reply
-             (or open the session) so it's never mistaken for an idle/green card. */
+             something with no on-screen option list. The ask grows to fill (FitText, like
+             a permission question); calm sky pills offer AI canned replies; a rounded reply
+             field + Open ↗ match the rest of the card. */
           <div className="flex-1 min-h-0 flex flex-col gap-3 pt-1">
             <FitText text={questionText ?? ''} center className="text-gray-950 dark:text-white" />
-            <div className="shrink-0 flex flex-col items-stretch gap-2">
+            <div className="shrink-0 flex flex-col items-center gap-2.5">
               {action?.kind === 'sent' ? (
                 <div className={`${SZ.q} flex items-center justify-center gap-2 text-success-700 dark:text-success-400 font-medium`}>
                   <span aria-hidden>✓</span><span>Sent — "{action.label}"</span>
                 </div>
               ) : (
                 <>
-                  <textarea
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && reply.trim()) {
-                        e.preventDefault();
-                        const t = reply.trim();
-                        runAnswer('reply', t, () => onAnswerPane(serverId, project, session, t));
-                        setReply('');
-                      }
-                    }}
-                    placeholder="Reply…  (Enter to send, Shift+Enter for newline)"
-                    rows={2}
-                    disabled={action?.kind === 'pending'}
-                    className="w-full px-3 py-2 text-sm rounded-lg bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-sky-300 dark:focus:ring-sky-700 resize-none"
-                  />
-                  <div className="flex items-center justify-center gap-2">
+                  {/* AI canned answers — same pill language as the option buttons elsewhere. */}
+                  {(structured?.suggestedAnswers ?? []).length > 0 && (
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      {structured!.suggestedAnswers!.map((ans, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          disabled={action?.kind === 'pending'}
+                          onClick={() => runAnswer(`reply:${i}`, ans, () => onAnswerPane(serverId, project, session, ans))}
+                          className={`${SZ.btn} rounded-full font-medium transition-colors border border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/40 text-sky-800 dark:text-sky-200 hover:bg-sky-100 dark:hover:bg-sky-900/60 disabled:opacity-50 disabled:cursor-wait`}
+                        >
+                          {action?.kind === 'pending' && action.chosen === `reply:${i}` && <span className="mr-1 animate-pulse">…</span>}
+                          {ans}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Free-text reply — a calm rounded pill matching the card's inputs. */}
+                  <div className="w-full max-w-md flex items-center gap-2">
+                    <input
+                      value={reply}
+                      onChange={(e) => setReply(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && reply.trim()) {
+                          e.preventDefault();
+                          const t = reply.trim();
+                          runAnswer('reply', t, () => onAnswerPane(serverId, project, session, t));
+                          setReply('');
+                        }
+                      }}
+                      placeholder="Reply…"
+                      disabled={action?.kind === 'pending'}
+                      className="flex-1 min-w-0 px-3.5 py-2 text-sm rounded-full bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-sky-300 dark:focus:ring-sky-700"
+                    />
                     <button
                       type="button"
                       disabled={!reply.trim() || action?.kind === 'pending'}
                       onClick={() => { const t = reply.trim(); runAnswer('reply', t, () => onAnswerPane(serverId, project, session, t)); setReply(''); }}
-                      className={`${SZ.btn} rounded-full font-semibold transition-colors border border-sky-300 dark:border-sky-700 bg-sky-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-sky-600`}
+                      className={`shrink-0 ${SZ.btn} rounded-full font-semibold transition-colors border border-sky-300 dark:border-sky-700 bg-sky-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-sky-600`}
                     >
-                      {action?.kind === 'pending' ? <span className="animate-pulse">…sending</span> : 'Reply'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpen(project, session, serverId)}
-                      className={`${SZ.btn} rounded-full font-medium transition-colors border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700`}
-                    >
-                      Open ↗
+                      Send
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(project, session, serverId)}
+                    className="text-3xs font-medium text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                  >
+                    or open the session ↗
+                  </button>
                   {action?.kind === 'error' && (
                     <span className="text-3xs font-medium text-danger-600 dark:text-danger-400 text-center">Couldn't send — try again.</span>
                   )}

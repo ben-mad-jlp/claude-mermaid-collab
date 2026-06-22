@@ -125,6 +125,7 @@ export type WSMessage =
         options?: Array<{ label: string; valueToSend: string }>;
         recommended?: number;
         multiSelect?: boolean;
+        suggestedAnswers?: string[];
       } }
   | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string; escalation?: unknown }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
