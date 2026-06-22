@@ -353,6 +353,33 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     el.style.height = `${el.scrollHeight}px`;
   }, [reply]);
 
+  // Compose overlay — a pencil FAB in the card's bottom-right corner lets you send a
+  // free-text message to the session at any time, even when it's not asking a question.
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeText, setComposeText] = useState('');
+  const [composeSent, setComposeSent] = useState(false);
+  const composeRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = composeRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [composeText]);
+  // Focus the textarea when compose opens.
+  useEffect(() => { if (composeOpen) composeRef.current?.focus(); }, [composeOpen]);
+
+  // Send a non-interrupting suggestion: the text is typed into the session's input and
+  // queues until it finishes what it's doing — it does NOT stop the current turn.
+  const submitCompose = () => {
+    const t = composeText.trim();
+    if (!t) return;
+    void onAnswerPane(serverId, project, session, t);
+    setComposeText('');
+    setComposeOpen(false);
+    setComposeSent(true);
+    setTimeout(() => setComposeSent(false), 2500);
+  };
+
   const runAnswer = async (chosen: string, label: string, fn: () => void | Promise<boolean>) => {
     if (action?.kind === 'pending') return;
     setAction({ kind: 'pending', label, chosen });
@@ -594,7 +621,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     <div
       data-testid="zen-session-card"
       style={{ ...tintStyle, fontFamily: "'Open Sans', ui-sans-serif, system-ui, -apple-system, sans-serif" }}
-      className={`w-full h-full flex flex-col rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors [font-family:var(--font-zen)] ${
+      className={`relative w-full h-full flex flex-col rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors [font-family:var(--font-zen)] ${
         hasQuestion
           ? 'border-warning-300 dark:border-warning-700/70 ring-1 ring-warning-200 dark:ring-warning-900/40'
           : hasOpenQuestion
@@ -774,6 +801,66 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           />
         )}
       </div>
+
+      {/* Suggest — a pencil in the bottom-right corner opens a composer to send a free-text
+          message to the session WITHOUT interrupting it: the text queues in its input and is
+          picked up when it finishes the current turn. Hidden while another input (question /
+          reply / What's-Next) already owns the card. */}
+      {!hasQuestion && !hasOpenQuestion && !nextOpen && (
+        <div className="absolute bottom-2 right-2 z-20 flex flex-col items-end gap-1.5">
+          {composeOpen && (
+            <div
+              className="w-64 max-w-[80vw] flex flex-col gap-1.5 p-2 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow-lg"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <textarea
+                ref={composeRef}
+                value={composeText}
+                onChange={(e) => setComposeText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && composeText.trim()) { e.preventDefault(); submitCompose(); }
+                  if (e.key === 'Escape') setComposeOpen(false);
+                }}
+                placeholder="Suggest something…"
+                rows={1}
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-accent-300 dark:focus:ring-accent-700 resize-none overflow-hidden leading-relaxed"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-3xs text-gray-400 dark:text-gray-500">queues — won't interrupt</span>
+                <button
+                  type="button"
+                  disabled={!composeText.trim()}
+                  onClick={submitCompose}
+                  className="px-3 py-1 rounded-full text-xs font-semibold bg-accent-600 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-accent-700 transition-colors"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setComposeOpen((o) => !o)}
+            title="Suggest something to this session (queues, won't interrupt)"
+            aria-label="Suggest something to this session"
+            className={`w-8 h-8 rounded-full flex items-center justify-center border shadow-sm transition-colors ${
+              composeSent
+                ? 'bg-success-500 border-success-500 text-white'
+                : composeOpen
+                  ? 'bg-accent-600 border-accent-600 text-white'
+                  : 'bg-white/90 dark:bg-gray-700/90 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-300 hover:text-accent-600 dark:hover:text-accent-400 hover:border-accent-300'
+            }`}
+          >
+            {composeSent ? (
+              <span className="text-sm leading-none" aria-hidden>✓</span>
+            ) : (
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="w-4 h-4" aria-hidden>
+                <path d="M13.5 3.5l3 3L7 16l-3.5.5L4 13z" strokeLinejoin="round" strokeLinecap="round" />
+              </svg>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
