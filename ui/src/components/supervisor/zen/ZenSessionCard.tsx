@@ -406,11 +406,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
         </span>
 
         {hasQuestion ? (
-          /* QUESTION FILLS THE CARD — the ask grows to fill, answers pinned below it. */
+          /* QUESTION FILLS THE CARD — the ask grows (FitText, flex-1 like the summary)
+             to fill the space, with the answers pinned below it. */
           <div className="flex-1 min-h-0 flex flex-col gap-3 pt-1">
-            <div className="flex-1 min-h-0 flex items-center">
-              <FitText text={questionText ?? ''} className="text-gray-900 dark:text-gray-50" />
-            </div>
+            <FitText text={questionText ?? ''} className="text-gray-900 dark:text-gray-50" />
             <div className="shrink-0 flex flex-col items-center gap-2">
               {answerArea}
             </div>
