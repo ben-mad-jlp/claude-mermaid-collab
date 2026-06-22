@@ -14,6 +14,7 @@ import {
   argvDisplayStartPath,
   argvSendKeysLiteral,
   argvSendKeysEnter,
+  argvSendKeysNames,
   argvListSessions,
   argvLs,
   argvAttachSession,
@@ -53,6 +54,11 @@ describe('tmux-argv golden parity', () => {
   it('send-keys literal + Enter (the load-bearing split)', () => {
     expect(argvSendKeysLiteral('mc-repo-lane', '/collab x')).toEqual(['tmux', 'send-keys', '-t', 'mc-repo-lane', '-l', '/collab x']);
     expect(argvSendKeysEnter('mc-repo-lane')).toEqual(['tmux', 'send-keys', '-t', 'mc-repo-lane', 'Enter']);
+  });
+
+  it('send-keys key-names (multi-select submit drive)', () => {
+    expect(argvSendKeysNames('mc-repo-lane', ['Right'])).toEqual(['tmux', 'send-keys', '-t', 'mc-repo-lane', 'Right']);
+    expect(argvSendKeysNames('mc-repo-lane', ['Right', 'Enter'])).toEqual(['tmux', 'send-keys', '-t', 'mc-repo-lane', 'Right', 'Enter']);
   });
 
   it('list-sessions / ls with format', () => {
