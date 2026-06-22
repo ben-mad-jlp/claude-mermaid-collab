@@ -593,8 +593,8 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   return (
     <div
       data-testid="zen-session-card"
-      style={tintStyle}
-      className={`w-full h-full flex flex-col rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors ${
+      style={{ ...tintStyle, fontFamily: "'Open Sans', ui-sans-serif, system-ui, -apple-system, sans-serif" }}
+      className={`w-full h-full flex flex-col rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors [font-family:var(--font-zen)] ${
         hasQuestion
           ? 'border-warning-300 dark:border-warning-700/70 ring-1 ring-warning-200 dark:ring-warning-900/40'
           : hasOpenQuestion

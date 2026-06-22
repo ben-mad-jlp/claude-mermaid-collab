@@ -239,7 +239,7 @@ export const ZenMode: React.FC = () => {
     baseTier === 'lg' ? '15rem' : baseTier === 'md' ? '12rem' : baseTier === 'sm' ? '10rem' : '8rem';
 
   return (
-    <div className="flex flex-col h-screen min-h-0 bg-gray-50 dark:bg-gray-900">
+    <div className="flex flex-col h-screen min-h-0 bg-gray-50 dark:bg-gray-900" style={{ fontFamily: "'Open Sans', ui-sans-serif, system-ui, -apple-system, sans-serif" }}>
       {/* Minimal top strip — title + add session + exit. */}
       <div className="flex items-center justify-between px-5 py-2.5 shrink-0">
         <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wide">Zen</span>

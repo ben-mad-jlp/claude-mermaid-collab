@@ -83,6 +83,7 @@
   --color-info-950: var(--color-blue-950);
 
   --font-sans: Inter, system-ui, sans-serif;
+  --font-zen: "Open Sans", Inter, system-ui, sans-serif;
   --font-mono: "Fira Code", monospace;
 
   /* Sub-`xs` font-size scale tokens (T2). Centralize the ad-hoc arbitrary
