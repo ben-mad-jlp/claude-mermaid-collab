@@ -34,6 +34,7 @@ import {
 } from '../services/todo-store';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { recordUsage, getUsage } from '../services/usage-store';
+import { refreshSummaryNow } from '../services/session-summary-loop';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
 import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
@@ -2856,6 +2857,18 @@ export async function handleAPI(
       status: status as ClaudeStatus,
       lastUpdate: Date.now(),
     });
+
+    // When a watched session transitions into a state that needs attention
+    // (waiting / permission → a question or permission prompt just appeared), force a
+    // fresh Zen summary NOW. Otherwise the card colours red from this status while the
+    // interpreter's last summary — captured BEFORE the question — still shows, so the
+    // Zen card reads "previous work" with no question on a red card. refreshSummaryNow
+    // self-gates (no-op unless the session is watched). Fire-and-forget.
+    if ((status === 'waiting' || status === 'permission') && status !== prevStatus) {
+      void refreshSummaryNow(project, session).catch((err: any) => {
+        console.warn(`[session-notify] summary refresh failed: ${err?.message || String(err)}`);
+      });
+    }
 
     // Real-time push to the supervisor: when a SUPERVISED worker transitions
     // into a state that needs attention (waiting / permission), nudge the

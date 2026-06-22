@@ -601,6 +601,21 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           glance paragraph grows (FitText) to fill, click-to-expand to the fuller detail. */}
       <div className={`flex-1 min-h-0 flex flex-col items-stretch ${SZ.body}`}>
 
+        {/* The session is flagged as needing you (red) but the interpreter hasn't captured
+            a question yet (e.g. a raw permission prompt, or the summary predates it). Show
+            a clear "needs you" banner over the summary so a red card is never just stale
+            prose — a fresh summary is also being forced server-side on the transition. */}
+        {!hasQuestion && !nextOpen && status === 'permission' && (
+          <button
+            type="button"
+            onClick={() => onOpen(project, session, serverId)}
+            title="Open this session to respond"
+            className="shrink-0 mb-2 w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-danger-100 dark:bg-danger-900/40 text-danger-800 dark:text-danger-200 border border-danger-300 dark:border-danger-700 hover:bg-danger-200 dark:hover:bg-danger-900/60 transition-colors"
+          >
+            <span aria-hidden>⚠</span> Needs your input — open the session ↗
+          </button>
+        )}
+
         {hasQuestion ? (
           /* QUESTION FILLS THE CARD — the ask grows (FitText, flex-1 like the summary)
              to fill the space, with the answers pinned below it. */
