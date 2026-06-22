@@ -69,6 +69,7 @@ export type WSMessage =
   | { type: 'claude_session_registered'; project: string; session: string; claudePid?: string | number; claudeSessionId?: string; [k: string]: unknown }
   | { type: 'claude_session_status'; project: string; session: string; status: string; [k: string]: unknown }
   | { type: 'claude_context_update'; project: string; session: string; contextPercent: number }
+  | { type: 'claude_usage_update'; fiveHourPercent: number; sevenDayPercent: number; updatedAt: number }
   | { type: 'claude_session_checkpoint_ready'; project: string; session: string; persistedAt: number; [k: string]: unknown }
   | { type: 'supervisor_session_cleared'; project: string; session: string; [k: string]: unknown }
   | { type: 'supervisor_decision'; project: string; session: string; kind: string; detail?: string | null; ts: number; [k: string]: unknown }
@@ -118,10 +119,12 @@ export type WSMessage =
       refreshState?: 'fresh' | 'stale-failing';
       structured?: {
         paragraph: string;
+        detail?: string;
         status: 'working' | 'idle' | 'stuck' | 'needs-input';
         question?: string;
         options?: Array<{ label: string; valueToSend: string }>;
         recommended?: number;
+        multiSelect?: boolean;
       } }
   | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string; escalation?: unknown }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }

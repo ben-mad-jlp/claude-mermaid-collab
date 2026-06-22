@@ -40,11 +40,17 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
   onSnooze,
   onFetchPane,
 }) => {
+  const structured = summary.structured;
+
   const [otherOpen, setOtherOpen] = useState(false);
   const [otherText, setOtherText] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [threshOpen, setThreshOpen] = useState(false);
   const [threshVal, setThreshVal] = useState(75);
+  const [multiSelected, setMultiSelected] = useState<Set<number>>(() => {
+    const rec = structured?.recommended;
+    return rec !== undefined ? new Set([rec]) : new Set();
+  });
 
   // Stable item id — matches triageItemId session: style
   const itemId = escalation?.id ?? `session:${summary.project}::${summary.session}`;
@@ -82,7 +88,6 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
   const paneTs = summary.paneSeenAt ? fmtHHMM(summary.paneSeenAt) : '—';
   const timestampTitle = `summary ${summaryTs} · pane ${paneTs}`;
 
-  const structured = summary.structured;
   const needsInput = structured?.status === 'needs-input';
 
   const hasEscalationOptions = !!(escalation?.options && escalation.options.length > 0);
@@ -342,23 +347,44 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
             <div className="space-y-1.5">
               {structured!.options!.map((opt, i) => {
                 const recommended = i === structured!.recommended;
+                const isMulti = !!structured!.multiSelect;
+                const isChecked = multiSelected.has(i);
                 return (
                   <button
                     key={i}
                     type="button"
-                    onClick={() => clearItemOptimistic(itemId, opt.label, async () => {
-                      onAnswerPane(serverId, summary.project, summary.session, opt.valueToSend);
-                      return true;
-                    })}
+                    onClick={() => {
+                      if (!isMulti) {
+                        clearItemOptimistic(itemId, opt.label, async () => {
+                          onAnswerPane(serverId, summary.project, summary.session, opt.valueToSend);
+                          return true;
+                        });
+                      } else {
+                        setMultiSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(i)) next.delete(i); else next.add(i);
+                          return next;
+                        });
+                      }
+                    }}
                     className={`w-full flex items-start gap-1.5 px-3 py-1.5 rounded text-left text-sm transition-colors border ${
-                      recommended
-                        ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/30 text-accent-800 dark:text-accent-200'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200'
+                      isMulti
+                        ? isChecked
+                          ? 'border-accent-400 dark:border-accent-600 bg-accent-50 dark:bg-accent-900/40 text-accent-900 dark:text-accent-100'
+                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200'
+                        : recommended
+                          ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/30 text-accent-800 dark:text-accent-200'
+                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200'
                     }`}
                   >
+                    {isMulti && (
+                      <span className={`mt-0.5 shrink-0 w-4 h-4 rounded border flex items-center justify-center text-3xs ${isChecked ? 'bg-accent-500 border-accent-500 text-white' : 'border-gray-300 dark:border-gray-600'}`}>
+                        {isChecked ? '✓' : ''}
+                      </span>
+                    )}
                     <span className="flex-1 min-w-0">
                       <span className="font-medium leading-tight">{opt.label}</span>
-                      {recommended && (
+                      {!isMulti && recommended && (
                         <span className="ml-1 text-3xs font-semibold text-accent-600 dark:text-accent-400">
                           ★ recommended
                         </span>
@@ -367,6 +393,23 @@ export const SessionParagraphCard: React.FC<SessionParagraphCardProps> = ({
                   </button>
                 );
               })}
+              {structured!.multiSelect && (
+                <button
+                  type="button"
+                  disabled={multiSelected.size === 0}
+                  onClick={() => {
+                    const labels = structured!.options!.filter((_, i) => multiSelected.has(i)).map((o) => o.label).join(', ');
+                    const values = structured!.options!.filter((_, i) => multiSelected.has(i)).map((o) => o.valueToSend).join('\n');
+                    clearItemOptimistic(itemId, labels, async () => {
+                      onAnswerPane(serverId, summary.project, summary.session, values);
+                      return true;
+                    });
+                  }}
+                  className="w-full px-3 py-1.5 text-sm font-medium rounded bg-accent-600 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Send {multiSelected.size > 0 ? `(${multiSelected.size} selected)` : ''}
+                </button>
+              )}
             </div>
           ) : null}
 

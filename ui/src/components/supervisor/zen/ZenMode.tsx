@@ -7,6 +7,34 @@ import { computePlanTotals, type PlanTotals } from '@/components/supervisor/Plan
 import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 import { pulseStage, isArmed, nextUp as computeNextUp, type NextUp } from '@/lib/zenPulse';
+import { useUsageStore } from '@/stores/usageStore';
+
+// One account-wide rate-limit gauge (5-hour or 7-day window) for the Zen top bar.
+// Colour mirrors the statusline: green < 50, yellow 50–79, red ≥ 80.
+const UsageBar: React.FC<{ label: string; percent: number | null }> = ({ label, percent }) => {
+  const pct = percent ?? 0;
+  // Tier colours mirror the statusline: green < 50, amber 50–79, red ≥ 80. Both the fill
+  // AND the percentage read-out take the tier colour so the level is legible at a glance.
+  const tier =
+    percent == null
+      ? { fill: 'bg-gray-400 dark:bg-gray-500', text: 'text-gray-400 dark:text-gray-500' }
+      : pct >= 80
+        ? { fill: 'bg-danger-500', text: 'text-danger-600 dark:text-danger-400' }
+        : pct >= 50
+          ? { fill: 'bg-yellow-500', text: 'text-yellow-600 dark:text-yellow-400' }
+          : { fill: 'bg-success-500', text: 'text-success-600 dark:text-success-400' };
+  return (
+    <div className="flex items-center gap-1.5" title={`${label} usage: ${percent == null ? 'unknown' : `${pct}%`}`}>
+      <span className={`text-3xs font-semibold tabular-nums ${tier.text}`}>{label}</span>
+      <div className="w-20 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden ring-1 ring-black/5 dark:ring-white/10">
+        <div className={`h-full rounded-full transition-all ${tier.fill}`} style={{ width: `${Math.max(percent == null ? 0 : 3, Math.min(pct, 100))}%` }} />
+      </div>
+      <span className={`text-3xs font-bold tabular-nums w-7 text-right ${tier.text}`}>
+        {percent == null ? '—' : `${pct}%`}
+      </span>
+    </div>
+  );
+};
 
 // ZenMode (redesign 2026-06-20) — the ENTIRE window is Zen: a calm vertical scroll
 // of one card per watched session. Each card is its project bar + a centered
@@ -69,6 +97,11 @@ export const ZenMode: React.FC = () => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Account-wide rate-limit usage (5h / 7d) — kept fresh by the statusline hook via WS
+  // (`claude_usage_update`); first-paint hydration happens in App (zen zones must not do
+  // direct network, per mobile-parity). Statusline ticks frequently, so this stays current.
+  const usage = useUsageStore((s) => s.usage);
 
   // Per-project rollup totals for each card's project bar.
   const totalsByProject = useMemo(() => {
@@ -179,6 +212,11 @@ export const ZenMode: React.FC = () => {
       {/* Minimal top strip — title + add session + exit. */}
       <div className="flex items-center justify-between px-5 py-2.5 shrink-0">
         <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wide">Zen</span>
+        {/* Account-wide rate-limit usage — the 5-hour and 7-day rolling windows. */}
+        <div className="flex items-center gap-4">
+          <UsageBar label="5h" percent={usage?.fiveHourPercent ?? null} />
+          <UsageBar label="7d" percent={usage?.sevenDayPercent ?? null} />
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -269,6 +307,8 @@ export const ZenMode: React.FC = () => {
                     onToggleExpand={() => setExpandedKey((k) => (k === key ? null : key))}
                     onDecideEscalation={(sid, id, opt) => decideEscalation(sid, id, opt)}
                     subStatus={s.status}
+                    lastUpdate={s.lastUpdate}
+                    stale={s.stale}
                     onAnswerPane={(sid, p, sess, v) => nudge(sid, p, sess, v)}
                     onAnswerPaneMulti={(sid, p, sess, nums) => answerPaneMulti(sid, p, sess, nums)}
                     onRequestRefresh={(sid, p, sess) => void refreshSummaryNow(sid, p, sess)}

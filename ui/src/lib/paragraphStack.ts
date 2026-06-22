@@ -10,6 +10,7 @@ export interface ZenStructured {
   question?: string;
   options?: Array<{ label: string; valueToSend: string }>;
   recommended?: number;
+  multiSelect?: boolean;
 }
 
 export interface SessionSummary {

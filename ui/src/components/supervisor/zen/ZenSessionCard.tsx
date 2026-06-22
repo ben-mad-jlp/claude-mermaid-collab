@@ -2,7 +2,7 @@ import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import type { SessionSummary, Escalation } from '@/stores/supervisorStore';
 import { type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
-import { ClaudePixAvatar } from '@/components/layout/SessionCard';
+import { ClaudePixAvatar, useElapsed } from '@/components/layout/SessionCard';
 import { ZenPulseLine } from './ZenPulseLine';
 import { isPulsing, type PulseStage, type NextUp } from '@/lib/zenPulse';
 
@@ -52,6 +52,11 @@ export interface ZenSessionCardProps {
    *  signal the normal "watching" SessionCard colours from, so both UIs agree. Drives the
    *  header tint; the interpreter status is only a fallback when this is unknown. */
   subStatus?: 'active' | 'waiting' | 'permission' | 'unknown';
+  /** Real activity heartbeat (subscription `lastUpdate`) — the SAME signal the watching
+   *  SessionCard uses to show elapsed time + drive the amber activity pulse on `active`. */
+  lastUpdate?: number;
+  /** Subscription is stale (no fresh heartbeat) — dims the header tint, like the watching card. */
+  stale?: boolean;
   /** Force a fresh summary (called shortly after answering so a lingering question
    *  clears once the session reacts, instead of waiting for the next cycle). */
   onRequestRefresh?: (serverId: string, project: string, session: string) => void;
@@ -74,20 +79,22 @@ export interface ZenSessionCardProps {
 // colour in both UIs: AMBER = active/working, GREEN = waiting/at rest, RED = needs
 // you (permission / question / stuck). Calm by default; the colour is a hint.
 const STATUS_BAR_BG: Record<string, string> = {
-  // subscription vocabulary (active|waiting|permission|unknown) — the watching card's source
-  active:     'bg-warning-200/70 dark:bg-warning-500/20',
-  waiting:    'bg-success-200/70 dark:bg-success-500/20',
-  permission: 'bg-danger-200/70 dark:bg-danger-500/20',
+  // subscription vocabulary (active|waiting|permission|unknown) — the watching card's source.
+  // Stronger fills (300-level light / 500@35% dark) so the header colour reads clearly
+  // against the white card body, matching the legibility of the normal watching card.
+  active:     'bg-warning-300 dark:bg-warning-500/35',
+  waiting:    'bg-success-300 dark:bg-success-500/35',
+  permission: 'bg-danger-300 dark:bg-danger-500/35',
   // interpreter / progressState vocabulary (fallback when subscription status is unknown)
-  working: 'bg-warning-200/70 dark:bg-warning-500/20',
-  idle:    'bg-success-200/70 dark:bg-success-500/20',
-  quiet:   'bg-success-200/70 dark:bg-success-500/20',
-  done:    'bg-success-200/70 dark:bg-success-500/20',
-  'needs-input': 'bg-danger-200/70 dark:bg-danger-500/20',
-  stuck:   'bg-danger-200/70 dark:bg-danger-500/20',
-  wedged:  'bg-danger-200/70 dark:bg-danger-500/20',
-  stalled: 'bg-danger-200/70 dark:bg-danger-500/20',
-  unknown: 'bg-gray-200/70 dark:bg-gray-600/30',
+  working: 'bg-warning-300 dark:bg-warning-500/35',
+  idle:    'bg-success-300 dark:bg-success-500/35',
+  quiet:   'bg-success-300 dark:bg-success-500/35',
+  done:    'bg-success-300 dark:bg-success-500/35',
+  'needs-input': 'bg-danger-300 dark:bg-danger-500/35',
+  stuck:   'bg-danger-300 dark:bg-danger-500/35',
+  wedged:  'bg-danger-300 dark:bg-danger-500/35',
+  stalled: 'bg-danger-300 dark:bg-danger-500/35',
+  unknown: 'bg-gray-300 dark:bg-gray-600/40',
 };
 
 /** Map the Zen session status → the ClaudePix animation pool (active dances, etc.). */
@@ -106,16 +113,22 @@ const ProjectBar: React.FC<{
   daemon?: DaemonTotals;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   status?: string;
+  stale?: boolean;
+  elapsed?: string | null;
   onOpen: (project: string, session: string, serverId: string) => void;
   onClose?: () => void;
-}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', onOpen, onClose }) => {
+}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', stale, elapsed, onOpen, onClose }) => {
   const name = project.split('/').pop() || project;
   const sessionShort = session.split('/').pop() || session;
   // Project title scales with the card tier — it's the card's headline, so give it real weight.
   const titleSize = { xs: 'text-sm', sm: 'text-base', md: 'text-lg', lg: 'text-xl' }[size];
   const barBg = STATUS_BAR_BG[status] ?? STATUS_BAR_BG.unknown;
+  // Activity pulse — same `card-pulse-amber` the watching SessionCard uses while a session
+  // is actively working. Stale (no fresh heartbeat) → dim the tint instead of pulsing.
+  const pulse = status === 'active' && !stale ? 'card-pulse-amber' : '';
+  const staleDim = stale && status !== 'unknown' ? 'opacity-60' : '';
   return (
-    <div className={`flex items-center justify-between gap-3 px-3 py-1.5 border-b border-gray-100 dark:border-gray-700/60 rounded-t-2xl ${barBg}`}>
+    <div className={`flex items-center justify-between gap-3 px-3 py-1.5 border-b border-gray-100 dark:border-gray-700/60 rounded-t-2xl ${barBg} ${pulse} ${staleDim}`}>
       <div className="flex items-center gap-2 min-w-0">
         {/* Dancing Claude in the corner — its animation reflects the session's state. */}
         <ClaudePixAvatar status={toPixStatus(status)} size={{ xs: 26, sm: 30, md: 36, lg: 42 }[size]} />
@@ -148,6 +161,12 @@ const ProjectBar: React.FC<{
             {daemon.permission > 0 && (
               <span className="text-warning-600 dark:text-warning-400 font-semibold" title="awaiting permission">⚠ {daemon.permission}</span>
             )}
+          </span>
+        )}
+        {/* Activity — elapsed since the last heartbeat (same signal as the watching card). */}
+        {elapsed && (
+          <span className="text-3xs tabular-nums text-gray-600 dark:text-gray-300 shrink-0" title="Time since last activity">
+            {elapsed}
           </span>
         )}
         {/* Open in full collab */}
@@ -284,6 +303,8 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onAnswerPane,
   onAnswerPaneMulti,
   subStatus,
+  lastUpdate,
+  stale,
   onRequestRefresh,
   onOpen,
   onClose,
@@ -338,13 +359,12 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
 
   const structured = summary?.structured;
   const paragraph = (structured?.paragraph ?? summary?.summaryText ?? '').trim();
-  // Glance: paragraph is ~2 sentences from the interpreter — sentence 1 = overall goal,
-  // the rest = current task to get there. Put EACH sentence on its own line so the goal
-  // and the current task read as distinct, with breathing room between them.
-  const glance = (paragraph.match(/[^.!?]+[.!?]+(?:["')\]]+)?/g) ?? [paragraph])
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join('\n\n');
+  // Glance: the interpreter now writes the goal and the current task on their own lines
+  // (a single \n it inserts itself), so we render the paragraph VERBATIM. We no longer
+  // split on sentence punctuation client-side — that mis-broke on abbreviations like
+  // "e.g." / "v6.7". FitText preserves the newlines (white-space: pre-line). Older cached
+  // summaries that predate this simply render as one block.
+  const glance = paragraph;
   // "more" reveals the LARGER summary: the interpreter's richer `detail` (distinct from the
   // glance), falling back to the full paragraph for entries summarized before `detail` existed.
   const detail = structured?.detail?.trim() ?? '';
@@ -379,13 +399,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
         ? subStatus
         : structured?.status ?? summary?.progressState ?? 'unknown';
 
-  // Relative "updated Xm ago" from the interpreter write, so staleness is visible.
-  const updatedAgo = (() => {
-    const ts = summary?.summaryUpdatedAt;
-    if (!ts) return null;
-    const mins = Math.max(0, Math.floor((now - ts) / 60_000));
-    return mins === 0 ? 'just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
-  })();
+  // Activity: the SAME elapsed-since-heartbeat the watching SessionCard shows, driven by
+  // the subscription `lastUpdate` (real session activity) — not the interpreter write.
+  const elapsed = useElapsed(lastUpdate ?? 0, status, null);
 
   const tintStyle = freshnessStyle(summary?.summaryUpdatedAt, now);
 
@@ -555,7 +571,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           : 'border-gray-200 dark:border-gray-700'
       }`}
     >
-      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} onOpen={onOpen} onClose={onClose} />
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={stale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
 
       {/* Context-window fullness — a thin loading bar under the header, same thresholds
           as the watching cards (warn > 68%, danger + pulse > 78%). */}
@@ -592,11 +608,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             className={`flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
           >
             {expanded ? (
-              <div className="flex-1 min-h-0 overflow-auto py-1">
-                <p className="text-sm sm:text-base leading-snug text-gray-800 dark:text-gray-100 whitespace-pre-wrap text-left">
-                  {expandedText}
-                </p>
-              </div>
+              /* The fuller detail fills the card the same way the glance does — FitText
+                 grows it to the largest font that fits (couple of paragraphs → it sizes
+                 down to fill, no scroll), keeping the \n\n paragraph breaks the agent wrote. */
+              <FitText text={expandedText} min={12} className="text-gray-800 dark:text-gray-100" />
             ) : (
               <FitText text={glance} className="text-gray-800 dark:text-gray-100" />
             )}
@@ -616,20 +631,16 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
         )}
 
         {/* Footer: the Pulse "ready for more" invitation when this idle session has warmed
-            up (settled/warm/glowing), else the plain "updated Ns ago". Never on a question. */}
-        {!hasQuestion && (
-          isPulsing(stage) ? (
-            <ZenPulseLine
-              stage={stage}
-              nextUp={nextUp ?? { mode: 'empty' }}
-              aiOption={null}
-              action={action}
-              onSend={(label, text) => runAnswer(`pulse:${label}`, label, () => onAnswerPane(serverId, project, session, text))}
-              onDismiss={onDismiss ?? (() => {})}
-            />
-          ) : updatedAgo ? (
-            <span className="shrink-0 mt-1 text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
-          ) : null
+            up (settled/warm/glowing). The elapsed timestamp now lives in the card header. */}
+        {!hasQuestion && isPulsing(stage) && (
+          <ZenPulseLine
+            stage={stage}
+            nextUp={nextUp ?? { mode: 'empty' }}
+            aiOption={null}
+            action={action}
+            onSend={(label, text) => runAnswer(`pulse:${label}`, label, () => onAnswerPane(serverId, project, session, text))}
+            onDismiss={onDismiss ?? (() => {})}
+          />
         )}
       </div>
     </div>

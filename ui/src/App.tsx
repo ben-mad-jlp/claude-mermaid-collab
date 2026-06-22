@@ -48,6 +48,7 @@ import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useUsageStore } from '@/stores/usageStore';
 import { useDesignEditorStore } from '@/stores/designEditorStore';
 import type { Item, Session, ToolbarAction } from '@/types';
 
@@ -328,6 +329,17 @@ const App: React.FC = () => {
     ).sort();
     void mc.setWatchedServers(ids);
   }, [subscriptionsForWatch]);
+
+  // First-paint hydration of account-wide rate-limit usage (5h / 7d) for the Zen top bars.
+  // Kept fresh afterwards by the statusline hook via the `claude_usage_update` WS message.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/usage')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.usage) useUsageStore.getState().setUsage(d.usage); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // Ref for MermaidPreview imperative methods
   const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
@@ -1032,6 +1044,12 @@ const App: React.FC = () => {
               notifiedContextThreshold.delete(criticalKey);
             }
           }
+          break;
+        }
+
+        case 'claude_usage_update': {
+          const { fiveHourPercent, sevenDayPercent, updatedAt } = message as any;
+          useUsageStore.getState().setUsage({ fiveHourPercent, sevenDayPercent, updatedAt });
           break;
         }
 

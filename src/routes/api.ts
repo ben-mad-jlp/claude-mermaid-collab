@@ -33,6 +33,7 @@ import {
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
+import { recordUsage, getUsage } from '../services/usage-store';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
 import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
@@ -3358,6 +3359,23 @@ export async function handleAPI(
     wsHandler.broadcast({ type: 'claude_context_update', project, session, contextPercent });
 
     return Response.json({ success: true });
+  }
+
+  // POST /api/usage-update — statusline hook reports account-wide rate-limit usage
+  // (5-hour + 7-day rolling windows). Account-global, so no session binding needed.
+  if (path === '/api/usage-update' && req.method === 'POST') {
+    const { fiveHourPercent, sevenDayPercent } = await req.json() as { fiveHourPercent?: number; sevenDayPercent?: number };
+    if (fiveHourPercent == null || sevenDayPercent == null) {
+      return Response.json({ error: 'fiveHourPercent and sevenDayPercent required' }, { status: 400 });
+    }
+    const snap = recordUsage(fiveHourPercent, sevenDayPercent);
+    wsHandler.broadcast({ type: 'claude_usage_update', ...snap });
+    return Response.json({ success: true });
+  }
+
+  // GET /api/usage — latest account-wide rate-limit usage (UI hydration on load).
+  if (path === '/api/usage' && req.method === 'GET') {
+    return Response.json({ usage: getUsage() });
   }
 
 
