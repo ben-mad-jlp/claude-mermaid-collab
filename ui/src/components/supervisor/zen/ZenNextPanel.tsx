@@ -50,6 +50,22 @@ export const ZenNextPanel: React.FC<ZenNextPanelProps> = ({ nextWork, aiOption, 
   const rowBase =
     'w-full flex items-start gap-2 px-3 py-2 rounded-lg text-left text-sm border transition-colors disabled:opacity-50 disabled:cursor-wait';
 
+  // Centerpiece confirmation — when a decision has been sent, fade everything
+  // else away and show the chosen text as the focal point.
+  if (action?.kind === 'sent') {
+    return (
+      <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center gap-3 py-4 animate-fade-in">
+        <div className="text-3xs font-semibold uppercase tracking-wider text-success-500 dark:text-success-400">✓ On it</div>
+        <p className="text-sm font-medium text-gray-800 dark:text-gray-100 text-center leading-snug px-2">
+          {action.label}
+        </p>
+        <p className="text-3xs text-gray-400 dark:text-gray-500 text-center">
+          Waiting for summary refresh…
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 min-h-0 w-full flex flex-col gap-2">
       {/* Header: title + back-to-summary toggle. */}
@@ -67,10 +83,6 @@ export const ZenNextPanel: React.FC<ZenNextPanelProps> = ({ nextWork, aiOption, 
 
       {/* Candidate lists — scroll inside the card if they overflow. */}
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
-        {action?.kind === 'sent' && (
-          <div className="text-3xs font-medium text-success-600 dark:text-success-400">✓ On it — "{action.label}"</div>
-        )}
-
         {empty && (
           <div className="text-sm text-gray-400 dark:text-gray-500 italic py-2">Nothing queued — tell me what's next below.</div>
         )}

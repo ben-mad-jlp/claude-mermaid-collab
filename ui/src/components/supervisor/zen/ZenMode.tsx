@@ -89,6 +89,26 @@ export const ZenMode: React.FC = () => {
       .sort((a, b) => (a.project + a.name).localeCompare(b.project + b.name)),
     [allSessions, subscriptions],
   );
+  // Grouped by project for the picker — each project is a collapsible section.
+  const availableByProject = useMemo(() => {
+    const groups = new Map<string, typeof available>();
+    for (const s of available) {
+      const list = groups.get(s.project) ?? [];
+      list.push(s);
+      groups.set(s.project, list);
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [available]);
+  // Which project sections are expanded. Starts EMPTY → every project collapsed; reset
+  // to collapsed each time the picker opens.
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const openAddPicker = () => { setExpandedProjects(new Set()); setAddOpen(true); };
+  const toggleProject = (project: string) =>
+    setExpandedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(project)) next.delete(project); else next.add(project);
+      return next;
+    });
 
   // Which card is expanded (key = `serverId:project:session`). Only one at a time.
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -231,7 +251,7 @@ export const ZenMode: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setAddOpen(true)}
+            onClick={openAddPicker}
             title="Watch another session"
             className="px-3 py-1 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-800 transition-colors"
           >
@@ -260,19 +280,45 @@ export const ZenMode: React.FC = () => {
               {available.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">All known sessions are already being watched.</div>
               ) : (
-                available.map((s) => (
-                  <button
-                    key={`${s.serverId ?? 'local'}:${s.project}:${s.name}`}
-                    type="button"
-                    onClick={() => { subscribe(s.serverId ?? 'local', s.project, s.name); setAddOpen(false); }}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors flex items-center gap-2"
-                  >
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                      {(s.project.split('/').pop() || s.project)}
-                      <span className="font-normal text-gray-500 dark:text-gray-400"> / {s.name}</span>
-                    </span>
-                  </button>
-                ))
+                availableByProject.map(([project, sessions]) => {
+                  const open = expandedProjects.has(project);
+                  const name = project.split('/').pop() || project;
+                  return (
+                    <div key={project} className="mb-0.5">
+                      {/* Collapsible project header — starts collapsed. */}
+                      <button
+                        type="button"
+                        onClick={() => toggleProject(project)}
+                        title={project}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors text-left"
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className={`w-3 h-3 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}
+                          aria-hidden
+                        >
+                          <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span className="flex-1 text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{name}</span>
+                        <span className="shrink-0 text-3xs tabular-nums text-gray-400 dark:text-gray-500">{sessions.length}</span>
+                      </button>
+                      {/* Sessions in this project — only when expanded. */}
+                      {open && sessions.map((s) => (
+                        <button
+                          key={`${s.serverId ?? 'local'}:${s.project}:${s.name}`}
+                          type="button"
+                          onClick={() => { subscribe(s.serverId ?? 'local', s.project, s.name); setAddOpen(false); }}
+                          className="w-full text-left pl-8 pr-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors flex items-center gap-2"
+                        >
+                          <span className="text-sm text-gray-700 dark:text-gray-200 truncate">{s.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
