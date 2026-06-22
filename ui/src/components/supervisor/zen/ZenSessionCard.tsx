@@ -44,6 +44,9 @@ export interface ZenSessionCardProps {
   onToggleExpand?: () => void;
   onDecideEscalation: (serverId: string, id: string, optionId: string) => void | Promise<boolean>;
   onAnswerPane: (serverId: string, project: string, session: string, value: string) => void | Promise<boolean>;
+  /** Force a fresh summary (called shortly after answering so a lingering question
+   *  clears once the session reacts, instead of waiting for the next cycle). */
+  onRequestRefresh?: (serverId: string, project: string, session: string) => void;
   /** Bring this session up in the full collab UI (sets current session + exits Zen). */
   onOpen: (project: string, session: string, serverId: string) => void;
 }
@@ -242,6 +245,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onToggleExpand,
   onDecideEscalation,
   onAnswerPane,
+  onRequestRefresh,
   onOpen,
 }) => {
   const [localExpanded, setLocalExpanded] = useState(false);
@@ -265,7 +269,14 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     try {
       const ok = await fn();
       // void-returning handlers (no result) are treated as fire-and-forget success.
-      setAction({ kind: ok === false ? 'error' : 'sent', label, chosen });
+      const success = ok !== false;
+      setAction({ kind: success ? 'sent' : 'error', label, chosen });
+      // On success, force a fresh summary shortly after — give the session a moment to
+      // react to the answer so the re-summarize sees the pane move past needs-input, and
+      // the question doesn't linger until the next regular cycle.
+      if (success && onRequestRefresh) {
+        setTimeout(() => onRequestRefresh(serverId, project, session), 4000);
+      }
     } catch {
       setAction({ kind: 'error', label, chosen });
     }

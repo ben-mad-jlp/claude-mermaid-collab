@@ -38,6 +38,7 @@ export const ZenMode: React.FC = () => {
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const decideEscalation = useSupervisorStore((s) => s.decideEscalation);
   const nudge = useSupervisorStore((s) => s.nudge);
+  const refreshSummaryNow = useSupervisorStore((s) => s.refreshSummaryNow);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
@@ -194,6 +195,7 @@ export const ZenMode: React.FC = () => {
                     onToggleExpand={() => setExpandedKey((k) => (k === key ? null : key))}
                     onDecideEscalation={(sid, id, opt) => decideEscalation(sid, id, opt)}
                     onAnswerPane={(sid, p, sess, v) => nudge(sid, p, sess, v)}
+                    onRequestRefresh={(sid, p, sess) => void refreshSummaryNow(sid, p, sess)}
                     onOpen={openSession}
                   />
                 </div>
