@@ -434,8 +434,11 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
               <FitText text={glance} className="text-gray-800 dark:text-gray-100" />
             )}
             {hasMore && (
-              <span className="shrink-0 mt-1 text-3xs font-medium text-accent-600 dark:text-accent-400">
-                {expanded ? 'less' : 'more'}
+              <span
+                aria-label={expanded ? 'Show less' : 'Show more'}
+                className="shrink-0 mt-1.5 self-center inline-flex items-center justify-center w-5 h-5 rounded-full border border-accent-400/60 text-accent-600 dark:text-accent-400 text-sm font-semibold leading-none"
+              >
+                {expanded ? '−' : '+'}
               </span>
             )}
           </button>
