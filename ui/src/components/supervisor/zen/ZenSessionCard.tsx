@@ -330,10 +330,19 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const [action, setAction] = useState<{ kind: 'pending' | 'sent' | 'error'; label: string; chosen: string } | null>(null);
   // A new/changed question (or escalation) resets the feedback so a stale ✓ never sticks.
   const escId = escalation?.id ?? null;
-  const questionKey = `${escId}|${summary?.structured?.question ?? ''}|${summary?.structured?.status ?? ''}`;
+  const questionKey = `${escId}|${summary?.structured?.question ?? ''}`;
   // Accumulated multi-select picks (1-based option numbers). Reset when the question changes.
   const [picked, setPicked] = useState<Set<number>>(new Set());
-  useEffect(() => { setAction(null); setPicked(new Set()); }, [questionKey]);
+  // Grace-period guard: after a successful answer the re-summarize fires ~4 s later and
+  // can return with a slightly-rephrased question (same ask, different wording) which
+  // changes `questionKey` and would clear the ✓ Sent state — making the card look like
+  // it forgot the answer and is re-asking. Suppress the reset for 10 s after answering.
+  const lastAnsweredAt = useRef<number>(0);
+  useEffect(() => {
+    if (Date.now() - lastAnsweredAt.current < 10_000) return;
+    setAction(null);
+    setPicked(new Set());
+  }, [questionKey]);
 
   // "What's next" full-card takeover: opened from the Pulse invitation; auto-closes when
   // the session stops being idle (the Pulse stage drops out of its pulsing range) so an
@@ -380,6 +389,13 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     setTimeout(() => setComposeSent(false), 2500);
   };
 
+  // After answering a question we record the exact question text we answered. The forced
+  // re-summary can fire before the session has consumed the reply, re-emitting the SAME
+  // question — which would flip the card back to asking. While the live question still
+  // equals the one we just answered (within a grace window), we suppress it so it doesn't
+  // re-ask; once the session moves on (question changes or clears) the suppression lapses.
+  const [answered, setAnswered] = useState<{ q: string; at: number } | null>(null);
+
   const runAnswer = async (chosen: string, label: string, fn: () => void | Promise<boolean>) => {
     if (action?.kind === 'pending') return;
     setAction({ kind: 'pending', label, chosen });
@@ -388,11 +404,13 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       // void-returning handlers (no result) are treated as fire-and-forget success.
       const success = ok !== false;
       setAction({ kind: success ? 'sent' : 'error', label, chosen });
+      if (success && questionText) setAnswered({ q: questionText, at: Date.now() });
       // On success, force a fresh summary shortly after — give the session a moment to
       // react to the answer so the re-summarize sees the pane move past needs-input, and
       // the question doesn't linger until the next regular cycle.
-      if (success && onRequestRefresh) {
-        setTimeout(() => onRequestRefresh(serverId, project, session), 4000);
+      if (success) {
+        lastAnsweredAt.current = Date.now();
+        if (onRequestRefresh) setTimeout(() => onRequestRefresh(serverId, project, session), 4000);
       }
     } catch {
       setAction({ kind: 'error', label, chosen });
@@ -430,8 +448,14 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     escalation?.questionText ?? structured?.question ?? (structured?.status === 'needs-input' ? 'Waiting for input' : null);
   // hasQuestion: a structured answer is expected (options present or needs-input) → red.
   // hasOpenQuestion: Claude ended with a plain question but no option list → blue.
-  const hasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (paneOptions && paneOptions.length > 0) || structured?.status === 'needs-input');
-  const hasOpenQuestion = !hasQuestion && !!(escalation?.questionText ?? structured?.question);
+  const rawHasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (paneOptions && paneOptions.length > 0) || structured?.status === 'needs-input');
+  const rawHasOpenQuestion = !rawHasQuestion && !!(escalation?.questionText ?? structured?.question);
+  // Suppress a question we JUST answered while the summary still echoes the same text
+  // (the re-summary can beat the session's reaction). Grace window, then it lapses so a
+  // genuinely-new (or genuinely-repeated) question still surfaces.
+  const answeredSuppressed = !!answered && questionText === answered.q && (now - answered.at) < 60_000;
+  const hasQuestion = rawHasQuestion && !answeredSuppressed;
+  const hasOpenQuestion = rawHasOpenQuestion && !answeredSuppressed;
   // Multi-select pane question (Claude Code AskUserQuestion multiSelect): accumulate
   // picks then submit. Only when we can address options by single-digit number (≤9)
   // and a multi handler is wired; escalations are always single-decision.
