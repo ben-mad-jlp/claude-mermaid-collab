@@ -37,7 +37,7 @@ import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt } from '../
 import { systemStatus } from '../services/system-status.ts';
 import { execFileSync } from 'node:child_process';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
-import { sendTmuxKeys } from '../services/tmux-send.ts';
+import { sendTmuxKeys, sendTmuxSelection } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 import { capturePaneText } from '../services/tmux-capture.ts';
 
@@ -600,6 +600,40 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         sent = !!result?.sent;
       }
       getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
+      return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  if (url.pathname === '/api/supervisor/answer-multi' && req.method === 'POST') {
+    try {
+      const { project, session, serverId, numbers } = (await req.json()) as {
+        project?: string;
+        session?: string;
+        serverId?: string;
+        numbers?: unknown;
+      };
+      if (!project || !session) return jsonError('project and session are required', 400);
+      if (!Array.isArray(numbers) || !numbers.every((n) => typeof n === 'number')) {
+        return jsonError('numbers must be an array of option numbers', 400);
+      }
+      let result: any;
+      let sent: boolean;
+      if (serverId && getPeer(serverId)) {
+        const peer = getPeer(serverId)!;
+        const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-selection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project, session, numbers }),
+        });
+        result = await res.json();
+        sent = !!(result?.tmux ?? result?.sent ?? result?.success);
+      } else {
+        result = await sendTmuxSelection(project, session, numbers as number[]);
+        sent = !!result?.sent;
+      }
+      getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text: `selected: ${(numbers as number[]).join(', ')}`, sent });
       return Response.json(result);
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);

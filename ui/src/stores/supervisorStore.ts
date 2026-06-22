@@ -243,6 +243,7 @@ export interface ZenStructured {
   question?: string;
   options?: Array<{ label: string; valueToSend: string }>;
   recommended?: number;
+  multiSelect?: boolean;
 }
 
 /** Z3: mirror of the server session-summary heartbeat (session-summary-loop.ts).
@@ -538,6 +539,8 @@ interface SupervisorState {
   /** Orch P2: dismiss an inline Grok suggestion → clears it; escalation stays open. */
   dismissSuggestion: (serverId: string, project: string, id: string) => Promise<void>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
+  /** Answer a Claude Code multi-select question: toggle the chosen 1-based option numbers then submit. */
+  answerPaneMulti: (serverId: string, project: string, session: string, numbers: number[]) => Promise<boolean>;
   /** Z8: fetch the raw tmux capture-pane text for a session ON DEMAND (not a
    *  stream) — backs the PaneLinesPopover "show the lines it read". Returns the
    *  raw pane string, or '' on failure (keep-prior-on-failure convention). */
@@ -954,6 +957,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
 
   nudge: async (serverId, project, session, text) => {
     const res = await invoke(serverId, '/api/supervisor/nudge', 'POST', { project, session, text });
+    return !!res?.ok;
+  },
+
+  answerPaneMulti: async (serverId, project, session, numbers) => {
+    const res = await invoke(serverId, '/api/supervisor/answer-multi', 'POST', { project, session, serverId, numbers });
     return !!res?.ok;
   },
 

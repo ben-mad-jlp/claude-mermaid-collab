@@ -46,6 +46,8 @@ export interface ZenSessionCardProps {
   onToggleExpand?: () => void;
   onDecideEscalation: (serverId: string, id: string, optionId: string) => void | Promise<boolean>;
   onAnswerPane: (serverId: string, project: string, session: string, value: string) => void | Promise<boolean>;
+  /** Answer a multi-select question: toggle the chosen 1-based option numbers then submit. */
+  onAnswerPaneMulti?: (serverId: string, project: string, session: string, numbers: number[]) => void | Promise<boolean>;
   /** Force a fresh summary (called shortly after answering so a lingering question
    *  clears once the session reacts, instead of waiting for the next cycle). */
   onRequestRefresh?: (serverId: string, project: string, session: string) => void;
@@ -271,6 +273,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onToggleExpand,
   onDecideEscalation,
   onAnswerPane,
+  onAnswerPaneMulti,
   onRequestRefresh,
   onOpen,
   onClose,
@@ -291,7 +294,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // A new/changed question (or escalation) resets the feedback so a stale ✓ never sticks.
   const escId = escalation?.id ?? null;
   const questionKey = `${escId}|${summary?.structured?.question ?? ''}|${summary?.structured?.status ?? ''}`;
-  useEffect(() => { setAction(null); }, [questionKey]);
+  // Accumulated multi-select picks (1-based option numbers). Reset when the question changes.
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  useEffect(() => { setAction(null); setPicked(new Set()); }, [questionKey]);
 
   const runAnswer = async (chosen: string, label: string, fn: () => void | Promise<boolean>) => {
     if (action?.kind === 'pending') return;
@@ -343,6 +348,14 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const questionText =
     escalation?.questionText ?? structured?.question ?? (structured?.status === 'needs-input' ? 'Waiting for input' : null);
   const hasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (paneOptions && paneOptions.length > 0) || structured?.status === 'needs-input');
+  // Multi-select pane question (Claude Code AskUserQuestion multiSelect): accumulate
+  // picks then submit. Only when we can address options by single-digit number (≤9)
+  // and a multi handler is wired; escalations are always single-decision.
+  const multiSelect =
+    !!structured?.multiSelect &&
+    !escOptions &&
+    !!paneOptions && paneOptions.length > 0 && paneOptions.length <= 9 &&
+    !!onAnswerPaneMulti;
 
   // Status (interpreter status, else structural progressState) — drives the header
   // bar color (via ProjectBar) and the dancing-Claude animation.
@@ -358,6 +371,14 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
 
   const tintStyle = freshnessStyle(summary?.summaryUpdatedAt, now);
 
+  // Submit accumulated multi-select picks (1-based) as a single pane-multi answer.
+  const submitMulti = async () => {
+    if (picked.size === 0 || action?.kind === 'pending') return;
+    const nums = Array.from(picked).sort((a, b) => a - b);
+    const label = nums.map(n => paneOptions![n - 1].label).join(', ');
+    await runAnswer('multi', label, () => onAnswerPaneMulti!(serverId, project, session, nums));
+  };
+
   // The answer controls — shared by the question-fills-card layout. After a tap we show
   // a ✓ Sent confirmation in place of the buttons (covers the pane-answer case, where the
   // server pushes no state change, and the latency/failure gap on escalation decide).
@@ -365,6 +386,56 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     <div className={`${SZ.q} flex items-center justify-center gap-2 text-success-700 dark:text-success-400 font-medium`}>
       <span aria-hidden>✓</span>
       <span>Sent — “{action.label}”</span>
+    </div>
+  ) : multiSelect ? (
+    <div className="w-full max-w-md mx-auto flex flex-col items-stretch gap-2">
+      <div className="flex flex-col gap-1.5">
+        {(paneOptions ?? []).map((opt, i) => {
+          const n = i + 1;
+          const on = picked.has(n);
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={action?.kind === 'pending'}
+              onClick={() =>
+                setPicked((s) => {
+                  const next = new Set(s);
+                  if (next.has(n)) next.delete(n); else next.add(n);
+                  return next;
+                })
+              }
+              className={`${SZ.btn} flex items-center gap-2 rounded-xl text-left font-medium transition-colors border disabled:opacity-50 ${
+                on
+                  ? 'border-accent-400 dark:border-accent-600 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                  : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`shrink-0 inline-flex items-center justify-center w-4 h-4 rounded border text-3xs leading-none ${
+                  on ? 'bg-accent-500 border-accent-500 text-white' : 'border-gray-300 dark:border-gray-500'
+                }`}
+              >
+                {on ? '✓' : ''}
+              </span>
+              <span className="flex-1 min-w-0">{opt.label}</span>
+              {i === structured?.recommended && <span className="text-3xs text-accent-600 dark:text-accent-400 shrink-0">★</span>}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        disabled={picked.size === 0 || action?.kind === 'pending'}
+        onClick={() => void submitMulti()}
+        className={`${SZ.btn} self-center rounded-full font-semibold transition-colors border border-accent-300 dark:border-accent-700 bg-accent-600 text-white disabled:opacity-40 disabled:cursor-not-allowed`}
+      >
+        {action?.kind === 'pending' ? <span className="animate-pulse">…submitting</span> : `Submit${picked.size ? ` (${picked.size})` : ''}`}
+      </button>
+      {action?.kind === 'error' && (
+        <span className="text-3xs font-medium text-danger-600 dark:text-danger-400 text-center">Couldn’t submit — try again.</span>
+      )}
     </div>
   ) : (
     <>
@@ -391,6 +462,43 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
                 </button>
               );
             })
+          : multiSelect
+          ? <>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {(paneOptions ?? []).map((opt, i) => {
+                  const num = i + 1;
+                  const active = picked.has(num);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      disabled={action?.kind === 'pending'}
+                      onClick={() => setPicked(prev => {
+                        const next = new Set(prev);
+                        if (next.has(num)) next.delete(num); else next.add(num);
+                        return next;
+                      })}
+                      className={`${SZ.btn} rounded-full font-medium transition-colors border disabled:opacity-50 disabled:cursor-wait ${
+                        active
+                          ? 'border-accent-400 dark:border-accent-600 bg-accent-100 dark:bg-accent-800/50 text-accent-900 dark:text-accent-100'
+                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {active && <span className="mr-1" aria-hidden>✓</span>}
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                disabled={picked.size === 0 || action?.kind === 'pending'}
+                onClick={submitMulti}
+                className={`${SZ.btn} rounded-full font-semibold transition-colors border border-accent-400 dark:border-accent-600 bg-accent-500 dark:bg-accent-700 text-white disabled:opacity-40 disabled:cursor-wait hover:bg-accent-600 dark:hover:bg-accent-600`}
+              >
+                {action?.kind === 'pending' ? <span className="animate-pulse">…</span> : `Submit (${picked.size})`}
+              </button>
+            </>
           : (paneOptions ?? []).map((opt, i) => {
               const recommended = i === structured?.recommended;
               const chosenKey = `pane-${i}`;

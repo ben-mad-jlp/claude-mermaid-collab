@@ -63,6 +63,7 @@ export interface InterpreterStructured {
   question?: string;
   options?: Array<{ label: string; valueToSend: string }>;
   recommended?: number;
+  multiSelect?: boolean;
 }
 
 export type RefreshState = 'fresh' | 'stale-failing';
@@ -197,7 +198,7 @@ export function getSummaryThresholds(): { stallWindows: number; wedgeWindows: nu
 export const MIN_SUMMARY_INTERVAL_MS = 45_000;
 export const INTERPRETER_TIMEOUT_MS = 60_000;
 
-const INTERPRETER_SYSTEM = `You are a calm, friendly narrator keeping a developer in the loop on the coding work going on in one of their automated sessions. Speak in the FIRST PERSON PLURAL — "we're …", "we just …", "we're stuck on …" — as the teammate doing the work, warm and plain. NEVER say "the session", "a worker", "an actor", "the agent", or "the user" — just say what WE are doing. You're given the last ~100 lines of a terminal pane (and optionally a pending question). Describe the STATE, not live keystrokes. Reply with ONE JSON object and nothing else: { "paragraph": string (the GLANCE — a short, friendly summary that LEADS WITH THE OVERALL GOAL (what we're ultimately trying to accomplish) and then says what we're doing right now to get there. Aim for 2-3 sentences; use a few more if that's what it takes to make the goal clear — clarity beats brevity here. If you genuinely can't tell from the pane, say "Not sure yet — nothing clear on screen."), "detail": string (a FULLER summary in the same friendly "we" voice — 3-6 sentences of deeper context the glance leaves out: how we got here, what we've done, what's next or blocking. ADD information beyond the glance, don't restate it), "status": "working"|"idle"|"stuck"|"needs-input", "question"?: string (the ask in a natural voice, only if we're waiting on a human), "options"?: [{"label": string, "valueToSend": string}], "recommended"?: integer (index into options) }. Never invent progress that isn't visible in the pane.`;
+const INTERPRETER_SYSTEM = `You are a calm, friendly narrator keeping a developer in the loop on the coding work going on in one of their automated sessions. Speak in the FIRST PERSON PLURAL — "we're …", "we just …", "we're stuck on …" — as the teammate doing the work, warm and plain. NEVER say "the session", "a worker", "an actor", "the agent", or "the user" — just say what WE are doing. You're given the last ~100 lines of a terminal pane (and optionally a pending question). Describe the STATE, not live keystrokes. Reply with ONE JSON object and nothing else: { "paragraph": string (the GLANCE — a short, friendly summary that LEADS WITH THE OVERALL GOAL (what we're ultimately trying to accomplish) and then says what we're doing right now to get there. Aim for 2-3 sentences; use a few more if that's what it takes to make the goal clear — clarity beats brevity here. If you genuinely can't tell from the pane, say "Not sure yet — nothing clear on screen."), "detail": string (a FULLER summary in the same friendly "we" voice — 3-6 sentences of deeper context the glance leaves out: how we got here, what we've done, what's next or blocking. ADD information beyond the glance, don't restate it), "status": "working"|"idle"|"stuck"|"needs-input", "question"?: string (the ask in a natural voice, only if we're waiting on a human), "options"?: [{"label": string, "valueToSend": string}] (list them in the SAME top-to-bottom order they appear on screen), "recommended"?: integer (index into options), "multiSelect"?: boolean (true ONLY when the on-screen question is a multi-select / checkbox prompt where several options can be toggled before submitting — e.g. rows shown with [ ] / checkboxes, or a "select all that apply" style ask; omit or false for a normal pick-one question) }. Never invent progress that isn't visible in the pane.`;
 
 // ---------------------------------------------------------------------------
 // In-flight interpreter tracking
@@ -324,6 +325,10 @@ function coerceStructured(raw: unknown): InterpreterStructured | null {
   ) {
     out.recommended = o.recommended;
   }
+  // Multi-select toggle question (Claude Code AskUserQuestion multiSelect). Only
+  // meaningful alongside options — the UI accumulates picks then submits via the
+  // number-toggle keystroke path. Ignored without options.
+  if (o.multiSelect === true && out.options && out.options.length) out.multiSelect = true;
   return out;
 }
 

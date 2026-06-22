@@ -3,7 +3,7 @@ import type { WebSocketHandler } from '../websocket/handler.ts';
 import { ideState } from '../services/ide-state.ts';
 import { tmuxBaseName } from '../services/tmux-naming.js';
 import { getSupervisedLaunchProject } from '../services/supervisor-store.ts';
-import { sendTmuxKeys } from '../services/tmux-send.ts';
+import { sendTmuxKeys, sendTmuxSelection } from '../services/tmux-send.ts';
 import { launchAndBind } from '../services/claude-launch.ts';
 import { mux, argvNewSession, argvLs } from '../services/session-mux/index.ts';
 import { capturePaneText } from '../services/tmux-capture.ts';
@@ -141,6 +141,27 @@ export async function handleIdeRoutes(req: Request, url: URL, wsHandler: WebSock
       // not a supervisor nudge. Real supervisor/remote nudges omit `quiet`.
       if (doSubmit && !quiet) {
         wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text, sent: result.sent });
+      }
+      return Response.json({ success: true, tmux: result.sent });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  if (url.pathname === '/api/ide/tmux-send-selection' && req.method === 'POST') {
+    try {
+      const { project, session, numbers } = await req.json() as { project?: string; session?: string; numbers?: unknown };
+      if (!project || typeof project !== 'string') return jsonError('project is required', 400);
+      if (!session || typeof session !== 'string') return jsonError('session is required', 400);
+      if (!Array.isArray(numbers) || !numbers.every((n) => typeof n === 'number')) {
+        return jsonError('numbers must be an array of option numbers', 400);
+      }
+      // Drive a Claude Code multi-select prompt: toggle the chosen options then submit.
+      const result = await sendTmuxSelection(project, session, numbers as number[]);
+      if (result.reason === 'no-session') return jsonError('tmux session not found', 404);
+      if (result.reason === 'bad-selection') return jsonError('invalid selection (expected 1..9)', 400);
+      if (result.sent) {
+        wsHandler.broadcast({ type: 'supervisor_nudge', project, session, serverId: '', text: `selected: ${(numbers as number[]).join(', ')}`, sent: true });
       }
       return Response.json({ success: true, tmux: result.sent });
     } catch (err) {
