@@ -53,16 +53,20 @@ export interface ZenSessionCardProps {
 
 /** Project bar: project name on the left; the plan funnel rollup + daemon totals as
  *  colored dot+count symbols, then an Open button, on the right. */
+// Header tint by status — muted soft tints (not vivid fills), with dark text.
+// Semantics: GREEN = done / at rest, YELLOW = working, RED = waiting on you (a question
+// or stuck). Calm by default; the colour is a hint, not a shout.
 const STATUS_BAR_BG: Record<string, string> = {
-  working: 'bg-success-500',
-  active:  'bg-success-500',
-  idle:    'bg-gray-300 dark:bg-gray-600',
-  quiet:   'bg-gray-300 dark:bg-gray-600',
-  stuck:   'bg-danger-500',
-  wedged:  'bg-danger-500',
-  stalled: 'bg-warning-400',
-  'needs-input': 'bg-warning-400',
-  unknown: 'bg-gray-300 dark:bg-gray-600',
+  working: 'bg-warning-200/70 dark:bg-warning-500/20',
+  active:  'bg-warning-200/70 dark:bg-warning-500/20',
+  idle:    'bg-success-200/70 dark:bg-success-500/20',
+  quiet:   'bg-success-200/70 dark:bg-success-500/20',
+  done:    'bg-success-200/70 dark:bg-success-500/20',
+  'needs-input': 'bg-danger-200/70 dark:bg-danger-500/20',
+  stuck:   'bg-danger-200/70 dark:bg-danger-500/20',
+  wedged:  'bg-danger-200/70 dark:bg-danger-500/20',
+  stalled: 'bg-danger-200/70 dark:bg-danger-500/20',
+  unknown: 'bg-gray-200/70 dark:bg-gray-600/30',
 };
 
 /** Map the Zen session status → the ClaudePix animation pool (active dances, etc.). */
@@ -93,9 +97,9 @@ const ProjectBar: React.FC<{
       <div className="flex items-center gap-2 min-w-0">
         {/* Dancing Claude in the corner — its animation reflects the session's state. */}
         <ClaudePixAvatar status={toPixStatus(status)} size={{ xs: 26, sm: 30, md: 36, lg: 42 }[size]} />
-        <span className={`${titleSize} font-bold tracking-tight text-white truncate drop-shadow-sm`} title={`${project} / ${sessionShort}`}>
+        <span className={`${titleSize} font-bold tracking-tight text-gray-900 dark:text-gray-50 truncate`} title={`${project} / ${sessionShort}`}>
           {name}
-          <span className="font-medium text-white/75"> / {sessionShort}</span>
+          <span className="font-medium text-gray-500 dark:text-gray-400"> / {sessionShort}</span>
         </span>
       </div>
       <div className="flex items-center gap-2.5 shrink-0">
@@ -105,22 +109,22 @@ const ProjectBar: React.FC<{
             {FUNNEL_SEGMENTS.map((seg) =>
               seg.key !== 'done' && totals.counts[seg.key] > 0 ? (
                 <span key={seg.key} className="flex items-center gap-1 text-3xs font-medium" title={seg.label}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-white/60" />
-                  <span className="text-white/90">{totals.counts[seg.key]}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[seg.key].dot}`} />
+                  <span className="text-gray-600 dark:text-gray-300">{totals.counts[seg.key]}</span>
                 </span>
               ) : null,
             )}
-            <span className="text-3xs text-white/70">{totals.total} open</span>
+            <span className="text-3xs text-gray-500 dark:text-gray-400">{totals.total} open</span>
           </>
         )}
         {/* Daemon totals — leaf-executor lanes (⚙ working / claimed / ⚠ permission) */}
         {daemon && daemon.lanes > 0 && (
-          <span className="flex items-center gap-1.5 text-3xs font-medium pl-2 border-l border-white/30" title="Daemon lanes (working / claimed)">
-            <span className="text-white/60">⚙</span>
-            <span className="text-white/90">{daemon.working}</span>
-            <span className="text-white/60">/ {daemon.lanes}</span>
+          <span className="flex items-center gap-1.5 text-3xs font-medium pl-2 border-l border-gray-300 dark:border-gray-600" title="Daemon lanes (working / claimed)">
+            <span className="text-gray-400 dark:text-gray-500">⚙</span>
+            <span className="text-info-600 dark:text-info-400">{daemon.working}</span>
+            <span className="text-gray-400 dark:text-gray-500">/ {daemon.lanes}</span>
             {daemon.permission > 0 && (
-              <span className="text-white font-semibold" title="awaiting permission">⚠ {daemon.permission}</span>
+              <span className="text-warning-600 dark:text-warning-400 font-semibold" title="awaiting permission">⚠ {daemon.permission}</span>
             )}
           </span>
         )}
@@ -129,7 +133,7 @@ const ProjectBar: React.FC<{
           type="button"
           onClick={() => onOpen(project, session, serverId)}
           title="Open this session in the full collab"
-          className="px-2 py-0.5 rounded-full text-3xs font-semibold text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+          className="px-2 py-0.5 rounded-full text-3xs font-semibold text-gray-500 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
         >
           Open ↗
         </button>
