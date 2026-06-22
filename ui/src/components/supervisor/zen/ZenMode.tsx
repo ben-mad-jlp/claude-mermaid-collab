@@ -187,6 +187,7 @@ export const ZenMode: React.FC = () => {
                     totals={totalsByProject[s.project]}
                     daemon={daemonByProject[s.project]}
                     escalation={escalation}
+                    contextPercent={s.contextPercent}
                     now={now}
                     size={cardSize(key)}
                     expanded={expandedKey === key}

@@ -30,6 +30,9 @@ export interface ZenSessionCardProps {
   daemon?: DaemonTotals;
   /** Open escalation for THIS session, if any (structured options → decide). */
   escalation?: Escalation | null;
+  /** Context-window fullness 0–100 → a thin loading bar under the header (like the
+   *  watching cards). Undefined = no bar. */
+  contextPercent?: number;
   /** Current epoch ms (from parent's ticking clock) — drives the freshness tint. */
   now?: number;
   /** Size tier — grows fonts/padding to fill space when few cards; shrinks others when
@@ -230,6 +233,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   totals,
   daemon,
   escalation,
+  contextPercent,
   now = Date.now(),
   size = 'sm',
   expanded: expandedProp,
@@ -396,6 +400,19 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       }`}
     >
       <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} onOpen={onOpen} />
+
+      {/* Context-window fullness — a thin loading bar under the header, same thresholds
+          as the watching cards (warn > 68%, danger + pulse > 78%). */}
+      {contextPercent !== undefined && (
+        <div className="h-1 w-full shrink-0 bg-black/10 dark:bg-white/10" title={`Context ${Math.round(contextPercent)}% full`}>
+          <div
+            className={`h-full transition-all ${
+              contextPercent > 78 ? 'bg-danger-500 animate-pulse' : contextPercent > 68 ? 'bg-yellow-500' : 'bg-success-400/70'
+            }`}
+            style={{ width: `${Math.min(contextPercent, 100)}%` }}
+          />
+        </div>
+      )}
 
       {/* Body. When the session is ASKING, the question takes over the whole card (the
           summary is hidden) so the decision is the only thing in view. Otherwise the
