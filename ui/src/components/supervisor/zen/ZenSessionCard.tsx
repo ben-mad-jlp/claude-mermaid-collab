@@ -49,6 +49,8 @@ export interface ZenSessionCardProps {
   onRequestRefresh?: (serverId: string, project: string, session: string) => void;
   /** Bring this session up in the full collab UI (sets current session + exits Zen). */
   onOpen: (project: string, session: string, serverId: string) => void;
+  /** Stop watching this session (unsubscribe) — renders an × in the header. */
+  onClose?: () => void;
 }
 
 /** Project bar: project name on the left; the plan funnel rollup + daemon totals as
@@ -86,7 +88,8 @@ const ProjectBar: React.FC<{
   size?: 'xs' | 'sm' | 'md' | 'lg';
   status?: string;
   onOpen: (project: string, session: string, serverId: string) => void;
-}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', onOpen }) => {
+  onClose?: () => void;
+}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', onOpen, onClose }) => {
   const name = project.split('/').pop() || project;
   const sessionShort = session.split('/').pop() || session;
   // Project title scales with the card tier — it's the card's headline, so give it real weight.
@@ -137,6 +140,17 @@ const ProjectBar: React.FC<{
         >
           Open ↗
         </button>
+        {/* Stop watching this session */}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            title="Stop watching this session"
+            className="px-1.5 py-0.5 rounded-full text-sm leading-none font-semibold text-gray-400 dark:text-gray-500 hover:text-danger-600 dark:hover:text-danger-400 hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+          >
+            ×
+          </button>
+        )}
       </div>
     </div>
   );
@@ -251,6 +265,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onAnswerPane,
   onRequestRefresh,
   onOpen,
+  onClose,
 }) => {
   const [localExpanded, setLocalExpanded] = useState(false);
   const controlled = onToggleExpand != null;
@@ -403,7 +418,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           : 'border-gray-200 dark:border-gray-700'
       }`}
     >
-      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} onOpen={onOpen} />
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} onOpen={onOpen} onClose={onClose} />
 
       {/* Context-window fullness — a thin loading bar under the header, same thresholds
           as the watching cards (warn > 68%, danger + pulse > 78%). */}

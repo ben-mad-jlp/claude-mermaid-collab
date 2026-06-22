@@ -42,9 +42,20 @@ export const ZenMode: React.FC = () => {
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
+  const subscribe = useSubscriptionStore((s) => s.subscribe);
+  const unsubscribe = useSubscriptionStore((s) => s.unsubscribe);
 
   const allSessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+
+  // "Add session" picker (Zen-native): list sessions not already watched → subscribe.
+  const [addOpen, setAddOpen] = useState(false);
+  const available = useMemo(
+    () => allSessions
+      .filter((s) => !subscriptions[`${s.serverId ?? 'local'}:${s.project}:${s.name}`])
+      .sort((a, b) => (a.project + a.name).localeCompare(b.project + b.name)),
+    [allSessions, subscriptions],
+  );
 
   // Which card is expanded (key = `serverId:project:session`). Only one at a time.
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
@@ -95,8 +106,8 @@ export const ZenMode: React.FC = () => {
   // `ranked` is the needs-you → stuck → active → rest float-to-top sort. We pick between
   // them based on whether the grid overflows (see `overflowing` below).
   const { stable, ranked } = useMemo(() => {
-    const list = order.map((k) => subscriptions[k]).filter(Boolean);
-    const stable = list.map((s) => {
+    const list = order.filter((k) => subscriptions[k]).map((k) => ({ k, s: subscriptions[k] }));
+    const stable = list.map(({ k, s }) => {
       const summary = sessionSummaries[`${s.project}::${s.session}`];
       const escalation =
         openEscalations.find((e) => e.project === s.project && e.session === s.session && e.status === 'open') ?? null;
@@ -104,7 +115,7 @@ export const ZenMode: React.FC = () => {
         !!escalation || summary?.structured?.status === 'needs-input';
       const recency = Math.max(summary?.summaryUpdatedAt ?? 0, summary?.paneSeenAt ?? 0, summary?.updatedAt ?? 0);
       const rank = sessionRank({ needsYou, state: summary?.progressState, status: summary?.structured?.status });
-      return { s, summary, escalation, rank, recency };
+      return { k, s, summary, escalation, rank, recency };
     });
     const ranked = [...stable].sort((a, b) => (a.rank - b.rank) || (b.recency - a.recency));
     return { stable, ranked };
@@ -147,18 +158,59 @@ export const ZenMode: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen min-h-0 bg-gray-50 dark:bg-gray-900">
-      {/* Minimal top strip — title + exit. Nothing else. */}
+      {/* Minimal top strip — title + add session + exit. */}
       <div className="flex items-center justify-between px-5 py-2.5 shrink-0">
         <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 tracking-wide">Zen</span>
-        <button
-          type="button"
-          onClick={toggleZenMode}
-          title="Exit Zen — back to the Bridge"
-          className="px-3 py-1 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-800 transition-colors"
-        >
-          ⤢ Exit Zen
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            title="Watch another session"
+            className="px-3 py-1 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-800 transition-colors"
+          >
+            + Add session
+          </button>
+          <button
+            type="button"
+            onClick={toggleZenMode}
+            title="Exit Zen — back to the Bridge"
+            className="px-3 py-1 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-800 transition-colors"
+          >
+            ⤢ Exit Zen
+          </button>
+        </div>
       </div>
+
+      {/* Add-session picker — sessions not already watched; click to subscribe. */}
+      {addOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setAddOpen(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl w-96 max-h-[28rem] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Watch a session</span>
+              <button type="button" onClick={() => setAddOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg leading-none">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {available.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-gray-400 dark:text-gray-500">All known sessions are already being watched.</div>
+              ) : (
+                available.map((s) => (
+                  <button
+                    key={`${s.serverId ?? 'local'}:${s.project}:${s.name}`}
+                    type="button"
+                    onClick={() => { subscribe(s.serverId ?? 'local', s.project, s.name); setAddOpen(false); }}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors flex items-center gap-2"
+                  >
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                      {(s.project.split('/').pop() || s.project)}
+                      <span className="font-normal text-gray-500 dark:text-gray-400"> / {s.name}</span>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* The cards — CSS grid that fills the full height, rows stretch to share space. */}
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
@@ -176,8 +228,8 @@ export const ZenMode: React.FC = () => {
               gridAutoRows: `minmax(${minRowHeight}, 1fr)`,
             }}
           >
-            {cards.map(({ s, summary, escalation }) => {
-              const key = `${s.serverId}:${s.project}:${s.session}`;
+            {cards.map(({ k, s, summary, escalation }) => {
+              const key = k;
               return (
                 <div key={key} className="min-h-0 h-full">
                   <ZenSessionCard
@@ -189,6 +241,7 @@ export const ZenMode: React.FC = () => {
                     daemon={daemonByProject[s.project]}
                     escalation={escalation}
                     contextPercent={s.contextPercent}
+                    onClose={() => unsubscribe(k)}
                     now={now}
                     size={cardSize(key)}
                     expanded={expandedKey === key}
