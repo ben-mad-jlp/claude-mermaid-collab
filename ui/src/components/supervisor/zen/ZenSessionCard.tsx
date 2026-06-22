@@ -246,14 +246,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const sessionName = session.split('/').pop() || session;
   const structured = summary?.structured;
   const paragraph = (structured?.paragraph ?? summary?.summaryText ?? '').trim();
-  // Glance: the first TWO whole sentences taken from the FULL paragraph (NOT the server's
-  // `firstClause`, which is truncated mid-word — the source of the "…the Zen vie" cutoff).
-  // Falls back to the whole paragraph when it has no sentence punctuation. Click expands.
-  const glance = (() => {
-    const sentences = paragraph.match(/[^.!?]+[.!?]+(?:["')\]]+)?/g);
-    if (!sentences || sentences.length === 0) return paragraph;
-    return sentences.slice(0, 2).join(' ').trim();
-  })();
+  // Glance: paragraph is exactly 2 sentences from the interpreter — sentence 1 = overall goal,
+  // sentence 2 = current task to get there. We show the full paragraph as the glance.
+  const glance = paragraph;
   // "more" reveals the LARGER summary: the interpreter's richer `detail` (distinct from the
   // glance), falling back to the full paragraph for entries summarized before `detail` existed.
   const detail = structured?.detail?.trim() ?? '';
