@@ -2,6 +2,7 @@ import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import type { SessionSummary, Escalation } from '@/stores/supervisorStore';
 import { type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
+import { ClaudePixAvatar } from '@/components/layout/SessionCard';
 
 // ZenSessionCard — the SINGLE Zen primitive (redesign 2026-06-20). One card per
 // watched session: a project bar across the top (project + totals as symbols), a
@@ -46,20 +47,49 @@ export interface ZenSessionCardProps {
 
 /** Project bar: project name on the left; the plan funnel rollup + daemon totals as
  *  colored dot+count symbols, then an Open button, on the right. */
+const STATUS_BAR_BG: Record<string, string> = {
+  working: 'bg-success-500',
+  active:  'bg-success-500',
+  idle:    'bg-gray-300 dark:bg-gray-600',
+  quiet:   'bg-gray-300 dark:bg-gray-600',
+  stuck:   'bg-danger-500',
+  wedged:  'bg-danger-500',
+  stalled: 'bg-warning-400',
+  'needs-input': 'bg-warning-400',
+  unknown: 'bg-gray-300 dark:bg-gray-600',
+};
+
+/** Map the Zen session status → the ClaudePix animation pool (active dances, etc.). */
+function toPixStatus(status: string): string {
+  if (status === 'working' || status === 'active') return 'active';
+  if (status === 'needs-input') return 'permission';
+  if (status === 'idle' || status === 'quiet') return 'waiting';
+  return 'unknown'; // stuck / wedged / stalled / unknown
+}
+
 const ProjectBar: React.FC<{
   project: string;
   session: string;
   serverId: string;
   totals?: PlanTotals;
   daemon?: DaemonTotals;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+  status?: string;
   onOpen: (project: string, session: string, serverId: string) => void;
-}> = ({ project, session, serverId, totals, daemon, onOpen }) => {
+}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', onOpen }) => {
   const name = project.split('/').pop() || project;
+  // Project title scales with the card tier — it's the card's headline, so give it real weight.
+  const titleSize = { xs: 'text-sm', sm: 'text-base', md: 'text-lg', lg: 'text-xl' }[size];
+  const barBg = STATUS_BAR_BG[status] ?? STATUS_BAR_BG.unknown;
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-1.5 border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/80 dark:bg-gray-800/50 rounded-t-2xl">
-      <span className="text-3xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 truncate" title={project}>
-        {name}
-      </span>
+    <div className={`flex items-center justify-between gap-3 px-3 py-1.5 border-b border-gray-100 dark:border-gray-700/60 rounded-t-2xl ${barBg}`}>
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Dancing Claude in the corner — its animation reflects the session's state. */}
+        <ClaudePixAvatar status={toPixStatus(status)} size={{ xs: 26, sm: 30, md: 36, lg: 42 }[size]} />
+        <span className={`${titleSize} font-bold tracking-tight text-white truncate drop-shadow-sm`} title={project}>
+          {name}
+        </span>
+      </div>
       <div className="flex items-center gap-2.5 shrink-0">
         {/* Plan totals — funnel buckets as colored dots */}
         {totals && totals.total > 0 && (
@@ -67,22 +97,22 @@ const ProjectBar: React.FC<{
             {FUNNEL_SEGMENTS.map((seg) =>
               seg.key !== 'done' && totals.counts[seg.key] > 0 ? (
                 <span key={seg.key} className="flex items-center gap-1 text-3xs font-medium" title={seg.label}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[seg.key].dot}`} />
-                  <span className={seg.tint}>{totals.counts[seg.key]}</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-white/60" />
+                  <span className="text-white/90">{totals.counts[seg.key]}</span>
                 </span>
               ) : null,
             )}
-            <span className="text-3xs text-gray-400 dark:text-gray-500">{totals.total} open</span>
+            <span className="text-3xs text-white/70">{totals.total} open</span>
           </>
         )}
         {/* Daemon totals — leaf-executor lanes (⚙ working / claimed / ⚠ permission) */}
         {daemon && daemon.lanes > 0 && (
-          <span className="flex items-center gap-1.5 text-3xs font-medium pl-2 border-l border-gray-200 dark:border-gray-600" title="Daemon lanes (working / claimed)">
-            <span className="text-gray-400 dark:text-gray-500">⚙</span>
-            <span className="text-info-600 dark:text-info-400">{daemon.working}</span>
-            <span className="text-gray-400 dark:text-gray-500">/ {daemon.lanes}</span>
+          <span className="flex items-center gap-1.5 text-3xs font-medium pl-2 border-l border-white/30" title="Daemon lanes (working / claimed)">
+            <span className="text-white/60">⚙</span>
+            <span className="text-white/90">{daemon.working}</span>
+            <span className="text-white/60">/ {daemon.lanes}</span>
             {daemon.permission > 0 && (
-              <span className="text-warning-600 dark:text-warning-400" title="awaiting permission">⚠ {daemon.permission}</span>
+              <span className="text-white font-semibold" title="awaiting permission">⚠ {daemon.permission}</span>
             )}
           </span>
         )}
@@ -91,7 +121,7 @@ const ProjectBar: React.FC<{
           type="button"
           onClick={() => onOpen(project, session, serverId)}
           title="Open this session in the full collab"
-          className="px-2 py-0.5 rounded-full text-3xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-200/70 dark:hover:bg-gray-700 transition-colors"
+          className="px-2 py-0.5 rounded-full text-3xs font-semibold text-white/80 hover:text-white hover:bg-white/20 transition-colors"
         >
           Open ↗
         </button>
@@ -145,7 +175,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       const probe = document.createElement('span');
       probe.style.cssText = [
         'position:absolute', 'visibility:hidden', 'pointer-events:none',
-        `width:${bw}px`, 'word-break:break-word', 'white-space:normal',
+        `width:${bw}px`, 'word-break:break-word', 'white-space:pre-line',
         'text-align:left', `line-height:${txt.style.lineHeight || '1.5'}`,
         `font-weight:${getComputedStyle(txt).fontWeight}`,
         `font-family:${getComputedStyle(txt).fontFamily}`,
@@ -183,7 +213,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       <span
         ref={txtRef}
         style={{ fontSize: `${fs}px` }}
-        className={`block w-full text-left leading-[1.5] font-semibold break-words ${className ?? ''}`}
+        className={`block w-full text-left leading-[1.5] font-semibold break-words whitespace-pre-line ${className ?? ''}`}
       >
         {text}
       </span>
@@ -246,9 +276,13 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const sessionName = session.split('/').pop() || session;
   const structured = summary?.structured;
   const paragraph = (structured?.paragraph ?? summary?.summaryText ?? '').trim();
-  // Glance: paragraph is exactly 2 sentences from the interpreter — sentence 1 = overall goal,
-  // sentence 2 = current task to get there. We show the full paragraph as the glance.
-  const glance = paragraph;
+  // Glance: paragraph is ~2 sentences from the interpreter — sentence 1 = overall goal,
+  // the rest = current task to get there. Put EACH sentence on its own line so the goal
+  // and the current task read as distinct, with breathing room between them.
+  const glance = (paragraph.match(/[^.!?]+[.!?]+(?:["')\]]+)?/g) ?? [paragraph])
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join('\n\n');
   // "more" reveals the LARGER summary: the interpreter's richer `detail` (distinct from the
   // glance), falling back to the full paragraph for entries summarized before `detail` existed.
   const detail = structured?.detail?.trim() ?? '';
@@ -289,6 +323,67 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
 
   const tintStyle = freshnessStyle(summary?.summaryUpdatedAt, now);
 
+  // The answer controls — shared by the question-fills-card layout. After a tap we show
+  // a ✓ Sent confirmation in place of the buttons (covers the pane-answer case, where the
+  // server pushes no state change, and the latency/failure gap on escalation decide).
+  const answerArea = action?.kind === 'sent' ? (
+    <div className={`${SZ.q} flex items-center justify-center gap-2 text-success-700 dark:text-success-400 font-medium`}>
+      <span aria-hidden>✓</span>
+      <span>Sent — “{action.label}”</span>
+    </div>
+  ) : (
+    <>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {escOptions && escOptions.length > 0
+          ? escOptions.map((opt) => {
+              const recommended = escalation!.recommended === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  disabled={action?.kind === 'pending'}
+                  onClick={() => runAnswer(opt.id, opt.label, () => onDecideEscalation(serverId, escalation!.id, opt.id))}
+                  title={opt.detail ?? opt.label}
+                  className={`${SZ.btn} rounded-full font-medium transition-colors border disabled:opacity-50 disabled:cursor-wait ${
+                    recommended
+                      ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                      : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {action?.kind === 'pending' && action.chosen === opt.id && <span className="mr-1 animate-pulse">…</span>}
+                  {opt.label}
+                  {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
+                </button>
+              );
+            })
+          : (paneOptions ?? []).map((opt, i) => {
+              const recommended = i === structured?.recommended;
+              const chosenKey = `pane-${i}`;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  disabled={action?.kind === 'pending'}
+                  onClick={() => runAnswer(chosenKey, opt.label, () => onAnswerPane(serverId, project, session, opt.valueToSend))}
+                  className={`${SZ.btn} rounded-full font-medium transition-colors border disabled:opacity-50 disabled:cursor-wait ${
+                    recommended
+                      ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                      : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {action?.kind === 'pending' && action.chosen === chosenKey && <span className="mr-1 animate-pulse">…</span>}
+                  {opt.label}
+                  {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
+                </button>
+              );
+            })}
+      </div>
+      {action?.kind === 'error' && (
+        <span className="text-3xs font-medium text-danger-600 dark:text-danger-400">Couldn’t send — tap to try again.</span>
+      )}
+    </>
+  );
+
   return (
     <div
       data-testid="zen-session-card"
@@ -299,16 +394,28 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           : 'border-gray-200 dark:border-gray-700'
       }`}
     >
-      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} onOpen={onOpen} />
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} onOpen={onOpen} />
 
-      {/* Body — the glance line grows (FitText) to fill the card; click to expand to the
-          full paragraph(s), which render at a readable size and scroll if needed. */}
+      {/* Body. When the session is ASKING, the question takes over the whole card (the
+          summary is hidden) so the decision is the only thing in view. Otherwise the
+          glance paragraph grows (FitText) to fill, click-to-expand to the fuller detail. */}
       <div className={`flex-1 min-h-0 flex flex-col items-stretch ${SZ.body}`}>
         <span className="shrink-0 flex items-center justify-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
           <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
           {sessionName}
         </span>
-        {paragraph ? (
+
+        {hasQuestion ? (
+          /* QUESTION FILLS THE CARD — the ask grows to fill, answers pinned below it. */
+          <div className="flex-1 min-h-0 flex flex-col gap-3 pt-1">
+            <div className="flex-1 min-h-0 flex items-center">
+              <FitText text={questionText ?? ''} className="text-gray-900 dark:text-gray-50" />
+            </div>
+            <div className="shrink-0 flex flex-col items-center gap-2">
+              {answerArea}
+            </div>
+          </div>
+        ) : paragraph ? (
           <button
             type="button"
             onClick={() => hasMore && toggleExpand()}
@@ -335,77 +442,11 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             <FitText text="No summary yet" min={12} max={26} className="italic text-gray-400 dark:text-gray-500" />
           </div>
         )}
-        {updatedAgo && (
+
+        {updatedAgo && !hasQuestion && (
           <span className="shrink-0 mt-1 text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
         )}
       </div>
-
-      {/* Question — only when the session is asking. Once answered we show a ✓ Sent
-          confirmation in place of the buttons (escalations also drop out on their own;
-          this covers the latency and the pane-answer case where no state changes). */}
-      {hasQuestion && (
-        <div className="px-6 pb-6 pt-2 border-t border-gray-100 dark:border-gray-700/60 flex flex-col items-center gap-3">
-          <p className={`${SZ.q} text-left text-gray-700 dark:text-gray-200 max-w-prose`}>{questionText}</p>
-
-          {action?.kind === 'sent' ? (
-            <div className={`${SZ.q} flex items-center gap-2 text-success-700 dark:text-success-400 font-medium`}>
-              <span aria-hidden>✓</span>
-              <span>Sent — “{action.label}”</span>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center justify-center gap-2">
-                {escOptions && escOptions.length > 0
-                  ? escOptions.map((opt) => {
-                      const recommended = escalation!.recommended === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          disabled={action?.kind === 'pending'}
-                          onClick={() => runAnswer(opt.id, opt.label, () => onDecideEscalation(serverId, escalation!.id, opt.id))}
-                          title={opt.detail ?? opt.label}
-                          className={`${SZ.btn} rounded-full font-medium transition-colors border disabled:opacity-50 disabled:cursor-wait ${
-                            recommended
-                              ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
-                              : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                          }`}
-                        >
-                          {action?.kind === 'pending' && action.chosen === opt.id && <span className="mr-1 animate-pulse">…</span>}
-                          {opt.label}
-                          {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
-                        </button>
-                      );
-                    })
-                  : (paneOptions ?? []).map((opt, i) => {
-                      const recommended = i === structured?.recommended;
-                      const chosenKey = `pane-${i}`;
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          disabled={action?.kind === 'pending'}
-                          onClick={() => runAnswer(chosenKey, opt.label, () => onAnswerPane(serverId, project, session, opt.valueToSend))}
-                          className={`${SZ.btn} rounded-full font-medium transition-colors border disabled:opacity-50 disabled:cursor-wait ${
-                            recommended
-                              ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
-                              : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                          }`}
-                        >
-                          {action?.kind === 'pending' && action.chosen === chosenKey && <span className="mr-1 animate-pulse">…</span>}
-                          {opt.label}
-                          {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
-                        </button>
-                      );
-                    })}
-              </div>
-              {action?.kind === 'error' && (
-                <span className="text-3xs font-medium text-danger-600 dark:text-danger-400">Couldn’t send — tap to try again.</span>
-              )}
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 };

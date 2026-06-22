@@ -193,9 +193,10 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
   });
 
   it('expanding a card collapses any other expanded one (single-open accordion)', () => {
-    // Two sessions, both with a long paragraph (so each shows a "more" toggle).
-    // Three sentences so the 2-sentence glance still leaves a third → a "more" toggle.
-    const longPara = 'First sentence here. Second sentence with more detail. Third sentence to expand into.';
+    // Two sessions, each with a paragraph (the glance) AND a distinct, longer `detail`
+    // — `detail` is what the "more" toggle reveals, so both cards show "more".
+    const para = 'We are building the thing. Right now we are wiring the parts.';
+    const detail = 'We are building the thing. Right now we are wiring the parts. It started with a plan, several files are done, and the next step is the integration test before we can land.';
     useSubscriptionStore.setState({
       subscriptions: {
         'srv1:/repo:a': subSess('a'),
@@ -205,8 +206,8 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
     });
     useSupervisorStore.setState({
       sessionSummaries: {
-        '/repo::a': summary('a', { structured: { paragraph: longPara, status: 'working' } }),
-        '/repo::b': summary('b', { structured: { paragraph: longPara, status: 'working' } }),
+        '/repo::a': summary('a', { structured: { paragraph: para, detail, status: 'working' } }),
+        '/repo::b': summary('b', { structured: { paragraph: para, detail, status: 'working' } }),
       },
     });
     render(<ZenMode />);

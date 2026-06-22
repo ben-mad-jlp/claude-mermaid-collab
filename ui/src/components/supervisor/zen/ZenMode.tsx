@@ -131,10 +131,14 @@ export const ZenMode: React.FC = () => {
   // the smallest (focus + context) — only one is expanded at a time (expandedKey).
   const n = cards.length;
   const baseTier: 'xs' | 'sm' | 'md' | 'lg' = n <= 3 ? 'lg' : n <= 6 ? 'md' : n <= 12 ? 'sm' : 'xs';
-  // Minimum column width — wider for fewer cards so the grid fills horizontal space.
-  const minColWidth = expandedKey
-    ? '32rem'
-    : baseTier === 'lg' ? '34rem' : baseTier === 'md' ? '26rem' : baseTier === 'sm' ? '20rem' : '16rem';
+  // Balanced grid: distribute cards into near-square rows so the last row isn't lopsided
+  // and the whole viewport fills (6 → 3×2, 4 → 2×2, 9 → 3×3) — no row-of-4-then-2.
+  // rows = round(√n), cols = ceil(n/rows). When a card is expanded we fall back to a
+  // single wide column-pack so the focused card gets room.
+  const balancedRows = Math.max(1, Math.round(Math.sqrt(n)));
+  const fixedCols = expandedKey ? null : Math.max(1, Math.ceil(n / balancedRows));
+  // Minimum column width — used only in the expanded (auto-fill) fallback.
+  const minColWidth = '32rem';
   const cardSize = (key: string): 'xs' | 'sm' | 'md' | 'lg' =>
     expandedKey ? (key === expandedKey ? 'lg' : 'xs') : baseTier;
   // Per-tier minimum row height: few cards still stretch (1fr) to fill the viewport,
@@ -170,7 +174,9 @@ export const ZenMode: React.FC = () => {
           <div
             className="h-full grid gap-3 py-2 transition-all"
             style={{
-              gridTemplateColumns: `repeat(auto-fill, minmax(${minColWidth}, 1fr))`,
+              gridTemplateColumns: fixedCols
+                ? `repeat(${fixedCols}, 1fr)`
+                : `repeat(auto-fill, minmax(${minColWidth}, 1fr))`,
               gridAutoRows: `minmax(${minRowHeight}, 1fr)`,
             }}
           >
