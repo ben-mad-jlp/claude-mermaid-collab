@@ -151,11 +151,12 @@ function freshnessStyle(updatedAt: number | undefined, now: number): React.CSSPr
 /** FitText — grows `text` to the largest font that fits the box in both dimensions.
  *  Measures in an off-screen absolute clone so the flex layout never shifts during the
  *  binary search, then commits the winning size as inline style on the real span. */
-const FitText: React.FC<{ text: string; min?: number; max?: number; className?: string }> = ({
+const FitText: React.FC<{ text: string; min?: number; max?: number; className?: string; center?: boolean }> = ({
   text,
   min = 13,
   max = 300,
   className,
+  center,
 }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const txtRef = useRef<HTMLSpanElement>(null);
@@ -176,7 +177,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       probe.style.cssText = [
         'position:absolute', 'visibility:hidden', 'pointer-events:none',
         `width:${bw}px`, 'word-break:break-word', 'white-space:pre-line',
-        'text-align:left', `line-height:${txt.style.lineHeight || '1.5'}`,
+        `text-align:${center ? 'center' : 'left'}`, `line-height:${txt.style.lineHeight || '1.5'}`,
         `font-weight:${getComputedStyle(txt).fontWeight}`,
         `font-family:${getComputedStyle(txt).fontFamily}`,
       ].join(';');
@@ -213,7 +214,7 @@ const FitText: React.FC<{ text: string; min?: number; max?: number; className?: 
       <span
         ref={txtRef}
         style={{ fontSize: `${fs}px` }}
-        className={`block w-full text-left leading-[1.5] font-semibold break-words whitespace-pre-line ${className ?? ''}`}
+        className={`block w-full leading-[1.5] font-semibold break-words whitespace-pre-line ${center ? 'text-center' : 'text-left'} ${className ?? ''}`}
       >
         {text}
       </span>
@@ -267,10 +268,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // Size tier → fonts + padding. Grows to fill space (few cards) and shrinks the
   // non-focused cards when one is expanded.
   const SZ = {
-    xs: { body: 'px-4 py-3 gap-2', text: 'text-xs', q: 'text-xs', btn: 'px-2.5 py-1 text-xs' },
-    sm: { body: 'px-5 py-4 gap-2.5', text: 'text-sm', q: 'text-sm', btn: 'px-3 py-1.5 text-sm' },
-    md: { body: 'px-8 py-7 gap-3', text: 'text-base', q: 'text-base', btn: 'px-4 py-2 text-sm' },
-    lg: { body: 'px-10 py-10 gap-4', text: 'text-lg', q: 'text-lg', btn: 'px-5 py-2.5 text-base' },
+    xs: { body: 'px-4 py-3 gap-2', text: 'text-xs', q: 'text-xs', btn: 'px-3.5 py-1.5 text-sm' },
+    sm: { body: 'px-5 py-4 gap-2.5', text: 'text-sm', q: 'text-sm', btn: 'px-4 py-2 text-base' },
+    md: { body: 'px-8 py-7 gap-3', text: 'text-base', q: 'text-base', btn: 'px-5 py-2.5 text-lg' },
+    lg: { body: 'px-10 py-10 gap-4', text: 'text-lg', q: 'text-lg', btn: 'px-6 py-3 text-xl' },
   }[size];
 
   const sessionName = session.split('/').pop() || session;
@@ -409,7 +410,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           /* QUESTION FILLS THE CARD — the ask grows (FitText, flex-1 like the summary)
              to fill the space, with the answers pinned below it. */
           <div className="flex-1 min-h-0 flex flex-col gap-3 pt-1">
-            <FitText text={questionText ?? ''} className="text-gray-900 dark:text-gray-50" />
+            <FitText text={questionText ?? ''} center className="text-gray-950 dark:text-white" />
             <div className="shrink-0 flex flex-col items-center gap-2">
               {answerArea}
             </div>

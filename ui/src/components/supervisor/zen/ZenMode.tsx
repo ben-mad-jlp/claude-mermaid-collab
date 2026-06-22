@@ -126,21 +126,18 @@ export const ZenMode: React.FC = () => {
 
   const cards = overflowing ? ranked : stable;
 
-  // Density: with few cards, grow fonts/columns to fill the space; shrink as more pile
-  // in. When a card is expanded it takes the large tier and every other card drops to
-  // the smallest (focus + context) — only one is expanded at a time (expandedKey).
+  // Density: with few cards, grow fonts/columns to fill the space; shrink as more pile in.
   const n = cards.length;
   const baseTier: 'xs' | 'sm' | 'md' | 'lg' = n <= 3 ? 'lg' : n <= 6 ? 'md' : n <= 12 ? 'sm' : 'xs';
   // Balanced grid: distribute cards into near-square rows so the last row isn't lopsided
   // and the whole viewport fills (6 → 3×2, 4 → 2×2, 9 → 3×3) — no row-of-4-then-2.
-  // rows = round(√n), cols = ceil(n/rows). When a card is expanded we fall back to a
-  // single wide column-pack so the focused card gets room.
+  // rows = round(√n), cols = ceil(n/rows). Crucially this does NOT depend on which card is
+  // expanded — expanding shows that card's detail IN PLACE; the grid and every OTHER card
+  // stay put. (Coupling the layout to expandedKey made the whole screen reflow on every
+  // "more" click, which read as a distracting full refresh.)
   const balancedRows = Math.max(1, Math.round(Math.sqrt(n)));
-  const fixedCols = expandedKey ? null : Math.max(1, Math.ceil(n / balancedRows));
-  // Minimum column width — used only in the expanded (auto-fill) fallback.
-  const minColWidth = '32rem';
-  const cardSize = (key: string): 'xs' | 'sm' | 'md' | 'lg' =>
-    expandedKey ? (key === expandedKey ? 'lg' : 'xs') : baseTier;
+  const fixedCols = Math.max(1, Math.ceil(n / balancedRows));
+  const cardSize = (_key: string): 'xs' | 'sm' | 'md' | 'lg' => baseTier;
   // Per-tier minimum row height: few cards still stretch (1fr) to fill the viewport,
   // but once enough pile in to push past the screen the grid overflows into a scroll —
   // which is exactly when the ranked float-to-top order kicks in.
@@ -174,9 +171,7 @@ export const ZenMode: React.FC = () => {
           <div
             className="h-full grid gap-3 py-2 transition-all"
             style={{
-              gridTemplateColumns: fixedCols
-                ? `repeat(${fixedCols}, 1fr)`
-                : `repeat(auto-fill, minmax(${minColWidth}, 1fr))`,
+              gridTemplateColumns: `repeat(${fixedCols}, minmax(0, 1fr))`,
               gridAutoRows: `minmax(${minRowHeight}, 1fr)`,
             }}
           >
