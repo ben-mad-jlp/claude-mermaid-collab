@@ -341,8 +341,17 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const [nextOpen, setNextOpen] = useState(false);
   useEffect(() => { if (!isPulsing(stage)) setNextOpen(false); }, [stage]);
 
-  // Free-text reply to an open (option-less) question Claude ended its turn on.
+  // Free-text reply to an open (option-less) question Claude ended its turn on. The
+  // textarea auto-grows with its content (same as the Pulse / What's-Next free-text floor)
+  // so a long reply stays fully visible instead of scrolling off one line.
   const [reply, setReply] = useState('');
+  const replyRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = replyRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [reply]);
 
   const runAnswer = async (chosen: string, label: string, fn: () => void | Promise<boolean>) => {
     if (action?.kind === 'pending') return;
@@ -668,13 +677,15 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
                       ))}
                     </div>
                   )}
-                  {/* Free-text reply — a calm rounded pill matching the card's inputs. */}
-                  <div className="w-full max-w-md flex items-center gap-2">
-                    <input
+                  {/* Free-text reply — an auto-growing field (like the Pulse / What's-Next
+                      floor) so the whole reply stays visible; Enter sends, Shift+Enter newline. */}
+                  <div className="w-full max-w-md flex items-end gap-2">
+                    <textarea
+                      ref={replyRef}
                       value={reply}
                       onChange={(e) => setReply(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && reply.trim()) {
+                        if (e.key === 'Enter' && !e.shiftKey && reply.trim()) {
                           e.preventDefault();
                           const t = reply.trim();
                           runAnswer('reply', t, () => onAnswerPane(serverId, project, session, t));
@@ -682,8 +693,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
                         }
                       }}
                       placeholder="Reply…"
+                      rows={1}
                       disabled={action?.kind === 'pending'}
-                      className="flex-1 min-w-0 px-3.5 py-2 text-sm rounded-full bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-sky-300 dark:focus:ring-sky-700"
+                      className="flex-1 min-w-0 px-3.5 py-2 text-sm rounded-2xl bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-sky-300 dark:focus:ring-sky-700 resize-none overflow-hidden leading-relaxed"
                     />
                     <button
                       type="button"
