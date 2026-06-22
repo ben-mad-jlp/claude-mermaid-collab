@@ -48,6 +48,10 @@ export interface ZenSessionCardProps {
   onAnswerPane: (serverId: string, project: string, session: string, value: string) => void | Promise<boolean>;
   /** Answer a multi-select question: toggle the chosen 1-based option numbers then submit. */
   onAnswerPaneMulti?: (serverId: string, project: string, session: string, numbers: number[]) => void | Promise<boolean>;
+  /** The deterministic subscription status (active|waiting|permission|unknown) — the SAME
+   *  signal the normal "watching" SessionCard colours from, so both UIs agree. Drives the
+   *  header tint; the interpreter status is only a fallback when this is unknown. */
+  subStatus?: 'active' | 'waiting' | 'permission' | 'unknown';
   /** Force a fresh summary (called shortly after answering so a lingering question
    *  clears once the session reacts, instead of waiting for the next cycle). */
   onRequestRefresh?: (serverId: string, project: string, session: string) => void;
@@ -66,11 +70,16 @@ export interface ZenSessionCardProps {
 /** Project bar: project name on the left; the plan funnel rollup + daemon totals as
  *  colored dot+count symbols, then an Open button, on the right. */
 // Header tint by status — muted soft tints (not vivid fills), with dark text.
-// Semantics: GREEN = done / at rest, YELLOW = working, RED = waiting on you (a question
-// or stuck). Calm by default; the colour is a hint, not a shout.
+// Semantics MIRROR the normal "watching" SessionCard so a session reads the same
+// colour in both UIs: AMBER = active/working, GREEN = waiting/at rest, RED = needs
+// you (permission / question / stuck). Calm by default; the colour is a hint.
 const STATUS_BAR_BG: Record<string, string> = {
+  // subscription vocabulary (active|waiting|permission|unknown) — the watching card's source
+  active:     'bg-warning-200/70 dark:bg-warning-500/20',
+  waiting:    'bg-success-200/70 dark:bg-success-500/20',
+  permission: 'bg-danger-200/70 dark:bg-danger-500/20',
+  // interpreter / progressState vocabulary (fallback when subscription status is unknown)
   working: 'bg-warning-200/70 dark:bg-warning-500/20',
-  active:  'bg-warning-200/70 dark:bg-warning-500/20',
   idle:    'bg-success-200/70 dark:bg-success-500/20',
   quiet:   'bg-success-200/70 dark:bg-success-500/20',
   done:    'bg-success-200/70 dark:bg-success-500/20',
@@ -274,6 +283,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onDecideEscalation,
   onAnswerPane,
   onAnswerPaneMulti,
+  subStatus,
   onRequestRefresh,
   onOpen,
   onClose,
@@ -357,9 +367,17 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     !!paneOptions && paneOptions.length > 0 && paneOptions.length <= 9 &&
     !!onAnswerPaneMulti;
 
-  // Status (interpreter status, else structural progressState) — drives the header
-  // bar color (via ProjectBar) and the dancing-Claude animation.
-  const status: string = structured?.status ?? summary?.progressState ?? 'unknown';
+  // Status driving the header colour + dancing-Claude animation. To MIRROR the normal
+  // "watching" SessionCard (same session → same colour in both UIs), prefer the
+  // deterministic subscription status; a pending question always reads as needs-you (red);
+  // fall back to the interpreter status / progressState only when the subscription
+  // status is unknown.
+  const status: string =
+    hasQuestion
+      ? 'permission'
+      : subStatus && subStatus !== 'unknown'
+        ? subStatus
+        : structured?.status ?? summary?.progressState ?? 'unknown';
 
   // Relative "updated Xm ago" from the interpreter write, so staleness is visible.
   const updatedAgo = (() => {

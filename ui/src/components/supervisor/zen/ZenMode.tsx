@@ -268,6 +268,7 @@ export const ZenMode: React.FC = () => {
                     expanded={expandedKey === key}
                     onToggleExpand={() => setExpandedKey((k) => (k === key ? null : key))}
                     onDecideEscalation={(sid, id, opt) => decideEscalation(sid, id, opt)}
+                    subStatus={s.status}
                     onAnswerPane={(sid, p, sess, v) => nudge(sid, p, sess, v)}
                     onAnswerPaneMulti={(sid, p, sess, nums) => answerPaneMulti(sid, p, sess, nums)}
                     onRequestRefresh={(sid, p, sess) => void refreshSummaryNow(sid, p, sess)}
