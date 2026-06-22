@@ -214,15 +214,18 @@ const ProjectBar: React.FC<{
  *  Works in both themes (a wash over white reads light-blue; over gray-800 reads a touch
  *  lighter). The base drop shadow is preserved so the card keeps its elevation. */
 function freshnessStyle(updatedAt: number | undefined, now: number): React.CSSProperties {
-  const baseShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
-  if (!updatedAt) return { boxShadow: baseShadow };
+  // Applied to the card BODY only (not the colored header) — a light-blue wash over the
+  // amber/green/red header read as muddy brown/olive/purple. Over the white/gray body it
+  // reads cleanly light-blue = "just updated". Full strength ≤ 2 min, fading to nothing at
+  // 20 min. Returns {} when not fresh so the body keeps its plain surface.
+  if (!updatedAt) return {};
   const ageMs = now - updatedAt;
   const FULL_MS = 2 * 60_000;
   const FADE_MS = 20 * 60_000;
-  if (ageMs >= FADE_MS) return { boxShadow: baseShadow };
+  if (ageMs >= FADE_MS) return {};
   const t = Math.min(1, Math.max(0, (FADE_MS - ageMs) / (FADE_MS - FULL_MS)));
   const opacity = (t * 0.14).toFixed(3); // max 14% wash — visible but calm
-  return { boxShadow: `inset 0 0 0 9999px rgba(56, 189, 248, ${opacity}), ${baseShadow}` };
+  return { boxShadow: `inset 0 0 0 9999px rgba(56, 189, 248, ${opacity})` };
 }
 
 /** FitText — grows `text` to the largest font that fits the box in both dimensions.
@@ -662,7 +665,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   return (
     <div
       data-testid="zen-session-card"
-      style={{ ...tintStyle, fontFamily: "'Open Sans', ui-sans-serif, system-ui, -apple-system, sans-serif" }}
+      style={{ fontFamily: "'Open Sans', ui-sans-serif, system-ui, -apple-system, sans-serif" }}
       className={`relative w-full h-full flex flex-col rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors [font-family:var(--font-zen)] ${
         hasQuestion
           ? 'border-warning-300 dark:border-warning-700/70 ring-1 ring-warning-200 dark:ring-warning-900/40'
@@ -689,7 +692,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       {/* Body. When the session is ASKING, the question takes over the whole card (the
           summary is hidden) so the decision is the only thing in view. Otherwise the
           glance paragraph grows (FitText) to fill, click-to-expand to the fuller detail. */}
-      <div className={`flex-1 min-h-0 flex flex-col items-stretch ${SZ.body}`}>
+      <div className={`flex-1 min-h-0 flex flex-col items-stretch ${SZ.body}`} style={tintStyle}>
 
         {/* The session is flagged as needing you (red) but the interpreter hasn't captured
             a question yet (e.g. a raw permission prompt, or the summary predates it). Show
