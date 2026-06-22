@@ -85,9 +85,10 @@ const STATUS_BAR_BG: Record<string, string> = {
   // subscription vocabulary (active|waiting|permission|unknown) — the watching card's source.
   // Stronger fills (300-level light / 500@35% dark) so the header colour reads clearly
   // against the white card body, matching the legibility of the normal watching card.
-  active:     'bg-warning-300 dark:bg-warning-500/35',
-  waiting:    'bg-success-300 dark:bg-success-500/35',
-  permission: 'bg-danger-300 dark:bg-danger-500/35',
+  active:         'bg-warning-300 dark:bg-warning-500/35',
+  waiting:        'bg-success-300 dark:bg-success-500/35',
+  permission:     'bg-danger-300 dark:bg-danger-500/35',
+  'has-question': 'bg-sky-200 dark:bg-sky-500/30',
   // interpreter / progressState vocabulary (fallback when subscription status is unknown)
   working: 'bg-warning-300 dark:bg-warning-500/35',
   idle:    'bg-success-300 dark:bg-success-500/35',
@@ -104,6 +105,7 @@ const STATUS_BAR_BG: Record<string, string> = {
 function toPixStatus(status: string): string {
   if (status === 'working' || status === 'active') return 'active';
   if (status === 'needs-input') return 'permission';
+  if (status === 'has-question') return 'waiting';
   if (status === 'idle' || status === 'quiet') return 'waiting';
   return 'unknown'; // stuck / wedged / stalled / unknown
 }
@@ -339,6 +341,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const [nextOpen, setNextOpen] = useState(false);
   useEffect(() => { if (!isPulsing(stage)) setNextOpen(false); }, [stage]);
 
+  // Free-text reply to an open (option-less) question Claude ended its turn on.
+  const [reply, setReply] = useState('');
+
   const runAnswer = async (chosen: string, label: string, fn: () => void | Promise<boolean>) => {
     if (action?.kind === 'pending') return;
     setAction({ kind: 'pending', label, chosen });
@@ -387,7 +392,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const paneOptions = structured?.options ?? null;
   const questionText =
     escalation?.questionText ?? structured?.question ?? (structured?.status === 'needs-input' ? 'Waiting for input' : null);
+  // hasQuestion: a structured answer is expected (options present or needs-input) → red.
+  // hasOpenQuestion: Claude ended with a plain question but no option list → blue.
   const hasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (paneOptions && paneOptions.length > 0) || structured?.status === 'needs-input');
+  const hasOpenQuestion = !hasQuestion && !!(escalation?.questionText ?? structured?.question);
   // Multi-select pane question (Claude Code AskUserQuestion multiSelect): accumulate
   // picks then submit. Only when we can address options by single-digit number (≤9)
   // and a multi handler is wired; escalations are always single-decision.
@@ -405,9 +413,11 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const status: string =
     hasQuestion
       ? 'permission'
-      : subStatus && subStatus !== 'unknown'
-        ? subStatus
-        : structured?.status ?? summary?.progressState ?? 'unknown';
+      : hasOpenQuestion
+        ? 'has-question'
+        : subStatus && subStatus !== 'unknown'
+          ? subStatus
+          : structured?.status ?? summary?.progressState ?? 'unknown';
 
   // Activity: the SAME elapsed-since-heartbeat the watching SessionCard shows, driven by
   // the subscription `lastUpdate` (real session activity) — not the interpreter write.
@@ -578,7 +588,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       className={`w-full h-full flex flex-col rounded-2xl border bg-white dark:bg-gray-800 shadow-sm overflow-hidden transition-shadow transition-colors ${
         hasQuestion
           ? 'border-warning-300 dark:border-warning-700/70 ring-1 ring-warning-200 dark:ring-warning-900/40'
-          : 'border-gray-200 dark:border-gray-700'
+          : hasOpenQuestion
+            ? 'border-sky-300 dark:border-sky-700/70 ring-1 ring-sky-200 dark:ring-sky-900/40'
+            : 'border-gray-200 dark:border-gray-700'
       }`}
     >
       <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={stale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
@@ -623,6 +635,59 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             <FitText text={questionText ?? ''} center className="text-gray-950 dark:text-white" />
             <div className="shrink-0 flex flex-col items-center gap-2">
               {answerArea}
+            </div>
+          </div>
+        ) : hasOpenQuestion ? (
+          /* OPEN QUESTION FILLS THE CARD (blue) — Claude ended its turn asking the user
+             something with no on-screen option list. Surface the ask + a free-text reply
+             (or open the session) so it's never mistaken for an idle/green card. */
+          <div className="flex-1 min-h-0 flex flex-col gap-3 pt-1">
+            <FitText text={questionText ?? ''} center className="text-gray-950 dark:text-white" />
+            <div className="shrink-0 flex flex-col items-stretch gap-2">
+              {action?.kind === 'sent' ? (
+                <div className={`${SZ.q} flex items-center justify-center gap-2 text-success-700 dark:text-success-400 font-medium`}>
+                  <span aria-hidden>✓</span><span>Sent — "{action.label}"</span>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && reply.trim()) {
+                        e.preventDefault();
+                        const t = reply.trim();
+                        runAnswer('reply', t, () => onAnswerPane(serverId, project, session, t));
+                        setReply('');
+                      }
+                    }}
+                    placeholder="Reply…  (Enter to send, Shift+Enter for newline)"
+                    rows={2}
+                    disabled={action?.kind === 'pending'}
+                    className="w-full px-3 py-2 text-sm rounded-lg bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-sky-300 dark:focus:ring-sky-700 resize-none"
+                  />
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      disabled={!reply.trim() || action?.kind === 'pending'}
+                      onClick={() => { const t = reply.trim(); runAnswer('reply', t, () => onAnswerPane(serverId, project, session, t)); setReply(''); }}
+                      className={`${SZ.btn} rounded-full font-semibold transition-colors border border-sky-300 dark:border-sky-700 bg-sky-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-sky-600`}
+                    >
+                      {action?.kind === 'pending' ? <span className="animate-pulse">…sending</span> : 'Reply'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpen(project, session, serverId)}
+                      className={`${SZ.btn} rounded-full font-medium transition-colors border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700`}
+                    >
+                      Open ↗
+                    </button>
+                  </div>
+                  {action?.kind === 'error' && (
+                    <span className="text-3xs font-medium text-danger-600 dark:text-danger-400 text-center">Couldn't send — try again.</span>
+                  )}
+                </>
+              )}
             </div>
           </div>
         ) : nextOpen ? (
