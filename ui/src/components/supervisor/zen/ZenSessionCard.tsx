@@ -119,10 +119,11 @@ const ProjectBar: React.FC<{
   size?: 'xs' | 'sm' | 'md' | 'lg';
   status?: string;
   stale?: boolean;
+  summaryStale?: boolean;
   elapsed?: string | null;
   onOpen: (project: string, session: string, serverId: string) => void;
   onClose?: () => void;
-}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', stale, elapsed, onOpen, onClose }) => {
+}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', stale, summaryStale, elapsed, onOpen, onClose }) => {
   const name = project.split('/').pop() || project;
   const sessionShort = session.split('/').pop() || session;
   // Project title scales with the card tier — it's the card's headline, so give it real weight.
@@ -166,6 +167,13 @@ const ProjectBar: React.FC<{
             {daemon.permission > 0 && (
               <span className="text-warning-600 dark:text-warning-400 font-semibold" title="awaiting permission">⚠ {daemon.permission}</span>
             )}
+          </span>
+        )}
+        {/* Summary failing to refresh — the card may be out of date (interpreter erroring,
+            e.g. near a rate limit). Flag it so a stale summary isn't read as current. */}
+        {summaryStale && (
+          <span className="text-3xs font-semibold text-warning-600 dark:text-warning-400 shrink-0" title="Summary is failing to refresh — may be out of date">
+            ⚠ stale
           </span>
         )}
         {/* Activity — elapsed since the last heartbeat (same signal as the watching card). */}
@@ -446,10 +454,19 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const paneOptions = structured?.options ?? null;
   const questionText =
     escalation?.questionText ?? structured?.question ?? (structured?.status === 'needs-input' ? 'Waiting for input' : null);
+  // An INTERPRETER-derived question is only trustworthy when the session isn't actively
+  // working right now: if the deterministic subscription status says 'active', the session
+  // has moved on (often answered in its own terminal) and any lingering interpreter question
+  // is STALE — don't let it override the live working state. Real escalations (from the
+  // store, not the interpreter) always count.
+  const interpreterStale = subStatus === 'active';
+  const interpQuestion = interpreterStale ? undefined : structured?.question;
+  const interpNeedsInput = !interpreterStale && structured?.status === 'needs-input';
+  const interpPaneOptions = interpreterStale ? null : paneOptions;
   // hasQuestion: a structured answer is expected (options present or needs-input) → red.
   // hasOpenQuestion: Claude ended with a plain question but no option list → blue.
-  const rawHasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (paneOptions && paneOptions.length > 0) || structured?.status === 'needs-input');
-  const rawHasOpenQuestion = !rawHasQuestion && !!(escalation?.questionText ?? structured?.question);
+  const rawHasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (interpPaneOptions && interpPaneOptions.length > 0) || interpNeedsInput);
+  const rawHasOpenQuestion = !rawHasQuestion && !!(escalation?.questionText ?? interpQuestion);
   // Suppress a question we JUST answered while the summary still echoes the same text
   // (the re-summary can beat the session's reaction). Grace window, then it lapses so a
   // genuinely-new (or genuinely-repeated) question still surfaces.
@@ -484,6 +501,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const elapsed = useElapsed(lastUpdate ?? 0, status, null);
 
   const tintStyle = freshnessStyle(summary?.summaryUpdatedAt, now);
+  const summaryStale = summary?.refreshState === 'stale-failing';
 
   // Submit accumulated multi-select picks (1-based) as a single pane-multi answer.
   const submitMulti = async () => {
@@ -653,7 +671,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             : 'border-gray-200 dark:border-gray-700'
       }`}
     >
-      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={stale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={stale} summaryStale={summaryStale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
 
       {/* Context-window fullness — a thin loading bar under the header, same thresholds
           as the watching cards (warn > 68%, danger + pulse > 78%). */}
