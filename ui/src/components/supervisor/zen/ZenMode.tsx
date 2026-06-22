@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { computePlanTotals, type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
+import { pulseStage, isArmed, nextUp as computeNextUp, type NextUp } from '@/lib/zenPulse';
 
 // ZenMode (redesign 2026-06-20) — the ENTIRE window is Zen: a calm vertical scroll
 // of one card per watched session. Each card is its project bar + a centered
@@ -23,10 +24,11 @@ import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 // order (subscription order) while everything fits, and switch to the ranked order only
 // when the grid actually overflows (measured below).
 
-function sessionRank(args: { needsYou: boolean; state?: string; status?: string }): number {
+function sessionRank(args: { needsYou: boolean; state?: string; status?: string; armedIdle?: boolean }): number {
   if (args.needsYou) return 0;
   if (args.state === 'wedged' || args.state === 'stalled' || args.status === 'stuck') return 1;
   if (args.state === 'active' || args.status === 'working') return 2;
+  if (args.armedIdle) return 2.5; // ready-for-more idle floats just under live work (overflow-only)
   return 3;
 }
 
@@ -74,6 +76,17 @@ export const ZenMode: React.FC = () => {
     return m;
   }, [todosByProject]);
 
+  // The next-ready (or blocked) work per project — drives the idle Pulse chip.
+  const nextUpByProject = useMemo(() => {
+    const m: Record<string, NextUp> = {};
+    for (const [project, todos] of Object.entries(todosByProject)) m[project] = computeNextUp(todos);
+    return m;
+  }, [todosByProject]);
+
+  // Per-card Pulse dismissal: key → the paneSeenAt it was dismissed at (sleeps the lane
+  // for that idle episode; re-arms when paneSeenAt advances). See zenPulse.pulseStage.
+  const [dismissed, setDismissed] = useState<Record<string, number>>({});
+
   // Watched sessions + their projects (for the fleet poll). serverScope is the
   // dominant server of the watched sessions (desktop is effectively single-server).
   const watched = useMemo(() => order.map((k) => subscriptions[k]).filter(Boolean), [order, subscriptions]);
@@ -114,12 +127,16 @@ export const ZenMode: React.FC = () => {
       const needsYou =
         !!escalation || summary?.structured?.status === 'needs-input';
       const recency = Math.max(summary?.summaryUpdatedAt ?? 0, summary?.paneSeenAt ?? 0, summary?.updatedAt ?? 0);
-      const rank = sessionRank({ needsYou, state: summary?.progressState, status: summary?.structured?.status });
-      return { k, s, summary, escalation, rank, recency };
+      // Idle Pulse: a green (idle/quiet) session with no question warms up over minutes.
+      const isIdle = !escalation && summary?.structured?.status !== 'needs-input'
+        && (summary?.structured?.status === 'idle' || summary?.progressState === 'quiet');
+      const stage = isIdle ? pulseStage(summary?.paneSeenAt, now, dismissed[k] ?? 0) : 'off';
+      const rank = sessionRank({ needsYou, state: summary?.progressState, status: summary?.structured?.status, armedIdle: isArmed(stage) });
+      return { k, s, summary, escalation, rank, recency, stage };
     });
     const ranked = [...stable].sort((a, b) => (a.rank - b.rank) || (b.recency - a.recency));
     return { stable, ranked };
-  }, [order, subscriptions, sessionSummaries, openEscalations]);
+  }, [order, subscriptions, sessionSummaries, openEscalations, now, dismissed]);
 
   // Does the grid overflow its scroll area (i.e. you'd have to scroll to see every
   // card)? Measured on the scroll container; re-checked on resize and whenever the
@@ -228,7 +245,7 @@ export const ZenMode: React.FC = () => {
               gridAutoRows: `minmax(${minRowHeight}, 1fr)`,
             }}
           >
-            {cards.map(({ k, s, summary, escalation }) => {
+            {cards.map(({ k, s, summary, escalation, stage }) => {
               const key = k;
               return (
                 <div key={key} className="min-h-0 h-full">
@@ -242,6 +259,9 @@ export const ZenMode: React.FC = () => {
                     escalation={escalation}
                     contextPercent={s.contextPercent}
                     onClose={() => unsubscribe(k)}
+                    stage={stage}
+                    nextUp={nextUpByProject[s.project]}
+                    onDismiss={() => setDismissed((d) => ({ ...d, [k]: summary?.paneSeenAt ?? now }))}
                     now={now}
                     size={cardSize(key)}
                     expanded={expandedKey === key}

@@ -3,6 +3,8 @@ import type { SessionSummary, Escalation } from '@/stores/supervisorStore';
 import { type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
 import { ClaudePixAvatar } from '@/components/layout/SessionCard';
+import { ZenPulseLine } from './ZenPulseLine';
+import { isPulsing, type PulseStage, type NextUp } from '@/lib/zenPulse';
 
 // ZenSessionCard — the SINGLE Zen primitive (redesign 2026-06-20). One card per
 // watched session: a project bar across the top (project + totals as symbols), a
@@ -51,6 +53,12 @@ export interface ZenSessionCardProps {
   onOpen: (project: string, session: string, serverId: string) => void;
   /** Stop watching this session (unsubscribe) — renders an × in the header. */
   onClose?: () => void;
+  /** Idle "Pulse" stage (off/paused → plain footer; settled/warm/glowing → the invitation). */
+  stage?: PulseStage;
+  /** Next-ready / blocked / empty work for this session's project (the Pulse chip). */
+  nextUp?: NextUp;
+  /** Sleep the Pulse for this idle episode. */
+  onDismiss?: () => void;
 }
 
 /** Project bar: project name on the left; the plan funnel rollup + daemon totals as
@@ -266,6 +274,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onRequestRefresh,
   onOpen,
   onClose,
+  stage = 'off',
+  nextUp,
+  onDismiss,
 }) => {
   const [localExpanded, setLocalExpanded] = useState(false);
   const controlled = onToggleExpand != null;
@@ -478,8 +489,21 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           </div>
         )}
 
-        {updatedAgo && !hasQuestion && (
-          <span className="shrink-0 mt-1 text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
+        {/* Footer: the Pulse "ready for more" invitation when this idle session has warmed
+            up (settled/warm/glowing), else the plain "updated Ns ago". Never on a question. */}
+        {!hasQuestion && (
+          isPulsing(stage) ? (
+            <ZenPulseLine
+              stage={stage}
+              nextUp={nextUp ?? { mode: 'empty' }}
+              aiOption={null}
+              action={action}
+              onSend={(label, text) => runAnswer(`pulse:${label}`, label, () => onAnswerPane(serverId, project, session, text))}
+              onDismiss={onDismiss ?? (() => {})}
+            />
+          ) : updatedAgo ? (
+            <span className="shrink-0 mt-1 text-3xs text-gray-300 dark:text-gray-600">updated {updatedAgo}</span>
+          ) : null
         )}
       </div>
     </div>
