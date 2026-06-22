@@ -81,6 +81,7 @@ const ProjectBar: React.FC<{
   onOpen: (project: string, session: string, serverId: string) => void;
 }> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', onOpen }) => {
   const name = project.split('/').pop() || project;
+  const sessionShort = session.split('/').pop() || session;
   // Project title scales with the card tier — it's the card's headline, so give it real weight.
   const titleSize = { xs: 'text-sm', sm: 'text-base', md: 'text-lg', lg: 'text-xl' }[size];
   const barBg = STATUS_BAR_BG[status] ?? STATUS_BAR_BG.unknown;
@@ -89,8 +90,9 @@ const ProjectBar: React.FC<{
       <div className="flex items-center gap-2 min-w-0">
         {/* Dancing Claude in the corner — its animation reflects the session's state. */}
         <ClaudePixAvatar status={toPixStatus(status)} size={{ xs: 26, sm: 30, md: 36, lg: 42 }[size]} />
-        <span className={`${titleSize} font-bold tracking-tight text-white truncate drop-shadow-sm`} title={project}>
+        <span className={`${titleSize} font-bold tracking-tight text-white truncate drop-shadow-sm`} title={`${project} / ${sessionShort}`}>
           {name}
+          <span className="font-medium text-white/75"> / {sessionShort}</span>
         </span>
       </div>
       <div className="flex items-center gap-2.5 shrink-0">
@@ -278,7 +280,6 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     lg: { body: 'px-10 py-10 gap-4', text: 'text-lg', q: 'text-lg', btn: 'px-6 py-3 text-xl' },
   }[size];
 
-  const sessionName = session.split('/').pop() || session;
   const structured = summary?.structured;
   const paragraph = (structured?.paragraph ?? summary?.summaryText ?? '').trim();
   // Glance: paragraph is ~2 sentences from the interpreter — sentence 1 = overall goal,
@@ -302,21 +303,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
     escalation?.questionText ?? structured?.question ?? (structured?.status === 'needs-input' ? 'Waiting for input' : null);
   const hasQuestion = !!questionText && ((escOptions && escOptions.length > 0) || (paneOptions && paneOptions.length > 0) || structured?.status === 'needs-input');
 
-  // Status (interpreter status, else structural progressState) → a calm dot + label so
-  // even a summary-less card conveys state at a glance.
+  // Status (interpreter status, else structural progressState) — drives the header
+  // bar color (via ProjectBar) and the dancing-Claude animation.
   const status: string = structured?.status ?? summary?.progressState ?? 'unknown';
-  const STATUS_META: Record<string, { dot: string; label: string }> = {
-    working: { dot: 'bg-success-500', label: 'working' },
-    active: { dot: 'bg-success-500', label: 'working' },
-    idle: { dot: 'bg-gray-400', label: 'idle' },
-    quiet: { dot: 'bg-gray-400', label: 'idle' },
-    stuck: { dot: 'bg-danger-500', label: 'stuck' },
-    wedged: { dot: 'bg-danger-500', label: 'stuck' },
-    stalled: { dot: 'bg-warning-500', label: 'stalling' },
-    'needs-input': { dot: 'bg-warning-500', label: 'needs you' },
-    unknown: { dot: 'bg-gray-300 dark:bg-gray-600', label: 'unknown' },
-  };
-  const meta = STATUS_META[status] ?? STATUS_META.unknown;
 
   // Relative "updated Xm ago" from the interpreter write, so staleness is visible.
   const updatedAgo = (() => {
@@ -418,10 +407,6 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           summary is hidden) so the decision is the only thing in view. Otherwise the
           glance paragraph grows (FitText) to fill, click-to-expand to the fuller detail. */}
       <div className={`flex-1 min-h-0 flex flex-col items-stretch ${SZ.body}`}>
-        <span className="shrink-0 flex items-center justify-center gap-1.5 text-3xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-          <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} title={meta.label} />
-          {sessionName}
-        </span>
 
         {hasQuestion ? (
           /* QUESTION FILLS THE CARD — the ask grows (FitText, flex-1 like the summary)

@@ -160,7 +160,8 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
     seedSession('my-session');
     render(<ZenMode />);
     expect(screen.getByTestId('zen-session-card')).toBeInTheDocument();
-    expect(screen.getByText('my-session')).toBeInTheDocument();
+    // Session name now lives in the header next to the project ("project / session").
+    expect(screen.getByText(/my-session/)).toBeInTheDocument();
   });
 
   it('card body shows the session paragraph from sessionSummaries', () => {
