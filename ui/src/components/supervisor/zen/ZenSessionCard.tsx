@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import type { SessionSummary, Escalation } from '@/stores/supervisorStore';
 import { type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
@@ -38,8 +38,8 @@ export interface ZenSessionCardProps {
    *  omitted the card falls back to its own local toggle. */
   expanded?: boolean;
   onToggleExpand?: () => void;
-  onDecideEscalation: (serverId: string, id: string, optionId: string) => void;
-  onAnswerPane: (serverId: string, project: string, session: string, value: string) => void;
+  onDecideEscalation: (serverId: string, id: string, optionId: string) => void | Promise<boolean>;
+  onAnswerPane: (serverId: string, project: string, session: string, value: string) => void | Promise<boolean>;
   /** Bring this session up in the full collab UI (sets current session + exits Zen). */
   onOpen: (project: string, session: string, serverId: string) => void;
 }
@@ -212,6 +212,28 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   const expanded = controlled ? !!expandedProp : localExpanded;
   const toggleExpand = () => (controlled ? onToggleExpand!() : setLocalExpanded((e) => !e));
 
+  // Click feedback for the answer buttons: the moment you tap, show pending; then a
+  // ✓ Sent confirmation (or an error you can retry). decideEscalation clears the
+  // escalation on success, but nudge (pane answers) changes no state, so without this
+  // the card looked completely unresponsive. `chosen` highlights the tapped option.
+  const [action, setAction] = useState<{ kind: 'pending' | 'sent' | 'error'; label: string; chosen: string } | null>(null);
+  // A new/changed question (or escalation) resets the feedback so a stale ✓ never sticks.
+  const escId = escalation?.id ?? null;
+  const questionKey = `${escId}|${summary?.structured?.question ?? ''}|${summary?.structured?.status ?? ''}`;
+  useEffect(() => { setAction(null); }, [questionKey]);
+
+  const runAnswer = async (chosen: string, label: string, fn: () => void | Promise<boolean>) => {
+    if (action?.kind === 'pending') return;
+    setAction({ kind: 'pending', label, chosen });
+    try {
+      const ok = await fn();
+      // void-returning handlers (no result) are treated as fire-and-forget success.
+      setAction({ kind: ok === false ? 'error' : 'sent', label, chosen });
+    } catch {
+      setAction({ kind: 'error', label, chosen });
+    }
+  };
+
   // Size tier → fonts + padding. Grows to fill space (few cards) and shrinks the
   // non-focused cards when one is expanded.
   const SZ = {
@@ -323,50 +345,70 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
         )}
       </div>
 
-      {/* Question — only when the session is asking */}
+      {/* Question — only when the session is asking. Once answered we show a ✓ Sent
+          confirmation in place of the buttons (escalations also drop out on their own;
+          this covers the latency and the pane-answer case where no state changes). */}
       {hasQuestion && (
         <div className="px-6 pb-6 pt-2 border-t border-gray-100 dark:border-gray-700/60 flex flex-col items-center gap-3">
           <p className={`${SZ.q} text-left text-gray-700 dark:text-gray-200 max-w-prose`}>{questionText}</p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {escOptions && escOptions.length > 0
-              ? escOptions.map((opt) => {
-                  const recommended = escalation!.recommended === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onDecideEscalation(serverId, escalation!.id, opt.id)}
-                      title={opt.detail ?? opt.label}
-                      className={`${SZ.btn} rounded-full font-medium transition-colors border ${
-                        recommended
-                          ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
-                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      {opt.label}
-                      {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
-                    </button>
-                  );
-                })
-              : (paneOptions ?? []).map((opt, i) => {
-                  const recommended = i === structured?.recommended;
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => onAnswerPane(serverId, project, session, opt.valueToSend)}
-                      className={`${SZ.btn} rounded-full font-medium transition-colors border ${
-                        recommended
-                          ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
-                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      {opt.label}
-                      {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
-                    </button>
-                  );
-                })}
-          </div>
+
+          {action?.kind === 'sent' ? (
+            <div className={`${SZ.q} flex items-center gap-2 text-success-700 dark:text-success-400 font-medium`}>
+              <span aria-hidden>✓</span>
+              <span>Sent — “{action.label}”</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {escOptions && escOptions.length > 0
+                  ? escOptions.map((opt) => {
+                      const recommended = escalation!.recommended === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          disabled={action?.kind === 'pending'}
+                          onClick={() => runAnswer(opt.id, opt.label, () => onDecideEscalation(serverId, escalation!.id, opt.id))}
+                          title={opt.detail ?? opt.label}
+                          className={`${SZ.btn} rounded-full font-medium transition-colors border disabled:opacity-50 disabled:cursor-wait ${
+                            recommended
+                              ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                              : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          {action?.kind === 'pending' && action.chosen === opt.id && <span className="mr-1 animate-pulse">…</span>}
+                          {opt.label}
+                          {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
+                        </button>
+                      );
+                    })
+                  : (paneOptions ?? []).map((opt, i) => {
+                      const recommended = i === structured?.recommended;
+                      const chosenKey = `pane-${i}`;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          disabled={action?.kind === 'pending'}
+                          onClick={() => runAnswer(chosenKey, opt.label, () => onAnswerPane(serverId, project, session, opt.valueToSend))}
+                          className={`${SZ.btn} rounded-full font-medium transition-colors border disabled:opacity-50 disabled:cursor-wait ${
+                            recommended
+                              ? 'border-accent-300 dark:border-accent-700 bg-accent-50 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
+                              : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          {action?.kind === 'pending' && action.chosen === chosenKey && <span className="mr-1 animate-pulse">…</span>}
+                          {opt.label}
+                          {recommended && <span className="ml-1 text-3xs text-accent-600 dark:text-accent-400">★</span>}
+                        </button>
+                      );
+                    })}
+              </div>
+              {action?.kind === 'error' && (
+                <span className="text-3xs font-medium text-danger-600 dark:text-danger-400">Couldn’t send — tap to try again.</span>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

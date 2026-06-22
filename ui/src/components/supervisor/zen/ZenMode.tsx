@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
@@ -16,6 +16,12 @@ import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 // Ordering: sessions that need you (a live question) float to the top, then stuck,
 // then active, then the rest — recency-broken within each tier — so the thing that
 // matters is first without hiding anything (all watched sessions get a card).
+//
+// BUT the float-to-top sort only earns its keep when cards overflow and you'd have to
+// scroll to find the important one. When every card already fits on screen, reordering
+// is just noise — cards visibly jump as statuses/recency stream in. So we keep a STABLE
+// order (subscription order) while everything fits, and switch to the ranked order only
+// when the grid actually overflows (measured below).
 
 function sessionRank(args: { needsYou: boolean; state?: string; status?: string }): number {
   if (args.needsYou) return 0;
@@ -84,10 +90,12 @@ export const ZenMode: React.FC = () => {
     toggleZenMode();
   };
 
-  // All watched sessions, enriched + ordered (needs-you → stuck → active → rest).
-  const cards = useMemo(() => {
+  // All watched sessions, enriched. `stable` keeps the subscription order (no jumping);
+  // `ranked` is the needs-you → stuck → active → rest float-to-top sort. We pick between
+  // them based on whether the grid overflows (see `overflowing` below).
+  const { stable, ranked } = useMemo(() => {
     const list = order.map((k) => subscriptions[k]).filter(Boolean);
-    const decorated = list.map((s) => {
+    const stable = list.map((s) => {
       const summary = sessionSummaries[`${s.project}::${s.session}`];
       const escalation =
         openEscalations.find((e) => e.project === s.project && e.session === s.session && e.status === 'open') ?? null;
@@ -97,8 +105,26 @@ export const ZenMode: React.FC = () => {
       const rank = sessionRank({ needsYou, state: summary?.progressState, status: summary?.structured?.status });
       return { s, summary, escalation, rank, recency };
     });
-    return decorated.sort((a, b) => (a.rank - b.rank) || (b.recency - a.recency));
+    const ranked = [...stable].sort((a, b) => (a.rank - b.rank) || (b.recency - a.recency));
+    return { stable, ranked };
   }, [order, subscriptions, sessionSummaries, openEscalations]);
+
+  // Does the grid overflow its scroll area (i.e. you'd have to scroll to see every
+  // card)? Measured on the scroll container; re-checked on resize and whenever the
+  // card set / sizing changes. When it doesn't overflow we keep the stable order.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setOverflowing(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  const cards = overflowing ? ranked : stable;
 
   // Density: with few cards, grow fonts/columns to fill the space; shrink as more pile
   // in. When a card is expanded it takes the large tier and every other card drops to
@@ -111,6 +137,11 @@ export const ZenMode: React.FC = () => {
     : baseTier === 'lg' ? '34rem' : baseTier === 'md' ? '26rem' : baseTier === 'sm' ? '20rem' : '16rem';
   const cardSize = (key: string): 'xs' | 'sm' | 'md' | 'lg' =>
     expandedKey ? (key === expandedKey ? 'lg' : 'xs') : baseTier;
+  // Per-tier minimum row height: few cards still stretch (1fr) to fill the viewport,
+  // but once enough pile in to push past the screen the grid overflows into a scroll —
+  // which is exactly when the ranked float-to-top order kicks in.
+  const minRowHeight =
+    baseTier === 'lg' ? '15rem' : baseTier === 'md' ? '12rem' : baseTier === 'sm' ? '10rem' : '8rem';
 
   return (
     <div className="flex flex-col h-screen min-h-0 bg-gray-50 dark:bg-gray-900">
@@ -128,7 +159,7 @@ export const ZenMode: React.FC = () => {
       </div>
 
       {/* The cards — CSS grid that fills the full height, rows stretch to share space. */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
         {cards.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
             No watched sessions
@@ -140,7 +171,7 @@ export const ZenMode: React.FC = () => {
             className="h-full grid gap-3 py-2 transition-all"
             style={{
               gridTemplateColumns: `repeat(auto-fill, minmax(${minColWidth}, 1fr))`,
-              gridAutoRows: '1fr',
+              gridAutoRows: `minmax(${minRowHeight}, 1fr)`,
             }}
           >
             {cards.map(({ s, summary, escalation }) => {
@@ -159,8 +190,8 @@ export const ZenMode: React.FC = () => {
                     size={cardSize(key)}
                     expanded={expandedKey === key}
                     onToggleExpand={() => setExpandedKey((k) => (k === key ? null : key))}
-                    onDecideEscalation={(sid, id, opt) => void decideEscalation(sid, id, opt)}
-                    onAnswerPane={(sid, p, sess, v) => void nudge(sid, p, sess, v)}
+                    onDecideEscalation={(sid, id, opt) => decideEscalation(sid, id, opt)}
+                    onAnswerPane={(sid, p, sess, v) => nudge(sid, p, sess, v)}
                     onOpen={openSession}
                   />
                 </div>
