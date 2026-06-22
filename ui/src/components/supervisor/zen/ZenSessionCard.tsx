@@ -4,7 +4,8 @@ import { type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { FUNNEL_SEGMENTS, STATUS_STYLE } from '@/components/supervisor/bridge/funnel';
 import { ClaudePixAvatar, useElapsed } from '@/components/layout/SessionCard';
 import { ZenPulseLine } from './ZenPulseLine';
-import { isPulsing, type PulseStage, type NextUp } from '@/lib/zenPulse';
+import { ZenNextPanel } from './ZenNextPanel';
+import { isPulsing, type PulseStage, type NextUp, type NextWork } from '@/lib/zenPulse';
 
 // ZenSessionCard — the SINGLE Zen primitive (redesign 2026-06-20). One card per
 // watched session: a project bar across the top (project + totals as symbols), a
@@ -68,6 +69,8 @@ export interface ZenSessionCardProps {
   stage?: PulseStage;
   /** Next-ready / blocked / empty work for this session's project (the Pulse chip). */
   nextUp?: NextUp;
+  /** Grounded next-work candidates (ready leaves / epics / inbox) for the What's-Next panel. */
+  nextWork?: NextWork;
   /** Sleep the Pulse for this idle episode. */
   onDismiss?: () => void;
 }
@@ -310,6 +313,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   onClose,
   stage = 'off',
   nextUp,
+  nextWork,
   onDismiss,
 }) => {
   const [localExpanded, setLocalExpanded] = useState(false);
@@ -328,6 +332,12 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // Accumulated multi-select picks (1-based option numbers). Reset when the question changes.
   const [picked, setPicked] = useState<Set<number>>(new Set());
   useEffect(() => { setAction(null); setPicked(new Set()); }, [questionKey]);
+
+  // "What's next" full-card takeover: opened from the Pulse invitation; auto-closes when
+  // the session stops being idle (the Pulse stage drops out of its pulsing range) so an
+  // active session always shows its summary again.
+  const [nextOpen, setNextOpen] = useState(false);
+  useEffect(() => { if (!isPulsing(stage)) setNextOpen(false); }, [stage]);
 
   const runAnswer = async (chosen: string, label: string, fn: () => void | Promise<boolean>) => {
     if (action?.kind === 'pending') return;
@@ -600,6 +610,16 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
               {answerArea}
             </div>
           </div>
+        ) : nextOpen ? (
+          /* "What's next" FILLS THE CARD — grounded next-work candidates + free text. */
+          <ZenNextPanel
+            nextWork={nextWork ?? { ready: [], epics: [], inbox: [] }}
+            aiOption={null}
+            action={action}
+            onSend={(label, text) => runAnswer(`next:${label}`, label, () => onAnswerPane(serverId, project, session, text))}
+            onPlan={() => onOpen(project, session, serverId)}
+            onClose={() => setNextOpen(false)}
+          />
         ) : paragraph ? (
           <button
             type="button"
@@ -618,19 +638,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             {hasMore && (
               <span
                 aria-label={expanded ? 'Show less' : 'Show more'}
-                className="shrink-0 mt-2 self-center inline-flex items-center gap-1 text-3xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 group-hover:text-accent-500 transition-colors"
+                className="shrink-0 mt-1.5 self-center text-base leading-none font-semibold text-gray-800 dark:text-gray-100"
               >
-                {expanded ? 'Less' : 'More'}
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                  aria-hidden
-                >
-                  <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                {expanded ? '−' : '+'}
               </span>
             )}
           </button>
@@ -642,13 +652,14 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
 
         {/* Footer: the Pulse "ready for more" invitation when this idle session has warmed
             up (settled/warm/glowing). The elapsed timestamp now lives in the card header. */}
-        {!hasQuestion && isPulsing(stage) && (
+        {!hasQuestion && !nextOpen && isPulsing(stage) && (
           <ZenPulseLine
             stage={stage}
             nextUp={nextUp ?? { mode: 'empty' }}
             aiOption={null}
             action={action}
             onSend={(label, text) => runAnswer(`pulse:${label}`, label, () => onAnswerPane(serverId, project, session, text))}
+            onExpand={() => setNextOpen(true)}
             onDismiss={onDismiss ?? (() => {})}
           />
         )}

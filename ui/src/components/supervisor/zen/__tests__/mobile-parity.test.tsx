@@ -212,13 +212,13 @@ describe('Zen mobile-parity — ZenMode renders purely from store state', () => 
       },
     });
     render(<ZenMode />);
-    // Collapsed cards show a "More" toggle; expanded shows "Less".
-    const mores = screen.getAllByText('More');
+    // Collapsed cards show a "+" toggle; expanded shows "−".
+    const mores = screen.getAllByText('+');
     expect(mores.length).toBe(2); // both collapsed
     fireEvent.click(mores[0]); // expand A
-    expect(screen.getAllByText('More').length).toBe(1); // A expanded → shows "Less"
-    fireEvent.click(screen.getAllByText('More')[0]); // expand B → A must collapse
-    expect(screen.getAllByText('More').length).toBe(1); // still exactly one expanded
+    expect(screen.getAllByText('+').length).toBe(1); // A expanded → shows "−"
+    fireEvent.click(screen.getAllByText('+')[0]); // expand B → A must collapse
+    expect(screen.getAllByText('+').length).toBe(1); // still exactly one expanded
   });
 
   it('exposes an Exit Zen button (tap-uniform)', () => {

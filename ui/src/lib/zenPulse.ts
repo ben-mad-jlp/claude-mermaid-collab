@@ -83,6 +83,54 @@ export function nextUp(todos: SessionTodo[]): NextUp {
   return { mode: 'empty' };
 }
 
+/** Is this the special Inbox epic (planning-only parent)? */
+const isInboxEpic = (t: SessionTodo): boolean => isEpic(t) && /inbox/i.test(t.title ?? '');
+
+/** A filed epic plus its single next-ready child leaf (the startable thing) + a ready count.
+ *  Tapping an epic resolves to starting that child — an epic itself isn't claimable. */
+export interface EpicNext {
+  epic: SessionTodo;
+  nextChild: SessionTodo | null;
+  readyCount: number;
+}
+
+/** The grounded next-work candidates for a project's What's-Next panel: ready leaves to
+ *  start, filed epics (→ their next-ready child), and Inbox planning items. Pure selector
+ *  over the already-loaded todos — reuses claimReason verbatim, no inlined status checks. */
+export interface NextWork {
+  ready: SessionTodo[];
+  epics: EpicNext[];
+  inbox: SessionTodo[];
+}
+
+export function nextWorkSuggestions(todos: SessionTodo[], cap = 5): NextWork {
+  const byId = buildById(todos);
+  const isReady = (t: SessionTodo): boolean => {
+    const r = claimReason(t, byId);
+    return r === 'claimable' || r === 'human-assignee';
+  };
+  const byPriority = (a: SessionTodo, b: SessionTodo) =>
+    (a.priority ?? 9) - (b.priority ?? 9) || a.order - b.order;
+
+  const ready = todos.filter((t) => !isEpic(t) && isReady(t)).sort(byPriority).slice(0, cap);
+
+  const inbox = todos
+    .filter((t) => claimReason(t, byId) === 'inbox-planning')
+    .sort(byPriority)
+    .slice(0, cap);
+
+  const epics = todos
+    .filter((t) => isEpic(t) && !isInboxEpic(t) && t.status !== 'done')
+    .sort(byPriority)
+    .slice(0, cap)
+    .map((epic): EpicNext => {
+      const readyChildren = todos.filter((c) => c.parentId === epic.id && !isEpic(c) && isReady(c)).sort(byPriority);
+      return { epic, nextChild: readyChildren[0] ?? null, readyCount: readyChildren.length };
+    });
+
+  return { ready, epics, inbox };
+}
+
 /** Leading-8-hex short id (project convention). */
 export const id8 = (id: string): string => id.slice(0, 8);
 

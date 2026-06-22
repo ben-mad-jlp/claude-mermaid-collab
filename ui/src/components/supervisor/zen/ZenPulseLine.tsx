@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import { id8, startLeafDirective, type PulseStage, type NextUp } from '@/lib/zenPulse';
 
 // The Pulse footer line (design doc design-zen-spark-work). Absorbs the plain
@@ -17,25 +17,15 @@ interface ZenPulseLineProps {
   action: { kind: 'pending' | 'sent' | 'error'; label: string } | null;
   /** Send a nudge (label for the ✓ confirmation, text injected into the session). */
   onSend: (label: string, text: string) => void;
+  /** Open the full-card "What's next" panel (the invitation tap fills the card). */
+  onExpand: () => void;
   /** Sleep the lane for this idle episode. */
   onDismiss: () => void;
 }
 
-export const ZenPulseLine: React.FC<ZenPulseLineProps> = ({ stage, nextUp, aiOption, action, onSend, onDismiss }) => {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState('');
-  const taRef = useRef<HTMLTextAreaElement>(null);
+export const ZenPulseLine: React.FC<ZenPulseLineProps> = ({ stage, nextUp, aiOption, action, onSend, onExpand, onDismiss }) => {
   const glowing = stage === 'glowing';
   const armed = stage === 'warm' || stage === 'glowing';
-
-  // Auto-grow the free-text floor so the full reply stays visible instead of
-  // scrolling off a one-line input. Re-measure on every value change.
-  useEffect(() => {
-    const el = taRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [draft, open, armed]);
 
   // After a tap, show the same calm confirmation the question UI uses.
   if (action && action.kind !== 'error') {
@@ -46,15 +36,9 @@ export const ZenPulseLine: React.FC<ZenPulseLineProps> = ({ stage, nextUp, aiOpt
     );
   }
 
-  const submit = () => {
-    const t = draft.trim();
-    if (!t) return;
-    onSend(t, t);
-    setDraft('');
-    setOpen(false);
-  };
-
-  // At-most-one chip (warm+ only): grounded todo → blocked honesty → AI ghost.
+  // A one-line hero preview of the next-ready leaf (warm+ only) — a glanceable hint of
+  // what tapping will offer; the full list (ready/epics/inbox + free text) lives in the
+  // What's-Next panel that `onExpand` opens to fill the card.
   let chip: React.ReactNode = null;
   if (armed) {
     if (nextUp.mode === 'ready' && nextUp.leaf) {
@@ -89,40 +73,25 @@ export const ZenPulseLine: React.FC<ZenPulseLineProps> = ({ stage, nextUp, aiOpt
   }
 
   return (
-    <div className="shrink-0 mt-1 flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          title="Tell it what's next"
-          className="text-3xs font-medium text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
-        >
-          {stage === 'settled' ? 'ready for the next thing?' : 'ready for more →'}
-        </button>
-        {chip}
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={onDismiss}
-          title="Not now"
-          className="text-3xs leading-none text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
-        >
-          ×
-        </button>
-      </div>
-      {/* Free-text floor — always reachable at warm+, or on tapping the whisper. The
-          confabulation fence: the human always has the floor, the model never has to invent. */}
-      {(open || armed) && (
-        <textarea
-          ref={taRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-          placeholder="tell me what's next…"
-          rows={1}
-          className="w-full px-2 py-1 text-3xs rounded-md bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:ring-1 focus:ring-violet-300 dark:focus:ring-violet-700 resize-none overflow-hidden leading-relaxed"
-        />
-      )}
+    <div className="shrink-0 mt-1 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onExpand}
+        title="What's next — fill the card with next-work options"
+        className="text-3xs font-medium text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
+      >
+        {stage === 'settled' ? 'ready for the next thing?' : 'ready for more →'}
+      </button>
+      {chip}
+      <span className="flex-1" />
+      <button
+        type="button"
+        onClick={onDismiss}
+        title="Not now"
+        className="text-3xs leading-none text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
+      >
+        ×
+      </button>
     </div>
   );
 };

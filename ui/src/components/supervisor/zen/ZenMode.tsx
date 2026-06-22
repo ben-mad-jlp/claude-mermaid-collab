@@ -6,7 +6,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { computePlanTotals, type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
-import { pulseStage, isArmed, nextUp as computeNextUp, type NextUp } from '@/lib/zenPulse';
+import { pulseStage, isArmed, nextUp as computeNextUp, nextWorkSuggestions, type NextUp, type NextWork } from '@/lib/zenPulse';
 import { useUsageStore } from '@/stores/usageStore';
 import { useDiveIn } from '@/hooks/useDiveIn';
 
@@ -116,6 +116,14 @@ export const ZenMode: React.FC = () => {
   const nextUpByProject = useMemo(() => {
     const m: Record<string, NextUp> = {};
     for (const [project, todos] of Object.entries(todosByProject)) m[project] = computeNextUp(todos);
+    return m;
+  }, [todosByProject]);
+
+  // The fuller next-work candidate lists (ready leaves / epics / inbox) per project —
+  // drives the "What's next" full-card panel.
+  const nextWorkByProject = useMemo(() => {
+    const m: Record<string, NextWork> = {};
+    for (const [project, todos] of Object.entries(todosByProject)) m[project] = nextWorkSuggestions(todos);
     return m;
   }, [todosByProject]);
 
@@ -303,6 +311,7 @@ export const ZenMode: React.FC = () => {
                     onClose={() => unsubscribe(k)}
                     stage={stage}
                     nextUp={nextUpByProject[s.project]}
+                    nextWork={nextWorkByProject[s.project]}
                     onDismiss={() => setDismissed((d) => ({ ...d, [k]: summary?.paneSeenAt ?? now }))}
                     now={now}
                     size={cardSize(key)}
