@@ -8,6 +8,7 @@ import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 import { pulseStage, isArmed, nextUp as computeNextUp, type NextUp } from '@/lib/zenPulse';
 import { useUsageStore } from '@/stores/usageStore';
+import { useDiveIn } from '@/hooks/useDiveIn';
 
 // One account-wide rate-limit gauge (5-hour or 7-day window) for the Zen top bar.
 // Colour mirrors the statusline: green < 50, yellow 50–79, red ≥ 80.
@@ -78,6 +79,7 @@ export const ZenMode: React.FC = () => {
 
   const allSessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
+  const diveIn = useDiveIn();
 
   // "Add session" picker (Zen-native): list sessions not already watched → subscribe.
   const [addOpen, setAddOpen] = useState(false);
@@ -140,12 +142,13 @@ export const ZenMode: React.FC = () => {
     return m;
   }, [fleet]);
 
-  // Open a watched session in the full collab UI: select it (prefer the real Session
-  // object so no field is lost) then exit Zen back to the Bridge shell.
+  // Open a watched session in the full collab UI. Route through the shared `useDiveIn`
+  // so it behaves IDENTICALLY to a watching-card click: select the session, fire its
+  // activation side-effects (spawn the terminal on the row's server, focus its browser
+  // tab, open the terminal drawer) and switch to Studio — so the console actually loads
+  // without a second click. Then leave Zen so Studio is what's on screen.
   const openSession = (project: string, session: string, serverId: string) => {
-    const real = allSessions.find((s) => s.project === project && s.name === session && s.serverId === serverId)
-      ?? allSessions.find((s) => s.project === project && s.name === session);
-    setCurrentSession(real ?? { project, serverId, name: session });
+    diveIn({ project, session, serverId });
     toggleZenMode();
   };
 

@@ -605,7 +605,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             type="button"
             onClick={() => hasMore && toggleExpand()}
             title={hasMore ? (expanded ? 'Show less' : 'Show full description') : undefined}
-            className={`flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
+            className={`group flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
           >
             {expanded ? (
               /* The fuller detail fills the card the same way the glance does — FitText
@@ -618,9 +618,19 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             {hasMore && (
               <span
                 aria-label={expanded ? 'Show less' : 'Show more'}
-                className="shrink-0 mt-1.5 self-center inline-flex items-center justify-center w-5 h-5 rounded-full border border-accent-400/60 text-accent-600 dark:text-accent-400 text-sm font-semibold leading-none"
+                className="shrink-0 mt-2 self-center inline-flex items-center gap-1 text-3xs font-medium uppercase tracking-wider text-gray-400 dark:text-gray-500 group-hover:text-accent-500 transition-colors"
               >
-                {expanded ? '−' : '+'}
+                {expanded ? 'Less' : 'More'}
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                  aria-hidden
+                >
+                  <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </span>
             )}
           </button>
