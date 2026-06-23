@@ -422,6 +422,12 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   }[size];
 
   const structured = summary?.structured;
+  // Refresh is failing (interpreter erroring — e.g. near a rate limit). Everything the
+  // interpreter produces (narration AND any question/options it parsed) is now untrustworthy:
+  // it reflects a PAST pane, not the live one. We dim the narration and suppress stale
+  // interpreter questions below. Escalations are exempt — they come from the server
+  // escalation store, not this interpreter, so they stay live.
+  const summaryStale = summary?.refreshState === 'stale-failing';
   const paragraph = (structured?.paragraph ?? summary?.summaryText ?? '').trim();
   // Glance: the interpreter now writes the goal and the current task on their own lines
   // (a single \n it inserts itself), so we render the paragraph VERBATIM. We no longer
@@ -446,7 +452,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // has moved on (often answered in its own terminal) and any lingering interpreter question
   // is STALE — don't let it override the live working state. Real escalations (from the
   // store, not the interpreter) always count.
-  const interpreterStale = subStatus === 'active';
+  // …and equally untrustworthy when the refresh is FAILING (summaryStale): a frozen
+  // question/option list reflects a past pane, so we never let the user answer it.
+  const interpreterStale = subStatus === 'active' || summaryStale;
   const interpQuestion = interpreterStale ? undefined : structured?.question;
   const interpNeedsInput = !interpreterStale && structured?.status === 'needs-input';
   const interpPaneOptions = interpreterStale ? null : paneOptions;
@@ -486,8 +494,6 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // Activity: the SAME elapsed-since-heartbeat the watching SessionCard shows, driven by
   // the subscription `lastUpdate` (real session activity) — not the interpreter write.
   const elapsed = useElapsed(lastUpdate ?? 0, status, null);
-
-  const summaryStale = summary?.refreshState === 'stale-failing';
 
   // Submit accumulated multi-select picks (1-based) as a single pane-multi answer.
   const submitMulti = async () => {
@@ -786,6 +792,12 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             onClose={() => setNextOpen(false)}
           />
         ) : paragraph ? (
+          <div className="flex-1 min-h-0 w-full flex flex-col">
+          {summaryStale && (
+            <div className="shrink-0 mb-1.5 flex items-center justify-center gap-1.5 text-3xs font-bold uppercase tracking-wide text-warning-800 dark:text-warning-200 bg-warning-100 dark:bg-warning-900/50 rounded px-2 py-1 text-center" title="The interpreter can't refresh this summary (e.g. near a rate limit). The text below is from an earlier read of the pane — open the session to see its real state.">
+              ⚠ Live summary unavailable — refresh failing · below may be out of date
+            </div>
+          )}
           <button
             type="button"
             onClick={() => hasMore && toggleExpand()}
@@ -809,6 +821,11 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
               </span>
             )}
           </button>
+          </div>
+        ) : summaryStale ? (
+          <div className="flex-1 min-h-0 flex items-center justify-center">
+            <FitText text="⚠ Live summary unavailable — refresh failing" min={12} max={22} className="font-semibold text-warning-700 dark:text-warning-300 text-center" />
+          </div>
         ) : (
           <div className="flex-1 min-h-0">
             <FitText text="No summary yet" min={12} max={26} className="italic text-gray-400 dark:text-gray-500" />
