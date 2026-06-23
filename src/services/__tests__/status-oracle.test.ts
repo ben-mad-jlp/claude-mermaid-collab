@@ -58,6 +58,15 @@ const ALLOWLIST: AllowEntry[] = [
   // Those are caught by the oracle pattern too; they are folded into the per-file counts above
   // (funnel.ts) or listed here. claimability.ts (lib) doc comment:
   { file: 'ui/src/lib/claimability.ts', count: 1, reason: 'doc comment quoting the forbidden pattern (no actual read)' },
+
+  // (A) WRITE-side seam — session-todos update tool refuses to approve (requested status:'ready'
+  //     stamps approvedAt) a triage child of [EPIC] Inbox. Reads the REQUESTED update param
+  //     (input edge), not a stored/derived row. Same category as todo-store/supervisor-routes.
+  { file: 'src/mcp/tools/session-todos.ts', count: 1, reason: 'write-side: refuse approve (requested status==="ready") under [EPIC] Inbox; reads the update param, not a derived read' },
+
+  // (A) COMMENT-only — zenPulse.nextReadyTodo delegates to claimReason and the doc comment
+  //     explicitly states it "never inlines `status === 'ready'`". The match is the comment, not a read.
+  { file: 'ui/src/lib/zenPulse.ts', count: 1, reason: 'doc comment stating it never inlines status==="ready" (delegates to claimReason); no actual read' },
 ];
 
 interface Match {
