@@ -8,7 +8,7 @@ import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 import { pulseStage, isArmed, nextUp as computeNextUp, nextWorkSuggestions, type NextUp, type NextWork } from '@/lib/zenPulse';
 import { useUsageStore } from '@/stores/usageStore';
-import { useDiveIn } from '@/hooks/useDiveIn';
+import { activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
 
 // One account-wide rate-limit gauge (5-hour or 7-day window) for the Zen top bar.
 // Colour mirrors the statusline: green < 50, yellow 50–79, red ≥ 80.
@@ -79,7 +79,8 @@ export const ZenMode: React.FC = () => {
 
   const allSessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
-  const diveIn = useDiveIn();
+  const setActiveProject = useUIStore((s) => s.setActiveProject);
+  const setMode = useUIStore((s) => s.setMode);
 
   // "Add session" picker (Zen-native): list sessions not already watched → subscribe.
   const [addOpen, setAddOpen] = useState(false);
@@ -176,7 +177,24 @@ export const ZenMode: React.FC = () => {
   // tab, open the terminal drawer) and switch to Studio — so the console actually loads
   // without a second click. Then leave Zen so Studio is what's on screen.
   const openSession = (project: string, session: string, serverId: string) => {
-    diveIn({ project, session, serverId });
+    // Mirror a watched-session-card click EXACTLY (SessionCard onClick → handleNavigate +
+    // activateSessionCard): select the session, drive the Bridge to its project, then fire
+    // the same activation side-effects (spawn terminal on the row's server, focus its
+    // browser tab, open the terminal drawer). Previously this routed through useDiveIn,
+    // which skipped setActiveProject — so the Bridge didn't follow to the session's project.
+    const match = allSessions.find((s) => s.project === project && s.name === session);
+    setCurrentSession(match ?? { project, name: session, serverId });
+    setActiveProject(project);
+    const card: SessionCardData = {
+      serverId: match?.serverId ?? serverId,
+      project,
+      session,
+      status: 'unknown',
+      lastUpdate: 0,
+    };
+    void activateSessionCard(card).catch(() => {});
+    // Land in Studio (the console) and leave Zen — same destination diveIn used.
+    setMode('studio');
     toggleZenMode();
   };
 
