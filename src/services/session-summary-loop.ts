@@ -298,6 +298,8 @@ function summaryFields(e: SessionSummaryEntry): {
   structured?: InterpreterStructured;
   summaryUpdatedAt?: number;
   refreshState?: RefreshState;
+  paneHash?: string;
+  summaryPaneHash?: string;
 } {
   return {
     summaryText: e.summaryText,
@@ -305,6 +307,12 @@ function summaryFields(e: SessionSummaryEntry): {
     structured: e.structured,
     summaryUpdatedAt: e.summaryUpdatedAt,
     refreshState: e.refreshState,
+    // Pane hashes let the UI gate answering on ground truth: `paneHash` is the
+    // LIVE pane (advances every tick); `summaryPaneHash` is the pane the carried
+    // `structured` question/options were captured from. Equal ⇒ the question is
+    // still on screen and safe to answer even when refreshState is stale-failing.
+    paneHash: e.paneHash,
+    summaryPaneHash: e.summaryPaneHash,
   };
 }
 

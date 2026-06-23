@@ -91,6 +91,7 @@ export function useStatusSync(serverIds: string[]) {
             paneSeenAt?: unknown; updatedAt?: unknown;
             summaryText?: unknown; firstClause?: unknown; summaryUpdatedAt?: unknown;
             refreshState?: unknown; structured?: unknown;
+            paneHash?: unknown; summaryPaneHash?: unknown;
           };
           if (typeof m.project !== 'string' || typeof m.session !== 'string') break;
           if (typeof m.progressState !== 'string') break;
@@ -103,6 +104,8 @@ export function useStatusSync(serverIds: string[]) {
             summaryText: typeof m.summaryText === 'string' ? m.summaryText : undefined,
             firstClause: typeof m.firstClause === 'string' ? m.firstClause : undefined,
             summaryUpdatedAt: typeof m.summaryUpdatedAt === 'number' ? m.summaryUpdatedAt : undefined,
+            paneHash: typeof m.paneHash === 'string' ? m.paneHash : undefined,
+            summaryPaneHash: typeof m.summaryPaneHash === 'string' ? m.summaryPaneHash : undefined,
             refreshState:
               m.refreshState === 'fresh' || m.refreshState === 'stale-failing'
                 ? m.refreshState

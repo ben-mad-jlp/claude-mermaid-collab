@@ -428,6 +428,17 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // interpreter questions below. Escalations are exempt — they come from the server
   // escalation store, not this interpreter, so they stay live.
   const summaryStale = summary?.refreshState === 'stale-failing';
+  // Ground-truth answerability: the carried question/options were captured at
+  // `summaryPaneHash`; `paneHash` is the live pane. When they're equal the pane
+  // hasn't moved past the question — it's still on screen, so it's safe to answer
+  // even though the interpreter's last REFRESH failed (summaryStale). This is a
+  // positive "question still valid" signal, not a blanket trust of stale data.
+  const paneStillMatches =
+    !!summary?.paneHash && !!summary?.summaryPaneHash && summary.paneHash === summary.summaryPaneHash;
+  // The narration/question is only truly out of date when the refresh is failing AND
+  // the pane has moved past what was last summarized. When the pane is unchanged, the
+  // carried text is the latest read of the CURRENT pane — don't dim it or cry stale.
+  const narrationStale = summaryStale && !paneStillMatches;
   const paragraph = (structured?.paragraph ?? summary?.summaryText ?? '').trim();
   // Glance: the interpreter now writes the goal and the current task on their own lines
   // (a single \n it inserts itself), so we render the paragraph VERBATIM. We no longer
@@ -454,7 +465,11 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // store, not the interpreter) always count.
   // …and equally untrustworthy when the refresh is FAILING (summaryStale): a frozen
   // question/option list reflects a past pane, so we never let the user answer it.
-  const interpreterStale = subStatus === 'active' || summaryStale;
+  // A stale-failing refresh only suppresses answering when the pane has ALSO moved
+  // past the captured question (paneStillMatches false). If the pane is unchanged,
+  // the carried question is still on screen and answerable despite the failed refresh
+  // — this is the false-stale that was wrongly punting users to "open the full UI".
+  const interpreterStale = subStatus === 'active' || (summaryStale && !paneStillMatches);
   const interpQuestion = interpreterStale ? undefined : structured?.question;
   const interpNeedsInput = !interpreterStale && structured?.status === 'needs-input';
   const interpPaneOptions = interpreterStale ? null : paneOptions;
@@ -663,7 +678,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             : 'border-gray-200 dark:border-gray-700'
       }`}
     >
-      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={stale} summaryStale={summaryStale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={stale} summaryStale={narrationStale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
 
       {/* Context-window fullness — a thin loading bar under the header, same thresholds
           as the watching cards (warn > 68%, danger + pulse > 78%). */}
@@ -793,7 +808,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           />
         ) : paragraph ? (
           <div className="flex-1 min-h-0 w-full flex flex-col">
-          {summaryStale && (
+          {narrationStale && (
             <div className="shrink-0 mb-1.5 flex items-center justify-center gap-1.5 text-3xs font-bold uppercase tracking-wide text-warning-800 dark:text-warning-200 bg-warning-100 dark:bg-warning-900/50 rounded px-2 py-1 text-center" title="The interpreter can't refresh this summary (e.g. near a rate limit). The text below is from an earlier read of the pane — open the session to see its real state.">
               ⚠ Live summary unavailable — refresh failing · below may be out of date
             </div>
@@ -802,7 +817,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             type="button"
             onClick={() => hasMore && toggleExpand()}
             title={hasMore ? (expanded ? 'Show less' : 'Show full description') : undefined}
-            className={`group flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'} ${summaryStale ? 'opacity-40 saturate-50 transition-opacity' : ''}`}
+            className={`group flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'} ${narrationStale ? 'opacity-40 saturate-50 transition-opacity' : ''}`}
           >
             {expanded ? (
               /* The fuller detail fills the card the same way the glance does — FitText
@@ -822,7 +837,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             )}
           </button>
           </div>
-        ) : summaryStale ? (
+        ) : narrationStale ? (
           <div className="flex-1 min-h-0 flex items-center justify-center">
             <FitText text="⚠ Live summary unavailable — refresh failing" min={12} max={22} className="font-semibold text-warning-700 dark:text-warning-300 text-center" />
           </div>

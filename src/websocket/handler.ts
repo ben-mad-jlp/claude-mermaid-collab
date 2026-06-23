@@ -117,6 +117,8 @@ export type WSMessage =
       firstClause?: string;
       summaryUpdatedAt?: number;
       refreshState?: 'fresh' | 'stale-failing';
+      paneHash?: string;
+      summaryPaneHash?: string;
       structured?: {
         paragraph: string;
         detail?: string;

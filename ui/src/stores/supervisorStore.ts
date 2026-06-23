@@ -266,6 +266,12 @@ export interface SessionSummary {
   firstClause?: string;
   summaryUpdatedAt?: number;
   refreshState?: 'fresh' | 'stale-failing';
+  /** Live pane hash (advances every tick). */
+  paneHash?: string;
+  /** Pane hash the carried `structured` question/options were captured from.
+   *  `paneHash === summaryPaneHash` ⇒ the question is still on screen, so it's
+   *  safe to answer even if refreshState is stale-failing. */
+  summaryPaneHash?: string;
   structured?: ZenStructured;
 }
 
@@ -453,6 +459,7 @@ interface SupervisorState {
     paneSeenAt: number; updatedAt: number;
     summaryText?: string; firstClause?: string; summaryUpdatedAt?: number;
     refreshState?: 'fresh' | 'stale-failing'; structured?: ZenStructured;
+    paneHash?: string; summaryPaneHash?: string;
   }) => void;
   /** Locally snooze a session out of the triage stack until `untilMs`. */
   snoozeSession: (project: string, session: string, untilMs: number) => void;
@@ -619,6 +626,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     set((state) => {
       const key = `${s.project}::${s.session}`;
       const prev = state.sessionSummaries[key];
+      // Monotonic guard: drop an update older than what we already hold. The
+      // server stamps `updatedAt` every tick (always advancing), so an out-of-
+      // order arrival — e.g. a slow fetch-on-mount response landing after a
+      // newer WS tick — can never clobber fresher state.
+      if (prev && s.updatedAt < prev.updatedAt) return {};
       return {
         sessionSummaries: {
           ...state.sessionSummaries,
@@ -630,6 +642,10 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
             firstClause: s.firstClause ?? prev?.firstClause,
             summaryUpdatedAt: s.summaryUpdatedAt ?? prev?.summaryUpdatedAt,
             refreshState: s.refreshState ?? prev?.refreshState,
+            paneHash: s.paneHash ?? prev?.paneHash,
+            // summaryPaneHash tracks the carried structured payload: keep it
+            // paired with whichever `structured` we end up holding above.
+            summaryPaneHash: s.structured ? s.summaryPaneHash : (s.summaryPaneHash ?? prev?.summaryPaneHash),
           },
         },
       };
