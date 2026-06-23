@@ -173,6 +173,7 @@ export function __resetSummaryState(): void {
   STALL_WINDOWS = DEFAULT_STALL_WINDOWS;
   WEDGE_WINDOWS = DEFAULT_WEDGE_WINDOWS;
   inFlightInterpreters.clear();
+  interpretSamples.length = 0;
   // Tests own the cache deterministically — never load from or write to disk.
   persistEnabled = false;
   cacheLoaded = true;
@@ -204,6 +205,81 @@ export function getSummaryThresholds(): { stallWindows: number; wedgeWindows: nu
 
 export const MIN_SUMMARY_INTERVAL_MS = 45_000;
 export const INTERPRETER_TIMEOUT_MS = 60_000;
+
+// ---------------------------------------------------------------------------
+// Interpret observability (Zen-summary freshness hardening #1).
+// We can't harden what we can't measure: capture WHY each interpret failed
+// (rate-limit/timeout/parse/error) + per-call latency, so a single status
+// endpoint answers "is the summary pipeline keeping up, and if not, why?".
+// ---------------------------------------------------------------------------
+
+/** Why an interpret call produced no usable structured output. */
+export type SummaryFailureReason = 'rate-limit' | 'unreachable' | 'timeout' | 'parse' | 'error';
+
+/**
+ * Classify an interpret outcome from the invokeNode result + whether our
+ * downstream JSON/shape parse succeeded. `undefined` ⇒ success. Pure — unit-tested.
+ */
+export function classifyInterpretFailure(
+  r: { ok: boolean; rateLimited?: boolean; unreachable?: boolean; parseError?: string },
+  parsedOk: boolean,
+): SummaryFailureReason | undefined {
+  if (parsedOk) return undefined;
+  if (r.rateLimited) return r.unreachable ? 'unreachable' : 'rate-limit';
+  if (r.parseError && /time[d-]?\s?out/i.test(r.parseError)) return 'timeout';
+  if (r.ok) return 'parse';          // node returned text but our JSON/coerce failed
+  if (r.parseError) return 'parse';  // node-level --output-format json parse failure
+  return 'error';                    // !ok with no marker (auth halt, unknown)
+}
+
+interface InterpretSample { ts: number; project: string; session: string; ok: boolean; reason?: SummaryFailureReason; latencyMs: number; }
+const INTERPRET_SAMPLE_CAP = 500;
+const interpretSamples: InterpretSample[] = [];
+
+export function recordInterpretOutcome(s: InterpretSample): void {
+  interpretSamples.push(s);
+  if (interpretSamples.length > INTERPRET_SAMPLE_CAP) {
+    interpretSamples.splice(0, interpretSamples.length - INTERPRET_SAMPLE_CAP);
+  }
+}
+
+export interface SummaryHealth {
+  windowMs: number;
+  attempts: number;
+  successes: number;
+  successRate: number; // 0..1 (1 when no attempts)
+  byReason: Record<string, number>;
+  p50Ms: number;
+  p95Ms: number;
+  recentFailures: Array<{ project: string; session: string; reason?: SummaryFailureReason; ageMs: number }>;
+}
+
+/** Rolling interpret-health over the last `windowMs` (default 10m). Read-only. */
+export function getSummaryHealth(opts?: { windowMs?: number; now?: number }): SummaryHealth {
+  const now = opts?.now ?? Date.now();
+  const windowMs = opts?.windowMs ?? 10 * 60_000;
+  const win = interpretSamples.filter((x) => now - x.ts <= windowMs);
+  const successes = win.filter((x) => x.ok).length;
+  const byReason: Record<string, number> = {};
+  for (const x of win) if (!x.ok && x.reason) byReason[x.reason] = (byReason[x.reason] ?? 0) + 1;
+  const lat = win.map((x) => x.latencyMs).filter((n) => n >= 0).sort((a, b) => a - b);
+  const pct = (p: number) => (lat.length ? lat[Math.min(lat.length - 1, Math.floor((p / 100) * lat.length))] : 0);
+  const recentFailures = win
+    .filter((x) => !x.ok)
+    .slice(-10)
+    .reverse()
+    .map((x) => ({ project: x.project, session: x.session, reason: x.reason, ageMs: now - x.ts }));
+  return {
+    windowMs,
+    attempts: win.length,
+    successes,
+    successRate: win.length ? successes / win.length : 1,
+    byReason,
+    p50Ms: pct(50),
+    p95Ms: pct(95),
+    recentFailures,
+  };
+}
 
 const INTERPRETER_SYSTEM = `You are a calm, friendly narrator keeping a developer in the loop on the coding work going on in one of their automated sessions. Speak in the FIRST PERSON PLURAL — "we're …", "we just …", "we're stuck on …" — as the teammate doing the work, warm and plain. NEVER say "the session", "a worker", "an actor", "the agent", or "the user" — just say what WE are doing. You're given the last ~100 lines of a terminal pane (and optionally a pending question). Describe the STATE, not live keystrokes. Reply with ONE JSON object and nothing else: { "paragraph": string (the GLANCE — a short, friendly summary. Put the OVERALL GOAL (what we're ultimately trying to accomplish) first, then a BLANK LINE (two newlines, \n\n), then what we're doing right now to get there. Keep each to one sentence — about 2 sentences total, each separated by a blank line (\n\n); you may add a third if the goal genuinely needs it. YOU control the breaks: separate the sentences with \n\n and DO NOT put line breaks anywhere else (so abbreviations like "e.g." never break a line). If you genuinely can't tell from the pane, say "Not sure yet — nothing clear on screen."), "detail": string (a FULLER summary in the same friendly "we" voice — TWO short paragraphs (roughly 2-4 sentences each), separated by a blank line (\n\n): the first on how we got here and what we've done, the second on what's next or what's blocking. ADD information beyond the glance, don't restate it. Use \n\n only between the two paragraphs; no other line breaks.), "status": "working"|"idle"|"stuck"|"needs-input" (use "needs-input" ONLY when there is an on-screen prompt that BLOCKS progress until answered — a permission/approval prompt, or a numbered/checkbox choice list. If we simply FINISHED our turn by asking the user a plain question and are now awaiting their reply with no such on-screen menu, use "idle" — but STILL fill the question field below), "question"?: string (set this ONLY when WE — the assistant — asked the HUMAN a question and the turn has ENDED with us waiting for their reply: the ASSISTANT's most recent message ends with a question directed at the human AND the input line is empty (they have not replied yet). e.g. WE wrote "Want me to push?" and are now idle. CRITICAL — speaker attribution: text the HUMAN typed at the prompt (the line after ❯, or their message echoed in the pane) is THEIR words, NEVER ours. NEVER echo the user's own message/question back as our question. If the latest thing in the pane is the user's input, or a turn is in progress, or you're unsure who asked, there is NO question — OMIT this field. Phrase our ask in a natural voice when it genuinely applies), "options"?: [{"label": string, "valueToSend": string}] (list them in the SAME top-to-bottom order they appear on screen), "recommended"?: integer (index into options), "multiSelect"?: boolean (true ONLY when the on-screen question is a multi-select / checkbox prompt where several options can be toggled before submitting — e.g. rows shown with [ ] / checkboxes, or a "select all that apply" style ask; omit or false for a normal pick-one question), "suggestedAnswers"?: string[] (ONLY for an OPEN end-of-turn question that has NO on-screen menu/options — propose 2-4 SHORT, send-ready replies the user would plausibly type back, phrased as the USER answering, e.g. for "Want me to push?" → ["Yes, push", "Not yet", "Show me the diff first"]. Keep each under ~6 words. Omit entirely when there are on-screen options or no question), "aiOption"?: string (ONLY when the session is IDLE and finished its turn with NO pending question of any kind — propose ONE short next-step directive the human could send to keep moving, phrased as a command TO us, e.g. "Run the tests", "Push it", "Review the diff", "Start the next leaf". Under ~6 words. This is a proactive NEXT ACTION, not a reply — so it is mutually exclusive with question/options/suggestedAnswers: if there is ANY pending question, OMIT aiOption. Only suggest a genuine, visible next step — never invent one) }. Never invent progress that isn't visible in the pane.`;
 
@@ -377,6 +453,7 @@ async function interpretViaNode(args: {
   const userPrompt = args.pendingQuestion
     ? `${args.pane}\n\n[Pending question]: ${args.pendingQuestion}`
     : args.pane;
+  const t0 = Date.now();
   const result = await invokeNode({
     prompt: userPrompt,
     model: args.model,
@@ -387,14 +464,24 @@ async function interpretViaNode(args: {
     permissionMode: 'bypassPermissions',
     timeoutMs: INTERPRETER_TIMEOUT_MS,
   });
-  if (!result.ok || !result.text) return null;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(stripFences(result.text));
-  } catch {
-    return null;
+  let structured: InterpreterStructured | null = null;
+  if (result.ok && result.text) {
+    try {
+      structured = coerceStructured(JSON.parse(stripFences(result.text)));
+    } catch {
+      structured = null;
+    }
   }
-  return coerceStructured(raw);
+  // Observability: record WHY it failed + how long it took, for getSummaryHealth.
+  recordInterpretOutcome({
+    ts: Date.now(),
+    project: args.project,
+    session: args.session,
+    ok: !!structured,
+    reason: classifyInterpretFailure(result, !!structured),
+    latencyMs: typeof result.durationMs === 'number' ? result.durationMs : Date.now() - t0,
+  });
+  return structured;
 }
 
 function shouldSummarize(

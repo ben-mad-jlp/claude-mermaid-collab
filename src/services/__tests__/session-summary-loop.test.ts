@@ -11,6 +11,9 @@ import {
   setSummaryThresholds,
   getSummaryThresholds,
   refreshSummaryNow,
+  classifyInterpretFailure,
+  recordInterpretOutcome,
+  getSummaryHealth,
   type SummaryTickDeps,
   type InterpreterStructured,
 } from '../session-summary-loop.ts';
@@ -738,5 +741,42 @@ describe('sticky open-question', () => {
     await __drainInterpreters();
     e = getSessionSummary(P, S)!;
     expect(e.structured?.question).toBeUndefined();                   // resumed → dropped
+  });
+});
+
+describe('interpret observability', () => {
+  it('classifyInterpretFailure maps node results to reasons', () => {
+    expect(classifyInterpretFailure({ ok: true }, true)).toBeUndefined();             // success
+    expect(classifyInterpretFailure({ ok: false, rateLimited: true }, false)).toBe('rate-limit');
+    expect(classifyInterpretFailure({ ok: false, rateLimited: true, unreachable: true }, false)).toBe('unreachable');
+    expect(classifyInterpretFailure({ ok: false, parseError: 'timed out after 60000ms' }, false)).toBe('timeout');
+    expect(classifyInterpretFailure({ ok: true }, false)).toBe('parse');             // node ok, our parse failed
+    expect(classifyInterpretFailure({ ok: false, parseError: 'bad json' }, false)).toBe('parse');
+    expect(classifyInterpretFailure({ ok: false }, false)).toBe('error');            // no marker
+  });
+
+  it('getSummaryHealth aggregates success-rate, reasons, latency, and recent failures within the window', () => {
+    const now = 1_000_000;
+    // Pushed chronologically (ascending ts), as production does.
+    recordInterpretOutcome({ ts: now - 20 * 60_000, project: P, session: 'old', ok: false, reason: 'error', latencyMs: 1 }); // outside window
+    recordInterpretOutcome({ ts: now - 4000, project: P, session: 'd', ok: false, reason: 'timeout', latencyMs: 60000 });
+    recordInterpretOutcome({ ts: now - 3000, project: P, session: 'c', ok: false, reason: 'rate-limit', latencyMs: 5000 });
+    recordInterpretOutcome({ ts: now - 2000, project: P, session: 'b', ok: true, latencyMs: 300 });
+    recordInterpretOutcome({ ts: now - 1000, project: P, session: 'a', ok: true, latencyMs: 100 });
+
+    const h = getSummaryHealth({ now, windowMs: 10 * 60_000 });
+    expect(h.attempts).toBe(4);
+    expect(h.successes).toBe(2);
+    expect(h.successRate).toBe(0.5);
+    expect(h.byReason).toEqual({ 'rate-limit': 1, timeout: 1 });
+    expect(h.p50Ms).toBeGreaterThan(0);
+    expect(h.p95Ms).toBeGreaterThanOrEqual(h.p50Ms);
+    expect(h.recentFailures.map((f) => f.session)).toEqual(['c', 'd']); // most-recent failure first
+  });
+
+  it('getSummaryHealth reports successRate 1 with no attempts', () => {
+    const h = getSummaryHealth({ now: 1_000_000 });
+    expect(h.attempts).toBe(0);
+    expect(h.successRate).toBe(1);
   });
 });
