@@ -21,7 +21,7 @@
 import { join } from 'node:path';
 import {
   mkdirSync, rmSync, copyFileSync, writeFileSync, readFileSync,
-  chmodSync, existsSync, statSync,
+  chmodSync, existsSync, statSync, readdirSync,
 } from 'node:fs';
 
 const here = import.meta.dir;
@@ -77,6 +77,18 @@ const control = readFileSync(join(debSrc, 'control.tmpl'), 'utf-8')
   .replace('__VERSION__', version)
   .replace('__INSTALLED_SIZE__', String(installedSize));
 writeFileSync(join(debianDir, 'control'), control);
+
+// Strip inherited setgid/group bits from every staged directory. dpkg-deb
+// rejects a control directory whose perms fall outside 0755..0775, and a
+// setgid parent dir (common on group-shared checkouts: drwxrwsr-x) makes
+// mkdir produce 2775. Normalize to 0755 so the pack step is host-agnostic.
+const normalizeDirPerms = (dir: string): void => {
+  chmodSync(dir, 0o755);
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) normalizeDirPerms(join(dir, e.name));
+  }
+};
+normalizeDirPerms(stageDir);
 
 // ── build the .deb ───────────────────────────────────────────────────────────
 if (!hasDpkg) {

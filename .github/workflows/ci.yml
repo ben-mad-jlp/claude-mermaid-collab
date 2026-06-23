@@ -1,0 +1,71 @@
+name: CI
+
+# Ubuntu-native test + build pipeline. Backend tests run on bun (per-file
+# isolation via scripts/test-backend.ts); UI tests on vitest; the build job
+# produces the Linux sidecar binary and the .deb server package.
+#
+# The legacy vitest backend suite (test:backend:vitest-legacy) is intentionally
+# NOT run here — it is unmaintained and deadlocks on leaked server handles.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - main
+
+jobs:
+  test:
+    name: Test (bun backend + UI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps (root + ui via postinstall)
+        run: bun install
+
+      - name: Backend tests (bun, per-file isolation)
+        run: bun run test:backend
+
+      - name: UI tests (vitest)
+        # --retry absorbs the known lazy-mount flake (ChatComposer) that only
+        # surfaces under full-suite load; it passes deterministically in isolation.
+        working-directory: ui
+        run: bun run test:ci -- --retry=2
+
+  build:
+    name: Build (UI + Linux sidecar + .deb)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps (root + ui via postinstall)
+        run: bun install
+
+      - name: Build UI (tsc + vite)
+        run: bun run build
+
+      - name: Compile Linux sidecar (bun --compile)
+        run: bun run build:sidecar:linux
+
+      - name: Assemble .deb server package (dpkg-deb)
+        run: bun run build:deb:server
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mermaid-collab-server-deb
+          path: dist/*.deb
+          if-no-files-found: error
