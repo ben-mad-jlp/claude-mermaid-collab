@@ -65,6 +65,14 @@ vi.mock('../../services/tmux-session', () => ({
   healStaleTmuxSession: vi.fn().mockResolvedValue(false),
 }));
 
+// supervisor-store opens a bun:sqlite DB on first call, which is unavailable
+// under vitest/Node and throws — surfacing as a 400 from the create path. The
+// create path only needs the launch-project lookup, so stub it (null → uses the
+// request project unchanged).
+vi.mock('../../services/supervisor-store', () => ({
+  getSupervisedLaunchProject: vi.fn().mockReturnValue(null),
+}));
+
 describe('Terminal API Routes', () => {
   let mockWSHandler: any;
   const mockManagers = { diagramManager: {} as any, documentManager: {} as any, metadataManager: {} as any };
