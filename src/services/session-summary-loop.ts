@@ -453,6 +453,21 @@ async function runInterpretAndEmit(args: {
   if (!cur) return structured; // session pruned mid-call — drop
   cur.summaryInFlight = false;
   if (structured) {
+    // Sticky open-question: a still-IDLE re-interpret that DROPPED a question we had
+    // a moment ago almost always means the assistant's question is still on screen and
+    // the interpreter just missed it this pass (cursor blink / elapsed-timer / spinner
+    // churn re-fires the change-gate, but the ask hasn't moved). Carry the prior
+    // question + suggested answers forward so the blue open-question card doesn't
+    // flicker away. We DROP it only when the session clearly resumed (status no longer
+    // 'idle') — that's the real "they answered / moved on" signal.
+    const prevQ = cur.structured?.question;
+    if (prevQ && !structured.question && structured.status === 'idle') {
+      structured = {
+        ...structured,
+        question: prevQ,
+        suggestedAnswers: structured.suggestedAnswers ?? cur.structured?.suggestedAnswers,
+      };
+    }
     cur.structured = structured;
     cur.summaryText = structured.paragraph;
     cur.firstClause = firstClauseOf(structured.paragraph);

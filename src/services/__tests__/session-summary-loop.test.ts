@@ -698,3 +698,45 @@ describe('refreshSummaryNow (force-proof)', () => {
     expect(entry.summaryPaneHash).toBe(hashBefore); // unchanged
   });
 });
+
+describe('sticky open-question', () => {
+  it('a still-idle re-interpret that drops the question keeps the prior question/suggestedAnswers', async () => {
+    let t = 1000;
+    let pane = 'pane-A';
+    let result: InterpreterStructured | null = null;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      interpret: async () => result,
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed (no interpret yet — throttle not met, not becameIdle).
+    await runSessionSummaryTick(deps);
+
+    // Pane change + throttle passed → interpret fires; returns IDLE WITH a question.
+    t = 50_000; pane = 'pane-B';
+    result = { paragraph: 'Waiting on direction.', status: 'idle', question: 'Which way next?', suggestedAnswers: ['Bake-off', 'Terrain'] };
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(getSessionSummary(P, S)!.structured?.question).toBe('Which way next?');
+
+    // Pane churns (cursor/timer) + still idle, interpret DROPS the question → sticky keeps it.
+    t = 110_000; pane = 'pane-C';
+    result = { paragraph: 'Still waiting.', status: 'idle' };
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    let e = getSessionSummary(P, S)!;
+    expect(e.structured?.question).toBe('Which way next?');           // sticky kept the question
+    expect(e.structured?.suggestedAnswers).toEqual(['Bake-off', 'Terrain']); // …and its answers
+    expect(e.structured?.paragraph).toBe('Still waiting.');           // narration still advances
+
+    // Session RESUMES (status no longer idle) → the stale question is dropped.
+    t = 170_000; pane = 'pane-D';
+    result = { paragraph: 'Working now.', status: 'working' };
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    e = getSessionSummary(P, S)!;
+    expect(e.structured?.question).toBeUndefined();                   // resumed → dropped
+  });
+});
