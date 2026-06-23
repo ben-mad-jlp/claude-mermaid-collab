@@ -246,6 +246,8 @@ export interface ZenStructured {
   multiSelect?: boolean;
   /** AI-proposed canned replies for an open end-of-turn question (no on-screen menu). */
   suggestedAnswers?: string[];
+  /** AI-proposed next-step directive for an idle, question-free session (e.g. "Run the tests"). */
+  aiOption?: string;
 }
 
 /** Z3: mirror of the server session-summary heartbeat (session-summary-loop.ts).
