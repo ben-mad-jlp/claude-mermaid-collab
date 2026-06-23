@@ -14,6 +14,7 @@ import {
   classifyInterpretFailure,
   recordInterpretOutcome,
   getSummaryHealth,
+  isInterpretRateLimited,
   type SummaryTickDeps,
   type InterpreterStructured,
 } from '../session-summary-loop.ts';
@@ -479,9 +480,17 @@ describe('interpreter pass', () => {
     await __drainInterpreters();
     expect(interpretCallCount).toBe(1);
 
-    // Throttle clears (48s ≥ 45s); summaryPaneHash still undefined → change-gate open → retries
+    // Throttle clears (48s ≥ 45s) BUT the failure backoff (nextRetryAt = 2000 + 90s
+    // = 92000 after one failure) still gates the retry → no new call yet.
     interpretResult = { paragraph: 'Session recovered.', status: 'working' };
     t = 50_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(1); // backoff holds — no storm
+    expect(getSessionSummary(P, S)!.refreshState).toBe('stale-failing');
+
+    // Past the failure backoff (t ≥ 92000) → retry fires and recovers.
+    t = 95_000;
     await runSessionSummaryTick(deps);
     await __drainInterpreters();
     expect(interpretCallCount).toBe(2);
@@ -761,8 +770,8 @@ describe('interpret observability', () => {
     recordInterpretOutcome({ ts: now - 20 * 60_000, project: P, session: 'old', ok: false, reason: 'error', latencyMs: 1 }); // outside window
     recordInterpretOutcome({ ts: now - 4000, project: P, session: 'd', ok: false, reason: 'timeout', latencyMs: 60000 });
     recordInterpretOutcome({ ts: now - 3000, project: P, session: 'c', ok: false, reason: 'rate-limit', latencyMs: 5000 });
-    recordInterpretOutcome({ ts: now - 2000, project: P, session: 'b', ok: true, latencyMs: 300 });
-    recordInterpretOutcome({ ts: now - 1000, project: P, session: 'a', ok: true, latencyMs: 100 });
+    recordInterpretOutcome({ ts: now - 2000, project: P, session: 'b', ok: true, latencyMs: 300, inputTokens: 1000, outputTokens: 200, costUsd: 0.003 });
+    recordInterpretOutcome({ ts: now - 1000, project: P, session: 'a', ok: true, latencyMs: 100, inputTokens: 500, outputTokens: 100, costUsd: 0.001 });
 
     const h = getSummaryHealth({ now, windowMs: 10 * 60_000 });
     expect(h.attempts).toBe(4);
@@ -772,6 +781,18 @@ describe('interpret observability', () => {
     expect(h.p50Ms).toBeGreaterThan(0);
     expect(h.p95Ms).toBeGreaterThanOrEqual(h.p50Ms);
     expect(h.recentFailures.map((f) => f.session)).toEqual(['c', 'd']); // most-recent failure first
+    expect(h.inputTokens).toBe(1500);   // token burn summed over the window
+    expect(h.outputTokens).toBe(300);
+    expect(h.costUsd).toBeCloseTo(0.004, 6);
+  });
+
+  it('a rate-limit outcome trips the fleet-wide backoff (and is reported)', () => {
+    const now = 2_000_000;
+    expect(isInterpretRateLimited(now)).toBe(false);
+    recordInterpretOutcome({ ts: now, project: P, session: 'x', ok: false, reason: 'rate-limit', latencyMs: 500 });
+    expect(isInterpretRateLimited(now + 1000)).toBe(true);          // backing off now
+    expect(isInterpretRateLimited(now + 5 * 60_000)).toBe(false);   // …lifts after the window
+    expect(getSummaryHealth({ now: now + 1000 }).rateLimitBackoffMs).toBeGreaterThan(0);
   });
 
   it('getSummaryHealth reports successRate 1 with no attempts', () => {

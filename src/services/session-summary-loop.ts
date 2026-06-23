@@ -93,6 +93,11 @@ export interface SessionSummaryEntry {
   lastSummaryAt?: number;
   summaryInFlight?: boolean;
   refreshState?: RefreshState;
+  /** Consecutive interpret failures — drives exponential retry backoff so a
+   *  persistently-failing pane isn't re-hit every tick (the storm). 0 on success. */
+  failureStreak?: number;
+  /** Epoch ms before which we must NOT re-interpret this session (failure backoff). */
+  nextRetryAt?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +179,7 @@ export function __resetSummaryState(): void {
   WEDGE_WINDOWS = DEFAULT_WEDGE_WINDOWS;
   inFlightInterpreters.clear();
   interpretSamples.length = 0;
+  rateLimitedUntil = 0;
   // Tests own the cache deterministically — never load from or write to disk.
   persistEnabled = false;
   cacheLoaded = true;
@@ -232,14 +238,25 @@ export function classifyInterpretFailure(
   return 'error';                    // !ok with no marker (auth halt, unknown)
 }
 
-interface InterpretSample { ts: number; project: string; session: string; ok: boolean; reason?: SummaryFailureReason; latencyMs: number; }
+interface InterpretSample { ts: number; project: string; session: string; ok: boolean; reason?: SummaryFailureReason; latencyMs: number; inputTokens?: number; outputTokens?: number; costUsd?: number; }
 const INTERPRET_SAMPLE_CAP = 500;
 const interpretSamples: InterpretSample[] = [];
+
+// Fleet-wide rate-limit backoff: when an interpret reports a 429/cap, PAUSE all
+// interpreting until this instant so we don't hammer the cap (the storm the
+// observability caught). Bounded; cleared by time. (#3 of the freshness goal.)
+export const RATE_LIMIT_BACKOFF_MS = 120_000;
+let rateLimitedUntil = 0;
+export function isInterpretRateLimited(now: number): boolean { return now < rateLimitedUntil; }
+export function getRateLimitedUntil(): number { return rateLimitedUntil; }
 
 export function recordInterpretOutcome(s: InterpretSample): void {
   interpretSamples.push(s);
   if (interpretSamples.length > INTERPRET_SAMPLE_CAP) {
     interpretSamples.splice(0, interpretSamples.length - INTERPRET_SAMPLE_CAP);
+  }
+  if (s.reason === 'rate-limit' || s.reason === 'unreachable') {
+    rateLimitedUntil = Math.max(rateLimitedUntil, s.ts + RATE_LIMIT_BACKOFF_MS);
   }
 }
 
@@ -251,6 +268,12 @@ export interface SummaryHealth {
   byReason: Record<string, number>;
   p50Ms: number;
   p95Ms: number;
+  /** Token + cost burn over the window — "what is this costing us". */
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  /** ms until the fleet-wide rate-limit backoff lifts (0 = not backing off). */
+  rateLimitBackoffMs: number;
   recentFailures: Array<{ project: string; session: string; reason?: SummaryFailureReason; ageMs: number }>;
 }
 
@@ -269,6 +292,7 @@ export function getSummaryHealth(opts?: { windowMs?: number; now?: number }): Su
     .slice(-10)
     .reverse()
     .map((x) => ({ project: x.project, session: x.session, reason: x.reason, ageMs: now - x.ts }));
+  const sum = (f: (x: InterpretSample) => number | undefined) => win.reduce((a, x) => a + (f(x) ?? 0), 0);
   return {
     windowMs,
     attempts: win.length,
@@ -277,6 +301,10 @@ export function getSummaryHealth(opts?: { windowMs?: number; now?: number }): Su
     byReason,
     p50Ms: pct(50),
     p95Ms: pct(95),
+    inputTokens: sum((x) => x.inputTokens),
+    outputTokens: sum((x) => x.outputTokens),
+    costUsd: Math.round(sum((x) => x.costUsd) * 1e6) / 1e6,
+    rateLimitBackoffMs: Math.max(0, rateLimitedUntil - now),
     recentFailures,
   };
 }
@@ -480,6 +508,9 @@ async function interpretViaNode(args: {
     ok: !!structured,
     reason: classifyInterpretFailure(result, !!structured),
     latencyMs: typeof result.durationMs === 'number' ? result.durationMs : Date.now() - t0,
+    inputTokens: result.usage?.inputTokens,
+    outputTokens: result.usage?.outputTokens,
+    costUsd: result.usage?.costUsd,
   });
   return structured;
 }
@@ -493,7 +524,9 @@ function shouldSummarize(
   nowMs: number,
 ): boolean {
   if (!wsPresentNow || !paneNonEmpty) return false;
+  if (isInterpretRateLimited(nowMs)) return false;       // B: fleet-wide 429 backoff — pause all interpreting
   if (prev?.summaryInFlight) return false;
+  if (prev?.nextRetryAt && nowMs < prev.nextRetryAt) return false; // A: failure backoff — don't storm a failing pane
   if (hash === prev?.summaryPaneHash) return false; // change-gate: frozen pane = zero cost
   const throttleOk = nowMs - (prev?.lastSummaryAt ?? 0) >= MIN_SUMMARY_INTERVAL_MS;
   const becameIdle =
@@ -561,8 +594,15 @@ async function runInterpretAndEmit(args: {
     cur.summaryPaneHash = args.hash;
     cur.summaryUpdatedAt = args.now();
     cur.refreshState = 'fresh';
+    cur.failureStreak = 0;
+    cur.nextRetryAt = undefined;
   } else {
     cur.refreshState = 'stale-failing';
+    // Exponential backoff so a persistently-failing pane isn't re-interpreted every
+    // tick (the storm that exhausted the rate budget). 45s → 90s → 180s → … cap ~12m.
+    const streak = (cur.failureStreak ?? 0) + 1;
+    cur.failureStreak = streak;
+    cur.nextRetryAt = args.now() + Math.min(MIN_SUMMARY_INTERVAL_MS * 2 ** Math.min(streak, 4), 12 * 60_000);
   }
   cache.set(args.key, cur);
   scheduleSave(); // persist the new interpreter paragraph so it survives a restart
@@ -688,6 +728,8 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
         lastSummaryAt: prev?.lastSummaryAt,
         summaryInFlight: prev?.summaryInFlight,
         refreshState: prev?.refreshState,
+        failureStreak: prev?.failureStreak,
+        nextRetryAt: prev?.nextRetryAt,
       };
       cache.set(key, entry);
       byState.unknown++;
@@ -718,6 +760,8 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
         lastSummaryAt: prev?.lastSummaryAt,
         summaryInFlight: prev?.summaryInFlight,
         refreshState: prev?.refreshState,
+        failureStreak: prev?.failureStreak,
+        nextRetryAt: prev?.nextRetryAt,
       };
       cache.set(key, entry);
       byState.unknown++;
@@ -800,6 +844,8 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
       lastSummaryAt: prev?.lastSummaryAt,
       summaryInFlight: prev?.summaryInFlight,
       refreshState: prev?.refreshState,
+      failureStreak: prev?.failureStreak,
+      nextRetryAt: prev?.nextRetryAt,
     };
     cache.set(key, entry);
     byState[progressState]++;
