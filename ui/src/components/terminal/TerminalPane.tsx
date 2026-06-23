@@ -190,6 +190,24 @@ function TerminalConsoleInner({
       }
     };
 
+    // Force a repaint after a re-point. The server's `attach \; refresh-client -S`
+    // redraw is intermittently a no-op: a refresh at the SAME client size doesn't
+    // emit SIGWINCH, so tmux doesn't relayout and the new target stays blank until
+    // the user's next keystroke/scroll. A brief 1-row resize (shrink then restore)
+    // guarantees two SIGWINCHes → tmux relayouts and repaints immediately. Pure
+    // size nudge: non-initial resizes don't trigger buffer replay (see resize()).
+    const nudgeRedraw = () => {
+      if (disposed || !opened || !wsOpen()) return;
+      if (!safeFit()) return;
+      const cols = term.cols, rows = term.rows;
+      if (cols < 1 || rows < 2) { send({ type: 'resize', cols, rows }); return; }
+      send({ type: 'resize', cols, rows: rows - 1 });
+      setTimeout(() => {
+        if (disposed || !wsOpen()) return;
+        send({ type: 'resize', cols, rows });
+      }, 60);
+    };
+
     const scheduleReconnect = () => {
       if (disposed || reconnectTimer) return;
       // Exponential backoff capped at 10s — a sidecar restart recovers in seconds.
@@ -274,7 +292,12 @@ function TerminalConsoleInner({
           if (msg.type === 'output') term.write(msg.data);
           else if (msg.type === 'exit') term.write(`\r\n\x1b[90m[process exited: ${msg.code}]\x1b[0m\r\n`);
           else if (msg.type === 'error') term.write(`\r\n\x1b[31m[error: ${msg.message}]\x1b[0m\r\n`);
-          // 'switched' acks need no client action — tmux's attach-redraw paints it.
+          else if (msg.type === 'switched') {
+            // The server's attach-redraw is unreliable (same-size refresh-client is
+            // a SIGWINCH no-op), so the new target can stay blank until first input.
+            // Nudge a real resize once the attach/detach flush has settled.
+            setTimeout(nudgeRedraw, 120);
+          }
         } catch { /* ignore non-JSON frames */ }
       };
     };
