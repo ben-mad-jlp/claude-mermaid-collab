@@ -172,7 +172,13 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
   migrateLegacyEntries: (defaultServerId) => {
     set((state) => {
       const oldEntries = Object.entries(state.subscriptions);
-      const needsMigration = oldEntries.some(([key, entry]) => !entry.serverId || !key.startsWith(`${entry.serverId}:`));
+      const isPlaceholder = (id: string | null | undefined) => !id || id === 'local';
+      const needsMigration = oldEntries.some(
+        ([key, entry]) =>
+          isPlaceholder(entry.serverId) ||
+          (!isPlaceholder(defaultServerId) && entry.serverId === 'local') ||
+          !key.startsWith(`${entry.serverId}:`),
+      );
       if (!needsMigration) return state;
       if (!defaultServerId) {
         // Can't migrate without a default; log once and leave entries as-is.
@@ -183,7 +189,11 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
       const nextSubs: Record<string, SubscribedSession> = {};
       const oldToNewKey = new Map<string, string>();
       for (const [oldKey, entry] of oldEntries) {
-        const serverId = entry.serverId || defaultServerId;
+        // Re-key 'local' entries when a real server id is available.
+        const serverId =
+          !entry.serverId || (entry.serverId === 'local' && defaultServerId !== 'local')
+            ? defaultServerId
+            : entry.serverId;
         const newKey = compositeKey(serverId, entry.project, entry.session);
         nextSubs[newKey] = { ...entry, serverId };
         oldToNewKey.set(oldKey, newKey);
