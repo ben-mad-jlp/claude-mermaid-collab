@@ -32,11 +32,14 @@ import { registerOrchestratorKick } from './orchestrator-kick.js';
 // ---------------------------------------------------------------------------
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let summaryTimer: ReturnType<typeof setInterval> | null = null;
+let summaryRunning = false; // overlap guard for the independent summary loop
 let tickRunning = false;
 let rerunRequested = false;
 let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
+const SUMMARY_INTERVAL_MS = 30_000;
 // Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
 // `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a
 // tick wedges, getOrchestratorHealth().currentPhase shows EXACTLY which project+pass
@@ -79,6 +82,29 @@ export function withPassTimeout<T>(p: Promise<T>, ms: number, label: string): Pr
     (t as { unref?: () => void }).unref?.();
   });
   return Promise.race([p, deadline]).finally(() => { if (t) clearTimeout(t); }) as Promise<T>;
+}
+
+/**
+ * Run one Zen session-summary heartbeat on its OWN interval — decoupled from the
+ * orchestrator build tick. The summary pass used to be the first pass of the single-flight
+ * orchestrator tick, which serialized it behind the (up-to-30-min) build pass: while a
+ * project was building, every watched Zen card froze (no `session_summary_updated` until
+ * the build finished). The summary tick is a cheap, read-only read-model broadcaster
+ * (pane hash + a small sonnet call; nothing in the build/notify/triage passes reads its
+ * output), so it runs independently here. Own overlap guard so a slow interpret pass can't
+ * stack intervals; bounded by withPassTimeout so a wedged capture can't freeze the loop.
+ */
+async function runSummaryGuarded(): Promise<void> {
+  if (summaryRunning) return; // previous heartbeat still in flight — skip this beat
+  summaryRunning = true;
+  try {
+    const watchedProjects = () => new Set(listWatchedProjects().map((w) => w.project));
+    await withPassTimeout(runSessionSummaryTick({ watchedProjects }), NOTIFY_PASS_TIMEOUT_MS, 'summary');
+  } catch (err) {
+    console.warn('[orchestrator] session summary heartbeat failed:', err);
+  } finally {
+    summaryRunning = false;
+  }
 }
 
 /** Run one tick under the overlap guard, coalescing any kick that arrives mid-tick
@@ -176,9 +202,6 @@ export interface TickDeps {
   /** All CONFIGURED projects + levels (the unwatched-auto-off sweep reads these so it also
    *  catches config-only entries never in the registry). Default: listOrchestratorProjects. */
   listConfigured?: () => Array<{ project: string; level: ReturnType<typeof getOrchestratorLevel> }>;
-  /** Structural heartbeat: tmux pane hashing + graded progressState for watched supervised
-   *  sessions. Global (not per-project) — runs once per tick. Default: runSessionSummaryTick. */
-  summary?: () => Promise<unknown>;
 }
 
 /** One tick: enumerate registered projects and dispatch passes per level. */
@@ -192,7 +215,6 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
   const listConfigured = deps.listConfigured ?? listOrchestratorProjects;
-  const summary = deps.summary ?? (() => runSessionSummaryTick({ watchedProjects }));
   const watched = watchedProjects();
 
   // Unwatched-auto-off sweep: force off EVERY configured project that isn't watched — so the
@@ -209,15 +231,6 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     }
   } catch (err) {
     console.warn('[orchestrator] unwatched-auto-off sweep failed:', err);
-  }
-
-  // Structural heartbeat: pane hashing + graded progressState for watched supervised
-  // sessions. Global (not per-project — listSupervised() returns all). Best-effort.
-  try {
-    currentPhase = 'summary';
-    await withPassTimeout(summary(), NOTIFY_PASS_TIMEOUT_MS, 'summary');
-  } catch (err) {
-    console.warn('[orchestrator] session summary tick failed:', err);
   }
 
   let projects: Array<{ path: string }>;
@@ -309,6 +322,16 @@ export function startOrchestrator(intervalMs = 30_000): void {
   (t as { unref?: () => void }).unref?.();
   timer = t;
 
+  // Independent Zen summary heartbeat — decoupled from the build tick so a long build
+  // can't starve it (see runSummaryGuarded). Runs once immediately so cards refresh
+  // promptly on boot, then on its own interval. Idempotent with the timer===null guard.
+  if (summaryTimer === null) {
+    void runSummaryGuarded();
+    const st = setInterval(() => { void runSummaryGuarded(); }, SUMMARY_INTERVAL_MS);
+    (st as { unref?: () => void }).unref?.();
+    summaryTimer = st;
+  }
+
   // Event-driven claim path: the todo-store fires this when a todo becomes ready, so
   // we tick within KICK_DEBOUNCE_MS instead of waiting for the interval.
   registerOrchestratorKick((reason) => kickOrchestrator(reason));
@@ -319,6 +342,10 @@ export function stopOrchestrator(): void {
   if (timer === null) return;
   clearInterval(timer);
   timer = null;
+  if (summaryTimer !== null) {
+    clearInterval(summaryTimer);
+    summaryTimer = null;
+  }
   // Drop any kick scheduled within the debounce window so it can't tick after stop
   // (kickOrchestrator already no-ops new kicks once timer is null).
   if (kickTimer !== null) {
