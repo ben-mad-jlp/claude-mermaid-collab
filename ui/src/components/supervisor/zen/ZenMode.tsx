@@ -80,7 +80,6 @@ export const ZenMode: React.FC = () => {
   const allSessions = useSessionStore((s) => s.sessions);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const setActiveProject = useUIStore((s) => s.setActiveProject);
-  const setMode = useUIStore((s) => s.setMode);
 
   // "Add session" picker (Zen-native): list sessions not already watched → subscribe.
   const [addOpen, setAddOpen] = useState(false);
@@ -174,14 +173,17 @@ export const ZenMode: React.FC = () => {
   // Open a watched session in the full collab UI. Route through the shared `useDiveIn`
   // so it behaves IDENTICALLY to a watching-card click: select the session, fire its
   // activation side-effects (spawn the terminal on the row's server, focus its browser
-  // tab, open the terminal drawer) and switch to Studio — so the console actually loads
-  // without a second click. Then leave Zen so Studio is what's on screen.
+  // tab, open the terminal drawer). Zen is a NON-MUTATING overlay: opening a card must
+  // NOT change the underlying studio layout — it does EXACTLY what a watched-card click
+  // does, then drops the overlay so the user lands back in whatever they had open.
   const openSession = (project: string, session: string, serverId: string) => {
     // Mirror a watched-session-card click EXACTLY (SessionCard onClick → handleNavigate +
     // activateSessionCard): select the session, drive the Bridge to its project, then fire
     // the same activation side-effects (spawn terminal on the row's server, focus its
-    // browser tab, open the terminal drawer). Previously this routed through useDiveIn,
-    // which skipped setActiveProject — so the Bridge didn't follow to the session's project.
+    // browser tab, open the terminal drawer). We deliberately do NOT call setMode('studio')
+    // — that force-opened the artifact viewer (viewerVisible:true) on top of the card
+    // click. Exiting Zen (toggleZenMode) reveals the pre-Zen layout unchanged; the only
+    // delta is the card click itself, which is what the user asked for.
     const match = allSessions.find((s) => s.project === project && s.name === session);
     setCurrentSession(match ?? { project, name: session, serverId });
     setActiveProject(project);
@@ -193,8 +195,7 @@ export const ZenMode: React.FC = () => {
       lastUpdate: 0,
     };
     void activateSessionCard(card).catch(() => {});
-    // Land in Studio (the console) and leave Zen — same destination diveIn used.
-    setMode('studio');
+    // Drop the Zen overlay — back to the exact pre-Zen layout, plus the card click.
     toggleZenMode();
   };
 
