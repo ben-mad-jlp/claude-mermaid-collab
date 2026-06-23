@@ -52,8 +52,8 @@ browser_* MCP tool                 src/mcp/tools/browser.ts
 
 | Mode | Chrome on `127.0.0.1:CDP_PORT` | Target selection | Lifecycle owner |
 |---|---|---|---|
-| `''` (default) | external Chrome (SSH tunnel / VSCodium) | `ensureTab` creates `about:blank` tab (`cdp-session.ts:206-242`) | user |
-| `owned-chrome` | Chrome the **server spawns** (`src/services/chrome-manager.ts:114-127`) | same as default | `ChromeManager` |
+| `streamed-panel` (default) | Chrome the **server spawns** (headless on Linux), frames streamed to the UI via `ScreencastService` | `ensureTab` creates `about:blank` tab (`cdp-session.ts:206-242`) | `ChromeManager` |
+| `owned-chrome` | Chrome the **server spawns** (`src/services/chrome-manager.ts:114-127`), no streaming | same as default | `ChromeManager` |
 | `electron-view` | the Electron app's embedded `WebContentsView` | marker match on title `mc-browser-pane[:session]` (`cdp-session.ts:31,39-65,254-280`) | Electron main |
 
 ### 1.3 The display path — where Electron is coupled (the seam)

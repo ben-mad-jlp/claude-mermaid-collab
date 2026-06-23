@@ -106,7 +106,7 @@ In vibe mode, respond to user requests to:
 
 ## Browser Automation
 
-Browser tools let Claude control a real Chrome browser running on the user's machine via CDP. Chrome is tunneled over SSH — Claude connects on Linux port 9333 which forwards to Windows Chrome. The CDP toggle button in the VSCodium status bar must be active (amber) for browser tools to work.
+Browser tools let Claude control a real Chrome browser via CDP. The server **spawns and owns a headless Chrome on the Linux server itself** (`MC_BROWSER_TARGET=streamed-panel`, the default) at `CDP_PORT` (9333) and streams frames to the UI — no Windows machine or SSH tunnel involved. If browser tools fail with "Chrome not reachable", the server-owned Chrome failed to start (check server logs / Chrome binary), not a tunnel or VSCodium button.
 
 **Every browser tool requires a `session` parameter** — the collab session name. Each session gets its own registered tab in Chrome.
 

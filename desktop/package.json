@@ -74,12 +74,6 @@
       "notarize": true,
       "icon": "build/icon.png"
     },
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "build/icon.png"
-    },
     "linux": {
       "target": [
         "AppImage",
