@@ -11,6 +11,7 @@ const dir = mkdtempSync(join(tmpdir(), 'orch-routes-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 import { handleOrchestratorRoutes } from '../orchestrator-routes';
+import { LEAF_NODE_KINDS } from '../../services/leaf-executor';
 import { _closeDb } from '../../services/orchestrator-config';
 
 const PROJECT = '/tmp/orch-routes-proj';
@@ -152,7 +153,7 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(res!.status).toBe(200);
     const body = await res!.json() as any;
     expect(Array.isArray(body.rows)).toBe(true);
-    expect(body.rows.length).toBe(10);
+    expect(body.rows.length).toBe(LEAF_NODE_KINDS.length);
     const bp = body.rows.find((r: any) => r.kind === 'blueprint');
     expect(bp.defaultModel).toBe('opus');
     expect(bp.defaultEffort).toBe('high');
