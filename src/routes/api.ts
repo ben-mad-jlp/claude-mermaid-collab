@@ -3181,6 +3181,16 @@ export async function handleAPI(
     });
   }
 
+  // POST /api/leaf-executor/breaker-reset — operator force-closes the headless circuit
+  // breaker from the Bridge. It otherwise auto-closes only after the rate-limit cooldown;
+  // this clears the open hold + backoff streak + paused registry so the next claim tick
+  // can spawn immediately once the operator knows the cap has eased.
+  if (path === '/api/leaf-executor/breaker-reset' && req.method === 'POST') {
+    const { resetBreaker, breakerOpen, breakerOpenUntil } = await import('../services/headless-breaker');
+    resetBreaker();
+    return Response.json({ ok: true, breaker: { open: breakerOpen(), openUntil: breakerOpenUntil() } });
+  }
+
   // POST /api/worker-lane/abort { session }
   // Stop a live in-process worker lane (design-worker-fabric-ui §7) — aborts the lane's
   // AbortController via the harness teardown. The host marks the todo on the next reap;
