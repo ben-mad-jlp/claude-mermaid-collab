@@ -177,7 +177,7 @@ const ProjectBar: React.FC<{
         {/* Summary failing to refresh — the card may be out of date (interpreter erroring,
             e.g. near a rate limit). Flag it so a stale summary isn't read as current. */}
         {summaryStale && (
-          <span className="text-3xs font-semibold text-warning-600 dark:text-warning-400 shrink-0" title="Summary is failing to refresh — may be out of date">
+          <span className="text-3xs font-bold uppercase tracking-wide text-white bg-warning-500 dark:bg-warning-600 rounded px-1.5 py-0.5 shrink-0" title="Summary is failing to refresh (interpreter erroring — e.g. near a rate limit). The narration below may be out of date.">
             ⚠ stale
           </span>
         )}
@@ -790,7 +790,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             type="button"
             onClick={() => hasMore && toggleExpand()}
             title={hasMore ? (expanded ? 'Show less' : 'Show full description') : undefined}
-            className={`group flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'}`}
+            className={`group flex-1 min-h-0 w-full flex flex-col ${hasMore ? 'cursor-pointer' : 'cursor-default'} ${summaryStale ? 'opacity-40 saturate-50 transition-opacity' : ''}`}
           >
             {expanded ? (
               /* The fuller detail fills the card the same way the glance does — FitText
