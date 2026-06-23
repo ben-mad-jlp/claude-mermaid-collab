@@ -1,0 +1,219 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/types/index.ts",
+  "title": "Codex UI type definitions for dashboard components",
+  "purpose": "Provides centralized type definitions for the Codex dashboard UI, including navigation items, topic data structures, flags, drafts, and filtering options.",
+  "module_context": "Exports re-usable UI types and interfaces for dashboard components, including navigation items, topic summaries, flags, drafts, and filtering capabilities.",
+  "methods": [
+    {
+      "id": "m_c13b2170",
+      "name": "Nav",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define navigation item structure for sidebar components."
+        },
+        {
+          "order": 2,
+          "content": "Specify label, href, and icon properties for each navigation item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_33615df1",
+      "name": "ListItem",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define generic list item structure for topic and flag lists."
+        },
+        {
+          "order": 2,
+          "content": "Include id, title, subtitle, badge, and href properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9f3240f",
+      "name": "TopicSummary",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define summary view structure for topic lists."
+        },
+        {
+          "order": 2,
+          "content": "Include name, confidence, lastVerified, accessCount, openFlagCount, and hasDraft properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_795721df",
+      "name": "TopicFull",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define full topic data structure including all documents."
+        },
+        {
+          "order": 2,
+          "content": "Extend TopicSummary with documents, lastModified, and flags properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f6af7a71",
+      "name": "TopicFilters",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define filter options for topic lists."
+        },
+        {
+          "order": 2,
+          "content": "Specify confidence tiers, flag presence, draft presence, and stale days filters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7cdb7715",
+      "name": "DraftInfo",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define draft information structure for topic drafts."
+        },
+        {
+          "order": 2,
+          "content": "Include topic name, documents, generated timestamp, and trigger type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d08b223",
+      "name": "DocumentDiff",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define document diff structure showing changes between versions."
+        },
+        {
+          "order": 2,
+          "content": "Include document type, current and draft content, and addition/deletion counts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_37608ba4",
+      "name": "Flag",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define flag structure for tracking issues on topics."
+        },
+        {
+          "order": 2,
+          "content": "Include id, topic name, comment, status, timestamps, and resolution details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_18bfceea",
+      "name": "MissingTopic",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define missing topic request tracking structure."
+        },
+        {
+          "order": 2,
+          "content": "Include topic name, request count, and timestamp information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_997a59f4",
+      "name": "FlagFilters",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define filter options for flag lists."
+        },
+        {
+          "order": 2,
+          "content": "Specify status and topic name filters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

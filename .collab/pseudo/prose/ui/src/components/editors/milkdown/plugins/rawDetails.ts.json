@@ -1,0 +1,170 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/rawDetails.ts",
+  "title": "Milkdown plugin for handling raw HTML details and summary elements",
+  "purpose": "Provides a Milkdown plugin to parse and render HTML details and summary elements as custom markdown nodes, supporting nested details and graceful degradation for unmatched tags.",
+  "module_context": "Exports a remark plugin for processing HTML details tags, a node schema definition for details nodes, and a React component for rendering details views.",
+  "methods": [
+    {
+      "id": "m_60ddaf5a",
+      "name": "hasOpenAttr",
+      "enclosing_class": null,
+      "normalized_params": "(attrs: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test if the attributes string contains an 'open' attribute in any case variant."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the open attribute is present, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7d61a44",
+      "name": "processChildren",
+      "enclosing_class": null,
+      "normalized_params": "(children: RootContent[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each child node in the children array."
+        },
+        {
+          "order": 2,
+          "content": "If the node is not an HTML node, recursively process its children if they exist."
+        },
+        {
+          "order": 3,
+          "content": "If the node is an HTML node, check if it matches the opening details tag pattern."
+        },
+        {
+          "order": 4,
+          "content": "Extract the attributes from the opening tag and determine if it's open."
+        },
+        {
+          "order": 5,
+          "content": "Search for the matching closing tag while tracking nesting depth."
+        },
+        {
+          "order": 6,
+          "content": "If no matching closing tag is found, leave the HTML nodes untouched."
+        },
+        {
+          "order": 7,
+          "content": "Extract the summary text from either the opening tag or the following HTML sibling."
+        },
+        {
+          "order": 8,
+          "content": "Recursively process the body children to handle nested details."
+        },
+        {
+          "order": 9,
+          "content": "Replace the range of HTML nodes with a synthetic details node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ffffe108",
+      "name": "remarkRawDetails",
+      "enclosing_class": null,
+      "normalized_params": "(): Plugin<[], Root>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a unified plugin function that processes the root tree."
+        },
+        {
+          "order": 2,
+          "content": "Apply the processChildren function to transform HTML details tags in the tree."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_665350f3",
+      "name": "detailsNode",
+      "enclosing_class": null,
+      "normalized_params": "(): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a node schema for the details element with block group and defining properties."
+        },
+        {
+          "order": 2,
+          "content": "Set default attributes for open state and summary text."
+        },
+        {
+          "order": 3,
+          "content": "Configure parsing from DOM elements with specific tag and attribute handling."
+        },
+        {
+          "order": 4,
+          "content": "Configure rendering to DOM with appropriate attributes and structure."
+        },
+        {
+          "order": 5,
+          "content": "Define parsing from markdown format with runner to handle details nodes."
+        },
+        {
+          "order": 6,
+          "content": "Define rendering to markdown format with appropriate HTML opener and closer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e718f0a7",
+      "name": "DetailsView",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the node and content reference from the node view context."
+        },
+        {
+          "order": 2,
+          "content": "Extract the open state and summary text from the node attributes."
+        },
+        {
+          "order": 3,
+          "content": "Render a details element with the appropriate open state and data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Render a summary element with editable disabled and the summary text."
+        },
+        {
+          "order": 5,
+          "content": "Render a div element with the content reference for nested content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

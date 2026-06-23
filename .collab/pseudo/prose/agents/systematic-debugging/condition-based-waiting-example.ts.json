@@ -1,0 +1,120 @@
+{
+  "schema_version": 3,
+  "file": "agents/systematic-debugging/condition-based-waiting-example.ts",
+  "title": "Condition-based waiting utilities for thread event monitoring",
+  "purpose": "Provides reliable asynchronous waiting mechanisms for specific thread events, replacing flaky arbitrary timeouts with condition-based checks.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_2bdfdb0d",
+      "name": "waitForEvent",
+      "enclosing_class": null,
+      "normalized_params": "(threadManager: ThreadManager, threadId: string, eventType: LaceEventType, timeoutMs?: number): Promise<LaceEvent>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a promise that will resolve when the specified event type is found."
+        },
+        {
+          "order": 2,
+          "content": "Start tracking the elapsed time from when the check begins."
+        },
+        {
+          "order": 3,
+          "content": "Define a polling function that checks for the event in the thread manager."
+        },
+        {
+          "order": 4,
+          "content": "IF the event is found, resolve the promise with the matching event."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the timeout has been exceeded, reject the promise with a timeout error."
+        },
+        {
+          "order": 6,
+          "content": "ELSE schedule another check after a short delay to avoid excessive polling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7dec0529",
+      "name": "waitForEventCount",
+      "enclosing_class": null,
+      "normalized_params": "(threadManager: ThreadManager, threadId: string, eventType: LaceEventType, count: number, timeoutMs?: number): Promise<LaceEvent[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a promise that will resolve when the specified number of events are found."
+        },
+        {
+          "order": 2,
+          "content": "Start tracking the elapsed time from when the check begins."
+        },
+        {
+          "order": 3,
+          "content": "Define a polling function that checks for the required number of matching events."
+        },
+        {
+          "order": 4,
+          "content": "IF the required number of events is found, resolve the promise with the matching events."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the timeout has been exceeded, reject the promise with a timeout error."
+        },
+        {
+          "order": 6,
+          "content": "ELSE schedule another check after a short delay to avoid excessive polling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_98ece44a",
+      "name": "waitForEventMatch",
+      "enclosing_class": null,
+      "normalized_params": "(threadManager: ThreadManager, threadId: string, predicate: (event: LaceEvent) => boolean, description: string, timeoutMs?: number): Promise<LaceEvent>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a promise that will resolve when an event matching the predicate is found."
+        },
+        {
+          "order": 2,
+          "content": "Start tracking the elapsed time from when the check begins."
+        },
+        {
+          "order": 3,
+          "content": "Define a polling function that checks for events matching the predicate."
+        },
+        {
+          "order": 4,
+          "content": "IF a matching event is found, resolve the promise with that event."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the timeout has been exceeded, reject the promise with a timeout error."
+        },
+        {
+          "order": 6,
+          "content": "ELSE schedule another check after a short delay to avoid excessive polling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

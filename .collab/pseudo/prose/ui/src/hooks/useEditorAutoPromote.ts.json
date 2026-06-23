@@ -1,0 +1,101 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useEditorAutoPromote.ts",
+  "title": "Editor auto-promotion hook with dirty event bus",
+  "purpose": "Automatically promotes preview tabs to permanent status when they are marked as dirty, using a global event bus to track changes.",
+  "module_context": "Exports a global event bus for editor dirty state and utility functions to report and handle dirty events. Defines a React hook that subscribes to these events and promotes preview tabs.",
+  "methods": [
+    {
+      "id": "m_909b3ffa",
+      "name": "emitDirty",
+      "enclosing_class": "editorDirtyBus",
+      "normalized_params": "(tabId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Notify all subscribed listeners about the dirty tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_773bbf3e",
+      "name": "subscribe",
+      "enclosing_class": "editorDirtyBus",
+      "normalized_params": "(fn: Listener): () => void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided listener function to the set of subscribers."
+        },
+        {
+          "order": 2,
+          "content": "Return a cleanup function that removes the listener from subscribers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cec0bdc7",
+      "name": "reportEditorDirty",
+      "enclosing_class": null,
+      "normalized_params": "(tabId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Emit a dirty event for the specified tab ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_92e38c79",
+      "name": "useEditorAutoPromote",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set up a subscription to the editor dirty event bus."
+        },
+        {
+          "order": 2,
+          "content": "Track promoted tab IDs to prevent duplicate promotions."
+        },
+        {
+          "order": 3,
+          "content": "When a dirty event is received, check if the tab is a preview tab."
+        },
+        {
+          "order": 4,
+          "content": "IF the tab is a preview tab, promote it to permanent status."
+        },
+        {
+          "order": 5,
+          "content": "Mark the tab as promoted to avoid reprocessing."
+        },
+        {
+          "order": 6,
+          "content": "Return a cleanup function to unsubscribe from the event bus on unmount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

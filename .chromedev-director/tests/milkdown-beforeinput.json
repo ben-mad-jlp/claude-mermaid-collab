@@ -1,0 +1,25 @@
+{
+  "id": "milkdown-beforeinput",
+  "name": "milkdown-beforeinput",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1000
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "(()=>{const pm=document.querySelector('.ProseMirror'); pm.focus(); const r=document.createRange(); const last=pm.lastChild; r.selectNodeContents(last); r.collapse(false); const s=window.getSelection(); s.removeAllRanges(); s.addRange(r); const before=pm.innerHTML.length; function sendKey(key){const e=new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}); pm.dispatchEvent(e);} function sendInsert(text){const e=new InputEvent('beforeinput',{inputType:'insertText',data:text,bubbles:true,cancelable:true}); pm.dispatchEvent(e);} function sendNewline(){const e=new InputEvent('beforeinput',{inputType:'insertParagraph',bubbles:true,cancelable:true}); pm.dispatchEvent(e);} sendNewline(); sendInsert('# '); sendInsert('AutoTest'); sendNewline(); sendInsert('- item one'); sendNewline(); sendInsert('item two'); return {beforeLen:before, afterLen:pm.innerHTML.length, tail:pm.innerHTML.slice(-900)};})()",
+        "as": "typed"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:38:59.325Z",
+  "updatedAt": "2026-04-18T18:38:59.325Z"
+}

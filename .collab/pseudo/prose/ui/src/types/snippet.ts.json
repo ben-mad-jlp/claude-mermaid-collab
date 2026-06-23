@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/snippet.ts",
+  "title": "Snippet types definition",
+  "purpose": "Defines the core TypeScript interfaces for snippet data structures and their annotations.",
+  "module_context": "Exports two interface types: SnippetAnnotation for line-based text annotations and Snippet for snippet data with metadata.",
+  "methods": [
+    {
+      "id": "m_3bbe0ec7",
+      "name": "SnippetAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for snippet annotations with start and end line numbers."
+        },
+        {
+          "order": 2,
+          "content": "Specify that line numbers are 1-indexed and inclusive."
+        },
+        {
+          "order": 3,
+          "content": "Include the annotated text content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5d8acfb4",
+      "name": "Snippet",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for snippet data with unique identifier."
+        },
+        {
+          "order": 2,
+          "content": "Include the snippet name and content."
+        },
+        {
+          "order": 3,
+          "content": "Specify the timestamp of last modification."
+        },
+        {
+          "order": 4,
+          "content": "Add optional folder path for organization."
+        },
+        {
+          "order": 5,
+          "content": "Include optional lock status flag."
+        },
+        {
+          "order": 6,
+          "content": "Add optional deprecation flag."
+        },
+        {
+          "order": 7,
+          "content": "Include optional pin status flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

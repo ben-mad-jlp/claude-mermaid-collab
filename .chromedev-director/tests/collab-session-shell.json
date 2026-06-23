@@ -1,0 +1,49 @@
+{
+  "id": "collab-session-shell",
+  "name": "collab-session-shell",
+  "definition": {
+    "url": "http://localhost:3002/collab/session?session=codex&project=/srv/codebase/open-collab",
+    "steps": [
+      {
+        "wait": 3500
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"split-editor-host\"]') ? 'found' : 'missing'",
+        "as": "splitEditorHost"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar\"]') ? 'found' : 'missing'",
+        "as": "sidebar"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"artifact-tree\"]') ? 'found' : 'missing'",
+        "as": "artifactTree"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar-empty\"]') ? 'found' : 'missing'",
+        "as": "sidebarEmpty"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"tab-bar\"]') ? 'found' : 'missing'",
+        "as": "tabBar"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"connection-badge\"]')?.textContent?.trim() || 'not found'",
+        "as": "connectionBadge"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"header\"]') ? 'found' : 'missing'",
+        "as": "header"
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('[data-testid]')).map(el => el.dataset.testid).join(', ')",
+        "as": "allTestids"
+      }
+    ]
+  },
+  "createdAt": "2026-04-25T19:50:44.786Z",
+  "updatedAt": "2026-04-25T19:50:44.786Z"
+}

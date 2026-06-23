@@ -427,6 +427,18 @@ const server = Bun.serve<WsData>({
   async fetch(req, server) {
     const url = new URL(req.url);
 
+    // Same-origin combined deployment (UI + API + WS on one port): the browser
+    // addresses per-server resources with a routing prefix that, in the dev
+    // split, the Vite proxy stripped before forwarding (and the Electron shell
+    // strips via its main-process bridge). With no proxy in front of us we must
+    // strip it ourselves so downstream routing matches:
+    //   /_per-server/<serverId>/terminal/<ptyId>  → /terminal/<ptyId>   (terminal-ws.ts)
+    //   /srv/<serverId>/api/...                    → /api/...            (api.ts)
+    // serverId may be empty or `local`; mirror Vite's `[^/]*` exactly.
+    url.pathname = url.pathname
+      .replace(/^\/_per-server\/[^/]*/, '')
+      .replace(/^\/srv\/[^/]*/, '');
+
     // Treat any HTTP request as activity: push the idle-shutdown deadline so a
     // server actively used over MCP/HTTP (but with no WS client) doesn't exit
     // mid-session. When a WS client is connected, idle is already cancelled.
@@ -530,7 +542,7 @@ const server = Bun.serve<WsData>({
 
     // API routes
     if (url.pathname.startsWith('/api/')) {
-      return handleAPI(req, diagramManager, documentManager, metadataManager, validator, renderer, wsHandler);
+      return handleAPI(req, diagramManager, documentManager, metadataManager, validator, renderer, wsHandler, url);
     }
 
     // React UI from ui/dist/ (primary UI)

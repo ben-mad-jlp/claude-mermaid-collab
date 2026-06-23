@@ -1,0 +1,293 @@
+{
+  "schema_version": 3,
+  "file": "src/services/terminal-manager.ts",
+  "title": "Terminal session manager with tmux integration and storage reconciliation",
+  "purpose": "Manages terminal sessions using tmux, handles session storage persistence, and reconciles stored sessions with actual tmux sessions.",
+  "module_context": "Exports a singleton TerminalManager instance that provides methods for reading/writing terminal session state, generating tmux session names, creating and killing tmux sessions, listing active sessions, and reconciling session states.",
+  "methods": [
+    {
+      "id": "m_d9048016",
+      "name": "getStoragePath",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check for the existence of a new storage path in the .collab/sessions/ directory."
+        },
+        {
+          "order": 2,
+          "content": "IF the new path exists or its directory exists, return the new path."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check for the existence of an old storage path in the .collab/ directory for backwards compatibility."
+        },
+        {
+          "order": 4,
+          "content": "IF the old path exists or its directory exists, return the old path."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the new path as the default location."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3d5bbb3c",
+      "name": "readSessions",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(project: string, session: string): Promise<TerminalSessionsState>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the storage path for the terminal sessions."
+        },
+        {
+          "order": 2,
+          "content": "IF the storage file does not exist, return an empty session state with current timestamp."
+        },
+        {
+          "order": 3,
+          "content": "ELSE read and parse the content of the storage file as JSON."
+        },
+        {
+          "order": 4,
+          "content": "IF parsing fails, log a warning and return an empty session state with current timestamp."
+        },
+        {
+          "order": 5,
+          "content": "RETURN the parsed session state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd0d26a1",
+      "name": "writeSessions",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(project: string, session: string, state: TerminalSessionsState): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the storage path for the terminal sessions."
+        },
+        {
+          "order": 2,
+          "content": "Create the directory for the storage path if it does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Update the last modified timestamp in the session state."
+        },
+        {
+          "order": 4,
+          "content": "Write the session state to the storage path as a formatted JSON string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f61d7145",
+      "name": "generateTmuxSessionName",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(collabSession: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session name from the collab session identifier by splitting on ':' or '/' and taking the last segment."
+        },
+        {
+          "order": 2,
+          "content": "IF the extracted segment is empty, default to 'default'."
+        },
+        {
+          "order": 3,
+          "content": "Sanitize the session name by converting to lowercase and removing all non-alphanumeric characters."
+        },
+        {
+          "order": 4,
+          "content": "Truncate the sanitized name to a maximum of 20 characters."
+        },
+        {
+          "order": 5,
+          "content": "Generate a random 4-character suffix using base-36 encoding."
+        },
+        {
+          "order": 6,
+          "content": "Combine the prefix 'mc-', the sanitized name, and the random suffix to form the tmux session name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_34a96619",
+      "name": "createTmuxSession",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(tmuxSessionName: string, cwd?: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new tmux session in detached mode with the specified session name and optional working directory."
+        },
+        {
+          "order": 2,
+          "content": "Enable mouse scrolling for the newly created tmux session."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to unbind the horizontal split key for the tmux session."
+        },
+        {
+          "order": 4,
+          "content": "IF unbinding the horizontal split key fails, continue without throwing an error."
+        },
+        {
+          "order": 5,
+          "content": "Attempt to unbind the vertical split key for the tmux session."
+        },
+        {
+          "order": 6,
+          "content": "IF unbinding the vertical split key fails, continue without throwing an error."
+        },
+        {
+          "order": 7,
+          "content": "IF the session creation fails due to a duplicate session, enable mouse mode and attempt to unbind split keys for the existing session."
+        },
+        {
+          "order": 8,
+          "content": "IF the session creation fails due to a duplicate session, return without throwing an error."
+        },
+        {
+          "order": 9,
+          "content": "IF the session creation fails for any other reason, throw an error with the failure details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c1e625ec",
+      "name": "killTmuxSession",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(tmuxSessionName: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to kill the specified tmux session."
+        },
+        {
+          "order": 2,
+          "content": "IF killing the session fails due to a 'no session' error, return without throwing an error."
+        },
+        {
+          "order": 3,
+          "content": "IF killing the session fails for any other reason, throw an error with the failure details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_acf8f4d6",
+      "name": "listActiveTmuxSessions",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(prefix: string): Promise<string[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute a command to list all active tmux sessions with their names."
+        },
+        {
+          "order": 2,
+          "content": "IF the command fails due to no tmux server, return an empty array."
+        },
+        {
+          "order": 3,
+          "content": "Parse the command output to extract session names."
+        },
+        {
+          "order": 4,
+          "content": "Filter the session names to include only those that start with the specified prefix."
+        },
+        {
+          "order": 5,
+          "content": "RETURN the filtered list of session names."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_de778f7d",
+      "name": "reconcileSessions",
+      "enclosing_class": "TerminalManager",
+      "normalized_params": "(project: string, session: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the stored terminal sessions from the file."
+        },
+        {
+          "order": 2,
+          "content": "List all active tmux sessions that match the prefix 'mc-{session}-'."
+        },
+        {
+          "order": 3,
+          "content": "Identify stored sessions that do not have corresponding active tmux sessions."
+        },
+        {
+          "order": 4,
+          "content": "Identify active tmux sessions that do not have corresponding stored sessions."
+        },
+        {
+          "order": 5,
+          "content": "Kill any active tmux sessions that are not in the stored sessions."
+        },
+        {
+          "order": 6,
+          "content": "Remove orphaned stored sessions from the session state."
+        },
+        {
+          "order": 7,
+          "content": "Write the updated session state back to the file."
+        },
+        {
+          "order": 8,
+          "content": "Log a summary of the reconciliation process including the number of orphan records removed and orphan tmux sessions killed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

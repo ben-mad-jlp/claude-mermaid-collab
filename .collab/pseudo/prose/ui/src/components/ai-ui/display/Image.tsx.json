@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/Image.tsx",
+  "title": "Image component with optional caption and responsive styling",
+  "purpose": "Renders an image with optional caption and responsive styling, supporting various object fit configurations and custom classes.",
+  "module_context": "Exports an Image component that accepts image properties and optional caption, with default objectFit set to 'contain'.",
+  "methods": [
+    {
+      "id": "m_24542be0",
+      "name": "Image",
+      "enclosing_class": null,
+      "normalized_params": "(props: ImageProps): React.FC<ImageProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept image properties including source, alt text, dimensions, caption, class name, and object fit configuration."
+        },
+        {
+          "order": 2,
+          "content": "Create the base image element with provided source, alt, dimensions, and object fit style."
+        },
+        {
+          "order": 3,
+          "content": "IF a caption is provided, wrap the image in a figure element with centered caption text."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return the image element directly without a caption."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/PRStatusBadge.tsx",
+  "title": "Pull request status badge component with color-coded indicators",
+  "purpose": "Displays a clickable badge showing the status of a pull request with color coding based on check results.",
+  "module_context": "Exports a React functional component PRStatusBadge that uses a custom hook to access agent store data and a helper function to determine badge colors.",
+  "methods": [
+    {
+      "id": "m_411f5085",
+      "name": "checkColor",
+      "enclosing_class": null,
+      "normalized_params": "(checks: string | undefined): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a default slate color if no checks are provided."
+        },
+        {
+          "order": 2,
+          "content": "Convert the checks string to lowercase for consistent comparison."
+        },
+        {
+          "order": 3,
+          "content": "IF the checks string contains pass, success, or is exactly green, return green."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the checks string contains fail, error, or is exactly red, return red."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the checks string contains pend, running, progress, or is exactly amber or yellow, return amber."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return the default slate color."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_537a7df7",
+      "name": "PRStatusBadge",
+      "enclosing_class": null,
+      "normalized_params": "(props: PRStatusBadgeProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session ID from the component props."
+        },
+        {
+          "order": 2,
+          "content": "Access the pull request status data for the given session ID from the agent store."
+        },
+        {
+          "order": 3,
+          "content": "IF no pull request data exists for the session, return null."
+        },
+        {
+          "order": 4,
+          "content": "Determine the badge color based on the pull request checks using the helper function."
+        },
+        {
+          "order": 5,
+          "content": "Render a clickable anchor element with the pull request number and status color."
+        },
+        {
+          "order": 6,
+          "content": "Include a small circular indicator with white color and 85% opacity next to the number."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

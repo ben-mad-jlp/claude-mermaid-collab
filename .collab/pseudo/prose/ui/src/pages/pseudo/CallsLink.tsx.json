@@ -1,0 +1,217 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/CallsLink.tsx",
+  "title": "CallsLink component with hover popover and file navigation",
+  "purpose": "Provides a clickable orange link that shows a popover with file content on hover, and navigates to the referenced file on click.",
+  "module_context": "Exports a default component CallsLink that accepts name, fileStem, project, and onNavigate props. Defines HOVER_DELAY and GRACE_PERIOD constants for popover timing behavior.",
+  "methods": [
+    {
+      "id": "m_1b5f991d",
+      "name": "CallsLink",
+      "enclosing_class": null,
+      "normalized_params": "({ name, fileStem, project, onNavigate }: CallsLinkProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize popover state with visibility set to false."
+        },
+        {
+          "order": 2,
+          "content": "Create refs for anchor element, hover timer, and grace timer."
+        },
+        {
+          "order": 3,
+          "content": "Define callbacks to clear hover and grace timers."
+        },
+        {
+          "order": 4,
+          "content": "Define handler for mouse enter that schedules popover display after delay."
+        },
+        {
+          "order": 5,
+          "content": "Define handler for mouse leave that schedules popover hide after grace period."
+        },
+        {
+          "order": 6,
+          "content": "Define handler for click that navigates to the referenced file."
+        },
+        {
+          "order": 7,
+          "content": "Define handler for popover mouse enter that cancels grace timer."
+        },
+        {
+          "order": 8,
+          "content": "Define handler for popover mouse leave that schedules popover hide after grace period."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aac49961",
+      "name": "clearHoverTimer",
+      "enclosing_class": "CallsLink",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the hover timer if it is active."
+        },
+        {
+          "order": 2,
+          "content": "Set the hover timer reference to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cceaa3f3",
+      "name": "clearGraceTimer",
+      "enclosing_class": "CallsLink",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the grace timer if it is active."
+        },
+        {
+          "order": 2,
+          "content": "Set the grace timer reference to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c058ed04",
+      "name": "handleMouseEnter",
+      "enclosing_class": "CallsLink",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the grace timer if it is active."
+        },
+        {
+          "order": 2,
+          "content": "Schedule a timer to show the popover after the hover delay."
+        },
+        {
+          "order": 3,
+          "content": "IF the anchor element exists, get its bounding rectangle."
+        },
+        {
+          "order": 4,
+          "content": "Fetch the file data from the pseudo API for the referenced file."
+        },
+        {
+          "order": 5,
+          "content": "IF the fetch succeeds, store the file data in popover state."
+        },
+        {
+          "order": 6,
+          "content": "IF the fetch fails, show the popover without file data."
+        },
+        {
+          "order": 7,
+          "content": "Update popover state to show the popover with anchor rectangle and file data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6bcbd088",
+      "name": "handleMouseLeave",
+      "enclosing_class": "CallsLink",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the hover timer if it is active."
+        },
+        {
+          "order": 2,
+          "content": "Schedule a timer to hide the popover after the grace period."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f482478e",
+      "name": "handleClick",
+      "enclosing_class": "CallsLink",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the hover timer if it is active."
+        },
+        {
+          "order": 2,
+          "content": "Clear the grace timer if it is active."
+        },
+        {
+          "order": 3,
+          "content": "Navigate to the referenced file using the provided navigation handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_96159c17",
+      "name": "handlePopoverMouseEnter",
+      "enclosing_class": "CallsLink",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the grace timer if it is active."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8c722e22",
+      "name": "handlePopoverMouseLeave",
+      "enclosing_class": "CallsLink",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Schedule a timer to hide the popover after the grace period."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

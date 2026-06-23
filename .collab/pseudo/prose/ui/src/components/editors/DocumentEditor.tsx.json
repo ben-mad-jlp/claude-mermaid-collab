@@ -1,0 +1,63 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DocumentEditor.tsx",
+  "title": "Conditional document editor component that switches between legacy and WYSIWYG interfaces",
+  "purpose": "Provides a unified interface for document editing that dynamically selects between legacy and WYSIWYG editors based on feature flags.",
+  "module_context": "Exports a React component that conditionally renders either DocumentEditorLegacy or DocumentEditorWysiwyg based on feature flag configuration. Also exports the DocumentEditorProps type from the legacy editor.",
+  "methods": [
+    {
+      "id": "m_7c32cb44",
+      "name": "DocumentEditor",
+      "enclosing_class": null,
+      "normalized_params": "(props: DocumentEditorProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine whether to use the WYSIWYG editor by checking the feature flags."
+        },
+        {
+          "order": 2,
+          "content": "IF the feature flag for WYSIWYG is enabled, render the WYSIWYG editor component."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the legacy editor component."
+        },
+        {
+          "order": 4,
+          "content": "Pass all props through to the selected editor component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ae7d845",
+      "name": "useEffect",
+      "enclosing_class": "DocumentEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref to track whether logging has occurred."
+        },
+        {
+          "order": 2,
+          "content": "IF this is the first render, set the ref to indicate logging has occurred."
+        },
+        {
+          "order": 3,
+          "content": "Log the selected editor variant to the console for debugging purposes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

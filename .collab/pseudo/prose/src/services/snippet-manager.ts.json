@@ -1,0 +1,467 @@
+{
+  "schema_version": 3,
+  "file": "src/services/snippet-manager.ts",
+  "title": "Snippet manager with version history tracking",
+  "purpose": "Manages code snippets with CRUD operations and maintains version history for each snippet. Used to store, retrieve, and version control code snippets in a session.",
+  "module_context": "Exports a SnippetManager class that handles snippet storage, indexing, and version history tracking with asynchronous file I/O operations.",
+  "methods": [
+    {
+      "id": "m_284995a2",
+      "name": "initialize",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create the main snippets directory if it does not exist."
+        },
+        {
+          "order": 2,
+          "content": "Create the history directory if it does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Scan the snippets directory for existing snippet files."
+        },
+        {
+          "order": 4,
+          "content": "For each snippet file, attempt to read its metadata and add it to the in-memory index."
+        },
+        {
+          "order": 5,
+          "content": "Log errors encountered while indexing individual snippets but continue processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b2de363",
+      "name": "listSnippets",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(): Promise<Snippet[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all indexed snippets."
+        },
+        {
+          "order": 2,
+          "content": "For each snippet, attempt to read its content from disk."
+        },
+        {
+          "order": 3,
+          "content": "IF reading fails, create a snippet entry with empty content."
+        },
+        {
+          "order": 4,
+          "content": "Sort the snippets by last modified timestamp in descending order."
+        },
+        {
+          "order": 5,
+          "content": "Return the sorted list of snippets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_449e3e0d",
+      "name": "getSnippet",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string): Promise<Snippet | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the snippet metadata in the index using the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the snippet is not found in the index, return null."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to read the snippet content from disk."
+        },
+        {
+          "order": 4,
+          "content": "IF reading fails, log the error and return a snippet with empty content."
+        },
+        {
+          "order": 5,
+          "content": "Return the snippet with its content and metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a714285",
+      "name": "saveSnippet",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the snippet metadata in the index using the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the snippet is not found, throw an error indicating the snippet does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the content size does not exceed the maximum allowed file size."
+        },
+        {
+          "order": 4,
+          "content": "Write the updated content to the snippet file on disk."
+        },
+        {
+          "order": 5,
+          "content": "Update the snippet's metadata with the new modification timestamp."
+        },
+        {
+          "order": 6,
+          "content": "Record the updated content in the snippet's version history."
+        },
+        {
+          "order": 7,
+          "content": "IF recording history fails, log a warning but continue with the save operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1c0ffb2c",
+      "name": "createSnippet",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(name: string, content: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the snippet name is a non-empty string."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the snippet content is provided and not null or undefined."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the content size does not exceed the maximum allowed file size."
+        },
+        {
+          "order": 4,
+          "content": "Sanitize the snippet name to generate a valid ID."
+        },
+        {
+          "order": 5,
+          "content": "IF the sanitized name is empty, throw an error indicating the name must contain alphanumeric characters."
+        },
+        {
+          "order": 6,
+          "content": "Check if a snippet with the generated ID already exists."
+        },
+        {
+          "order": 7,
+          "content": "IF a duplicate exists, throw an error indicating the snippet already exists."
+        },
+        {
+          "order": 8,
+          "content": "Write the initial content to a new snippet file on disk."
+        },
+        {
+          "order": 9,
+          "content": "Update the snippet metadata with the file path and modification timestamp."
+        },
+        {
+          "order": 10,
+          "content": "Register the new snippet in the in-memory index."
+        },
+        {
+          "order": 11,
+          "content": "Record the initial version in the snippet's history file."
+        },
+        {
+          "order": 12,
+          "content": "IF recording history fails, log a warning but continue with the creation."
+        },
+        {
+          "order": 13,
+          "content": "Return the generated snippet ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03cf5c26",
+      "name": "deleteSnippet",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the snippet metadata in the index using the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the snippet is not found, throw an error indicating the snippet does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Delete the snippet file from disk."
+        },
+        {
+          "order": 4,
+          "content": "IF deletion fails, log the error and throw an error indicating the deletion failed."
+        },
+        {
+          "order": 5,
+          "content": "Delete the snippet's history file from disk."
+        },
+        {
+          "order": 6,
+          "content": "IF history deletion fails, log a warning but continue with the deletion."
+        },
+        {
+          "order": 7,
+          "content": "Remove the snippet from the in-memory index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1da0c770",
+      "name": "recordVersion",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the path to the snippet's history file."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to load existing version history from the history file."
+        },
+        {
+          "order": 3,
+          "content": "IF loading fails, start with an empty history array."
+        },
+        {
+          "order": 4,
+          "content": "Create a new version entry with the current timestamp and content."
+        },
+        {
+          "order": 5,
+          "content": "Add the new version entry to the history array."
+        },
+        {
+          "order": 6,
+          "content": "Trim the history array to keep only the last 100 versions."
+        },
+        {
+          "order": 7,
+          "content": "Write the updated history back to the history file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_65b8d4db",
+      "name": "getHistory",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string): Promise<SnippetVersionEntry[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the snippet metadata in the index using the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the snippet is not found, throw an error indicating the snippet does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Construct the path to the snippet's history file."
+        },
+        {
+          "order": 4,
+          "content": "IF the history file does not exist, return an empty array."
+        },
+        {
+          "order": 5,
+          "content": "Read the history file content from disk."
+        },
+        {
+          "order": 6,
+          "content": "Parse the history content as JSON and return the version entries."
+        },
+        {
+          "order": 7,
+          "content": "IF parsing fails, log the error and throw an error indicating retrieval failed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bee4718c",
+      "name": "getVersionAtTimestamp",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string, timestamp: number): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the version history for the specified snippet."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through the history entries in chronological order."
+        },
+        {
+          "order": 3,
+          "content": "Find the most recent version entry that occurred at or before the specified timestamp."
+        },
+        {
+          "order": 4,
+          "content": "IF no such version exists, return null."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the content of the found version."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b780d6f",
+      "name": "updateIndex",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string, path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to get the file statistics for the provided path."
+        },
+        {
+          "order": 2,
+          "content": "IF statistics retrieval succeeds, update the index with the new metadata."
+        },
+        {
+          "order": 3,
+          "content": "IF statistics retrieval fails, log the error and do nothing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f2ee3f38",
+      "name": "removeFromIndex",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the snippet entry from the in-memory index using the provided ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_796ad734",
+      "name": "reset",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all entries from the in-memory index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_545aeb5b",
+      "name": "getIndexSize",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the number of entries currently in the in-memory index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a07ecb65",
+      "name": "hasSnippet",
+      "enclosing_class": "SnippetManager",
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a snippet with the provided ID exists in the in-memory index."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the snippet exists, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/question-panel/QuestionHistory.tsx",
+  "title": "Question history component with expandable items and clear functionality",
+  "purpose": "Displays a list of previous questions with expandable details and provides options to clear the history. Used in the question panel to show user's question history.",
+  "module_context": "Exports a QuestionHistory component that uses a React state hook and a question store for managing history data. Includes a nested HistoryItem component for rendering individual history entries.",
+  "methods": [
+    {
+      "id": "m_b68890a3",
+      "name": "QuestionHistory",
+      "enclosing_class": null,
+      "normalized_params": "(props: QuestionHistoryProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking expanded history item."
+        },
+        {
+          "order": 2,
+          "content": "Load question history from the store and limit to maxItems."
+        },
+        {
+          "order": 3,
+          "content": "Render empty state message if no history items exist."
+        },
+        {
+          "order": 4,
+          "content": "Render header with history count and clear button."
+        },
+        {
+          "order": 5,
+          "content": "Map over history items and render each as a HistoryItem component."
+        },
+        {
+          "order": 6,
+          "content": "Show footer message if there are more items than maxItems."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb9e0e8f",
+      "name": "handleToggle",
+      "enclosing_class": "QuestionHistory",
+      "normalized_params": "(questionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the expanded state for the specified question ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the ID matches the currently expanded item, collapse it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE expand the specified item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4a4d06dc",
+      "name": "handleClearHistory",
+      "enclosing_class": "QuestionHistory",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt user for confirmation before clearing history."
+        },
+        {
+          "order": 2,
+          "content": "IF user confirms, call the clearHistory function from the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bfe39d65",
+      "name": "HistoryItem",
+      "enclosing_class": "QuestionHistory",
+      "normalized_params": "(props: { question: Question; isExpanded: boolean; onToggle: () => void; onSelect?: (question: Question) => void }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Truncate question text for display in the list view."
+        },
+        {
+          "order": 2,
+          "content": "Format timestamp for display."
+        },
+        {
+          "order": 3,
+          "content": "Render the toggle button with appropriate arrow icon."
+        },
+        {
+          "order": 4,
+          "content": "IF item is expanded, render the full question details and context."
+        },
+        {
+          "order": 5,
+          "content": "IF onSelect callback is provided, render a button to view item in panel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

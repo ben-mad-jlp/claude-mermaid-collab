@@ -1,0 +1,279 @@
+{
+  "id": "chat-full-verification",
+  "name": "chat-full-verification",
+  "description": "Comprehensive verification of every surfaceable chat feature. Uses explicit prompts instructing Claude which tool to invoke so each UI surface renders deterministically. Expect ~4-6 min runtime end-to-end.",
+  "tags": [
+    "chat",
+    "e2e",
+    "full-verification"
+  ],
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 4000
+      },
+      {
+        "label": "P0.1 Wait for project selector (<=30s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const el = document.querySelector('[data-testid=\"project-selector\"]'); if (el && !el.disabled) return res('ok'); if (Date.now()-start > 30000) return rej(new Error('project-selector never ready')); setTimeout(tick, 300); }; tick(); }))()"
+      },
+      {
+        "label": "P0.2 Open project dropdown",
+        "eval": "(() => { document.querySelector('[data-testid=\"project-selector\"]').click(); return 'ok'; })()"
+      },
+      {
+        "wait": 500
+      },
+      {
+        "label": "P0.3 Pick claude-mermaid-collab project",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const items = document.querySelectorAll('[data-testid=\"project-dropdown\"] [role=\"option\"], [data-testid=\"project-dropdown\"] button'); for (const it of items) { if (/claude-mermaid-collab/.test(it.textContent||'')) { it.click(); return res('clicked'); } } if (Date.now()-start > 10000) return rej(new Error('project not found in dropdown: '+ Array.from(items).map(i => i.textContent?.slice(0,30)).join('|'))); setTimeout(tick, 300); }; tick(); }))()"
+      },
+      {
+        "wait": 800
+      },
+      {
+        "label": "P0.4 Open session dropdown",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const el = document.querySelector('[data-testid=\"session-selector\"]'); if (el && !el.disabled) { el.click(); return res('ok'); } if (Date.now()-start > 10000) return rej(new Error('session-selector not ready')); setTimeout(tick, 300); }; tick(); }))()"
+      },
+      {
+        "wait": 500
+      },
+      {
+        "label": "P0.5 Pick t3-inspiration",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const items = document.querySelectorAll('[data-testid=\"session-dropdown\"] [role=\"option\"]'); for (const it of items) { if (/t3-inspiration/.test(it.textContent||'')) { it.click(); return res('clicked'); } } if (Date.now()-start > 10000) return rej(new Error('t3-inspiration not found')); setTimeout(tick, 300); }; tick(); }))()"
+      },
+      {
+        "label": "P0.6 Wait for chat textarea mount (<=30s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); if (el) return res({ ms: Date.now()-start }); if (Date.now()-start > 30000) return rej(new Error('textarea never mounted after session select')); setTimeout(tick, 300); }; tick(); }))()"
+      },
+      {
+        "wait": 1000
+      },
+      {
+        "label": "P1.2 Textarea enabled (polling up to 90s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); const agent = window.__AGENT_STORE__?.getState?.(); if (el && !el.disabled) return res({ ms: Date.now()-start, ready: agent?.ready }); if (Date.now()-start > 90000) return rej(new Error('textarea disabled; ready='+agent?.ready+' claudeSid='+agent?.claudeSessionId+' lastError='+agent?.lastError+' timeline='+agent?.timeline?.length)); setTimeout(tick, 500); }; tick(); }))()"
+      },
+      {
+        "label": "P1.2 Textarea enabled (polling)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); if (el && !el.disabled) return res({ ms: Date.now()-start }); if (Date.now()-start > 30000) return rej(new Error('textarea state: exists='+!!el+' disabled='+(el?el.disabled:'n/a'))); setTimeout(tick, 400); }; tick(); }))()"
+      },
+      {
+        "label": "P1.3 Context meter rendered",
+        "eval": "(() => { if (!document.querySelector('[data-testid=\"context-meter\"]')) throw new Error('missing'); return 'ok'; })()"
+      },
+      {
+        "label": "P1.4 Open trusted drawer",
+        "eval": "(() => { const b = Array.from(document.querySelectorAll('button')).find(x => x.textContent?.trim() === 'Trusted tools'); if (!b) throw new Error('btn missing'); b.click(); return 'ok'; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "P1.5 Trusted drawer visible",
+        "eval": "(() => { if (!document.querySelector('[data-testid=\"trusted-tools-drawer\"]')) throw new Error('not open'); return 'ok'; })()"
+      },
+      {
+        "label": "P1.6 Close trusted drawer",
+        "eval": "(() => { document.querySelector('button[aria-label=\"Close trusted tools drawer\"]').click(); return 'ok'; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "P1.7 Open transcript picker",
+        "eval": "(() => { const b = Array.from(document.querySelectorAll('button')).find(x => x.textContent?.trim() === 'Resume transcript'); if (!b) throw new Error('btn missing'); b.click(); return 'ok'; })()"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "label": "P1.8 Transcript picker visible",
+        "eval": "(() => { if (!document.querySelector('[aria-label=\"Select prior session transcript\"]')) throw new Error('not visible'); return 'ok'; })()"
+      },
+      {
+        "label": "P1.9 Dismiss transcript picker",
+        "eval": "(() => { const d = Array.from(document.querySelectorAll('button')).find(b => /dismiss/i.test(b.textContent||'')); if (d) d.click(); return 'ok'; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "P1.10 Worktree switcher toggles",
+        "eval": "(() => { const b = document.querySelector('button[aria-label=\"Worktree switcher\"]'); if (!b) throw new Error('missing'); b.click(); return 'ok'; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "P1.11 Click outside",
+        "eval": "(() => { document.body.click(); return 'ok'; })()"
+      },
+      {
+        "wait": 200
+      },
+      {
+        "label": "P1.12 Export menu button present",
+        "eval": "(() => { if (!document.querySelector('button[aria-label=\"Export menu\"]')) throw new Error('missing'); return 'ok'; })()"
+      },
+      {
+        "label": "P1.13 Slash picker opens on /",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, '/'); el.dispatchEvent(new Event('input', { bubbles: true })); return 'ok'; })()"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "label": "P1.14 Slash picker visible",
+        "eval": "(() => { if (!document.querySelector('[data-testid=\"slash-command-picker\"]')) throw new Error('missing'); return 'ok'; })()"
+      },
+      {
+        "label": "P1.15 Clear",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); return 'ok'; })()"
+      },
+      {
+        "label": "P1.16 Mention picker opens on @",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, '@pack'); el.dispatchEvent(new Event('input', { bubbles: true })); return 'ok'; })()"
+      },
+      {
+        "wait": 500
+      },
+      {
+        "label": "P1.17 Mention picker visible",
+        "eval": "(() => { if (!document.querySelector('[data-testid=\"file-mention-picker\"]')) throw new Error('missing'); return 'ok'; })()"
+      },
+      {
+        "label": "P1.18 Clear",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); return 'ok'; })()"
+      },
+      {
+        "screenshot": "p1-static-surfaces"
+      },
+      {
+        "label": "P2.2 Wait for any assistant content + idle (<=300s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const a = document.querySelectorAll('[data-testid=\"agent-avatar\"]'); const spinning = !!document.querySelector('[data-testid=\"typing-indicator-spinner\"]'); if (a.length >= 1 && !spinning) return res({ avatars: a.length, ms: Date.now()-start }); if (Date.now()-start > 300000) return rej(new Error('timeout; avatars='+a.length+' spinning='+spinning)); setTimeout(tick, 1000); }; tick(); }))()"
+      },
+      {
+        "label": "P2.2 Wait for assistant avatar + idle (<=120s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const a = document.querySelectorAll('[data-testid=\"agent-avatar\"]'); const spinning = !!document.querySelector('[data-testid=\"typing-indicator-spinner\"]'); if (a.length >= 1 && !spinning) return res({ avatars: a.length, ms: Date.now()-start }); if (Date.now()-start > 120000) return rej(new Error('timeout; avatars='+a.length+' spinning='+spinning)); setTimeout(tick, 500); }; tick(); }))()"
+      },
+      {
+        "screenshot": "p2-basic-response"
+      },
+      {
+        "label": "P3.1 Send Read(x3) prompt",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, 'Please make three separate Read tool calls, one each for: package.json, tsconfig.json, README.md. Do NOT combine them. After all three, reply with one word DONE.'); el.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true })), 100); return 'sent'; })()"
+      },
+      {
+        "label": "P3.2 Wait for idle + >=2 output-panels (<=300s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const p = document.querySelectorAll('[data-testid=\"output-panel\"]'); const spinning = !!document.querySelector('[data-testid=\"typing-indicator-spinner\"]'); if (!spinning && p.length >= 2) return res({ count: p.length, ms: Date.now()-start }); if (Date.now()-start > 300000) return rej(new Error('timeout: panels='+p.length+' spinning='+spinning)); setTimeout(tick, 1000); }; tick(); }))()"
+      },
+      {
+        "label": "P3.3 Timeline grouping (optional)",
+        "eval": "(() => { const g = document.querySelectorAll('[data-testid=\"timeline-group-toggle\"]'); return { groups: g.length }; })()"
+      },
+      {
+        "screenshot": "p3-read-grouping"
+      },
+      {
+        "label": "P4.1 Send TodoWrite prompt",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, 'Use the TodoWrite tool right now with exactly these three items (content only, all status pending, first one in_progress): alpha, beta, gamma. Then reply DONE.'); el.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true })), 100); return 'sent'; })()"
+      },
+      {
+        "label": "P4.2 Wait for todo-write-view (<=180s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { if (document.querySelector('[data-testid=\"todo-write-view\"]')) return res({ ms: Date.now()-start }); if (Date.now()-start > 180000) return rej(new Error('no todo-write-view')); setTimeout(tick, 1000); }; tick(); }))()"
+      },
+      {
+        "label": "P4.3 Verify 3 todo items",
+        "eval": "(() => { const items = document.querySelectorAll('[data-testid^=\"todo-item-\"]'); if (items.length < 3) throw new Error('only '+items.length+' items'); return { items: items.length }; })()"
+      },
+      {
+        "screenshot": "p4-todowrite"
+      },
+      {
+        "label": "P4.4 Wait idle",
+        "eval": "(() => new Promise((res) => { const start = Date.now(); const tick = () => { if (!document.querySelector('[data-testid=\"typing-indicator-spinner\"]') || Date.now()-start > 120000) return res('ok'); setTimeout(tick, 500); }; tick(); }))()"
+      },
+      {
+        "label": "P5.1 Send dangerous Bash prompt",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, 'Use the Bash tool to run exactly this command: rm -rf /tmp/nonexistent-xyz-test-dir'); el.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true })), 100); return 'sent'; })()"
+      },
+      {
+        "label": "P5.2 Wait for dangerous warning or permission card (<=90s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const t = document.body.innerText; if (/Dangerous command/.test(t)) return res({ dangerous: true, ms: Date.now()-start }); if (/Allow Once/.test(t)) return res({ dangerous: false, permissionShown: true, ms: Date.now()-start }); if (Date.now()-start > 90000) return rej(new Error('no permission or warning')); setTimeout(tick, 750); }; tick(); }))()"
+      },
+      {
+        "screenshot": "p5-dangerous-permission"
+      },
+      {
+        "label": "P5.3 Click Deny if present",
+        "eval": "(() => { const b = Array.from(document.querySelectorAll('button')).find(x => x.textContent?.trim() === 'Deny'); if (b) { b.click(); return 'denied'; } return 'no-deny-button'; })()"
+      },
+      {
+        "wait": 2000
+      },
+      {
+        "label": "P5.4 Wait idle",
+        "eval": "(() => new Promise((res) => { const start = Date.now(); const tick = () => { if (!document.querySelector('[data-testid=\"typing-indicator-spinner\"]') || Date.now()-start > 120000) return res('ok'); setTimeout(tick, 500); }; tick(); }))()"
+      },
+      {
+        "label": "P6.1 Send WebFetch prompt",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, 'Use the WebFetch tool on url https://example.com with prompt: \\'Return only the page title.\\''); el.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true })), 100); return 'sent'; })()"
+      },
+      {
+        "label": "P6.2 Wait for WebFetch response, auto-allow (<=180s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const allowBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Allow Once'); if (allowBtn) allowBtn.click(); if (/example\\.com/i.test(document.body.innerText)) return res({ ms: Date.now()-start }); if (Date.now()-start > 180000) return rej(new Error('no webfetch response')); setTimeout(tick, 1000); }; tick(); }))()"
+      },
+      {
+        "screenshot": "p6-webfetch"
+      },
+      {
+        "label": "P6.3 Wait idle",
+        "eval": "(() => new Promise((res) => { const start = Date.now(); const tick = () => { if (!document.querySelector('[data-testid=\"typing-indicator-spinner\"]') || Date.now()-start > 120000) return res('ok'); setTimeout(tick, 500); }; tick(); }))()"
+      },
+      {
+        "label": "P7.1 Send WebSearch prompt",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, 'Use the WebSearch tool with query: claude code cli'); el.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true })), 100); return 'sent'; })()"
+      },
+      {
+        "label": "P7.2 Wait for websearch-query, auto-allow (<=180s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const allowBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Allow Once'); if (allowBtn) allowBtn.click(); if (document.querySelector('[data-testid=\"websearch-query\"]')) return res({ ms: Date.now()-start }); if (Date.now()-start > 180000) return rej(new Error('no websearch-query')); setTimeout(tick, 1000); }; tick(); }))()"
+      },
+      {
+        "screenshot": "p7-websearch"
+      },
+      {
+        "label": "P7.3 Wait idle",
+        "eval": "(() => new Promise((res) => { const start = Date.now(); const tick = () => { if (!document.querySelector('[data-testid=\"typing-indicator-spinner\"]') || Date.now()-start > 120000) return res('ok'); setTimeout(tick, 500); }; tick(); }))()"
+      },
+      {
+        "label": "P8.1 Send Task subagent prompt",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, 'Use the Task tool with subagent_type=general-purpose and a very short prompt: \\'List the files in ui/src/components/agent-chat/tool-cards — nothing else.\\''); el.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true })), 100); return 'sent'; })()"
+      },
+      {
+        "label": "P8.2 Wait for task-view, auto-allow (<=240s)",
+        "eval": "(() => new Promise((res, rej) => { const start = Date.now(); const tick = () => { const allowBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Allow Once'); if (allowBtn) allowBtn.click(); if (document.querySelector('[data-testid=\"task-view\"]')) return res({ ms: Date.now()-start }); if (Date.now()-start > 240000) return rej(new Error('no task-view')); setTimeout(tick, 1000); }; tick(); }))()"
+      },
+      {
+        "screenshot": "p8-task-subagent"
+      },
+      {
+        "label": "P9.1 Agent avatars count",
+        "eval": "(() => { const a = document.querySelectorAll('[data-testid=\"agent-avatar\"]'); return { avatars: a.length }; })()"
+      },
+      {
+        "label": "P9.2 Output panels count",
+        "eval": "(() => { const p = document.querySelectorAll('[data-testid=\"output-panel\"]'); return { panels: p.length }; })()"
+      },
+      {
+        "label": "P9.3 Final runtime error sweep",
+        "eval": "(() => { const t = document.body.innerText; if (/TypeError|Cannot read properties|undefined is not/.test(t)) throw new Error('LATE ERR: ' + t.slice(0,400)); return 'clean'; })()"
+      },
+      {
+        "screenshot": "p9-final"
+      }
+    ],
+    "timeout": 1200000
+  },
+  "createdAt": "2026-04-18T19:58:27.173Z",
+  "updatedAt": "2026-04-18T22:28:47.048Z"
+}

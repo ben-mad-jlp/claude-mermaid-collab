@@ -1,0 +1,64 @@
+{
+  "schema_version": 3,
+  "file": "src/services/ws-handler-manager.ts",
+  "title": "WebSocket handler manager singleton provider",
+  "purpose": "Manages a global singleton instance of WebSocketHandler to enable cross-module broadcasting without circular dependencies.",
+  "module_context": "Exports three functions for managing a global WebSocketHandler singleton instance: initialization, retrieval, and existence checking.",
+  "methods": [
+    {
+      "id": "m_c0a5049d",
+      "name": "initializeWebSocketHandler",
+      "enclosing_class": null,
+      "normalized_params": "(handler: WebSocketHandler): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the global WebSocketHandler instance to the provided handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_01c2a0cb",
+      "name": "getWebSocketHandler",
+      "enclosing_class": null,
+      "normalized_params": "(): WebSocketHandler | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the global WebSocketHandler instance if it exists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d5402bb4",
+      "name": "hasWebSocketHandler",
+      "enclosing_class": null,
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the global WebSocketHandler instance has been initialized."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the handler exists, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

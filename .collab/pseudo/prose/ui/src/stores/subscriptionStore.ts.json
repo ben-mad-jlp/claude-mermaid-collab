@@ -1,0 +1,157 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/subscriptionStore.ts",
+  "title": "Zustand store for managing session subscriptions with localStorage persistence",
+  "purpose": "Maintains a store of subscribed sessions with their statuses and persists the data to localStorage. Provides methods to subscribe, unsubscribe, reorder, and update session statuses.",
+  "module_context": "Exports a Zustand store named useSubscriptionStore that manages session subscriptions with localStorage persistence. The store initializes from localStorage and updates it on every change.",
+  "methods": [
+    {
+      "id": "m_9117d254",
+      "name": "subscribe",
+      "enclosing_class": "useSubscriptionStore",
+      "normalized_params": "(project: string, session: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique key from the project and session identifiers."
+        },
+        {
+          "order": 2,
+          "content": "Create a new subscription entry with unknown status and current timestamp."
+        },
+        {
+          "order": 3,
+          "content": "Update the subscriptions map with the new entry."
+        },
+        {
+          "order": 4,
+          "content": "Add the key to the order array if it's not already present."
+        },
+        {
+          "order": 5,
+          "content": "Persist the updated subscriptions map to localStorage."
+        },
+        {
+          "order": 6,
+          "content": "Persist the updated order array to localStorage."
+        },
+        {
+          "order": 7,
+          "content": "Update the store state with the new subscriptions and order."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_93e84791",
+      "name": "unsubscribe",
+      "enclosing_class": "useSubscriptionStore",
+      "normalized_params": "(key: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a copy of the current subscriptions map."
+        },
+        {
+          "order": 2,
+          "content": "Remove the subscription entry corresponding to the provided key."
+        },
+        {
+          "order": 3,
+          "content": "Filter the order array to exclude the key."
+        },
+        {
+          "order": 4,
+          "content": "Persist the updated subscriptions map to localStorage."
+        },
+        {
+          "order": 5,
+          "content": "Persist the updated order array to localStorage."
+        },
+        {
+          "order": 6,
+          "content": "Update the store state with the new subscriptions and order."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_045c2a68",
+      "name": "reorder",
+      "enclosing_class": "useSubscriptionStore",
+      "normalized_params": "(newOrder: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Persist the new order array to localStorage."
+        },
+        {
+          "order": 2,
+          "content": "Update the store state with the new order."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c1a4af8",
+      "name": "updateStatus",
+      "enclosing_class": "useSubscriptionStore",
+      "normalized_params": "(claudeSessionId: string, status: string, project: string, session: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique key from the project and session identifiers."
+        },
+        {
+          "order": 2,
+          "content": "Look up the existing subscription entry for the key."
+        },
+        {
+          "order": 3,
+          "content": "IF no existing entry is found, return the current state unchanged."
+        },
+        {
+          "order": 4,
+          "content": "Determine if the status group has changed between active and non-active states."
+        },
+        {
+          "order": 5,
+          "content": "IF the status group has changed, update the lastUpdate timestamp to current time."
+        },
+        {
+          "order": 6,
+          "content": "ELSE keep the existing lastUpdate timestamp."
+        },
+        {
+          "order": 7,
+          "content": "Update the subscription entry with the new status and potentially updated timestamp."
+        },
+        {
+          "order": 8,
+          "content": "Persist the updated subscriptions map to localStorage."
+        },
+        {
+          "order": 9,
+          "content": "Update the store state with the new subscriptions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/PseudoTreeBody.tsx",
+  "title": "Sidebar tree component for pseudocode file navigation",
+  "purpose": "Provides a collapsible file tree view for pseudocode files in the sidebar, supporting search and navigation functionality.",
+  "module_context": "Exports a PseudoTreeBody component that consumes global sidebar tree state and renders a file tree using shared TreeNodeRenderer logic.",
+  "methods": [
+    {
+      "id": "m_76310f9a",
+      "name": "getAllDirPaths",
+      "enclosing_class": null,
+      "normalized_params": "(fileList: PseudoFileSummary[]): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty set to collect directory paths."
+        },
+        {
+          "order": 2,
+          "content": "For each file in the input list, split its path into components."
+        },
+        {
+          "order": 3,
+          "content": "For each component level, build a prefix path and add it to the set."
+        },
+        {
+          "order": 4,
+          "content": "Convert the set of directory paths to an array and return it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b62b179b",
+      "name": "PseudoTreeBody",
+      "enclosing_class": null,
+      "normalized_params": "(props: PseudoTreeBodyProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract collapse state and search query from the global sidebar store."
+        },
+        {
+          "order": 2,
+          "content": "Extract the toggle function for pseudo paths from the global sidebar store."
+        },
+        {
+          "order": 3,
+          "content": "Compute the project prefix with trailing slash if needed."
+        },
+        {
+          "order": 4,
+          "content": "Create a function to convert absolute paths to relative paths."
+        },
+        {
+          "order": 5,
+          "content": "Transform the file list into relative paths."
+        },
+        {
+          "order": 6,
+          "content": "Build a mapping from relative paths to absolute paths."
+        },
+        {
+          "order": 7,
+          "content": "Build a mapping from relative paths to file metadata."
+        },
+        {
+          "order": 8,
+          "content": "Convert the current path to a relative path."
+        },
+        {
+          "order": 9,
+          "content": "Create a navigation handler that maps relative paths back to absolute paths."
+        },
+        {
+          "order": 10,
+          "content": "Build and sort the file tree from the relative paths."
+        },
+        {
+          "order": 11,
+          "content": "Filter the tree based on the search query if present."
+        },
+        {
+          "order": 12,
+          "content": "IF the file list is empty, render a message indicating no files."
+        },
+        {
+          "order": 13,
+          "content": "ELSE IF no matches are found after filtering, render a message indicating no matches."
+        },
+        {
+          "order": 14,
+          "content": "ELSE render the filtered tree nodes using the shared TreeNodeRenderer component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_04ed5c91",
+      "name": "toRelative",
+      "enclosing_class": "PseudoTreeBody",
+      "normalized_params": "(absPath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the absolute path starts with the project prefix."
+        },
+        {
+          "order": 2,
+          "content": "IF the path starts with the prefix, remove the prefix to get the relative path."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the absolute path unchanged."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_361864d3",
+      "name": "handleTreeNavigate",
+      "enclosing_class": "PseudoTreeBody",
+      "normalized_params": "(relPath: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the absolute path for the given relative path in the mapping."
+        },
+        {
+          "order": 2,
+          "content": "IF the absolute path is found, call the navigation handler with it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE call the navigation handler with the relative path directly."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

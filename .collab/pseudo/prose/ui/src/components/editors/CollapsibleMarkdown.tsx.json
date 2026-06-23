@@ -1,0 +1,195 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/CollapsibleMarkdown.tsx",
+  "title": "Collapsible markdown component with heading-based sections",
+  "purpose": "Renders markdown content with collapsible sections based on heading levels, allowing users to expand/collapse content blocks. Supports syntax highlighting, interactive checkboxes, and theme switching.",
+  "module_context": "Exports a CollapsibleMarkdown component that parses markdown into hierarchical sections, manages collapsible state, and renders content with custom styling and interactive elements.",
+  "methods": [
+    {
+      "id": "m_fc039ca3",
+      "name": "parseMarkdownSections",
+      "enclosing_class": null,
+      "normalized_params": "(markdown: string): { preamble: string; preambleStartLine: number; sections: Section[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the markdown content into individual lines."
+        },
+        {
+          "order": 2,
+          "content": "Process each line to identify headings and track content between them."
+        },
+        {
+          "order": 3,
+          "content": "Track fenced code blocks to avoid treating their content as headings."
+        },
+        {
+          "order": 4,
+          "content": "For each heading, create a new section and add it to the appropriate parent section."
+        },
+        {
+          "order": 5,
+          "content": "Build a hierarchical tree of sections based on heading levels."
+        },
+        {
+          "order": 6,
+          "content": "Return the preamble content and parsed sections with their metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd87c57c",
+      "name": "MarkdownContent",
+      "enclosing_class": null,
+      "normalized_params": "(props: MarkdownContentProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the content is empty and return null if so."
+        },
+        {
+          "order": 2,
+          "content": "Memoize the section-specific components with adjusted checkbox handlers."
+        },
+        {
+          "order": 3,
+          "content": "Render the markdown content using ReactMarkdown with configured plugins and components."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_97644d69",
+      "name": "SectionRenderer",
+      "enclosing_class": null,
+      "normalized_params": "(props: SectionRendererProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a collapsible section with the given title and level."
+        },
+        {
+          "order": 2,
+          "content": "Render the content of the section using the markdown content component."
+        },
+        {
+          "order": 3,
+          "content": "Recursively render any child sections of this section."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e8723d0",
+      "name": "CollapsibleMarkdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: CollapsibleMarkdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the markdown content into sections and preamble using the parser function."
+        },
+        {
+          "order": 2,
+          "content": "Define base components for rendering markdown elements with appropriate styling."
+        },
+        {
+          "order": 3,
+          "content": "Merge extra components provided by the caller with the base components."
+        },
+        {
+          "order": 4,
+          "content": "Count the total number of sections including nested ones."
+        },
+        {
+          "order": 5,
+          "content": "Render the controls for managing collapsible sections if there are any."
+        },
+        {
+          "order": 6,
+          "content": "Render the preamble content before the first heading."
+        },
+        {
+          "order": 7,
+          "content": "Render each top-level section using the section renderer component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_763671de",
+      "name": "flushContent",
+      "enclosing_class": "parseMarkdownSections",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Join the accumulated content lines into a single string."
+        },
+        {
+          "order": 2,
+          "content": "Count leading blank lines that will be stripped by trim."
+        },
+        {
+          "order": 3,
+          "content": "Trim the content to remove leading and trailing whitespace."
+        },
+        {
+          "order": 4,
+          "content": "Adjust the starting line number to account for leading blank lines."
+        },
+        {
+          "order": 5,
+          "content": "Assign the content and adjusted start line to either the current section or preamble."
+        },
+        {
+          "order": 6,
+          "content": "Reset the content accumulator for the next section."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_21669a8b",
+      "name": "countSections",
+      "enclosing_class": "CollapsibleMarkdown",
+      "normalized_params": "(secs: Section[]): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Recursively count the number of sections in the hierarchy."
+        },
+        {
+          "order": 2,
+          "content": "For each section, add one to the count and recursively count its children."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

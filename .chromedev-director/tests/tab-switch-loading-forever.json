@@ -1,0 +1,19 @@
+{
+  "id": "tab-switch-loading-forever",
+  "name": "Tab Switch Loading Forever",
+  "description": "Reproduces: switching a tab to a doc with cleared content never reloads it — shows 'Loading…' forever. Opens 2 docs via sidebar (content cached), clears their content via store.setDocuments(meta-only), then clicks the 2nd tab via the tab bar.",
+  "definition": {
+    "url": "http://localhost:9102/",
+    "steps": [
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));const q=s=>document.querySelector(s);const qa=s=>[...document.querySelectorAll(s)];q('[data-testid=session-selector]').click();await sleep(300);qa('[data-testid=session-dropdown] [role=option]').find(e=>/foundational-docs/.test(e.textContent||'')).click();await sleep(1800);const dbl=el=>{for(const t of['mousedown','mouseup','click','mousedown','mouseup','click','dblclick']){el.dispatchEvent(new MouseEvent(t,{bubbles:true,detail:t==='dblclick'||t==='click'?2:1}));}};const ids=['design-milkdown-parity','review-bugs-milkdown-parity'];for(const id of ids){dbl(q('[data-node-id=\"'+id+'\"]'));await sleep(500);}const store=window.__SESSION_STORE__;if(!store)return JSON.stringify({error:'no __SESSION_STORE__',keys:Object.keys(window).filter(k=>/store/i.test(k))});const before={docs:store.getState().documents.map(d=>({id:d.id,hasContent:!!d.content,contentLen:d.content?.length||0}))};const stripped=store.getState().documents.map(d=>({...d,content:undefined}));store.getState().setDocuments(stripped);await sleep(200);const mid={docsAfterStrip:store.getState().documents.filter(d=>ids.includes(d.id)).map(d=>({id:d.id,hasContent:!!d.content}))};const tabs=qa('[data-testid=tab-bar] [role=tab]');tabs[1].click();await sleep(300);const imm={active:qa('[data-testid=tab-bar] [role=tab][class*=accent]')[0]?.textContent?.trim(),loading:document.body.textContent.includes('Loading…'),editorPresent:!!q('.ProseMirror')};await sleep(1500);const after={active:qa('[data-testid=tab-bar] [role=tab][class*=accent]')[0]?.textContent?.trim(),loading:document.body.textContent.includes('Loading…'),editorPresent:!!q('.ProseMirror'),docContent:store.getState().documents.find(d=>d.id===ids[1])?.content?.length||0};return JSON.stringify({before,mid,imm,after},null,2);})()",
+        "as": "report"
+      }
+    ]
+  },
+  "createdAt": "2026-04-20T13:28:17.417Z",
+  "updatedAt": "2026-04-20T13:28:17.417Z"
+}

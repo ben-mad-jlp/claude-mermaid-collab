@@ -1,0 +1,51 @@
+{
+  "id": "milkdown-press-only",
+  "name": "milkdown-press-only",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1200
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1800
+      },
+      {
+        "click": {
+          "selector": ".ProseMirror"
+        }
+      },
+      {
+        "press_key": "End"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "press_key": "#"
+      },
+      {
+        "press_key": "Space"
+      },
+      {
+        "press_key": "H"
+      },
+      {
+        "press_key": "i"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "eval": "(()=>{const pm=document.querySelector('.ProseMirror'); const lastH=Array.from(pm.querySelectorAll('h1,h2,h3')).pop(); return {htmlTail: pm.innerHTML.slice(-800), lastHeading: lastH?.outerHTML.slice(0,300)};})()",
+        "as": "check"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:38:02.771Z",
+  "updatedAt": "2026-04-18T18:38:02.771Z"
+}

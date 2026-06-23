@@ -1,0 +1,289 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDesignCanvas.ts",
+  "title": "Design canvas hook with CanvasKit initialization and rendering",
+  "purpose": "Manages the initialization and rendering of a Skia-based design canvas using CanvasKit WASM, handling WebGL surface creation, RAF-batched rendering, and canvas resize events.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_c304f4d2",
+      "name": "useDesignCanvas",
+      "enclosing_class": null,
+      "normalized_params": "(): UseDesignCanvasReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize references for canvas, renderer, and animation frames."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to store state changes that affect rendering."
+        },
+        {
+          "order": 3,
+          "content": "Set up the render function that updates renderer properties and calls render."
+        },
+        {
+          "order": 4,
+          "content": "Schedule rendering when store state changes."
+        },
+        {
+          "order": 5,
+          "content": "Initialize CanvasKit WASM and create WebGL surface on mount."
+        },
+        {
+          "order": 6,
+          "content": "Set up resize observer to handle canvas resizing."
+        },
+        {
+          "order": 7,
+          "content": "Return canvas reference, loading state, error state, and hit test functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a563875",
+      "name": "renderNow",
+      "enclosing_class": "useDesignCanvas",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current renderer and canvas references."
+        },
+        {
+          "order": 2,
+          "content": "IF either reference is missing, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Update renderer properties with current store state values."
+        },
+        {
+          "order": 4,
+          "content": "Call the renderer's render method with scene graph and state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_73d92d04",
+      "name": "scheduleRender",
+      "enclosing_class": "useDesignCanvas",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a render is already scheduled, exit early."
+        },
+        {
+          "order": 2,
+          "content": "Schedule a render on the next animation frame."
+        },
+        {
+          "order": 3,
+          "content": "Execute the render function after the animation frame."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9991b87a",
+      "name": "init",
+      "enclosing_class": "useDesignCanvas",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the canvas reference and check if it exists or if component is destroyed."
+        },
+        {
+          "order": 2,
+          "content": "IF canvas is missing or component is destroyed, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Load CanvasKit WASM asynchronously."
+        },
+        {
+          "order": 4,
+          "content": "IF component is destroyed after loading, exit early."
+        },
+        {
+          "order": 5,
+          "content": "Wait one animation frame for layout to settle."
+        },
+        {
+          "order": 6,
+          "content": "IF component is destroyed after waiting, exit early."
+        },
+        {
+          "order": 7,
+          "content": "Set canvas dimensions based on client width and device pixel ratio."
+        },
+        {
+          "order": 8,
+          "content": "Create a WebGL surface using CanvasKit."
+        },
+        {
+          "order": 9,
+          "content": "IF surface creation fails, set error and loading state."
+        },
+        {
+          "order": 10,
+          "content": "Create a new SkiaRenderer with CanvasKit and surface."
+        },
+        {
+          "order": 11,
+          "content": "Initialize editor references with CanvasKit and renderer."
+        },
+        {
+          "order": 12,
+          "content": "Load fonts for the renderer and trigger initial render."
+        },
+        {
+          "order": 13,
+          "content": "Mark loading as complete after initialization."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a563875",
+      "name": "renderNow",
+      "enclosing_class": "useDesignCanvas",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current renderer and canvas references."
+        },
+        {
+          "order": 2,
+          "content": "IF either reference is missing, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Update renderer properties with current store state values."
+        },
+        {
+          "order": 4,
+          "content": "Call the renderer's render method with scene graph and state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e40217f",
+      "name": "observer",
+      "enclosing_class": "useDesignCanvas",
+      "normalized_params": "(entries: ResizeObserverEntry[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF renderer is not ready or resize is already scheduled, exit early."
+        },
+        {
+          "order": 2,
+          "content": "Schedule a resize operation on the next animation frame."
+        },
+        {
+          "order": 3,
+          "content": "Recreate the WebGL surface at the new canvas dimensions."
+        },
+        {
+          "order": 4,
+          "content": "IF surface creation fails, set error state."
+        },
+        {
+          "order": 5,
+          "content": "Create a new SkiaRenderer with the new surface."
+        },
+        {
+          "order": 6,
+          "content": "Initialize editor references with new CanvasKit and renderer."
+        },
+        {
+          "order": 7,
+          "content": "Load fonts for the new renderer and trigger render."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5eb9887b",
+      "name": "hitTestSectionTitle",
+      "enclosing_class": "useDesignCanvas",
+      "normalized_params": "(canvasX: number, canvasY: number): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "IF renderer exists, perform hit test for section title."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f6eddf8b",
+      "name": "hitTestComponentLabel",
+      "enclosing_class": "useDesignCanvas",
+      "normalized_params": "(canvasX: number, canvasY: number): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "IF renderer exists, perform hit test for component label."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

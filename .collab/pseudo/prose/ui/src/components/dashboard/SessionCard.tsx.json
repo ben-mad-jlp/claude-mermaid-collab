@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dashboard/SessionCard.tsx",
+  "title": "Session card component with status, activity, and selection states",
+  "purpose": "Displays session information in a card format with interactive selection, status badges, and activity timestamps. Used in dashboard views to show session details.",
+  "module_context": "Exports a SessionCard component that accepts session data and rendering props. Includes a helper function for formatting relative timestamps.",
+  "methods": [
+    {
+      "id": "m_bee8c0a6",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: string | number | undefined): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the input timestamp to a Date object if it's a string."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the time difference between now and the provided timestamp in milliseconds."
+        },
+        {
+          "order": 3,
+          "content": "Convert the time difference into minutes, hours, and days."
+        },
+        {
+          "order": 4,
+          "content": "IF the difference is less than a minute, return 'just now'."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the difference is less than an hour, return the number of minutes ago."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the difference is less than a day, return the number of hours ago."
+        },
+        {
+          "order": 7,
+          "content": "ELSE IF the difference is less than a week, return the number of days ago."
+        },
+        {
+          "order": 8,
+          "content": "ELSE return the date formatted as a localized string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7fd69758",
+      "name": "SessionCard",
+      "enclosing_class": null,
+      "normalized_params": "(props: SessionCardProps): React.FC<SessionCardProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a button element with data-testid attribute for testing."
+        },
+        {
+          "order": 2,
+          "content": "Apply conditional CSS classes for selected and hover states."
+        },
+        {
+          "order": 3,
+          "content": "Display the session name and project path in the card header."
+        },
+        {
+          "order": 4,
+          "content": "Show the session status badge if a display name is provided."
+        },
+        {
+          "order": 5,
+          "content": "Display the item count if available."
+        },
+        {
+          "order": 6,
+          "content": "Show the last activity timestamp with relative time formatting."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

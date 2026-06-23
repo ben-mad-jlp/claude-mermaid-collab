@@ -1,0 +1,541 @@
+{
+  "schema_version": 3,
+  "file": "src/lib/api.ts",
+  "title": "HTTP API client for mermaid-collab server communication with type-safe wrappers",
+  "purpose": "Provides a type-safe interface for communicating with the mermaid-collab server, handling session, diagram, document, and metadata operations with proper error handling.",
+  "module_context": "Exports an APIClient class and a singleton instance. The class provides methods for session management, diagram CRUD operations, document operations, validation, rendering, and metadata management. Includes error handling for network issues and HTTP errors.",
+  "methods": [
+    {
+      "id": "m_ba46bc4e",
+      "name": "request",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(method: string, path: string, options?: { body?: unknown; query?: Record<string, string>; }): Promise<T>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the full URL including any query parameters."
+        },
+        {
+          "order": 2,
+          "content": "Set up fetch options with appropriate headers and body."
+        },
+        {
+          "order": 3,
+          "content": "Make the HTTP request using fetch."
+        },
+        {
+          "order": 4,
+          "content": "IF the network request fails, throw a network error."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "IF the response is not OK, throw an API error with status and data."
+        },
+        {
+          "order": 7,
+          "content": "Return the parsed JSON data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_235dcba4",
+      "name": "getSessions",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): Promise<Session[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to the sessions endpoint."
+        },
+        {
+          "order": 2,
+          "content": "Extract and return the list of sessions from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03ea0aa0",
+      "name": "createSession",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): Promise<Session>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to create a new session with project and session identifiers."
+        },
+        {
+          "order": 2,
+          "content": "Return a new session object with the provided project and session identifiers and current timestamp."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5504ed7",
+      "name": "deleteSession",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a DELETE request to remove the specified session."
+        },
+        {
+          "order": 2,
+          "content": "Return the success status from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2747e40",
+      "name": "getDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string): Promise<Diagram>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to retrieve the specified diagram."
+        },
+        {
+          "order": 2,
+          "content": "Return the diagram data from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d32f31fd",
+      "name": "listDiagrams",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): Promise<DiagramListItem[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to list all diagrams in the session."
+        },
+        {
+          "order": 2,
+          "content": "Extract and return the list of diagram items from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_21665be5",
+      "name": "createDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, name: string, content: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to create a new diagram with the provided name and content."
+        },
+        {
+          "order": 2,
+          "content": "Return the ID of the newly created diagram from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d96e5507",
+      "name": "updateDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to update the specified diagram with new content."
+        },
+        {
+          "order": 2,
+          "content": "Return nothing upon successful update."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_837986ec",
+      "name": "patchDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string, oldString: string, newString: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to patch the specified diagram with search-replace content."
+        },
+        {
+          "order": 2,
+          "content": "Return nothing upon successful patch."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_52580e51",
+      "name": "deleteDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a DELETE request to remove the specified diagram."
+        },
+        {
+          "order": 2,
+          "content": "Return nothing upon successful deletion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb278c44",
+      "name": "getDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string): Promise<Document>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to retrieve the specified document."
+        },
+        {
+          "order": 2,
+          "content": "Return the document data from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_784f9a78",
+      "name": "getDocumentClean",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to retrieve clean content of the specified document."
+        },
+        {
+          "order": 2,
+          "content": "Return the clean content from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0446aa42",
+      "name": "listDocuments",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): Promise<DocumentListItem[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to list all documents in the session."
+        },
+        {
+          "order": 2,
+          "content": "Extract and return the list of document items from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_549828c6",
+      "name": "createDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, name: string, content: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to create a new document with the provided name and content."
+        },
+        {
+          "order": 2,
+          "content": "Return the ID of the newly created document from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82819e3b",
+      "name": "updateDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to update the specified document with new content."
+        },
+        {
+          "order": 2,
+          "content": "Return nothing upon successful update."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ce31bc46",
+      "name": "patchDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string, oldString: string, newString: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to patch the specified document with search-replace content."
+        },
+        {
+          "order": 2,
+          "content": "Return nothing upon successful patch."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_650c2e6e",
+      "name": "deleteDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a DELETE request to remove the specified document."
+        },
+        {
+          "order": 2,
+          "content": "Return nothing upon successful deletion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b0fbbbce",
+      "name": "validateDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(content: string): Promise<ValidationResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to validate the provided Mermaid diagram content."
+        },
+        {
+          "order": 2,
+          "content": "Return the validation result from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_80aad970",
+      "name": "renderDiagramSVG",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string, theme?: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to render the specified diagram as SVG."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not OK, throw an error with status and data."
+        },
+        {
+          "order": 3,
+          "content": "Return the SVG content from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eacca123",
+      "name": "getDiagramThumbnail",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to retrieve the thumbnail for the specified diagram."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not OK, throw an error with status and data."
+        },
+        {
+          "order": 3,
+          "content": "Return the thumbnail content from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4d9a7a74",
+      "name": "transpileDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to transpile the specified diagram to Mermaid format."
+        },
+        {
+          "order": 2,
+          "content": "Return the transpiled Mermaid content from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a5c4e378",
+      "name": "getMetadata",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to retrieve metadata for the specified session."
+        },
+        {
+          "order": 2,
+          "content": "Return the metadata from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b020eb5",
+      "name": "updateItemMetadata",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, id: string, updates: { folder?: string | null; locked?: boolean; deprecated?: boolean; pinned?: boolean }): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to update metadata for the specified item."
+        },
+        {
+          "order": 2,
+          "content": "Return nothing upon successful update."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_87c6eb89",
+      "name": "manageFolders",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string, action: 'create' | 'rename' | 'delete', name: string, newName?: string): Promise<{ success: boolean; folders: string[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a POST request to manage folders with the specified action."
+        },
+        {
+          "order": 2,
+          "content": "Return the success status and updated folder list from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

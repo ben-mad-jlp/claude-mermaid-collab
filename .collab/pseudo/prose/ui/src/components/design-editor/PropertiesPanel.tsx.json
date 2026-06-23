@@ -1,0 +1,364 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/design-editor/PropertiesPanel.tsx",
+  "title": "Design editor properties panel for node editing",
+  "purpose": "Provides a right-side panel for editing selected node properties including position, size, rotation, corner radius, opacity, fills, strokes, and text properties.",
+  "module_context": "Exports a PropertiesPanel component that renders a panel with various sections for editing design node properties. Includes helper components like Label, NumericInput, SectionTitle, and Divider. Contains section components for fills, strokes, text, and auto layout properties.",
+  "methods": [
+    {
+      "id": "m_9d06e0c6",
+      "name": "PropertiesPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: PropertiesPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render the properties panel header with close button if provided."
+        },
+        {
+          "order": 2,
+          "content": "IF no nodes are selected, display a message prompting user to select a layer."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render sections for alignment, position, size, corner radius, opacity, fills, strokes, text properties, and auto layout."
+        },
+        {
+          "order": 4,
+          "content": "Handle multi-node selection for alignment and distribution controls."
+        },
+        {
+          "order": 5,
+          "content": "Render numeric inputs for position, size, and rotation properties."
+        },
+        {
+          "order": 6,
+          "content": "Render corner radius controls with support for independent corners."
+        },
+        {
+          "order": 7,
+          "content": "Render opacity control with percentage input."
+        },
+        {
+          "order": 8,
+          "content": "Render fills and strokes sections with color pickers and controls."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a37b58c3",
+      "name": "FillsSection",
+      "enclosing_class": "PropertiesPanel",
+      "normalized_params": "(props: { fills: Fill[]; nodeId: string }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref to track original fills for undo operations."
+        },
+        {
+          "order": 2,
+          "content": "Handle color changes for fills by updating the node in the graph."
+        },
+        {
+          "order": 3,
+          "content": "Commit color changes to the undo stack after user interaction."
+        },
+        {
+          "order": 4,
+          "content": "Add new fills to the node with default solid fill properties."
+        },
+        {
+          "order": 5,
+          "content": "Render color pickers for each fill with opacity display."
+        },
+        {
+          "order": 6,
+          "content": "Display message when no fills exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe6c54fc",
+      "name": "StrokesSection",
+      "enclosing_class": "PropertiesPanel",
+      "normalized_params": "(props: { strokes: Stroke[]; nodeId: string }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref to track original strokes for undo operations."
+        },
+        {
+          "order": 2,
+          "content": "Handle color changes for strokes by updating the node in the graph."
+        },
+        {
+          "order": 3,
+          "content": "Commit color changes to the undo stack after user interaction."
+        },
+        {
+          "order": 4,
+          "content": "Add new strokes to the node with default stroke properties."
+        },
+        {
+          "order": 5,
+          "content": "Render color pickers for each stroke with weight and alignment display."
+        },
+        {
+          "order": 6,
+          "content": "Display message when no strokes exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_be115d36",
+      "name": "TextSection",
+      "enclosing_class": "PropertiesPanel",
+      "normalized_params": "(props: { node: NonNullable<ReturnType<useDesignNodeProps>['node']>; updateNodeWithUndo: (key: string, value: number | string | boolean, label?: string) => void }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render text properties section with font size and weight controls."
+        },
+        {
+          "order": 2,
+          "content": "Render horizontal text alignment controls with visual feedback."
+        },
+        {
+          "order": 3,
+          "content": "Render letter spacing and line height controls."
+        },
+        {
+          "order": 4,
+          "content": "Update node properties with undo support for text settings."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4c140a33",
+      "name": "AutoLayoutSection",
+      "enclosing_class": "PropertiesPanel",
+      "normalized_params": "(props: { node: NonNullable<ReturnType<useDesignNodeProps>['node']>; updateNodeWithUndo: (key: string, value: number | string | boolean, label?: string) => void }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render auto layout section only if node has layout mode enabled."
+        },
+        {
+          "order": 2,
+          "content": "Render layout direction controls with visual feedback."
+        },
+        {
+          "order": 3,
+          "content": "Render item spacing control."
+        },
+        {
+          "order": 4,
+          "content": "Render padding controls for all four sides."
+        },
+        {
+          "order": 5,
+          "content": "Update node properties with undo support for layout settings."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7e75c86",
+      "name": "handleColorChange",
+      "enclosing_class": "FillsSection",
+      "normalized_params": "(index: number, color: Color): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the graph reference from editor refs."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the node from the graph using the node ID."
+        },
+        {
+          "order": 3,
+          "content": "IF this is the first color change, capture the original fills."
+        },
+        {
+          "order": 4,
+          "content": "Update the specific fill color in the node's fills array."
+        },
+        {
+          "order": 5,
+          "content": "Update the node in the graph with the new fills."
+        },
+        {
+          "order": 6,
+          "content": "Request a repaint of the editor view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cccda924",
+      "name": "handleColorCommit",
+      "enclosing_class": "FillsSection",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF original fills were captured, commit the node update to the undo stack."
+        },
+        {
+          "order": 2,
+          "content": "Reset the original fills reference after committing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69204ea7",
+      "name": "addFill",
+      "enclosing_class": "FillsSection",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the store state and graph reference from editor refs."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the node from the graph using the node ID."
+        },
+        {
+          "order": 3,
+          "content": "Add a new default solid fill to the node's fills array."
+        },
+        {
+          "order": 4,
+          "content": "Update the node with undo support for adding a fill."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5a5dd7ab",
+      "name": "handleColorChange",
+      "enclosing_class": "StrokesSection",
+      "normalized_params": "(index: number, color: Color): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the graph reference from editor refs."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the node from the graph using the node ID."
+        },
+        {
+          "order": 3,
+          "content": "IF this is the first color change, capture the original strokes."
+        },
+        {
+          "order": 4,
+          "content": "Update the specific stroke color in the node's strokes array."
+        },
+        {
+          "order": 5,
+          "content": "Update the node in the graph with the new strokes."
+        },
+        {
+          "order": 6,
+          "content": "Request a repaint of the editor view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_57002a7f",
+      "name": "handleColorCommit",
+      "enclosing_class": "StrokesSection",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF original strokes were captured, commit the node update to the undo stack."
+        },
+        {
+          "order": 2,
+          "content": "Reset the original strokes reference after committing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51f38126",
+      "name": "addStroke",
+      "enclosing_class": "StrokesSection",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the store state and graph reference from editor refs."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the node from the graph using the node ID."
+        },
+        {
+          "order": 3,
+          "content": "Add a new default stroke to the node's strokes array."
+        },
+        {
+          "order": 4,
+          "content": "Update the node with undo support for adding a stroke."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,384 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/layout.ts",
+  "title": "Yoga-based layout computation for scene graph nodes",
+  "purpose": "Computes and applies layout information to scene graph nodes using the Yoga layout engine, supporting both automatic and fixed sizing modes.",
+  "module_context": "Exports functions for computing layouts on scene graph nodes using Yoga, including bottom-up traversal and tree building logic.",
+  "methods": [
+    {
+      "id": "m_13f9be95",
+      "name": "computeLayout",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph, frameId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the frame node from the scene graph."
+        },
+        {
+          "order": 2,
+          "content": "IF the frame does not exist or has no layout mode, return early."
+        },
+        {
+          "order": 3,
+          "content": "Build a Yoga tree representation of the frame and its children."
+        },
+        {
+          "order": 4,
+          "content": "Calculate the layout using Yoga's layout engine with left-to-right direction."
+        },
+        {
+          "order": 5,
+          "content": "Apply the calculated Yoga layout back to the scene graph nodes."
+        },
+        {
+          "order": 6,
+          "content": "Free the allocated Yoga tree memory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0acfd670",
+      "name": "computeAllLayouts",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a set to track visited nodes during traversal."
+        },
+        {
+          "order": 2,
+          "content": "Perform a bottom-up layout computation starting from the root node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_09e88880",
+      "name": "computeLayoutsBottomUp",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph, nodeId: string, visited: Set<string>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node from the scene graph."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist or has already been visited, return early."
+        },
+        {
+          "order": 3,
+          "content": "Mark the node as visited."
+        },
+        {
+          "order": 4,
+          "content": "Recursively compute layouts for all child nodes."
+        },
+        {
+          "order": 5,
+          "content": "IF the node has a layout mode other than NONE, compute its layout."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4076aebe",
+      "name": "buildYogaTree",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph, frame: SceneNode): YogaNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new Yoga node to represent the root of the tree."
+        },
+        {
+          "order": 2,
+          "content": "Set fixed width or height based on primary axis sizing."
+        },
+        {
+          "order": 3,
+          "content": "Set fixed height or width based on counter axis sizing."
+        },
+        {
+          "order": 4,
+          "content": "Configure flex direction based on layout mode."
+        },
+        {
+          "order": 5,
+          "content": "Set flex wrap behavior based on layout wrap setting."
+        },
+        {
+          "order": 6,
+          "content": "Set primary axis alignment and counter axis alignment."
+        },
+        {
+          "order": 7,
+          "content": "Apply padding values to the Yoga node."
+        },
+        {
+          "order": 8,
+          "content": "Set gap values for both column and row directions."
+        },
+        {
+          "order": 9,
+          "content": "Iterate through children and build Yoga nodes for each."
+        },
+        {
+          "order": 10,
+          "content": "Skip children with absolute positioning."
+        },
+        {
+          "order": 11,
+          "content": "Configure child nodes as auto layout or leaf nodes."
+        },
+        {
+          "order": 12,
+          "content": "Insert the child Yoga node into the root node."
+        },
+        {
+          "order": 13,
+          "content": "Return the constructed Yoga tree root node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_df1c4dd0",
+      "name": "configureChildAsAutoLayout",
+      "enclosing_class": null,
+      "normalized_params": "(yogaChild: YogaNode, child: SceneNode, parent: SceneNode, graph: SceneGraph): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the parent and child are in row layout mode."
+        },
+        {
+          "order": 2,
+          "content": "Set sizing properties for width and height based on layout orientation."
+        },
+        {
+          "order": 3,
+          "content": "Set flex grow and shrink properties for the child node."
+        },
+        {
+          "order": 4,
+          "content": "Configure flex direction for the child node."
+        },
+        {
+          "order": 5,
+          "content": "Set flex wrap behavior for the child node."
+        },
+        {
+          "order": 6,
+          "content": "Set primary axis alignment and counter axis alignment for the child."
+        },
+        {
+          "order": 7,
+          "content": "Apply padding values to the child node."
+        },
+        {
+          "order": 8,
+          "content": "Set gap values for both column and row directions for the child."
+        },
+        {
+          "order": 9,
+          "content": "Iterate through grandchildren and build Yoga nodes for each."
+        },
+        {
+          "order": 10,
+          "content": "Skip grandchildren with absolute positioning."
+        },
+        {
+          "order": 11,
+          "content": "Configure grandchild nodes as auto layout or leaf nodes."
+        },
+        {
+          "order": 12,
+          "content": "Insert the grandchild Yoga node into the child node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_64be1a7f",
+      "name": "configureChildAsLeaf",
+      "enclosing_class": null,
+      "normalized_params": "(yogaChild: YogaNode, child: SceneNode, parent: SceneNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the parent is in row layout mode."
+        },
+        {
+          "order": 2,
+          "content": "IF the child has a layout grow value greater than zero, set flex grow and adjust height or width."
+        },
+        {
+          "order": 3,
+          "content": "ELSE set fixed width or height based on layout mode and stretch behavior."
+        },
+        {
+          "order": 4,
+          "content": "Set alignSelf to stretch if the child's alignment is set to stretch."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_40ffefc2",
+      "name": "setSizing",
+      "enclosing_class": null,
+      "normalized_params": "(yogaNode: YogaNode, axis: 'width' | 'height', sizing: string, fixedValue: number, grow: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the grow value is greater than zero, set flex grow and shrink properties."
+        },
+        {
+          "order": 2,
+          "content": "ELSE handle sizing based on the sizing mode."
+        },
+        {
+          "order": 3,
+          "content": "IF sizing is FIXED, set the appropriate dimension."
+        },
+        {
+          "order": 4,
+          "content": "IF sizing is HUG, do nothing."
+        },
+        {
+          "order": 5,
+          "content": "IF sizing is FILL, set flex grow and shrink properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a66552b7",
+      "name": "applyYogaLayout",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph, frame: SceneNode, yogaNode: YogaNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the frame's primary or counter axis sizing is HUG, update the frame's dimensions."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through the frame's children and apply computed layout properties."
+        },
+        {
+          "order": 3,
+          "content": "Skip children with absolute positioning."
+        },
+        {
+          "order": 4,
+          "content": "Update the child node with computed x, y, width, and height values."
+        },
+        {
+          "order": 5,
+          "content": "IF the child has a layout mode other than NONE, recursively apply Yoga layout to it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_44805005",
+      "name": "freeYogaTree",
+      "enclosing_class": null,
+      "normalized_params": "(node: YogaNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Recursively free all child nodes of the current node."
+        },
+        {
+          "order": 2,
+          "content": "Free the memory allocated for the current node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4def1cc",
+      "name": "mapJustify",
+      "enclosing_class": null,
+      "normalized_params": "(align: string): Justify",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the alignment value to a Yoga Justify enum."
+        },
+        {
+          "order": 2,
+          "content": "Return FlexStart as default for unrecognized alignments."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_75fa974d",
+      "name": "mapAlign",
+      "enclosing_class": null,
+      "normalized_params": "(align: string): Align",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the alignment value to a Yoga Align enum."
+        },
+        {
+          "order": 2,
+          "content": "Return FlexStart as default for unrecognized alignments."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

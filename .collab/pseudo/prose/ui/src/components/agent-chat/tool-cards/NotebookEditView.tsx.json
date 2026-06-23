@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/NotebookEditView.tsx",
+  "title": "Notebook edit view component with diff visualization",
+  "purpose": "Displays notebook editing operations with before/after diffs and status indicators for agent tool calls.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_da5fc30c",
+      "name": "NotebookEditView",
+      "enclosing_class": null,
+      "normalized_params": "(props: NotebookEditViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the tool call input data from the item prop."
+        },
+        {
+          "order": 2,
+          "content": "Destructure notebook path, cell ID, new source, cell type, and edit mode from the input."
+        },
+        {
+          "order": 3,
+          "content": "Determine the effective edit mode, defaulting to replace if not specified."
+        },
+        {
+          "order": 4,
+          "content": "Compute the line diff based on the edit mode and new source content."
+        },
+        {
+          "order": 5,
+          "content": "Render the notebook path and cell ID badges if present."
+        },
+        {
+          "order": 6,
+          "content": "Display the edit mode badge with appropriate styling based on the mode."
+        },
+        {
+          "order": 7,
+          "content": "Show the cell type badge if specified."
+        },
+        {
+          "order": 8,
+          "content": "Render the split diff view showing before and after content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7be504fe",
+      "name": "computeLineDiff",
+      "enclosing_class": "NotebookEditView",
+      "normalized_params": "(oldText: string, newText: string): { kind: string; text: string }[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a line-by-line diff between the old and new text content."
+        },
+        {
+          "order": 2,
+          "content": "Return the diff result with kind indicators for additions, deletions, and unchanged lines."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

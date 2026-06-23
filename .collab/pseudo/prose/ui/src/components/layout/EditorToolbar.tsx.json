@@ -1,0 +1,192 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/EditorToolbar.tsx",
+  "title": "Editor toolbar component with history, undo/redo, zoom, and overflow menu",
+  "purpose": "Provides a standardized toolbar for editing interfaces with item name display, undo/redo controls, zoom functionality, history navigation, and overflow menu for additional actions.",
+  "module_context": "Exports a React functional component EditorToolbar that accepts various props for different editing contexts including documents, diagrams, and designs. Handles click outside and escape key events for overflow menu closing.",
+  "methods": [
+    {
+      "id": "m_f78d6a1c",
+      "name": "EditorToolbar",
+      "enclosing_class": null,
+      "normalized_params": "(props: EditorToolbarProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for overflow menu visibility."
+        },
+        {
+          "order": 2,
+          "content": "Set up event listeners for click outside and escape key to close overflow menu."
+        },
+        {
+          "order": 3,
+          "content": "Define callback for toggling overflow menu visibility."
+        },
+        {
+          "order": 4,
+          "content": "Define callback for handling action clicks in overflow menu."
+        },
+        {
+          "order": 5,
+          "content": "Define callback for formatting timestamp to relative time."
+        },
+        {
+          "order": 6,
+          "content": "Build combined actions list with dynamic buttons based on item type and permissions."
+        },
+        {
+          "order": 7,
+          "content": "Render history viewing banner when historyDiff is provided."
+        },
+        {
+          "order": 8,
+          "content": "Render main toolbar with history controls, item name, zoom controls, and overflow menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_33647b6c",
+      "name": "handleClickOutside",
+      "enclosing_class": "EditorToolbar",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked target is outside the overflow menu element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, close the overflow menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8bebe993",
+      "name": "handleEscape",
+      "enclosing_class": "EditorToolbar",
+      "normalized_params": "(event: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for escape key press events."
+        },
+        {
+          "order": 2,
+          "content": "IF escape key is pressed, close the overflow menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_060a0b92",
+      "name": "handleToggleOverflow",
+      "enclosing_class": "EditorToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the visibility state of the overflow menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_63b60317",
+      "name": "handleActionClick",
+      "enclosing_class": "EditorToolbar",
+      "normalized_params": "(action: ToolbarAction): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the click handler of the selected action."
+        },
+        {
+          "order": 2,
+          "content": "Close the overflow menu after action execution."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_18ce774b",
+      "name": "formatRelativeTime",
+      "enclosing_class": "EditorToolbar",
+      "normalized_params": "(timestamp: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the time difference between now and the provided timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Format the time difference into a human-readable relative time string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e5aff38",
+      "name": "allActions",
+      "enclosing_class": "EditorToolbar",
+      "normalized_params": "(): ToolbarAction[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Start with the provided overflow actions."
+        },
+        {
+          "order": 2,
+          "content": "Add export as SVG action if export is enabled and SVG export callback exists."
+        },
+        {
+          "order": 3,
+          "content": "Add export as PNG action if export is enabled and PNG export callback exists."
+        },
+        {
+          "order": 4,
+          "content": "Add format diagram action if format is enabled for diagrams."
+        },
+        {
+          "order": 5,
+          "content": "Add copy snippet action if item is a snippet."
+        },
+        {
+          "order": 6,
+          "content": "Add comment, approve all, reject all, and clear proposals actions if proposals are managed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

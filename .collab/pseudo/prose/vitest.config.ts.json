@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "vitest.config.ts",
+  "title": "Vitest configuration file for test runner setup",
+  "purpose": "Configures the Vitest test runner with global settings, environment, test inclusion/exclusion patterns, and coverage reporting.",
+  "module_context": "Exports a default configuration object for Vitest that defines test behavior including globals, environment, file inclusion/exclusion, setup files, and coverage settings.",
+  "methods": [
+    {
+      "id": "m_d6bc0cf8",
+      "name": "default",
+      "enclosing_class": null,
+      "normalized_params": "(): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Configure Vitest to use global variables in test environment."
+        },
+        {
+          "order": 2,
+          "content": "Set test environment to Node.js."
+        },
+        {
+          "order": 3,
+          "content": "Include all test files matching the pattern src/**/*.test.ts."
+        },
+        {
+          "order": 4,
+          "content": "Exclude specified test files from running in Vitest."
+        },
+        {
+          "order": 5,
+          "content": "Specify setup file to run before tests."
+        },
+        {
+          "order": 6,
+          "content": "Configure code coverage reporting with v8 provider."
+        },
+        {
+          "order": 7,
+          "content": "Set coverage reporters to text, json, and html formats."
+        },
+        {
+          "order": 8,
+          "content": "Include all source files in coverage calculation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

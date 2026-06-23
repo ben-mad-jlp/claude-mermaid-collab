@@ -1,0 +1,195 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-watcher.ts",
+  "title": "Chokidar-based file watcher for incremental pseudo indexing",
+  "purpose": "Monitors project files and pseudo prose files for changes, triggering incremental scans of the pseudo indexer when modifications occur.",
+  "module_context": "Exports PseudoWatcherOptions interface, PseudoWatcher interface, and createPseudoWatcher factory function. Defines constants for prose directory path and default debounce time. Imports chokidar, SCANNER_EXCLUDES, and readProseFile utility.",
+  "methods": [
+    {
+      "id": "m_c9cc6a26",
+      "name": "createPseudoWatcher",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, indexer: PseudoIndexer, opts?: PseudoWatcherOptions): PseudoWatcher",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the project path to an absolute path if it is not already absolute."
+        },
+        {
+          "order": 2,
+          "content": "Construct the absolute path to the pseudo prose directory."
+        },
+        {
+          "order": 3,
+          "content": "Initialize internal state variables for tracking watcher status and handles."
+        },
+        {
+          "order": 4,
+          "content": "Build and return a pseudo watcher object with start and stop methods."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_45fdd8d8",
+      "name": "isProsePath",
+      "enclosing_class": "createPseudoWatcher",
+      "normalized_params": "(p: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the input path to an absolute path if it is not already absolute."
+        },
+        {
+          "order": 2,
+          "content": "Check if the absolute path starts with the pseudo prose root directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f2fda9b4",
+      "name": "enqueue",
+      "enclosing_class": "createPseudoWatcher",
+      "normalized_params": "(path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the watcher is stopped, do nothing."
+        },
+        {
+          "order": 2,
+          "content": "Add the file path to the set of pending paths."
+        },
+        {
+          "order": 3,
+          "content": "If no flush timer is active, set a new timer to flush pending paths after the debounce interval."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d8365ea7",
+      "name": "flush",
+      "enclosing_class": "createPseudoWatcher",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If there are no pending paths, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "Create a batch of pending paths and clear the pending set."
+        },
+        {
+          "order": 3,
+          "content": "Separate the paths into source paths and prose paths."
+        },
+        {
+          "order": 4,
+          "content": "Process source paths by running an incremental scan on the indexer."
+        },
+        {
+          "order": 5,
+          "content": "For each prose path, read the prose file and trigger an incremental scan for the referenced source file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_18b8bbff",
+      "name": "start",
+      "enclosing_class": "createPseudoWatcher",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the watcher is already started, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "Load the chokidar module dynamically."
+        },
+        {
+          "order": 3,
+          "content": "IF chokidar fails to load, log a warning and return."
+        },
+        {
+          "order": 4,
+          "content": "Set up an ignore function to filter out excluded file paths."
+        },
+        {
+          "order": 5,
+          "content": "Create a file watcher for the project root directory with specified options."
+        },
+        {
+          "order": 6,
+          "content": "Attach event listeners to the source watcher for file add, change, and unlink events."
+        },
+        {
+          "order": 7,
+          "content": "Create a file watcher for the pseudo prose directory with specified options."
+        },
+        {
+          "order": 8,
+          "content": "Attach event listeners to the prose watcher for file add, change, and unlink events."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_195b0ce1",
+      "name": "stop",
+      "enclosing_class": "createPseudoWatcher",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Mark the watcher as stopped."
+        },
+        {
+          "order": 2,
+          "content": "Clear the flush timer if it is active."
+        },
+        {
+          "order": 3,
+          "content": "Clear the set of pending paths."
+        },
+        {
+          "order": 4,
+          "content": "Wait for any ongoing flush operation to complete."
+        },
+        {
+          "order": 5,
+          "content": "Close the source and prose file watchers if they exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

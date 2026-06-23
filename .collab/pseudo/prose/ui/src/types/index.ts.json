@@ -1,0 +1,230 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/index.ts",
+  "title": "Central export point for all core type definitions",
+  "purpose": "Provides a single import point for all core type definitions including session, diagram, document, question, item, proposal, status, and artifacts types. Also re-exports WebSocket types.",
+  "module_context": "Exports all types from various module files including session, diagram, document, snippet, question, item, proposal, status, artifacts, sessionTodo, embed, and image. Also re-exports TaskGraphUpdatedDetail type from websocket module.",
+  "methods": [
+    {
+      "id": "m_ec3d53d4",
+      "name": "export * from './session'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the session module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5506d67",
+      "name": "export * from './diagram'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the diagram module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0349a553",
+      "name": "export * from './document'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the document module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5ee86220",
+      "name": "export * from './snippet'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the snippet module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0365ca9f",
+      "name": "export * from './question'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the question module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c5595b0",
+      "name": "export * from './item'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the item module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c36df165",
+      "name": "export * from './proposal'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the proposal module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4589571f",
+      "name": "export * from './status'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the status module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_282e274d",
+      "name": "export * from './artifacts'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the artifacts module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51b09c94",
+      "name": "export * from './sessionTodo'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the sessionTodo module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_389ffb6c",
+      "name": "export * from './embed'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the embed module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7f2f628f",
+      "name": "export * from './image'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export all types from the image module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_40798942",
+      "name": "export type { TaskGraphUpdatedDetail } from '../lib/websocket'",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TaskGraphUpdatedDetail type from the websocket module."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

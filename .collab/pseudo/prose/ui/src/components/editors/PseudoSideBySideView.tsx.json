@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/PseudoSideBySideView.tsx",
+  "title": "Side-by-side code editor and pseudo viewer with file existence checking",
+  "purpose": "Displays a code editor alongside a pseudo viewer in a split pane layout, dynamically checking for the existence of corresponding .pseudo files and showing appropriate loading or empty states.",
+  "module_context": "Exports a React component PseudoSideBySideView that accepts source file path and project path props, and a helper function deriveStem for path manipulation. Uses SplitPane for layout and fetchPseudoFile for checking .pseudo file existence.",
+  "methods": [
+    {
+      "id": "m_8e82c8dd",
+      "name": "deriveStem",
+      "enclosing_class": null,
+      "normalized_params": "(sourceFilePath: string, projectPath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the relative path from project root to the source file."
+        },
+        {
+          "order": 2,
+          "content": "Remove the file extension from the relative path."
+        },
+        {
+          "order": 3,
+          "content": "Return the resulting path without extension as the pseudo stem."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6cf959da",
+      "name": "PseudoSideBySideView",
+      "enclosing_class": null,
+      "normalized_params": "(props: PseudoSideBySideViewProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Derive the pseudo stem from the source file path and project path."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state to track whether the corresponding pseudo file exists."
+        },
+        {
+          "order": 3,
+          "content": "On component mount or prop changes, check for the existence of the pseudo file."
+        },
+        {
+          "order": 4,
+          "content": "IF the pseudo file check is in progress, display a loading spinner."
+        },
+        {
+          "order": 5,
+          "content": "IF the pseudo file does not exist, show an empty state with instructions."
+        },
+        {
+          "order": 6,
+          "content": "IF the pseudo file exists, render the pseudo viewer with the correct path."
+        },
+        {
+          "order": 7,
+          "content": "Render the split pane layout with the editor on the left and pseudo viewer on the right."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3612fe2d",
+      "name": "useEffect",
+      "enclosing_class": "PseudoSideBySideView",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the pseudo file existence state to checking."
+        },
+        {
+          "order": 2,
+          "content": "IF project path or pseudo stem are missing, mark the pseudo file as not found."
+        },
+        {
+          "order": 3,
+          "content": "ELSE attempt to fetch the pseudo file from the backend."
+        },
+        {
+          "order": 4,
+          "content": "IF the fetch succeeds, mark the pseudo file as existing."
+        },
+        {
+          "order": 5,
+          "content": "IF the fetch fails, mark the pseudo file as not found."
+        },
+        {
+          "order": 6,
+          "content": "Clean up the effect by setting a cancellation flag when component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

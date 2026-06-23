@@ -1,0 +1,87 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/TaskView.tsx",
+  "title": "Task view component for displaying agent tool call details and nested timeline",
+  "purpose": "Displays the details of an agent tool call including description, subagent type, prompt excerpt, and a nested timeline of related entries.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_c1bb23a9",
+      "name": "TaskView",
+      "enclosing_class": null,
+      "normalized_params": "(props: TaskViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract input properties from the tool call item."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve nested turn IDs and timeline data from the agent store."
+        },
+        {
+          "order": 3,
+          "content": "Filter and memoize nested timeline entries based on turn IDs."
+        },
+        {
+          "order": 4,
+          "content": "Create a prompt excerpt with character limit if the prompt is too long."
+        },
+        {
+          "order": 5,
+          "content": "Render the description and subagent type if they exist."
+        },
+        {
+          "order": 6,
+          "content": "Display the prompt excerpt in a preformatted code block if it exists."
+        },
+        {
+          "order": 7,
+          "content": "Show a loading spinner if there are no nested entries."
+        },
+        {
+          "order": 8,
+          "content": "Render nested timeline entries as a list with different styling based on entry type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b1fda072",
+      "name": "nestedEntries",
+      "enclosing_class": "TaskView",
+      "normalized_params": "(): AgentTimelineItem[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there are any nested turn IDs."
+        },
+        {
+          "order": 2,
+          "content": "IF no nested turn IDs exist, return an empty array."
+        },
+        {
+          "order": 3,
+          "content": "Create a set of nested turn IDs for efficient lookup."
+        },
+        {
+          "order": 4,
+          "content": "Filter timeline entries to include only those matching the nested turn IDs."
+        },
+        {
+          "order": 5,
+          "content": "Return the filtered timeline entries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

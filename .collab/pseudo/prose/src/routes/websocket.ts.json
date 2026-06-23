@@ -1,0 +1,178 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/websocket.ts",
+  "title": "WebSocket handler for terminal sessions with input/output management",
+  "purpose": "Manages WebSocket connections for terminal sessions, handling input, output, resizing, and connection lifecycle events.",
+  "module_context": "Exports four WebSocket event handlers: handleTerminalOpen, handleTerminalMessage, handleTerminalClose, and handleTerminalError. Defines types for client and server messages, and terminal WebSocket data structure.",
+  "methods": [
+    {
+      "id": "m_16b338ec",
+      "name": "sendError",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<any>, message: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Serialize the error message into a JSON object."
+        },
+        {
+          "order": 2,
+          "content": "Send the serialized error message to the WebSocket client."
+        },
+        {
+          "order": 3,
+          "content": "IF sending fails, log a warning about the failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_39269533",
+      "name": "handleTerminalOpen",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<TerminalWebSocketData>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session ID from the WebSocket data."
+        },
+        {
+          "order": 2,
+          "content": "IF the session ID is missing or invalid, send an error and close the connection."
+        },
+        {
+          "order": 3,
+          "content": "ELSE attach the WebSocket to the terminal session."
+        },
+        {
+          "order": 4,
+          "content": "IF attachment fails, send an error and close the connection."
+        },
+        {
+          "order": 5,
+          "content": "Log successful connection to the terminal session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d3389e3",
+      "name": "handleTerminalMessage",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<TerminalWebSocketData>, message: string | Buffer): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session ID from the WebSocket data."
+        },
+        {
+          "order": 2,
+          "content": "IF the session ID is missing, send an error and return."
+        },
+        {
+          "order": 3,
+          "content": "Parse the incoming message as JSON."
+        },
+        {
+          "order": 4,
+          "content": "IF parsing fails, send an error and return."
+        },
+        {
+          "order": 5,
+          "content": "Validate and process the message based on its type."
+        },
+        {
+          "order": 6,
+          "content": "IF the message type is input, write the data to the terminal session."
+        },
+        {
+          "order": 7,
+          "content": "IF the message type is resize, update the terminal dimensions."
+        },
+        {
+          "order": 8,
+          "content": "IF the message type is unknown, send an error and return."
+        },
+        {
+          "order": 9,
+          "content": "IF processing fails, send an error to the client."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e19641d8",
+      "name": "handleTerminalClose",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<TerminalWebSocketData>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session ID from the WebSocket data."
+        },
+        {
+          "order": 2,
+          "content": "IF the session ID is missing, return immediately."
+        },
+        {
+          "order": 3,
+          "content": "Detach the WebSocket from the terminal session."
+        },
+        {
+          "order": 4,
+          "content": "Log successful disconnection from the terminal session."
+        },
+        {
+          "order": 5,
+          "content": "IF detaching fails, log the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_30776805",
+      "name": "handleTerminalError",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<TerminalWebSocketData>, error: Error): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session ID from the WebSocket data."
+        },
+        {
+          "order": 2,
+          "content": "Log the WebSocket error with the session ID."
+        },
+        {
+          "order": 3,
+          "content": "IF the session ID exists, detach the WebSocket from the terminal session."
+        },
+        {
+          "order": 4,
+          "content": "IF detaching fails, log the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

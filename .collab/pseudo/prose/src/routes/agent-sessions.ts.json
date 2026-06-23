@@ -1,0 +1,166 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/agent-sessions.ts",
+  "title": "Agent sessions API handler for retrieving project conversation history",
+  "purpose": "Provides an API endpoint to list and retrieve metadata about agent sessions within a project, including session start time, user messages, turn count, and model information.",
+  "module_context": "Exports a factory function 'createAgentSessionsHandler' that builds a request handler with optional configuration for home directory and slugification, and a default handler instance 'handleAgentSessionsAPI'.",
+  "methods": [
+    {
+      "id": "m_f85b5638",
+      "name": "jsonError",
+      "enclosing_class": null,
+      "normalized_params": "(message: string, status: number): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a JSON error response with the provided message and status code."
+        },
+        {
+          "order": 2,
+          "content": "Set the content type header to application/json."
+        },
+        {
+          "order": 3,
+          "content": "Return the formatted error response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e8d3ce0",
+      "name": "projectToSlug",
+      "enclosing_class": null,
+      "normalized_params": "(projectPath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace all forward slashes in the project path with hyphens."
+        },
+        {
+          "order": 2,
+          "content": "Return the resulting slug string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7dabd56e",
+      "name": "extractText",
+      "enclosing_class": null,
+      "normalized_params": "(content: unknown): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the content is a string, return it directly."
+        },
+        {
+          "order": 2,
+          "content": "IF the content is an array, find the first element with type 'text' and return its text property."
+        },
+        {
+          "order": 3,
+          "content": "IF no text element is found, return the JSON string representation of the entire array."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return an empty string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2cdf289b",
+      "name": "createAgentSessionsHandler",
+      "enclosing_class": null,
+      "normalized_params": "(options: AgentSessionsOptions): (req: Request) => Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the home directory function from options or use a default implementation."
+        },
+        {
+          "order": 2,
+          "content": "Resolve the slugification function from options or use the default projectToSlug."
+        },
+        {
+          "order": 3,
+          "content": "Return an async function that handles agent sessions API requests."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_efbc474f",
+      "name": "handleAgentSessionsAPI",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the request URL to extract the project query parameter."
+        },
+        {
+          "order": 2,
+          "content": "IF the project parameter is missing, return a JSON error response."
+        },
+        {
+          "order": 3,
+          "content": "Generate a slug for the project path."
+        },
+        {
+          "order": 4,
+          "content": "Construct the directory path for the project sessions."
+        },
+        {
+          "order": 5,
+          "content": "IF the directory does not exist, return an empty JSON array."
+        },
+        {
+          "order": 6,
+          "content": "Read the list of JSONL files in the directory."
+        },
+        {
+          "order": 7,
+          "content": "For each file, read its contents and parse the JSONL lines."
+        },
+        {
+          "order": 8,
+          "content": "Extract session metadata such as start time, first user message, turn count, and model from the parsed events."
+        },
+        {
+          "order": 9,
+          "content": "Collect session metadata into an array."
+        },
+        {
+          "order": 10,
+          "content": "Sort the sessions by last modified time in descending order."
+        },
+        {
+          "order": 11,
+          "content": "Return the sorted sessions as a JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

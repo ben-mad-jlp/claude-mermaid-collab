@@ -1,0 +1,150 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/MessageList.tsx",
+  "title": "Agent chat message list component with timeline grouping and citation rendering",
+  "purpose": "Displays a timeline of agent messages, tool calls, permissions, and thinking blocks with proper grouping, citation handling, and streaming indicators.",
+  "module_context": "Exports a MessageList component that renders agent chat history with support for grouped tool calls, citation chips, streaming indicators, and various message types including permissions and thinking blocks.",
+  "methods": [
+    {
+      "id": "m_bad19325",
+      "name": "renderCitationSegments",
+      "enclosing_class": null,
+      "normalized_params": "(text: string, toolCalls: ToolCallRef[]): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input text to identify citation markers and separate text segments."
+        },
+        {
+          "order": 2,
+          "content": "IF no citation markers are found, render the entire text as markdown."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render each text segment as markdown and each citation marker as an interactive chip."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a21b7fb",
+      "name": "collectToolCallRefs",
+      "enclosing_class": null,
+      "normalized_params": "(timeline: AgentTimelineItem[]): ToolCallRef[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the timeline to include only tool call items."
+        },
+        {
+          "order": 2,
+          "content": "Map each tool call item to extract its id and name for reference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ee7bd4a",
+      "name": "inferAvatarKind",
+      "enclosing_class": null,
+      "normalized_params": "(m: AgentMessage): AgentAvatarKind",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the message role is user, return the user avatar kind."
+        },
+        {
+          "order": 2,
+          "content": "ELSE check if the message has an origin tag and return it if present."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the main agent avatar kind as default."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e8c87333",
+      "name": "GroupedReadRow",
+      "enclosing_class": null,
+      "normalized_params": "(props: GroupedReadRowProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a state to track whether the grouped row is expanded."
+        },
+        {
+          "order": 2,
+          "content": "Determine the label text based on the group type and item count."
+        },
+        {
+          "order": 3,
+          "content": "Render a toggle button to expand or collapse the grouped items."
+        },
+        {
+          "order": 4,
+          "content": "IF the group is expanded, render each tool call item in the group."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d15b4276",
+      "name": "MessageList",
+      "enclosing_class": null,
+      "normalized_params": "(props: MessageListProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract thinking blocks, current turn ID, and usage data from the agent store."
+        },
+        {
+          "order": 2,
+          "content": "IF the timeline is empty, render a message indicating no messages yet."
+        },
+        {
+          "order": 3,
+          "content": "Collect tool call references from the timeline for citation parsing."
+        },
+        {
+          "order": 4,
+          "content": "Group the timeline items for efficient rendering."
+        },
+        {
+          "order": 5,
+          "content": "Identify the last assistant message in each turn for footer placement."
+        },
+        {
+          "order": 6,
+          "content": "Render each timeline entry based on its type, handling grouped reads, compaction notices, thinking blocks, permissions, and tool calls."
+        },
+        {
+          "order": 7,
+          "content": "For assistant messages, render associated thinking blocks and apply appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

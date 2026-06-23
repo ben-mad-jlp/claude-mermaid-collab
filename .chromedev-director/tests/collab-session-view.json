@@ -1,0 +1,17 @@
+{
+  "id": "collab-session-view",
+  "name": "collab-session-view",
+  "definition": {
+    "url": "http://192.168.100.33:3003/collab/session?project=/srv/codebase/claude-mermaid-collab&session=codex",
+    "steps": [
+      {
+        "wait": 2000
+      },
+      {
+        "screenshot": true
+      }
+    ]
+  },
+  "createdAt": "2026-04-27T02:52:33.844Z",
+  "updatedAt": "2026-04-27T02:52:33.844Z"
+}

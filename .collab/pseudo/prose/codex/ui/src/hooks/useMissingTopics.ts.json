@@ -1,0 +1,125 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/hooks/useMissingTopics.ts",
+  "title": "Hook for managing missing topic requests with mock data",
+  "purpose": "Provides access to missing topic requests with loading states, error handling, and actions to dismiss or refresh the list.",
+  "module_context": "Exports a React hook that manages state for missing topics using React hooks and returns an object with topics data, loading state, error state, and action functions.",
+  "methods": [
+    {
+      "id": "m_aa352efd",
+      "name": "useMissingTopics",
+      "enclosing_class": null,
+      "normalized_params": "(): UseMissingTopicsReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for topics, loading, and error."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to fetch topics from mock data."
+        },
+        {
+          "order": 3,
+          "content": "Fetch topics on component mount using useEffect."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback function to refresh the topics list."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback function to dismiss a specific topic."
+        },
+        {
+          "order": 6,
+          "content": "Return the topics data, loading state, error state, and action functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4a065155",
+      "name": "fetchTopics",
+      "enclosing_class": "useMissingTopics",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to true and clear any existing error."
+        },
+        {
+          "order": 2,
+          "content": "Simulate an API delay before proceeding."
+        },
+        {
+          "order": 3,
+          "content": "Sort the mock topics by request count in descending order."
+        },
+        {
+          "order": 4,
+          "content": "Update the topics state with the sorted mock data."
+        },
+        {
+          "order": 5,
+          "content": "IF an error occurs during fetch, set the error state with a descriptive message."
+        },
+        {
+          "order": 6,
+          "content": "Reset the loading state to false after the fetch attempt."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_320253d7",
+      "name": "refresh",
+      "enclosing_class": "useMissingTopics",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Await the fetch topics function to refresh the list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d8240ee",
+      "name": "dismiss",
+      "enclosing_class": "useMissingTopics",
+      "normalized_params": "(topicName: string, _dismissedBy: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Simulate an API call delay before proceeding."
+        },
+        {
+          "order": 2,
+          "content": "Filter out the topic with the specified name from the current topics list."
+        },
+        {
+          "order": 3,
+          "content": "Update the topics state with the filtered list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

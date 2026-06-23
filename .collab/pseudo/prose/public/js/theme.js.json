@@ -1,0 +1,193 @@
+{
+  "schema_version": 3,
+  "file": "public/js/theme.js",
+  "title": "Theme management with localStorage persistence for light/dark mode",
+  "purpose": "Manages application theme switching between light and dark modes with persistent storage and CodeMirror editor integration.",
+  "module_context": "Exports theme constants and management functions for dark and light themes with a11y-compliant color palettes. Defines CodeMirror themes and syntax highlighting styles for both modes.",
+  "methods": [
+    {
+      "id": "m_9de74b79",
+      "name": "getStoredTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the stored theme from localStorage."
+        },
+        {
+          "order": 2,
+          "content": "IF no theme is stored, default to 'dark'."
+        },
+        {
+          "order": 3,
+          "content": "Return the stored or default theme."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d46ec41c",
+      "name": "storeTheme",
+      "enclosing_class": null,
+      "normalized_params": "(theme: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Save the provided theme to localStorage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2140ee82",
+      "name": "initTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the stored theme from localStorage."
+        },
+        {
+          "order": 2,
+          "content": "Apply the loaded theme to the document."
+        },
+        {
+          "order": 3,
+          "content": "Return the initialized theme."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9de65014",
+      "name": "applyTheme",
+      "enclosing_class": null,
+      "normalized_params": "(theme: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the theme attribute on the document root element."
+        },
+        {
+          "order": 2,
+          "content": "Update the current theme state."
+        },
+        {
+          "order": 3,
+          "content": "Persist the new theme in localStorage."
+        },
+        {
+          "order": 4,
+          "content": "Notify all registered theme change listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_552e6e6d",
+      "name": "toggleTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the new theme based on the current theme."
+        },
+        {
+          "order": 2,
+          "content": "Apply the new theme to the document."
+        },
+        {
+          "order": 3,
+          "content": "Return the newly applied theme."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0154b54f",
+      "name": "getTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the current theme state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c4b50a02",
+      "name": "onThemeChange",
+      "enclosing_class": null,
+      "normalized_params": "(callback: (theme: string) => void): () => void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Register the provided callback to be notified of theme changes."
+        },
+        {
+          "order": 2,
+          "content": "Return a function to unregister the callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0279d2d6",
+      "name": "getEditorTheme",
+      "enclosing_class": null,
+      "normalized_params": "(theme?: string): (import(\"https://esm.sh/@codemirror/view@6\").Extension)[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a theme is provided, use it; otherwise use the current theme."
+        },
+        {
+          "order": 2,
+          "content": "IF the theme is light, return the light theme and syntax highlighting extensions."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the dark theme and syntax highlighting extensions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

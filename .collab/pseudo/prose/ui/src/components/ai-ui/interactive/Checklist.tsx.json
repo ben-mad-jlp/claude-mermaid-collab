@@ -1,0 +1,168 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/interactive/Checklist.tsx",
+  "title": "Interactive checklist component with progress tracking and sub-items",
+  "purpose": "Provides a reusable checklist UI component that tracks completion status of main items and optional sub-items, with visual progress indicators and expandable sections.",
+  "module_context": "Exports a Checklist React component that accepts items with optional sub-items, handles state management for completion tracking, and provides visual feedback for required items and progress.",
+  "methods": [
+    {
+      "id": "m_66058881",
+      "name": "Checklist",
+      "enclosing_class": null,
+      "normalized_params": "(props: ChecklistProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Normalize the input items to ensure each has a unique identifier."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state for tracking expanded items, main item completion states, and sub-item completion states."
+        },
+        {
+          "order": 3,
+          "content": "Define callback functions to toggle item completion and sub-item completion states."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback function to toggle the expansion state of item sections."
+        },
+        {
+          "order": 5,
+          "content": "Calculate progress metrics including total items, completed items, and required items."
+        },
+        {
+          "order": 6,
+          "content": "Render the progress section with visual indicators and required item tracking."
+        },
+        {
+          "order": 7,
+          "content": "Render the list of main items with their associated sub-items in expandable sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2a5e218b",
+      "name": "normalizedItems",
+      "enclosing_class": "Checklist",
+      "normalized_params": "(): ChecklistItem[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the input items array to ensure each item has a unique identifier."
+        },
+        {
+          "order": 2,
+          "content": "Assign a default identifier to items that do not have one."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7acc900f",
+      "name": "toggleItem",
+      "enclosing_class": "Checklist",
+      "normalized_params": "(itemId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the completion state of the specified item."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the onItemChange callback with the updated completion status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d764222",
+      "name": "toggleSubItem",
+      "enclosing_class": "Checklist",
+      "normalized_params": "(itemId: string, subItemId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the completion state of the specified sub-item."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the onSubItemChange callback with the updated completion status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_902e79d6",
+      "name": "toggleExpand",
+      "enclosing_class": "Checklist",
+      "normalized_params": "(itemId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the expansion state of the specified item section."
+        },
+        {
+          "order": 2,
+          "content": "Update the set of expanded items accordingly."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a4d6c452",
+      "name": "completionPercentage",
+      "enclosing_class": "Checklist",
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the percentage of completed items relative to total items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9e2ef4f",
+      "name": "allRequiredComplete",
+      "enclosing_class": "Checklist",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if all required items have been completed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/Toggle.tsx",
+  "title": "Accessible toggle switch component with controlled and uncontrolled states",
+  "purpose": "Provides a customizable toggle switch UI element that supports both controlled and uncontrolled usage patterns, with accessibility features and responsive sizing.",
+  "module_context": "Exports a Toggle component that accepts various props for customization including size, disabled state, and event handling. Defines size classes for different toggle dimensions and manages internal state when not controlled externally.",
+  "methods": [
+    {
+      "id": "m_6b547a5a",
+      "name": "Toggle",
+      "enclosing_class": null,
+      "normalized_params": "(props: ToggleProps): React.FC<ToggleProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique ID for the toggle element."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state for checked status if not controlled externally."
+        },
+        {
+          "order": 3,
+          "content": "Determine whether the component is in controlled or uncontrolled mode based on provided props."
+        },
+        {
+          "order": 4,
+          "content": "Select appropriate size classes for track and knob dimensions."
+        },
+        {
+          "order": 5,
+          "content": "Define the toggle handler that updates state and calls the change callback."
+        },
+        {
+          "order": 6,
+          "content": "Render the hidden checkbox input for form integration."
+        },
+        {
+          "order": 7,
+          "content": "Render the visual toggle track with appropriate styling based on checked state."
+        },
+        {
+          "order": 8,
+          "content": "Render the toggle knob with appropriate positioning and styling."
+        },
+        {
+          "order": 9,
+          "content": "Render the label element if provided, associating it with the toggle."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_25e00c00",
+      "name": "handleToggle",
+      "enclosing_class": "Toggle",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the toggle is disabled, exit early without changing state."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the new checked value by inverting the current value."
+        },
+        {
+          "order": 3,
+          "content": "Update the internal checked state with the new value."
+        },
+        {
+          "order": 4,
+          "content": "IF a change handler is provided, call it with the new value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,434 @@
+{
+  "schema_version": 3,
+  "file": "src/services/collab-manager.ts",
+  "title": "Collaboration session manager with backwards compatibility",
+  "purpose": "Manages collaboration sessions by creating, listing, and updating session states while supporting both new and legacy directory structures for backwards compatibility.",
+  "module_context": "Exports types for collaboration templates, metadata, and state. Includes helper functions for name generation, directory checking, and path resolution with support for legacy session structures.",
+  "methods": [
+    {
+      "id": "m_b14f3a8a",
+      "name": "randomChoice",
+      "enclosing_class": null,
+      "normalized_params": "<T>(arr: T[]): T",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select a random element from the provided array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a834ea6",
+      "name": "generateSessionName",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Choose two random adjectives and one random noun."
+        },
+        {
+          "order": 2,
+          "content": "Combine them in adjective-adjective-noun format to form a session name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_02e026ef",
+      "name": "directoryExists",
+      "enclosing_class": null,
+      "normalized_params": "(path: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to retrieve file system statistics for the given path."
+        },
+        {
+          "order": 2,
+          "content": "IF the path exists and is a directory, return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d0916425",
+      "name": "getCollabDir",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the .collab directory within the base directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe05d155",
+      "name": "getSessionsDir",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the .collab/sessions directory within the base directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_87c87eef",
+      "name": "hasOldSessionStructure",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the .collab directory exists in the base directory."
+        },
+        {
+          "order": 2,
+          "content": "IF the directory does not exist, return false."
+        },
+        {
+          "order": 3,
+          "content": "ELSE read the contents of the .collab directory."
+        },
+        {
+          "order": 4,
+          "content": "For each entry, check if it is a directory and not named 'sessions'."
+        },
+        {
+          "order": 5,
+          "content": "IF a directory has a collab-state.json file, return true."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f5d8349b",
+      "name": "listCollabSessions",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string): Promise<CollabSession[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect session information."
+        },
+        {
+          "order": 2,
+          "content": "Define a helper function to read sessions from a given directory."
+        },
+        {
+          "order": 3,
+          "content": "IF the directory does not exist, return the empty session list."
+        },
+        {
+          "order": 4,
+          "content": "ELSE read the contents of the directory."
+        },
+        {
+          "order": 5,
+          "content": "For each entry, check if it is a directory and not named 'sessions'."
+        },
+        {
+          "order": 6,
+          "content": "IF a valid session directory is found, attempt to read its collab-state.json file."
+        },
+        {
+          "order": 7,
+          "content": "IF the collab-state.json file exists, parse its contents into a state object."
+        },
+        {
+          "order": 8,
+          "content": "Try to read the metadata.json file for template information."
+        },
+        {
+          "order": 9,
+          "content": "IF the metadata.json file exists, parse its contents into a metadata object."
+        },
+        {
+          "order": 10,
+          "content": "IF a session with the same name already exists in the list, skip it."
+        },
+        {
+          "order": 11,
+          "content": "ELSE add the session information to the list."
+        },
+        {
+          "order": 12,
+          "content": "IF reading the directory fails, continue to the next entry."
+        },
+        {
+          "order": 13,
+          "content": "Read sessions from the new location (.collab/sessions/)."
+        },
+        {
+          "order": 14,
+          "content": "Read sessions from the old location (.collab/) for backwards compatibility."
+        },
+        {
+          "order": 15,
+          "content": "Sort the collected sessions by last activity in descending order."
+        },
+        {
+          "order": 16,
+          "content": "Return the sorted list of sessions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_83250989",
+      "name": "createCollabSession",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string, template: CollabTemplate, customName?: string): Promise<{ name: string; path: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the path to the sessions directory."
+        },
+        {
+          "order": 2,
+          "content": "IF the sessions directory does not exist, create it recursively."
+        },
+        {
+          "order": 3,
+          "content": "Generate a session name if one is not provided."
+        },
+        {
+          "order": 4,
+          "content": "Ensure the generated name is unique by checking both new and old locations."
+        },
+        {
+          "order": 5,
+          "content": "IF a unique name cannot be generated after 10 attempts, throw an error."
+        },
+        {
+          "order": 6,
+          "content": "Create the session directory structure including diagrams and documents subdirectories."
+        },
+        {
+          "order": 7,
+          "content": "Generate the current timestamp for creation and activity tracking."
+        },
+        {
+          "order": 8,
+          "content": "Create and write metadata.json with session details."
+        },
+        {
+          "order": 9,
+          "content": "Create and write collab-state.json with initial state information."
+        },
+        {
+          "order": 10,
+          "content": "Return the session name and path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8907bf2d",
+      "name": "findSessionPath",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string, sessionName: string): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the session exists in the new location (.collab/sessions/)."
+        },
+        {
+          "order": 2,
+          "content": "IF the session exists in the new location, return its path."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if the session exists in the old location (.collab/<sessionName>)."
+        },
+        {
+          "order": 4,
+          "content": "IF the session exists in the old location, return its path."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_db26ea32",
+      "name": "getCollabSessionState",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string, sessionName: string): Promise<CollabState>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the path to the specified session."
+        },
+        {
+          "order": 2,
+          "content": "IF the session path is not found, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Read the collab-state.json file from the session path."
+        },
+        {
+          "order": 4,
+          "content": "IF the file cannot be read, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Parse the contents of the file into a state object."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed state object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ac6c364",
+      "name": "updateCollabSessionState",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string, sessionName: string, updates: Partial<CollabState>): Promise<CollabState>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the path to the specified session."
+        },
+        {
+          "order": 2,
+          "content": "IF the session path is not found, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Read the current state from the session's collab-state.json file."
+        },
+        {
+          "order": 4,
+          "content": "IF the file cannot be read, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Parse the contents of the file into a current state object."
+        },
+        {
+          "order": 6,
+          "content": "Merge the provided updates with the current state."
+        },
+        {
+          "order": 7,
+          "content": "Update the last activity timestamp in the new state."
+        },
+        {
+          "order": 8,
+          "content": "Write the updated state back to the collab-state.json file."
+        },
+        {
+          "order": 9,
+          "content": "Return the updated state object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ac02c31a",
+      "name": "getCollabSessionPath",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string, sessionName: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the path to the specified session."
+        },
+        {
+          "order": 2,
+          "content": "IF the session path is found, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the path to the new location for the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc32cc2b",
+      "name": "getCollabSessionPathSync",
+      "enclosing_class": null,
+      "normalized_params": "(baseDir: string, sessionName: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the session in the new location."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

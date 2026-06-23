@@ -1,0 +1,104 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ImageViewer.tsx",
+  "title": "Image viewer component with download and metadata display",
+  "purpose": "Displays selected image with metadata and download functionality, handling loading errors and formatting file sizes and dates.",
+  "module_context": "Exports a React functional component ImageViewer that uses Zustand for state management and includes helper functions for formatting file sizes and dates.",
+  "methods": [
+    {
+      "id": "m_9fe732ad",
+      "name": "formatSize",
+      "enclosing_class": null,
+      "normalized_params": "(bytes: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return '0 B' if the byte count is zero."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the appropriate size unit (B, KB, MB, GB) based on the byte count."
+        },
+        {
+          "order": 3,
+          "content": "Format the size value to one decimal place for units greater than bytes, or zero decimal places for bytes."
+        },
+        {
+          "order": 4,
+          "content": "Combine the formatted size value with its unit and return the result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_81791d28",
+      "name": "formatDate",
+      "enclosing_class": null,
+      "normalized_params": "(isoString: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the ISO date string into a JavaScript Date object."
+        },
+        {
+          "order": 2,
+          "content": "Format the date into a readable string with year, month, day, hour, and minute in US locale."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9a88f38",
+      "name": "ImageViewer",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state to track image loading errors."
+        },
+        {
+          "order": 2,
+          "content": "Extract current session, images, and selected image ID from the session store."
+        },
+        {
+          "order": 3,
+          "content": "Find the selected image in the images collection."
+        },
+        {
+          "order": 4,
+          "content": "IF no image or session exists, display a message indicating no image is selected."
+        },
+        {
+          "order": 5,
+          "content": "ELSE construct the API URL for the image content with project and session parameters."
+        },
+        {
+          "order": 6,
+          "content": "Render the image viewer UI with title, download link, image display area, and metadata."
+        },
+        {
+          "order": 7,
+          "content": "IF an image error occurs, display a failure message instead of the image."
+        },
+        {
+          "order": 8,
+          "content": "ELSE display the image with error handling to set the error state if loading fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

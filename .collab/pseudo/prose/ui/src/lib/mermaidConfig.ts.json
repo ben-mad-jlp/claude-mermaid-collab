@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/mermaidConfig.ts",
+  "title": "Mermaid configuration and diagram type detection utilities",
+  "purpose": "Provides centralized configuration for Mermaid diagram rendering and utilities to detect diagram types and custom initialization directives.",
+  "module_context": "Exports functions to check for custom Mermaid init directives, initialize Mermaid with appropriate theme settings, and detect design diagrams that use JSON format instead of Mermaid syntax.",
+  "methods": [
+    {
+      "id": "m_a0fafb28",
+      "name": "hasCustomInit",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test the input content against a regex pattern to detect presence of Mermaid init directive."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the pattern matches, indicating the diagram has its own init directive."
+        },
+        {
+          "order": 3,
+          "content": "Return false if no init directive is found in the content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8bb14688",
+      "name": "initializeMermaid",
+      "enclosing_class": null,
+      "normalized_params": "(theme: 'light' | 'dark', diagramContent?: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the diagram content contains a custom init directive."
+        },
+        {
+          "order": 2,
+          "content": "Prepare a configuration object with default settings for Mermaid."
+        },
+        {
+          "order": 3,
+          "content": "IF the diagram does not have a custom init directive, set the theme in the configuration."
+        },
+        {
+          "order": 4,
+          "content": "Initialize Mermaid with the prepared configuration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e481441b",
+      "name": "isDesignDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test the content for legacy wireframe syntax to identify old Mermaid diagrams."
+        },
+        {
+          "order": 2,
+          "content": "IF the legacy syntax is found, return true indicating it's a design diagram."
+        },
+        {
+          "order": 3,
+          "content": "ELSE attempt to parse the content as JSON to check for viewport and screens properties."
+        },
+        {
+          "order": 4,
+          "content": "IF JSON parsing succeeds and required properties are present, return true."
+        },
+        {
+          "order": 5,
+          "content": "IF JSON parsing fails or required properties are missing, return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

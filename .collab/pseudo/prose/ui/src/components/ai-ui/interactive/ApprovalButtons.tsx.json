@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/interactive/ApprovalButtons.tsx",
+  "title": "Approval buttons component with loading states and styling",
+  "purpose": "Provides a reusable component for displaying action buttons with different styles, loading states, and configurable alignment and spacing.",
+  "module_context": "Exports an ApprovalButtons component that accepts action configurations, alignment, spacing, and styling options. Also exports interfaces for ApprovalAction and ApprovalButtonsProps.",
+  "methods": [
+    {
+      "id": "m_ce30515c",
+      "name": "ApprovalButtons",
+      "enclosing_class": null,
+      "normalized_params": "(props: ApprovalButtonsProps): React.FC<ApprovalButtonsProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the loading state for tracking which action is currently processing."
+        },
+        {
+          "order": 2,
+          "content": "Define the handler for action clicks that sets loading state and calls the provided action callback."
+        },
+        {
+          "order": 3,
+          "content": "Determine CSS classes for alignment and spacing based on provided props."
+        },
+        {
+          "order": 4,
+          "content": "Render a container div with flex layout and configured alignment and spacing."
+        },
+        {
+          "order": 5,
+          "content": "Map over the provided actions to render individual buttons with appropriate styling."
+        },
+        {
+          "order": 6,
+          "content": "Apply primary, destructive, or default styling based on action properties."
+        },
+        {
+          "order": 7,
+          "content": "Show loading spinner and disable button during action processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b74c2625",
+      "name": "handleAction",
+      "enclosing_class": "ApprovalButtons",
+      "normalized_params": "(actionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to indicate this action is processing."
+        },
+        {
+          "order": 2,
+          "content": "Call the provided action callback with the action ID."
+        },
+        {
+          "order": 3,
+          "content": "Reset the loading state after a short delay to allow for animations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

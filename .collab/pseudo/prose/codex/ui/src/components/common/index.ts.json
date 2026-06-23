@@ -1,0 +1,179 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/common/index.ts",
+  "title": "Central export for common UI components",
+  "purpose": "Provides a single entry point for importing all shared/common UI components and their TypeScript types.",
+  "module_context": "Exports multiple React component types and their corresponding component implementations from the same directory.",
+  "methods": [
+    {
+      "id": "m_86cca9ba",
+      "name": "FilterBar",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the FilterBar component for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3d747ff7",
+      "name": "FilterBarProps",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TypeScript props interface for FilterBar component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c51c14b4",
+      "name": "NameInput",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the NameInput component for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd182612",
+      "name": "NameInputProps",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TypeScript props interface for NameInput component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9ffc3388",
+      "name": "CodeMirrorEditor",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the CodeMirrorEditor component for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c077a4d",
+      "name": "CodeMirrorEditorProps",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TypeScript props interface for CodeMirrorEditor component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9b0ae6b",
+      "name": "MarkdownRenderer",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the MarkdownRenderer component for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ea062af2",
+      "name": "MarkdownRendererProps",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TypeScript props interface for MarkdownRenderer component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bd6c51c7",
+      "name": "ConfirmDialog",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ConfirmDialog component for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b68bc41",
+      "name": "ConfirmDialogProps",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TypeScript props interface for ConfirmDialog component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

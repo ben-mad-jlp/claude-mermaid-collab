@@ -1,0 +1,165 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDocument.ts",
+  "title": "React hook for managing document state and operations",
+  "purpose": "Provides React components with access to document data and CRUD operations through a Zustand store, including selection management and utility functions.",
+  "module_context": "Exports a custom React hook 'useDocument' that integrates with a session store to manage document state and operations.",
+  "methods": [
+    {
+      "id": "m_076fd58b",
+      "name": "useDocument",
+      "enclosing_class": null,
+      "normalized_params": "(): UseDocumentReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access document state from the session store using shallow comparison."
+        },
+        {
+          "order": 2,
+          "content": "Extract selected document from the store using the getter function."
+        },
+        {
+          "order": 3,
+          "content": "Create memoized utility functions for finding and checking document existence."
+        },
+        {
+          "order": 4,
+          "content": "Return an object containing document state, operation methods, and utility functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1584ac95",
+      "name": "getDocumentById",
+      "enclosing_class": "useDocument",
+      "normalized_params": "(id: string): Document | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Search through the list of documents for one matching the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "Return the found document or undefined if no match is found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e7252a3c",
+      "name": "hasDocument",
+      "enclosing_class": "useDocument",
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if any document in the list matches the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "Return true if a matching document exists, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a3c2cf35",
+      "name": "addDocument",
+      "enclosing_class": "useDocument",
+      "normalized_params": "(document: Document): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the store's add document operation with the provided document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c32b0e92",
+      "name": "updateDocument",
+      "enclosing_class": "useDocument",
+      "normalized_params": "(id: string, updates: Partial<Document>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the store's update document operation with the document ID and updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_19c9fce6",
+      "name": "removeDocument",
+      "enclosing_class": "useDocument",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the store's remove document operation with the document ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1b916aa3",
+      "name": "selectDocument",
+      "enclosing_class": "useDocument",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the store's select document operation with the document ID or null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_28c94463",
+      "name": "setDocuments",
+      "enclosing_class": "useDocument",
+      "normalized_params": "(documents: Document[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the store's set documents operation with the new list of documents."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

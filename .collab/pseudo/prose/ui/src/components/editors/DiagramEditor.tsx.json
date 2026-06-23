@@ -1,0 +1,824 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DiagramEditor.tsx",
+  "title": "Mermaid diagram editor with live preview and validation",
+  "purpose": "Provides a full-featured diagram editing interface with split-pane layout, syntax validation, and keyboard shortcuts for Mermaid diagrams.",
+  "module_context": "Exports a DiagramEditor React component that manages diagram state, handles user interactions, and integrates with session and diagram stores. Includes keyboard shortcuts, validation, and context menus for nodes and edges.",
+  "methods": [
+    {
+      "id": "m_e140c0f0",
+      "name": "validateContent",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the validation state to indicate that validation is in progress."
+        },
+        {
+          "order": 2,
+          "content": "Trim the input content to remove leading and trailing whitespace."
+        },
+        {
+          "order": 3,
+          "content": "IF the trimmed content is empty, mark the diagram as valid and return."
+        },
+        {
+          "order": 4,
+          "content": "Attempt to parse the diagram content using the Mermaid library."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing succeeds, mark the diagram as valid."
+        },
+        {
+          "order": 6,
+          "content": "IF parsing fails, capture the error message and mark the diagram as invalid."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d65fc3e",
+      "name": "handleEditorChange",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(newContent: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the editor content state with the new value."
+        },
+        {
+          "order": 2,
+          "content": "Update the changes state to reflect whether the content differs from the saved diagram."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a9eb2c61",
+      "name": "handleSave",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the diagram is invalid or has no changes, set an error message and return."
+        },
+        {
+          "order": 2,
+          "content": "Set the saving state to indicate that the save operation is in progress."
+        },
+        {
+          "order": 3,
+          "content": "Update the diagram in the store with the new content and timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Update the editor state to reflect that saving is complete and changes have been saved."
+        },
+        {
+          "order": 5,
+          "content": "Clear the saved timestamp after a delay to show the success message."
+        },
+        {
+          "order": 6,
+          "content": "IF the save operation fails, set an error message in the editor state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e0cc0cbb",
+      "name": "handleDiscard",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the editor content to match the saved diagram content."
+        },
+        {
+          "order": 2,
+          "content": "Update the editor state to indicate that there are no changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e68ebb80",
+      "name": "handleAddTransition",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(fromNode: string, toNode: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the editor content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a new edge line representing the transition between nodes."
+        },
+        {
+          "order": 3,
+          "content": "Find an appropriate insertion point for the new edge line."
+        },
+        {
+          "order": 4,
+          "content": "Insert the new edge line at the calculated position."
+        },
+        {
+          "order": 5,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 6,
+          "content": "Update the changes state to reflect that the content has been modified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8648ed4f",
+      "name": "handleChangeEdgeEndpoint",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(oldSource: string, oldTarget: string, newSource: string, newTarget: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the editor content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a regular expression pattern to match the edge line with old endpoints."
+        },
+        {
+          "order": 3,
+          "content": "Replace the old endpoints in each matching line with the new endpoints."
+        },
+        {
+          "order": 4,
+          "content": "Join the modified lines back into a single string."
+        },
+        {
+          "order": 5,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 6,
+          "content": "Update the changes state to reflect that the content has been modified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eee6e342",
+      "name": "handleNodeClick",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(nodeId: string, event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF in add-transition selection mode and a source node is pending, complete the transition."
+        },
+        {
+          "order": 2,
+          "content": "IF in change-origin selection mode and edge info is pending, update the edge origin."
+        },
+        {
+          "order": 3,
+          "content": "IF in change-destination selection mode and edge info is pending, update the edge destination."
+        },
+        {
+          "order": 4,
+          "content": "ELSE show a context menu for the clicked node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ea98661f",
+      "name": "handleEdgeClick",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(source: string, target: string, event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the editor content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Extract any label associated with the clicked edge."
+        },
+        {
+          "order": 3,
+          "content": "Show a context menu for the clicked edge with its information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f67fc6c0",
+      "name": "handleCreateNode",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(label: string, type: diagramUtils.NodeType['name']): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique node ID based on the current content."
+        },
+        {
+          "order": 2,
+          "content": "Build the node definition line with the generated ID, label, and type."
+        },
+        {
+          "order": 3,
+          "content": "Build the style line for the node based on its type."
+        },
+        {
+          "order": 4,
+          "content": "Find an appropriate insertion point for the new node."
+        },
+        {
+          "order": 5,
+          "content": "Insert the node definition and style lines at the calculated position."
+        },
+        {
+          "order": 6,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 7,
+          "content": "Update the changes state to reflect that the content has been modified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c22c3087",
+      "name": "handleEditNodeLabel",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(nodeId: string, newLabel: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the editor content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a regular expression pattern to match the node definition line."
+        },
+        {
+          "order": 3,
+          "content": "Replace the label in each matching line with the new label."
+        },
+        {
+          "order": 4,
+          "content": "Join the modified lines back into a single string."
+        },
+        {
+          "order": 5,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 6,
+          "content": "Update the changes state to reflect that the content has been modified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85dce885",
+      "name": "handleChangeNodeType",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(nodeId: string, newType: diagramUtils.NodeType['name']): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the node type definition for the new type."
+        },
+        {
+          "order": 2,
+          "content": "Split the editor content into lines for processing."
+        },
+        {
+          "order": 3,
+          "content": "Update the node definition shape to match the new type."
+        },
+        {
+          "order": 4,
+          "content": "Update or add the style line for the node to match the new type."
+        },
+        {
+          "order": 5,
+          "content": "Join the modified lines back into a single string."
+        },
+        {
+          "order": 6,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 7,
+          "content": "Update the changes state to reflect that the content has been modified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2df98dd8",
+      "name": "handleDeleteNode",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(nodeId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the line number of the node definition."
+        },
+        {
+          "order": 2,
+          "content": "Find all lines representing edges connected to the node."
+        },
+        {
+          "order": 3,
+          "content": "Find the line number of the node style."
+        },
+        {
+          "order": 4,
+          "content": "Collect all line numbers to be removed."
+        },
+        {
+          "order": 5,
+          "content": "Remove the specified lines from the editor content."
+        },
+        {
+          "order": 6,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 7,
+          "content": "Update the changes state to reflect that the content has been modified."
+        },
+        {
+          "order": 8,
+          "content": "Close the node context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5de03b8e",
+      "name": "handleEditEdgeLabel",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(source: string, target: string, newLabel: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the editor content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a regular expression pattern to match the edge line."
+        },
+        {
+          "order": 3,
+          "content": "Replace the label in each matching line with the new label."
+        },
+        {
+          "order": 4,
+          "content": "Join the modified lines back into a single string."
+        },
+        {
+          "order": 5,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 6,
+          "content": "Update the changes state to reflect that the content has been modified."
+        },
+        {
+          "order": 7,
+          "content": "Close the edge context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_87a759a3",
+      "name": "handleDeleteEdge",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(source: string, target: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the line number of the edge definition."
+        },
+        {
+          "order": 2,
+          "content": "Remove the edge line from the editor content."
+        },
+        {
+          "order": 3,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 4,
+          "content": "Update the changes state to reflect that the content has been modified."
+        },
+        {
+          "order": 5,
+          "content": "Close the edge context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2436ecf6",
+      "name": "handleStartAddTransition",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(fromNode: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the pending transition source to the specified node ID."
+        },
+        {
+          "order": 2,
+          "content": "Set the selection mode to add-transition."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66c6596b",
+      "name": "handleStartChangeOrigin",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(source: string, target: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the pending edge information to the specified source and target."
+        },
+        {
+          "order": 2,
+          "content": "Set the selection mode to change-origin."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_550fce8a",
+      "name": "handleStartChangeDestination",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(source: string, target: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the pending edge information to the specified source and target."
+        },
+        {
+          "order": 2,
+          "content": "Set the selection mode to change-destination."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6c4a8c02",
+      "name": "handleSmachEditDescription",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(description: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the editor content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a regular expression pattern to match the state definition line."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through lines to find the state and its indentation level."
+        },
+        {
+          "order": 4,
+          "content": "Update the description line within the state block."
+        },
+        {
+          "order": 5,
+          "content": "Join the modified lines back into a single string."
+        },
+        {
+          "order": 6,
+          "content": "Update the editor content with the modified diagram."
+        },
+        {
+          "order": 7,
+          "content": "Update the changes state to reflect that the content has been modified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ececf170",
+      "name": "handleSmachEditTransition",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(index: number, outcome: string, target: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log the transition editing action to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4157208f",
+      "name": "handleSmachAddTransition",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log the transition adding action to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_01a03072",
+      "name": "handleSmachRemoveTransition",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(index: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log the transition removal action to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e7cd1b4b",
+      "name": "extractLabelFromContent",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(content: string, nodeId: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a regular expression pattern to match the node definition line."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through lines to find a match for the node ID."
+        },
+        {
+          "order": 4,
+          "content": "Extract and return the label from the matched line."
+        },
+        {
+          "order": 5,
+          "content": "IF no label is found, return the node ID as the label."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d344e83e",
+      "name": "findNodeInsertionPoint",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(content: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Initialize a variable to track the last node line."
+        },
+        {
+          "order": 3,
+          "content": "Create regular expression patterns to identify node and edge lines."
+        },
+        {
+          "order": 4,
+          "content": "Iterate through lines to find the last node line."
+        },
+        {
+          "order": 5,
+          "content": "Return the index of the last node line."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6204f2e0",
+      "name": "findAllEdgesForNode",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(nodeId: string, content: string): number[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a regular expression pattern to match edges connected to the node."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through lines to find all matching edges."
+        },
+        {
+          "order": 4,
+          "content": "Return the line numbers of all matching edges."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e93ca304",
+      "name": "findStyleLine",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(nodeId: string, content: string): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a regular expression pattern to match the style line for the node."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through lines to find a match for the style line."
+        },
+        {
+          "order": 4,
+          "content": "Return the line number of the style line if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ce5684f6",
+      "name": "removeLines",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(content: string, lineNumbers: number[]): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Create a set of line indices to remove."
+        },
+        {
+          "order": 3,
+          "content": "Filter out the lines to be removed from the content."
+        },
+        {
+          "order": 4,
+          "content": "Join the remaining lines back into a single string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c5b17fb2",
+      "name": "insertLines",
+      "enclosing_class": "DiagramEditor",
+      "normalized_params": "(content: string, afterLine: number, newLines: string[]): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Insert the new lines at the specified position."
+        },
+        {
+          "order": 3,
+          "content": "Join the modified lines back into a single string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

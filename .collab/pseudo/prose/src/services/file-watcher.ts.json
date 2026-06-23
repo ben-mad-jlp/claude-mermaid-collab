@@ -1,0 +1,126 @@
+{
+  "schema_version": 3,
+  "file": "src/services/file-watcher.ts",
+  "title": "File watcher service for monitoring diagram and document changes",
+  "purpose": "Monitors file system changes in diagram and document directories to notify listeners of creation, modification, or deletion events.",
+  "module_context": "Exports a FileWatcher class that uses chokidar to watch for file system events in legacy diagram and document folders under the public directory.",
+  "methods": [
+    {
+      "id": "m_557a237c",
+      "name": "start",
+      "enclosing_class": "FileWatcher",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Configure and start a file watcher for diagram files in the diagrams folder."
+        },
+        {
+          "order": 2,
+          "content": "Set up event handlers for diagram creation, modification, and deletion."
+        },
+        {
+          "order": 3,
+          "content": "Configure and start a file watcher for document files in the documents folder."
+        },
+        {
+          "order": 4,
+          "content": "Set up event handlers for document creation, modification, and deletion."
+        },
+        {
+          "order": 5,
+          "content": "Store the configured watchers as instance properties for later use."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aaacda20",
+      "name": "stop",
+      "enclosing_class": "FileWatcher",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the diagram file watcher if it exists."
+        },
+        {
+          "order": 2,
+          "content": "Close the document file watcher if it exists."
+        },
+        {
+          "order": 3,
+          "content": "Clear the stored watcher references."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc9706ed",
+      "name": "restart",
+      "enclosing_class": "FileWatcher",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop the currently running file watchers."
+        },
+        {
+          "order": 2,
+          "content": "Start new file watchers with the current configuration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2f4d73f4",
+      "name": "onChange",
+      "enclosing_class": "FileWatcher",
+      "normalized_params": "(listener: (event: FileChangeEvent) => void): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided event listener to the set of registered listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7783bcb",
+      "name": "emit",
+      "enclosing_class": "FileWatcher",
+      "normalized_params": "(event: FileChangeEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all registered event listeners."
+        },
+        {
+          "order": 2,
+          "content": "Invoke each listener with the file change event."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/SessionPanel.tsx",
+  "title": "Session panel component with item list and real-time updates",
+  "purpose": "Displays session information and a list of diagrams, documents, and designs with update indicators and navigation capabilities. Integrates with session state management and supports real-time updates.",
+  "module_context": "Exports a SessionPanel React component that accepts session data and item lists, with helper functions for formatting time and rendering item icons. Uses useSession hook for state management.",
+  "methods": [
+    {
+      "id": "m_4ea067a2",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: number | string | undefined): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the timestamp to a Date object if it's a string."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the time difference between now and the provided timestamp."
+        },
+        {
+          "order": 3,
+          "content": "Format the time difference as 'just now', minutes, hours, or days ago based on the difference."
+        },
+        {
+          "order": 4,
+          "content": "If the difference is more than a week, format as a localized date string."
+        },
+        {
+          "order": 5,
+          "content": "Return an empty string if no timestamp is provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b072d186",
+      "name": "getItemIcon",
+      "enclosing_class": null,
+      "normalized_params": "(type: 'diagram' | 'document' | 'design'): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a diagram icon SVG when the item type is diagram."
+        },
+        {
+          "order": 2,
+          "content": "Return a design icon SVG when the item type is design."
+        },
+        {
+          "order": 3,
+          "content": "Return a document icon SVG when the item type is document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b8fed7f7",
+      "name": "SessionPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: SessionPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Combine diagrams, documents, and designs into a unified list of session items."
+        },
+        {
+          "order": 2,
+          "content": "Sort the combined items by last modified timestamp in descending order."
+        },
+        {
+          "order": 3,
+          "content": "Render an empty state message when no session is selected."
+        },
+        {
+          "order": 4,
+          "content": "Render the session header with name, status, and activity information when not in compact mode."
+        },
+        {
+          "order": 5,
+          "content": "Render an empty items list message when there are no items in the session."
+        },
+        {
+          "order": 6,
+          "content": "Render a list of items with icons, names, types, and timestamps."
+        },
+        {
+          "order": 7,
+          "content": "Display update indicators for items that have changes and are not selected."
+        },
+        {
+          "order": 8,
+          "content": "Show a new tab button for each item that supports opening in a new tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c788a311",
+      "name": "handleItemClick",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(item: SessionItem): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the onItemClick callback with the clicked item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5f9dc4c2",
+      "name": "handleOpenNewTab",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(e: React.MouseEvent, item: SessionItem): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop event propagation to prevent parent click handlers from firing."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the onItemOpenNewTab callback with the clicked item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

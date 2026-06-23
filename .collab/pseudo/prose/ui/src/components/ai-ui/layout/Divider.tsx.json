@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/layout/Divider.tsx",
+  "title": "Divider component for horizontal and vertical layout separation",
+  "purpose": "Provides a reusable UI component for creating dividers with optional labels, supporting both horizontal and vertical orientations with appropriate styling for light and dark modes.",
+  "module_context": "Exports a React functional component Divider with typed props interface and displayName set to 'Divider'.",
+  "methods": [
+    {
+      "id": "m_c4c67fff",
+      "name": "Divider",
+      "enclosing_class": null,
+      "normalized_params": "(props: DividerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a vertical divider with label when orientation is vertical and label is provided."
+        },
+        {
+          "order": 2,
+          "content": "ELSE render a vertical divider without label when orientation is vertical but no label is provided."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render a horizontal divider with label when orientation is horizontal and label is provided."
+        },
+        {
+          "order": 4,
+          "content": "ELSE render a horizontal divider without label when orientation is horizontal and no label is provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

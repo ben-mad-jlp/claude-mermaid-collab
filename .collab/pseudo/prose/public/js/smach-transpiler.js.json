@@ -1,0 +1,208 @@
+{
+  "schema_version": 3,
+  "file": "public/js/smach-transpiler.js",
+  "title": "SMACH YAML to Mermaid transpiler with container outcome handling",
+  "purpose": "Converts SMACH state machine YAML definitions into Mermaid flowchart syntax, properly handling nested containers and their outcome nodes with chaining.",
+  "module_context": "Exports transpile function to convert YAML to Mermaid, getStateProperties to retrieve state metadata, and isSmachYaml to detect SMACH format. Uses js-yaml for parsing and maintains stateProperties for click-to-view popups.",
+  "methods": [
+    {
+      "id": "m_3eff1b02",
+      "name": "toNodeId",
+      "enclosing_class": null,
+      "normalized_params": "(name: string, prefix: string | null): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sanitize the input name by replacing non-alphanumeric characters with underscores."
+        },
+        {
+          "order": 2,
+          "content": "If a prefix is provided, concatenate it with the sanitized name using an underscore."
+        },
+        {
+          "order": 3,
+          "content": "Return the resulting node ID string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9e91abf",
+      "name": "nodeDeclaration",
+      "enclosing_class": null,
+      "normalized_params": "(id: string, label: string, type: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the shape for the node based on the state type."
+        },
+        {
+          "order": 2,
+          "content": "Generate the appropriate Mermaid node syntax for the determined shape."
+        },
+        {
+          "order": 3,
+          "content": "Return the formatted node declaration string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ac12a2b9",
+      "name": "processStates",
+      "enclosing_class": null,
+      "normalized_params": "(states: object, lines: string[], externalLinks: string[], prefix: string, initialState: string, indent: string, parentOutcomes: string[], parentOutcomePrefix: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each state in the input states object."
+        },
+        {
+          "order": 2,
+          "content": "Generate a unique node ID for the current state using the prefix."
+        },
+        {
+          "order": 3,
+          "content": "Determine the shape for the current state type."
+        },
+        {
+          "order": 4,
+          "content": "Store properties for the current state in the global properties store."
+        },
+        {
+          "order": 5,
+          "content": "IF the state is a container type, render it as a subgraph with internal structure."
+        },
+        {
+          "order": 6,
+          "content": "ELSE render the state as a leaf node with appropriate shape."
+        },
+        {
+          "order": 7,
+          "content": "Process transitions for the current state and add appropriate links to the output."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8f1dec34",
+      "name": "transpile",
+      "enclosing_class": null,
+      "normalized_params": "(yamlText: string): { mermaid: string; properties: object }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input YAML text using js-yaml library."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the parsed YAML contains a valid smach_diagram structure."
+        },
+        {
+          "order": 3,
+          "content": "Extract the root StateMachine from the diagram."
+        },
+        {
+          "order": 4,
+          "content": "Initialize output lines and external links arrays for Mermaid generation."
+        },
+        {
+          "order": 5,
+          "content": "Add a start node and link it to the root machine's initial state."
+        },
+        {
+          "order": 6,
+          "content": "Process the root machine's states recursively using the processStates function."
+        },
+        {
+          "order": 7,
+          "content": "Add outcome nodes for the root machine."
+        },
+        {
+          "order": 8,
+          "content": "Append external links to the output lines."
+        },
+        {
+          "order": 9,
+          "content": "Return the complete Mermaid code and state properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d53b85a4",
+      "name": "getStateProperties",
+      "enclosing_class": null,
+      "normalized_params": "(nodeId: string): object | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up and return the properties stored for the given node ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no properties exist for the node, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ea49600c",
+      "name": "getAllProperties",
+      "enclosing_class": null,
+      "normalized_params": "(): object",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a copy of all stored state properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_407076cb",
+      "name": "isSmachYaml",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the input text contains the smach_diagram pattern using regex matching."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the pattern is found, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

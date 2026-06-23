@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/SessionTabs.tsx",
+  "title": "Agent session tabs component with selection and close functionality",
+  "purpose": "Displays a list of agent sessions as tabs with active state indication, unread badges, and optional close buttons.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_3aa512c8",
+      "name": "SessionTabs",
+      "enclosing_class": null,
+      "normalized_params": "(props: SessionTabsProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the multi-session data from the agent store."
+        },
+        {
+          "order": 2,
+          "content": "Get the active session ID and all session entries."
+        },
+        {
+          "order": 3,
+          "content": "IF there are no sessions, return null."
+        },
+        {
+          "order": 4,
+          "content": "Render a tablist container with session entries."
+        },
+        {
+          "order": 5,
+          "content": "For each session entry, determine if it is active."
+        },
+        {
+          "order": 6,
+          "content": "IF the session is not active but has unread messages, show a badge."
+        },
+        {
+          "order": 7,
+          "content": "Render each session tab with appropriate styling based on active state."
+        },
+        {
+          "order": 8,
+          "content": "Attach click handlers to tabs for selection and close buttons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,197 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-ranking.ts",
+  "title": "Git history-based file ranking service with priority computation",
+  "purpose": "Analyzes git history to compute file touch counts, authorship, and priority scores for ranking files by importance.",
+  "module_context": "Exports FileRanking and RankingOptions interfaces, a GENERATED_PATTERNS regex array, and functions to run ranking, spawn git log, parse git log output, and compute file rankings.",
+  "methods": [
+    {
+      "id": "m_a0f85475",
+      "name": "runRanking",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, project: string, opts: RankingOptions): Promise<number>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the time range for git log based on options or default to 90 days."
+        },
+        {
+          "order": 2,
+          "content": "Spawn a git log process to collect commit history for the specified project."
+        },
+        {
+          "order": 3,
+          "content": "IF the git log fails and is not an abort error, log a warning and return 0."
+        },
+        {
+          "order": 4,
+          "content": "Parse the raw git log output into aggregated commit data per file."
+        },
+        {
+          "order": 5,
+          "content": "Fetch all non-stub files from the database."
+        },
+        {
+          "order": 6,
+          "content": "Prepare an update statement for modifying file records with ranking data."
+        },
+        {
+          "order": 7,
+          "content": "Process each file row in a transaction, computing ranking and updating database records."
+        },
+        {
+          "order": 8,
+          "content": "Return the count of updated files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ee3a07bf",
+      "name": "spawnGitLog",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, sinceDays: number, signal?: AbortSignal): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF an abort signal is present and aborted, reject with an abort error."
+        },
+        {
+          "order": 2,
+          "content": "Construct git log command arguments including all branches, file names, date range, and commit metadata format."
+        },
+        {
+          "order": 3,
+          "content": "Spawn a child process to execute the git log command in the project directory."
+        },
+        {
+          "order": 4,
+          "content": "Collect stdout and stderr data from the git log process."
+        },
+        {
+          "order": 5,
+          "content": "IF an abort signal is received, terminate the git log process."
+        },
+        {
+          "order": 6,
+          "content": "IF the git log process exits with an error, reject with the error message."
+        },
+        {
+          "order": 7,
+          "content": "IF the process is aborted, reject with an abort error."
+        },
+        {
+          "order": 8,
+          "content": "Resolve with the concatenated stdout data when the process completes successfully."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d11f29e",
+      "name": "parseGitLog",
+      "enclosing_class": null,
+      "normalized_params": "(raw: string, signal?: AbortSignal): Map<string, RawAggregate>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty map to store aggregated commit data per file."
+        },
+        {
+          "order": 2,
+          "content": "IF the raw input is empty, return the empty map."
+        },
+        {
+          "order": 3,
+          "content": "Split the raw input into lines for processing."
+        },
+        {
+          "order": 4,
+          "content": "Iterate through lines to parse commit metadata and associated file changes."
+        },
+        {
+          "order": 5,
+          "content": "IF an abort signal is received during processing, throw an abort error."
+        },
+        {
+          "order": 6,
+          "content": "Parse each commit line to extract hash, timestamp, and author email."
+        },
+        {
+          "order": 7,
+          "content": "For each file listed in a commit, update the aggregate data with commit hash, author, and timestamp."
+        },
+        {
+          "order": 8,
+          "content": "Return the populated map of file aggregates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d6880e92",
+      "name": "computeRanking",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string, lineCount: number, aggregates: Map<string, RawAggregate>): FileRanking",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the aggregated commit data for the specified file path."
+        },
+        {
+          "order": 2,
+          "content": "Determine if the file is generated based on predefined patterns."
+        },
+        {
+          "order": 3,
+          "content": "IF no aggregate data exists for the file, return a default ranking with zero values."
+        },
+        {
+          "order": 4,
+          "content": "Identify the primary author by finding the author with the most commits to the file."
+        },
+        {
+          "order": 5,
+          "content": "Identify co-authors who have made at least two commits to the file."
+        },
+        {
+          "order": 6,
+          "content": "Calculate the touch count as the number of unique commits to the file."
+        },
+        {
+          "order": 7,
+          "content": "Convert the last timestamp to an ISO date string for the last touched field."
+        },
+        {
+          "order": 8,
+          "content": "Compute the priority score using touch count and line count with logarithmic scaling."
+        },
+        {
+          "order": 9,
+          "content": "IF the file is generated, reduce the priority score by a factor of 0.1."
+        },
+        {
+          "order": 10,
+          "content": "Return the computed ranking data for the file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

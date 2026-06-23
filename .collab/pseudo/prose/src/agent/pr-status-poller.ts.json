@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/pr-status-poller.ts",
+  "title": "GitHub PR status poller with spawn integration",
+  "purpose": "Polls GitHub pull request status at regular intervals and updates the caller with status changes. Used to monitor PR state during development workflows.",
+  "module_context": "Exports PRStatus and SpawnResult interfaces, SpawnFn type alias, defaultSpawn function, PRStatusPollerOptions and PRStatusPollerHandle interfaces, and the startPRStatusPoller factory function.",
+  "methods": [
+    {
+      "id": "m_58a58daa",
+      "name": "defaultSpawn",
+      "enclosing_class": null,
+      "normalized_params": "(cmd: string[], opts: { cwd: string }): Promise<SpawnResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the provided command using Bun.spawn with specified working directory."
+        },
+        {
+          "order": 2,
+          "content": "Capture stdout and stderr from the spawned process."
+        },
+        {
+          "order": 3,
+          "content": "Wait for the process to exit and retrieve its exit code."
+        },
+        {
+          "order": 4,
+          "content": "IF the process fails, return a default error result with code 127."
+        },
+        {
+          "order": 5,
+          "content": "Return the process result including exit code, stdout, and stderr."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad52e9d5",
+      "name": "startPRStatusPoller",
+      "enclosing_class": null,
+      "normalized_params": "(opts: PRStatusPollerOptions): PRStatusPollerHandle",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract worktree path, update callback, and interval from options."
+        },
+        {
+          "order": 2,
+          "content": "Use provided spawn function or fall back to default spawn implementation."
+        },
+        {
+          "order": 3,
+          "content": "Initialize stopped and running flags to track poller state."
+        },
+        {
+          "order": 4,
+          "content": "Define the tick function that performs a single status check."
+        },
+        {
+          "order": 5,
+          "content": "Execute the tick function immediately to start polling."
+        },
+        {
+          "order": 6,
+          "content": "Schedule periodic execution of the tick function at specified interval."
+        },
+        {
+          "order": 7,
+          "content": "Return a handle with stop method to cancel polling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_70b80499",
+      "name": "tick",
+      "enclosing_class": "startPRStatusPoller",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the poller is stopped or already running, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "Mark the poller as currently running."
+        },
+        {
+          "order": 3,
+          "content": "Execute the GitHub CLI command to fetch PR status information."
+        },
+        {
+          "order": 4,
+          "content": "IF the poller was stopped during execution, return early."
+        },
+        {
+          "order": 5,
+          "content": "IF the command failed, return without updating status."
+        },
+        {
+          "order": 6,
+          "content": "Parse the command output as JSON."
+        },
+        {
+          "order": 7,
+          "content": "IF the parsed result contains valid PR number, notify the update callback."
+        },
+        {
+          "order": 8,
+          "content": "Mark the poller as no longer running after completion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

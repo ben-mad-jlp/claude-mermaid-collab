@@ -1,0 +1,345 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/hooks/useDrafts.ts",
+  "title": "Drafts management hook with mock data implementation",
+  "purpose": "Provides hooks for fetching and managing draft data for topics, including draft lists and individual draft details with diff calculations.",
+  "module_context": "Exports two hooks: useDrafts for fetching a list of drafts and useDraft for fetching a specific draft with diff information. Uses mock data for development purposes.",
+  "methods": [
+    {
+      "id": "m_7b5d975c",
+      "name": "useDrafts",
+      "enclosing_class": null,
+      "normalized_params": "(): UseDraftsReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for drafts list, loading, and error."
+        },
+        {
+          "order": 2,
+          "content": "Define async function to fetch drafts from mock data."
+        },
+        {
+          "order": 3,
+          "content": "Set loading state to true before fetching."
+        },
+        {
+          "order": 4,
+          "content": "Simulate API delay with timeout."
+        },
+        {
+          "order": 5,
+          "content": "Transform mock draft data into simplified list format."
+        },
+        {
+          "order": 6,
+          "content": "Update drafts state with fetched data."
+        },
+        {
+          "order": 7,
+          "content": "Handle errors during fetch by setting error state."
+        },
+        {
+          "order": 8,
+          "content": "Set loading state to false after fetch completes."
+        },
+        {
+          "order": 9,
+          "content": "Fetch drafts on component mount."
+        },
+        {
+          "order": 10,
+          "content": "Return drafts list, loading state, error, and refresh function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1029f36e",
+      "name": "fetchDrafts",
+      "enclosing_class": "useDrafts",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set loading state to true before fetching."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing error state."
+        },
+        {
+          "order": 3,
+          "content": "Simulate API delay with timeout."
+        },
+        {
+          "order": 4,
+          "content": "Transform mock draft data into simplified list format."
+        },
+        {
+          "order": 5,
+          "content": "Update drafts state with fetched data."
+        },
+        {
+          "order": 6,
+          "content": "Handle errors during fetch by setting error state."
+        },
+        {
+          "order": 7,
+          "content": "Set loading state to false after fetch completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e5f4078",
+      "name": "refresh",
+      "enclosing_class": "useDrafts",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the fetch drafts function to refresh the list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7e7c2ac",
+      "name": "useDraft",
+      "enclosing_class": null,
+      "normalized_params": "(topicName: string): UseDraftReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for draft data, diff, loading, and error."
+        },
+        {
+          "order": 2,
+          "content": "Define async function to fetch a specific draft from mock data."
+        },
+        {
+          "order": 3,
+          "content": "IF topic name is empty, clear draft and diff state and set loading to false."
+        },
+        {
+          "order": 4,
+          "content": "Set loading state to true before fetching."
+        },
+        {
+          "order": 5,
+          "content": "Simulate API delay with timeout."
+        },
+        {
+          "order": 6,
+          "content": "Look up draft data for the specified topic."
+        },
+        {
+          "order": 7,
+          "content": "IF draft data is not found, clear draft and diff state and set loading to false."
+        },
+        {
+          "order": 8,
+          "content": "Update draft state with fetched data."
+        },
+        {
+          "order": 9,
+          "content": "Calculate diff statistics between current and draft documents."
+        },
+        {
+          "order": 10,
+          "content": "Update diff state with calculated statistics."
+        },
+        {
+          "order": 11,
+          "content": "Handle errors during fetch by setting error state."
+        },
+        {
+          "order": 12,
+          "content": "Set loading state to false after fetch completes."
+        },
+        {
+          "order": 13,
+          "content": "Fetch draft on component mount or topic name change."
+        },
+        {
+          "order": 14,
+          "content": "Return draft data, diff, loading state, error, and action functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4e2af680",
+      "name": "fetchDraft",
+      "enclosing_class": "useDraft",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF topic name is empty, clear draft and diff state and set loading to false."
+        },
+        {
+          "order": 2,
+          "content": "Set loading state to true before fetching."
+        },
+        {
+          "order": 3,
+          "content": "Simulate API delay with timeout."
+        },
+        {
+          "order": 4,
+          "content": "Look up draft data for the specified topic."
+        },
+        {
+          "order": 5,
+          "content": "IF draft data is not found, clear draft and diff state and set loading to false."
+        },
+        {
+          "order": 6,
+          "content": "Update draft state with fetched data."
+        },
+        {
+          "order": 7,
+          "content": "Calculate diff statistics between current and draft documents."
+        },
+        {
+          "order": 8,
+          "content": "Update diff state with calculated statistics."
+        },
+        {
+          "order": 9,
+          "content": "Handle errors during fetch by setting error state."
+        },
+        {
+          "order": 10,
+          "content": "Set loading state to false after fetch completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dad1f17b",
+      "name": "approve",
+      "enclosing_class": "useDraft",
+      "normalized_params": "(approvedBy: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no draft is loaded, return early."
+        },
+        {
+          "order": 2,
+          "content": "Simulate API delay with timeout."
+        },
+        {
+          "order": 3,
+          "content": "Log approval action with approver name."
+        },
+        {
+          "order": 4,
+          "content": "Clear draft and diff state after successful approval."
+        },
+        {
+          "order": 5,
+          "content": "Handle errors during approval by setting error state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cb84eab6",
+      "name": "reject",
+      "enclosing_class": "useDraft",
+      "normalized_params": "(rejectedBy: string, reason?: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no draft is loaded, return early."
+        },
+        {
+          "order": 2,
+          "content": "Simulate API delay with timeout."
+        },
+        {
+          "order": 3,
+          "content": "Log rejection action with rejector name and optional reason."
+        },
+        {
+          "order": 4,
+          "content": "Clear draft and diff state after successful rejection."
+        },
+        {
+          "order": 5,
+          "content": "Handle errors during rejection by setting error state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9b733a6",
+      "name": "calculateDiffStats",
+      "enclosing_class": null,
+      "normalized_params": "(current: string, draft: string): { additions: number; deletions: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split current document into lines."
+        },
+        {
+          "order": 2,
+          "content": "Split draft document into lines."
+        },
+        {
+          "order": 3,
+          "content": "Create sets of trimmed lines for current and draft documents."
+        },
+        {
+          "order": 4,
+          "content": "Count lines in draft that are not present in current as additions."
+        },
+        {
+          "order": 5,
+          "content": "Count lines in current that are not present in draft as deletions."
+        },
+        {
+          "order": 6,
+          "content": "Return calculated additions and deletions counts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

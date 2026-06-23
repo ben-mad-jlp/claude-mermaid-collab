@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/interactive/Tabs.tsx",
+  "title": "Tabbed interface component with keyboard navigation and multiple variants",
+  "purpose": "Provides a reusable tab component that supports different visual styles, keyboard navigation, and accessibility features for switching between content sections.",
+  "module_context": "Exports a Tabs component that accepts tab configuration, active tab state, and change handlers. Includes TypeScript interfaces for tab content and component props.",
+  "methods": [
+    {
+      "id": "m_d9aee1a1",
+      "name": "Tabs",
+      "enclosing_class": null,
+      "normalized_params": "(props: TabsProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the active tab state with the provided active tab or first tab."
+        },
+        {
+          "order": 2,
+          "content": "Define a handler for tab changes that updates state and calls the provided change callback."
+        },
+        {
+          "order": 3,
+          "content": "Define a keyboard handler for arrow key navigation that moves between tabs."
+        },
+        {
+          "order": 4,
+          "content": "Render the tab navigation bar with appropriate styling based on the selected variant."
+        },
+        {
+          "order": 5,
+          "content": "Render the content panel for the currently active tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4363c6ad",
+      "name": "handleTabChange",
+      "enclosing_class": "Tabs",
+      "normalized_params": "(tabId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the target tab is not disabled."
+        },
+        {
+          "order": 2,
+          "content": "Update the active tab state to the target tab."
+        },
+        {
+          "order": 3,
+          "content": "Call the provided tab change handler with the target tab ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a9d1d3be",
+      "name": "handleKeyDown",
+      "enclosing_class": "Tabs",
+      "normalized_params": "(e: React.KeyboardEvent, tabId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the index of the current tab in the tabs array."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the next tab index based on arrow key input."
+        },
+        {
+          "order": 3,
+          "content": "Prevent default behavior for arrow key events."
+        },
+        {
+          "order": 4,
+          "content": "If the next tab is not disabled, trigger a tab change to that tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

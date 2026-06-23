@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/JsonViewer.tsx",
+  "title": "JSON viewer component with expandable nodes and copy functionality",
+  "purpose": "Displays JSON data in an interactive tree view with expand/collapse controls and copy-to-clipboard capability. Used to visualize structured data in a user-friendly format.",
+  "module_context": "Exports a JsonViewer component that accepts JSON data and displays it with expandable nodes, copy functionality, and accessibility features. Includes a nested JsonNode component for rendering individual data nodes.",
+  "methods": [
+    {
+      "id": "m_776132df",
+      "name": "JsonNode",
+      "enclosing_class": null,
+      "normalized_params": "(props: NodeProps): React.FC<NodeProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the expansion state based on the provided expand depth or default to expanded at root level."
+        },
+        {
+          "order": 2,
+          "content": "Determine if the current value is an object or array and whether it should show a toggle button."
+        },
+        {
+          "order": 3,
+          "content": "Render primitive values with appropriate color coding for different types."
+        },
+        {
+          "order": 4,
+          "content": "For objects and arrays, render the key and opening brace/bracket with toggle button if applicable."
+        },
+        {
+          "order": 5,
+          "content": "If expanded and not empty, recursively render child nodes with incremented depth."
+        },
+        {
+          "order": 6,
+          "content": "Render the closing brace/bracket when expanded and not empty."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7f021fcc",
+      "name": "handleCopy",
+      "enclosing_class": "JsonViewer",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to write the formatted JSON string to the clipboard."
+        },
+        {
+          "order": 2,
+          "content": "Set the copied state to true upon successful copy operation."
+        },
+        {
+          "order": 3,
+          "content": "Schedule a timeout to reset the copied state after 2 seconds."
+        },
+        {
+          "order": 4,
+          "content": "IF the copy operation fails, log an error to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ad936f5",
+      "name": "JsonViewer",
+      "enclosing_class": null,
+      "normalized_params": "(props: JsonViewerProps): React.FC<JsonViewerProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the copied state for tracking copy operation status."
+        },
+        {
+          "order": 2,
+          "content": "Build the header section with title and copy button."
+        },
+        {
+          "order": 3,
+          "content": "Render the JSON content area with appropriate styling and overflow handling."
+        },
+        {
+          "order": 4,
+          "content": "IF the data is empty, display a message indicating no content."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render the root JsonNode component with initial parameters."
+        },
+        {
+          "order": 6,
+          "content": "Display footer statistics including key count and maximum depth."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

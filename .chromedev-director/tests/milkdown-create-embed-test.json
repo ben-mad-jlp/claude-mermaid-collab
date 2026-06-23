@@ -1,0 +1,25 @@
+{
+  "id": "milkdown-create-embed-test",
+  "name": "milkdown-create-embed-test",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1000
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='impl-wave-17-19'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "({embedNodes: document.querySelectorAll('.milkdown [data-embed-kind], .milkdown [data-node-type=diagramEmbed], .milkdown [class*=diagram-embed]').length, hasContent: !!document.querySelector('.ProseMirror'), contentText: (document.querySelector('.ProseMirror')?.innerText||'').slice(0,300)})",
+        "as": "check"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:46:00.532Z",
+  "updatedAt": "2026-04-18T18:46:00.532Z"
+}

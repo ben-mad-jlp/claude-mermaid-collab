@@ -1,0 +1,25 @@
+{
+  "id": "tab-switch-document-load-bug-hunt",
+  "name": "Tab Switch Document Load Bug Hunt",
+  "description": "Opens 4 documents as permanent tabs (double-click), then runs tab-switch patterns (sequential, reverse, rapid-burst, sidebar-reopen) and compares active tab to editor title after each switch.",
+  "tags": [
+    "bug-hunt",
+    "tab-switching"
+  ],
+  "definition": {
+    "url": "http://localhost:9102/",
+    "steps": [
+      {
+        "wait": 1500,
+        "label": "initial load"
+      },
+      {
+        "eval": "(async()=>{const sleep=ms=>new Promise(r=>setTimeout(r,ms));const q=s=>document.querySelector(s);const qa=s=>[...document.querySelectorAll(s)];const norm=s=>(s||'').replace(/[^a-zA-Z0-9-]/g,'').trim();q('[data-testid=session-selector]').click();await sleep(300);const opt=qa('[data-testid=session-dropdown] [role=option]').find(e=>/foundational-docs/.test(e.textContent||''));if(!opt)throw new Error('no foundational-docs option');opt.click();await sleep(1500);const dbl=el=>{el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));el.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));el.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:2}));el.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,detail:2}));};const ids=['design-milkdown-parity','review-bugs-milkdown-parity','review-completeness-milkdown-parity','bp-milkdown-parity'];for(const id of ids){const n=q('[data-node-id=\"'+id+'\"]');if(!n)throw new Error('sidebar missing '+id);dbl(n);await sleep(400);}const tabs=()=>qa('[data-testid=tab-bar] [role=tab]');const getActive=()=>{const a=q('[data-testid=tab-bar] [role=tab][class*=accent]');return a?norm(a.textContent):null;};const getTitle=()=>{const el=q('[data-testid=editor-toolbar-title]');return el?norm(el.textContent):null;};const expNames=ids.map(norm);const report={tabsOpened:tabs().map(t=>norm(t.textContent)),steps:[],mismatches:[]};const verify=(label,expected)=>{const active=getActive();const title=getTitle();const s={label,active,title};if(expected)s.expected=expected;const issues=[];if(active&&title&&active!==title)issues.push('tab-title-mismatch');if(expected&&active!==expected)issues.push('active-not-expected');if(expected&&title&&title!==expected)issues.push('title-not-expected');if(issues.length){s.issues=issues;report.mismatches.push(s);}report.steps.push(s);};const patterns=[{name:'A-seq',ops:[0,1,2,3]},{name:'B-rev',ops:[3,2,1,0]},{name:'C-ping',ops:[2,0,3,1]}];for(const p of patterns){for(let i=0;i<p.ops.length;i++){const idx=p.ops[i];const t=tabs()[idx];if(!t){report.mismatches.push({label:p.name+'-idx'+idx,issue:'tab-missing'});continue;}t.click();await sleep(280);verify(p.name+'-i'+i+'(idx'+idx+')',expNames[idx]);}}const tt=tabs();for(let i=0;i<tt.length;i++)tt[i].click();await sleep(1200);verify('D-rapid-burst-end',expNames[tt.length-1]);{const n=q('[data-node-id=\"design-milkdown-parity\"]');if(n){n.click();await sleep(500);verify('F-sidebar-reopen-existing',expNames[0]);}}return JSON.stringify(report,null,2);})()",
+        "as": "report",
+        "label": "run all patterns"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T22:26:50.726Z",
+  "updatedAt": "2026-04-18T22:26:50.726Z"
+}

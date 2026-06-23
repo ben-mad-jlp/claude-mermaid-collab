@@ -1,0 +1,104 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/mobile/MobilePreviewTab.tsx",
+  "title": "Mobile preview tab with item drawer integration",
+  "purpose": "Provides a full-screen preview interface for diagrams and documents on mobile devices, with a slide-up drawer for browsing items.",
+  "module_context": "Exports a MobilePreviewTab component that manages item selection, displays previews, and controls an item drawer. Uses Zustand for state management and includes data loading hooks.",
+  "methods": [
+    {
+      "id": "m_bfe92aa6",
+      "name": "MobilePreviewTab",
+      "enclosing_class": null,
+      "normalized_params": "(props: MobilePreviewTabProps): React.FC<MobilePreviewTabProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for drawer open status."
+        },
+        {
+          "order": 2,
+          "content": "Extract session data and data loading functions from the store."
+        },
+        {
+          "order": 3,
+          "content": "Combine diagrams and documents into a single items array sorted by last modified time."
+        },
+        {
+          "order": 4,
+          "content": "Determine the currently selected item based on diagram or document ID."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to handle item selection and update the store."
+        },
+        {
+          "order": 6,
+          "content": "Automatically open the drawer if no item is selected and items exist."
+        },
+        {
+          "order": 7,
+          "content": "Render the top bar with item name, type icon, and browse button when an item is selected."
+        },
+        {
+          "order": 8,
+          "content": "Render the appropriate preview component (Mermaid or Markdown) based on item type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad45de4a",
+      "name": "handleItemSelect",
+      "enclosing_class": "MobilePreviewTab",
+      "normalized_params": "(item: Item): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a session is active."
+        },
+        {
+          "order": 2,
+          "content": "IF the selected item is a diagram, load the diagram with content."
+        },
+        {
+          "order": 3,
+          "content": "ELSE load the document with content."
+        },
+        {
+          "order": 4,
+          "content": "Close the item drawer after selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2c6d9c7",
+      "name": "getItemTypeIcon",
+      "enclosing_class": "MobilePreviewTab",
+      "normalized_params": "(): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the selected item is a diagram, return a diagram type icon."
+        },
+        {
+          "order": 2,
+          "content": "ELSE return a document type icon."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

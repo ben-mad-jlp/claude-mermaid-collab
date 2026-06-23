@@ -1,0 +1,60 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/index.ts",
+  "title": "Agent chat component exports",
+  "purpose": "Exports the main agent chat components and their type definitions for use in other parts of the application.",
+  "module_context": "This file serves as a barrel export for the agent chat UI components, making them easily importable as a group.",
+  "methods": [
+    {
+      "id": "m_7825353e",
+      "name": "AgentChat",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the main AgentChat component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e6ffbecd",
+      "name": "MessageList",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the MessageList component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_636a1a79",
+      "name": "TurnInput",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TurnInput component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

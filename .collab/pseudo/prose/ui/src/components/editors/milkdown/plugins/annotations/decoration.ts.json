@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/annotations/decoration.ts",
+  "title": "ProseMirror plugin for rendering annotation highlights as inline decorations",
+  "purpose": "Provides a ProseMirror plugin that manages annotation highlights in the editor by creating inline decorations based on annotation data and document changes.",
+  "module_context": "Exports a plugin key, a meta setter function, and a plugin factory function. The plugin maintains a decoration set derived from annotations and updates it when the document changes or annotations are explicitly set.",
+  "methods": [
+    {
+      "id": "m_1b8cf06f",
+      "name": "setAnnotationsMeta",
+      "enclosing_class": null,
+      "normalized_params": "(tr: Transaction, annotations: Annotation[]): Transaction",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attach the annotations array to the transaction using the setAnnotations meta key."
+        },
+        {
+          "order": 2,
+          "content": "Return the transaction with the meta information included."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_94e6496d",
+      "name": "buildDecorations",
+      "enclosing_class": null,
+      "normalized_params": "(doc: ProseMirrorNode, annotations: Annotation[]): DecorationSet",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to hold decoration objects."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each annotation in the annotations array."
+        },
+        {
+          "order": 3,
+          "content": "Resolve the anchor position for each annotation within the document."
+        },
+        {
+          "order": 4,
+          "content": "IF the anchor resolution fails or results in a zero-length range, skip this annotation."
+        },
+        {
+          "order": 5,
+          "content": "Create an inline decoration for the resolved range with appropriate CSS classes and data attributes."
+        },
+        {
+          "order": 6,
+          "content": "Add the decoration to the array of decorations."
+        },
+        {
+          "order": 7,
+          "content": "Construct and return a DecorationSet from the document and collected decorations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a67ec2d7",
+      "name": "createAnnotationsPlugin",
+      "enclosing_class": null,
+      "normalized_params": "(getAnnotations: () => Annotation[]): Plugin<AnnotationsPluginState>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new ProseMirror plugin with the annotations plugin key."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the plugin state with current annotations and their corresponding decorations."
+        },
+        {
+          "order": 3,
+          "content": "Define the apply function to handle transaction updates."
+        },
+        {
+          "order": 4,
+          "content": "IF the transaction contains setAnnotations meta, update the state with new annotations and rebuild decorations."
+        },
+        {
+          "order": 5,
+          "content": "IF the document has changed, re-read annotations from the host reference and rebuild decorations."
+        },
+        {
+          "order": 6,
+          "content": "Return the unchanged state if no relevant changes occurred."
+        },
+        {
+          "order": 7,
+          "content": "Set up the decorations property to return the current plugin state's decorations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

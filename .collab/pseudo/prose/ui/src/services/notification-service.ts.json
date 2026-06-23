@@ -1,0 +1,83 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/services/notification-service.ts",
+  "title": "Browser notification service for Claude input prompts",
+  "purpose": "Manages browser notifications for Claude's user input requests, handling permission flows and displaying alerts when tabs are not focused.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_da6924b5",
+      "name": "requestNotificationPermission",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<NotificationPermission>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the Notification API is available in the browser."
+        },
+        {
+          "order": 2,
+          "content": "IF the API is not available, log a warning and return 'denied'."
+        },
+        {
+          "order": 3,
+          "content": "IF permission is already granted or denied, return the current permission status."
+        },
+        {
+          "order": 4,
+          "content": "ELSE request permission from the user via the Notification API."
+        },
+        {
+          "order": 5,
+          "content": "IF permission request succeeds, return the granted permission."
+        },
+        {
+          "order": 6,
+          "content": "IF permission request fails, log the error and return 'denied'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d02efb2b",
+      "name": "showUserInputNotification",
+      "enclosing_class": null,
+      "normalized_params": "(uiId: string): Notification | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the Notification API is available in the browser."
+        },
+        {
+          "order": 2,
+          "content": "IF the API is not available, log a warning and return undefined."
+        },
+        {
+          "order": 3,
+          "content": "IF notification permission is not granted, log a warning and return undefined."
+        },
+        {
+          "order": 4,
+          "content": "ELSE attempt to create a new notification with title, body, icon, and tag."
+        },
+        {
+          "order": 5,
+          "content": "IF notification creation succeeds, return the notification instance."
+        },
+        {
+          "order": 6,
+          "content": "IF notification creation fails, log the error and return undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

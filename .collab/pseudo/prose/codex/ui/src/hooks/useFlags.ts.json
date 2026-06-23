@@ -1,0 +1,216 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/hooks/useFlags.ts",
+  "title": "Flags management hook with filtering and status actions",
+  "purpose": "Provides access to flag data with filtering capabilities and actions to resolve, dismiss, or reopen flags. Mocks API calls with simulated delays.",
+  "module_context": "Exports a hook function 'useFlags' that manages flag state and provides action handlers. Includes mock data for flags and a filtering utility function.",
+  "methods": [
+    {
+      "id": "m_da481e6c",
+      "name": "filterFlags",
+      "enclosing_class": null,
+      "normalized_params": "(flags: Flag[], filters?: FlagFilters): Flag[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no filters are provided, return all flags unchanged."
+        },
+        {
+          "order": 2,
+          "content": "Filter flags by status if a status filter is provided."
+        },
+        {
+          "order": 3,
+          "content": "Filter flags by topic name if a topic name filter is provided."
+        },
+        {
+          "order": 4,
+          "content": "Return the filtered list of flags that match all provided criteria."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_38a1c2c5",
+      "name": "useFlags",
+      "enclosing_class": null,
+      "normalized_params": "(filters?: FlagFilters): UseFlagsReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for flags list, loading status, and error state."
+        },
+        {
+          "order": 2,
+          "content": "Define an asynchronous function to fetch flags with simulated API delay."
+        },
+        {
+          "order": 3,
+          "content": "Apply provided filters to mock flag data during fetch."
+        },
+        {
+          "order": 4,
+          "content": "Set the fetched and filtered flags into state upon successful fetch."
+        },
+        {
+          "order": 5,
+          "content": "Handle errors during fetch by setting error state."
+        },
+        {
+          "order": 6,
+          "content": "Trigger the fetch function on component mount and when filters change."
+        },
+        {
+          "order": 7,
+          "content": "Return an object containing flags, loading state, error state, and action functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d324631",
+      "name": "fetchFlags",
+      "enclosing_class": "useFlags",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to true before starting the fetch."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing error state before starting the fetch."
+        },
+        {
+          "order": 3,
+          "content": "Simulate an API delay using a timeout."
+        },
+        {
+          "order": 4,
+          "content": "Apply the provided filters to the mock flags data."
+        },
+        {
+          "order": 5,
+          "content": "Update the flags state with the filtered results."
+        },
+        {
+          "order": 6,
+          "content": "IF the fetch fails, set the error state with the caught error."
+        },
+        {
+          "order": 7,
+          "content": "Set the loading state to false after the fetch completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_616cb8f7",
+      "name": "refresh",
+      "enclosing_class": "useFlags",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trigger the fetch flags function to reload the flags list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_55359e5a",
+      "name": "resolve",
+      "enclosing_class": "useFlags",
+      "normalized_params": "(flagId: number, _resolvedBy: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Simulate an API call with a timeout."
+        },
+        {
+          "order": 2,
+          "content": "Update the state of the specified flag to resolved status."
+        },
+        {
+          "order": 3,
+          "content": "Set the resolved timestamp for the flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b32a772b",
+      "name": "dismiss",
+      "enclosing_class": "useFlags",
+      "normalized_params": "(flagId: number, _dismissedBy: string, reason?: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Simulate an API call with a timeout."
+        },
+        {
+          "order": 2,
+          "content": "Update the state of the specified flag to dismissed status."
+        },
+        {
+          "order": 3,
+          "content": "Set the dismissal reason for the flag if provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4f565e79",
+      "name": "reopen",
+      "enclosing_class": "useFlags",
+      "normalized_params": "(flagId: number, _reopenedBy: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Simulate an API call with a timeout."
+        },
+        {
+          "order": 2,
+          "content": "Update the state of the specified flag to open status."
+        },
+        {
+          "order": 3,
+          "content": "Clear the resolved timestamp for the flag."
+        },
+        {
+          "order": 4,
+          "content": "Clear the dismissal reason for the flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

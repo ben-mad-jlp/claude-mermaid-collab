@@ -1,0 +1,129 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/layout/Accordion.tsx",
+  "title": "Accordion component with expand/collapse sections and multiple styling variants",
+  "purpose": "Provides a collapsible section UI component that supports single or multiple open sections with different styling options and dark mode support.",
+  "module_context": "Exports an Accordion component that accepts sections with titles and content, manages expanded state, and applies variant-specific styling classes. Includes a helper AccordionContent component for rendering content.",
+  "methods": [
+    {
+      "id": "m_e41988b1",
+      "name": "getVariantClasses",
+      "enclosing_class": null,
+      "normalized_params": "(variant: string): { container: string; section: string; header: string; content: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select styling classes based on the provided variant type."
+        },
+        {
+          "order": 2,
+          "content": "Return container, section, header, and content class strings for flush variant."
+        },
+        {
+          "order": 3,
+          "content": "Return container, section, header, and content class strings for outlined variant."
+        },
+        {
+          "order": 4,
+          "content": "Return container, section, header, and content class strings for default variant."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ca780e6d",
+      "name": "Accordion",
+      "enclosing_class": null,
+      "normalized_params": "(props: AccordionComponentProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize expanded section IDs based on initial section states."
+        },
+        {
+          "order": 2,
+          "content": "IF the accordion is hidden or has no sections, return null."
+        },
+        {
+          "order": 3,
+          "content": "Define a toggle handler that updates expanded IDs based on multiple allowed setting."
+        },
+        {
+          "order": 4,
+          "content": "Apply variant-specific styling classes to container and section elements."
+        },
+        {
+          "order": 5,
+          "content": "Render each section with its header and content area."
+        },
+        {
+          "order": 6,
+          "content": "Handle click events on section headers to toggle their expanded state."
+        },
+        {
+          "order": 7,
+          "content": "Display section content when expanded, with fallback for missing content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3c46fa09",
+      "name": "handleToggle",
+      "enclosing_class": "Accordion",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of expanded section IDs based on current state and multiple allowed setting."
+        },
+        {
+          "order": 2,
+          "content": "IF multiple sections are allowed, toggle the clicked section in the list."
+        },
+        {
+          "order": 3,
+          "content": "ELSE if multiple sections are not allowed, clear all expanded sections and expand only the clicked one."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_affb69c4",
+      "name": "AccordionContent",
+      "enclosing_class": null,
+      "normalized_params": "(props: { content: UIComponent }): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render string content directly within a paragraph element."
+        },
+        {
+          "order": 2,
+          "content": "IF content is an object with props and a content property, render that property."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the JSON string representation of the content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

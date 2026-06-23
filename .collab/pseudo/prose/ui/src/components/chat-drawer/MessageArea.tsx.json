@@ -1,0 +1,121 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/chat-drawer/MessageArea.tsx",
+  "title": "Chat message area component with artifact notification support",
+  "purpose": "Displays chat messages with different rendering logic based on message type and includes artifact navigation links for artifact notifications.",
+  "module_context": "Exports a React functional component MessageArea that accepts messages and action handlers, and uses viewer store for artifact navigation.",
+  "methods": [
+    {
+      "id": "m_3e62a89f",
+      "name": "hasArtifactData",
+      "enclosing_class": null,
+      "normalized_params": "(message: ChatMessage): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the message type is notification."
+        },
+        {
+          "order": 2,
+          "content": "IF the message is a notification, verify it contains artifact type, id, and name."
+        },
+        {
+          "order": 3,
+          "content": "Return true if all artifact data fields are present, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd78f340",
+      "name": "getArtifactData",
+      "enclosing_class": null,
+      "normalized_params": "(message: ChatMessage): { type: string; artifactType: string; id: string; name: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the message has a response field."
+        },
+        {
+          "order": 2,
+          "content": "IF there is no response, return null."
+        },
+        {
+          "order": 3,
+          "content": "Extract and return the artifact type, id, name, and type from the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c338594f",
+      "name": "MessageArea",
+      "enclosing_class": null,
+      "normalized_params": "(props: MessageAreaProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the navigateToArtifact function from the viewer store."
+        },
+        {
+          "order": 2,
+          "content": "Define a handler for artifact clicks that navigates to the artifact."
+        },
+        {
+          "order": 3,
+          "content": "Map over each message in the messages array."
+        },
+        {
+          "order": 4,
+          "content": "For each message, determine if it contains artifact data."
+        },
+        {
+          "order": 5,
+          "content": "Extract artifact data if present."
+        },
+        {
+          "order": 6,
+          "content": "Determine if the message should be rendered as a log based on responded or canceled status."
+        },
+        {
+          "order": 7,
+          "content": "Render the message header with timestamp and status badges."
+        },
+        {
+          "order": 8,
+          "content": "Render the message content with appropriate component based on message type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_98631256",
+      "name": "handleArtifactClick",
+      "enclosing_class": "MessageArea",
+      "normalized_params": "(id: string, type: 'document' | 'diagram'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Navigate to the artifact using the artifact ID and type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

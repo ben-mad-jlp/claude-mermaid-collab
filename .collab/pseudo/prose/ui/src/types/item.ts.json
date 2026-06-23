@@ -1,0 +1,275 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/item.ts",
+  "title": "Unified item type definitions and utilities for sidebar and editor components",
+  "purpose": "Provides type definitions and utility functions for handling all artifact types (diagrams, documents, designs, spreadsheets, snippets) in a unified way across the UI.",
+  "module_context": "Exports ItemType union type, ItemMetadata interface, Item interface, and various type guard functions to validate artifact types. Also provides utility functions for getting item labels, icons, colors, and toolbar actions.",
+  "methods": [
+    {
+      "id": "m_d985e821",
+      "name": "isItem",
+      "enclosing_class": null,
+      "normalized_params": "(value: unknown): value is Item",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the provided value is an object and not null."
+        },
+        {
+          "order": 2,
+          "content": "Cast the value to a record type for property access."
+        },
+        {
+          "order": 3,
+          "content": "Verify that the id property is a string."
+        },
+        {
+          "order": 4,
+          "content": "Verify that the name property is a string."
+        },
+        {
+          "order": 5,
+          "content": "Verify that the content property is a string."
+        },
+        {
+          "order": 6,
+          "content": "Verify that the lastModified property is a number."
+        },
+        {
+          "order": 7,
+          "content": "Verify that the type property is a valid ItemType using isItemType function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84301950",
+      "name": "isItemType",
+      "enclosing_class": null,
+      "normalized_params": "(value: unknown): value is ItemType",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the provided value matches any of the valid ItemType literals."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_57a7b461",
+      "name": "isDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(item: Item): item is Item & { type: 'diagram' }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the item's type property equals 'diagram'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1861984f",
+      "name": "isDocument",
+      "enclosing_class": null,
+      "normalized_params": "(item: Item): item is Item & { type: 'document' }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the item's type property equals 'document'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fb276c46",
+      "name": "isDesign",
+      "enclosing_class": null,
+      "normalized_params": "(item: Item): item is Item & { type: 'design' }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the item's type property equals 'design'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6fd6c4ab",
+      "name": "isSpreadsheet",
+      "enclosing_class": null,
+      "normalized_params": "(item: Item): item is Item & { type: 'spreadsheet' }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the item's type property equals 'spreadsheet'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_562c344f",
+      "name": "isSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(item: Item): item is Item & { type: 'snippet' }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the item's type property equals 'snippet'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a76d300a",
+      "name": "isImage",
+      "enclosing_class": null,
+      "normalized_params": "(item: Item): item is Item & { type: 'image' }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the item's type property equals 'image'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a35b379",
+      "name": "getItemLabel",
+      "enclosing_class": null,
+      "normalized_params": "(type: ItemType): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the provided item type to its corresponding human-readable label."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a17fca38",
+      "name": "getItemIconPath",
+      "enclosing_class": null,
+      "normalized_params": "(type: ItemType): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the SVG path data for the icon corresponding to the provided item type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b74ed559",
+      "name": "getItemIconViewBox",
+      "enclosing_class": null,
+      "normalized_params": "(type: ItemType): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the SVG viewBox for the icon corresponding to the provided item type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf2d1d8f",
+      "name": "getItemIconSvg",
+      "enclosing_class": null,
+      "normalized_params": "(type: ItemType): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate and return the SVG HTML string for the icon corresponding to the provided item type."
+        },
+        {
+          "order": 2,
+          "content": "IF the item type is 'design', include a rectangle element in the SVG."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6b54ee52",
+      "name": "getItemColor",
+      "enclosing_class": null,
+      "normalized_params": "(type: ItemType): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the CSS color name for the provided item type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1f18f509",
+      "name": "getItemColorValue",
+      "enclosing_class": null,
+      "normalized_params": "(type: ItemType): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the CSS color value for the provided item type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

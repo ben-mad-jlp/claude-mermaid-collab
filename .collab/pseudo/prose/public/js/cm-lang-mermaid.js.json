@@ -1,0 +1,147 @@
+{
+  "schema_version": 3,
+  "file": "public/js/cm-lang-mermaid.js",
+  "title": "CodeMirror 6 language support for Mermaid diagrams",
+  "purpose": "Provides syntax highlighting and tokenization for Mermaid diagram code in CodeMirror 6 editor.",
+  "module_context": "Defines a StreamLanguage configuration for Mermaid syntax with custom tokenization rules for diagram types, keywords, operators, strings, numbers, and other elements.",
+  "methods": [
+    {
+      "id": "m_fa963011",
+      "name": "token",
+      "enclosing_class": "mermaidLanguage",
+      "normalized_params": "(stream: any, state: any): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Match and return comment tokens when %% is encountered."
+        },
+        {
+          "order": 2,
+          "content": "Match and return string tokens for double or single quoted text."
+        },
+        {
+          "order": 3,
+          "content": "Match and return string tokens for text within brackets, parentheses, or braces."
+        },
+        {
+          "order": 4,
+          "content": "Match and return keyword tokens for diagram type keywords at line start or after whitespace."
+        },
+        {
+          "order": 5,
+          "content": "Match and return atom tokens for direction keywords."
+        },
+        {
+          "order": 6,
+          "content": "Match and return keyword tokens for sequence diagram keywords."
+        },
+        {
+          "order": 7,
+          "content": "Match and return keyword tokens for flowchart and graph keywords."
+        },
+        {
+          "order": 8,
+          "content": "Match and return keyword tokens for class diagram keywords."
+        },
+        {
+          "order": 9,
+          "content": "Match and return keyword tokens for state diagram keywords."
+        },
+        {
+          "order": 10,
+          "content": "Match and return keyword tokens for ER diagram keywords."
+        },
+        {
+          "order": 11,
+          "content": "Match and return keyword tokens for Gantt chart keywords."
+        },
+        {
+          "order": 12,
+          "content": "Match and return keyword tokens for pie chart keywords."
+        },
+        {
+          "order": 13,
+          "content": "Match and return keyword tokens for common keywords."
+        },
+        {
+          "order": 14,
+          "content": "Match and return def tokens for style definition keywords."
+        },
+        {
+          "order": 15,
+          "content": "Match and return operator tokens for arrow operators in various formats."
+        },
+        {
+          "order": 16,
+          "content": "Match and return operator tokens for ER diagram relationships."
+        },
+        {
+          "order": 17,
+          "content": "Match and return bracket tokens for node shape brackets."
+        },
+        {
+          "order": 18,
+          "content": "Match and return number tokens for hex color values."
+        },
+        {
+          "order": 19,
+          "content": "Match and return number tokens for numbers with optional units."
+        },
+        {
+          "order": 20,
+          "content": "Match and return number tokens for dates."
+        },
+        {
+          "order": 21,
+          "content": "Match and return number tokens for duration values."
+        },
+        {
+          "order": 22,
+          "content": "Match and return atom tokens for state and condition keywords."
+        },
+        {
+          "order": 23,
+          "content": "Match and return atom tokens for special state markers."
+        },
+        {
+          "order": 24,
+          "content": "Match and return variable tokens for identifiers and node IDs."
+        },
+        {
+          "order": 25,
+          "content": "Match and return punctuation tokens for separators."
+        },
+        {
+          "order": 26,
+          "content": "Skip whitespace and track its presence in the state."
+        },
+        {
+          "order": 27,
+          "content": "Advance the stream and return null for unrecognized characters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_371d5633",
+      "name": "startState",
+      "enclosing_class": "mermaidLanguage",
+      "normalized_params": "(): { afterWhitespace: boolean }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize and return the state object with afterWhitespace set to true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

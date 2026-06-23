@@ -1,0 +1,188 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/EdgeContextMenu.tsx",
+  "title": "Diagram edge context menu with edit, change, and delete options",
+  "purpose": "Provides a context menu for diagram edges that allows users to edit labels, change origins or destinations, and delete edges.",
+  "module_context": "Exports a React component EdgeContextMenu that renders a dropdown menu with menu items for editing edge properties and a divider for visual separation. Also exports helper components MenuItem and Divider.",
+  "methods": [
+    {
+      "id": "m_55dfaadf",
+      "name": "EdgeContextMenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: EdgeContextMenuProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a reference to the menu DOM element."
+        },
+        {
+          "order": 2,
+          "content": "Set up a click outside handler to close the menu when clicking elsewhere."
+        },
+        {
+          "order": 3,
+          "content": "Set up an escape key handler to close the menu when pressing escape."
+        },
+        {
+          "order": 4,
+          "content": "Define a handler for editing the edge label that prompts the user for input."
+        },
+        {
+          "order": 5,
+          "content": "Define a handler for changing the edge origin that notifies the parent component."
+        },
+        {
+          "order": 6,
+          "content": "Define a handler for changing the edge destination that notifies the parent component."
+        },
+        {
+          "order": 7,
+          "content": "Define a handler for deleting the edge that confirms the action with the user."
+        },
+        {
+          "order": 8,
+          "content": "Render the menu positioned at the specified coordinates with all menu items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_402a3713",
+      "name": "handleEditLabel",
+      "enclosing_class": "EdgeContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt the user to enter a new edge label."
+        },
+        {
+          "order": 2,
+          "content": "IF the user provides a label, pass it to the parent component for updating."
+        },
+        {
+          "order": 3,
+          "content": "Close the context menu after handling the label edit."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_336b7e5d",
+      "name": "handleChangeOrigin",
+      "enclosing_class": "EdgeContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Notify the parent component to enter selection mode for changing the edge origin."
+        },
+        {
+          "order": 2,
+          "content": "Close the context menu after initiating the origin change."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_39644777",
+      "name": "handleChangeDestination",
+      "enclosing_class": "EdgeContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Notify the parent component to enter selection mode for changing the edge destination."
+        },
+        {
+          "order": 2,
+          "content": "Close the context menu after initiating the destination change."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7f500d86",
+      "name": "handleDelete",
+      "enclosing_class": "EdgeContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Confirm with the user that they want to delete the edge."
+        },
+        {
+          "order": 2,
+          "content": "IF the user confirms, notify the parent component to delete the edge."
+        },
+        {
+          "order": 3,
+          "content": "Close the context menu after handling the delete action."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c5a89eb",
+      "name": "handleClickOutside",
+      "enclosing_class": "EdgeContextMenu",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click occurred outside the menu element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click was outside, close the context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dacfe4fe",
+      "name": "handleEscape",
+      "enclosing_class": "EdgeContextMenu",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for escape key presses."
+        },
+        {
+          "order": 2,
+          "content": "IF the escape key is pressed, close the context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

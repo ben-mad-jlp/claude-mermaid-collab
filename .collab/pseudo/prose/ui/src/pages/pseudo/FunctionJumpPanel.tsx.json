@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/FunctionJumpPanel.tsx",
+  "title": "Function jump panel for pseudo-code viewer with intersection observer",
+  "purpose": "Provides a navigational panel that lists functions in a pseudo-code document and highlights the currently active function based on scroll position, allowing users to jump to specific functions.",
+  "module_context": "Exports a default React component FunctionJumpPanel that accepts functions list and viewer reference as props, and uses IntersectionObserver to track active function.",
+  "methods": [
+    {
+      "id": "m_1fc29605",
+      "name": "FunctionJumpPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: FunctionJumpPanelProps): JSX.Element | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept functions list and viewer reference as props."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state for tracking the active function."
+        },
+        {
+          "order": 3,
+          "content": "Setup IntersectionObserver to detect which function is currently in view."
+        },
+        {
+          "order": 4,
+          "content": "Return null if no functions are provided."
+        },
+        {
+          "order": 5,
+          "content": "Render the function list with export indicators and click handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e63b9c47",
+      "name": "useEffect",
+      "enclosing_class": "FunctionJumpPanel",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Disconnect previous IntersectionObserver if it exists."
+        },
+        {
+          "order": 2,
+          "content": "Return early if no functions are present."
+        },
+        {
+          "order": 3,
+          "content": "Create a new IntersectionObserver to track function visibility."
+        },
+        {
+          "order": 4,
+          "content": "Observe all elements with data-function attribute."
+        },
+        {
+          "order": 5,
+          "content": "Cleanup by disconnecting the observer on unmount or function list change."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_58123ea9",
+      "name": "handler",
+      "enclosing_class": "FunctionJumpPanel",
+      "normalized_params": "(functionName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Scroll to the specified function in the pseudo-code viewer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

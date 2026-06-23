@@ -1,0 +1,352 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/SubscriptionsPanel.tsx",
+  "title": "Subscriptions panel with drag-and-drop reordering and session management",
+  "purpose": "Provides a UI component for managing subscribed sessions, allowing users to view, navigate, unsubscribe, and reorder subscriptions with drag-and-drop functionality.",
+  "module_context": "Exports a SubscriptionsPanel React component that manages subscription state and UI interactions, including drag-and-drop reordering, subscription creation, and session navigation.",
+  "methods": [
+    {
+      "id": "m_a35da212",
+      "name": "formatElapsed",
+      "enclosing_class": null,
+      "normalized_params": "(ms: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the number of seconds elapsed since the last update."
+        },
+        {
+          "order": 2,
+          "content": "IF less than 60 seconds, return the seconds value with 's' suffix."
+        },
+        {
+          "order": 3,
+          "content": "ELSE calculate the number of minutes and return with 'm' suffix if less than 60 minutes."
+        },
+        {
+          "order": 4,
+          "content": "ELSE calculate the number of hours and return with 'h' suffix, including remaining minutes if non-zero."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_441749b1",
+      "name": "useElapsed",
+      "enclosing_class": null,
+      "normalized_params": "(lastUpdate: number, status: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a state variable to track the current time."
+        },
+        {
+          "order": 2,
+          "content": "IF the subscription status is unknown, return null immediately."
+        },
+        {
+          "order": 3,
+          "content": "Set up an interval to update the current time based on elapsed time."
+        },
+        {
+          "order": 4,
+          "content": "IF elapsed time is under one minute, update every second."
+        },
+        {
+          "order": 5,
+          "content": "ELSE update every sixty seconds."
+        },
+        {
+          "order": 6,
+          "content": "Clear the interval when the component unmounts."
+        },
+        {
+          "order": 7,
+          "content": "Calculate and return the formatted elapsed time since the last update."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e17919cb",
+      "name": "SubscriptionRow",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "({ subKey, sub, onNavigate, onUnsubscribe, onDragStart, onDragOver, onDragEnd, isDragOver }: { subKey: string; sub: SubscribedSession; onNavigate: (project: string, session: string) => void; onUnsubscribe: (key: string) => void; onDragStart: (e: React.DragEvent, key: string) => void; onDragOver: (e: React.DragEvent, key: string) => void; onDragEnd: () => void; isDragOver: boolean; }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the elapsed time since the last update for the subscription."
+        },
+        {
+          "order": 2,
+          "content": "Determine the background styling based on the subscription status."
+        },
+        {
+          "order": 3,
+          "content": "Render a row displaying the project and session name."
+        },
+        {
+          "order": 4,
+          "content": "Display the elapsed time if available."
+        },
+        {
+          "order": 5,
+          "content": "Include an unsubscribe button that stops event propagation."
+        },
+        {
+          "order": 6,
+          "content": "Apply drag and drop event handlers to the row."
+        },
+        {
+          "order": 7,
+          "content": "Apply conditional styling when the row is being dragged over."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6951e31",
+      "name": "SubscriptionsPanel",
+      "enclosing_class": null,
+      "normalized_params": "({ currentProject }: SubscriptionsPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state variables for collapsed status, dropdown visibility, and drag operations."
+        },
+        {
+          "order": 2,
+          "content": "Use memoization to build an ordered list of subscriptions based on stored order."
+        },
+        {
+          "order": 3,
+          "content": "Set up drag start handler to store the dragged key."
+        },
+        {
+          "order": 4,
+          "content": "Set up drag over handler to track the drag over key and prevent default behavior."
+        },
+        {
+          "order": 5,
+          "content": "Set up drag end handler to reorder subscriptions when drag operation completes."
+        },
+        {
+          "order": 6,
+          "content": "Build a list of available sessions that are not yet subscribed to."
+        },
+        {
+          "order": 7,
+          "content": "Set up navigation handler to switch to a selected session."
+        },
+        {
+          "order": 8,
+          "content": "Set up subscription handler to add a new subscription and close the dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6f82a6c3",
+      "name": "handleDragStart",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "(e: React.DragEvent, key: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the dragged key in a ref for later use."
+        },
+        {
+          "order": 2,
+          "content": "Set the drag effect to move."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d7a6e8d7",
+      "name": "handleDragOver",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "(e: React.DragEvent, key: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag over behavior."
+        },
+        {
+          "order": 2,
+          "content": "Set the drop effect to move."
+        },
+        {
+          "order": 3,
+          "content": "Update the drag over key state to track which item is being dragged over."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_91049322",
+      "name": "handleDragEnd",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the from and to keys from refs and state."
+        },
+        {
+          "order": 2,
+          "content": "Reset the drag key ref and drag over key state."
+        },
+        {
+          "order": 3,
+          "content": "IF either key is null or keys are the same, return early."
+        },
+        {
+          "order": 4,
+          "content": "Get the ordered keys from the project subscriptions."
+        },
+        {
+          "order": 5,
+          "content": "Find the indices of the from and to keys in the ordered list."
+        },
+        {
+          "order": 6,
+          "content": "IF either index is invalid, return early."
+        },
+        {
+          "order": 7,
+          "content": "Remove the from key from its current position and insert it at the to key's position."
+        },
+        {
+          "order": 8,
+          "content": "Reorder the subscriptions using the updated key list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_408bb30d",
+      "name": "buildOrderedSubscriptions",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "(): [string, typeof subscriptions[string]][]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get all subscription keys from the subscriptions object."
+        },
+        {
+          "order": 2,
+          "content": "Filter the stored order to only include keys that exist in subscriptions."
+        },
+        {
+          "order": 3,
+          "content": "Find keys that are in subscriptions but not in the stored order."
+        },
+        {
+          "order": 4,
+          "content": "Combine the ordered keys with the unordered keys to create a complete ordered list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc957c14",
+      "name": "handleNavigate",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "(project: string, sessionName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the target session in the sessions array matching the project and session name."
+        },
+        {
+          "order": 2,
+          "content": "IF the target session exists, set it as the current session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ad4db18",
+      "name": "handleSubscribe",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "(project: string, sessionName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to the specified project and session."
+        },
+        {
+          "order": 2,
+          "content": "Close the subscription dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_befc1b85",
+      "name": "buildAvailableSessions",
+      "enclosing_class": "SubscriptionsPanel",
+      "normalized_params": "(): { project: string; name: string; displayName?: string }[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a set of keys for currently subscribed sessions."
+        },
+        {
+          "order": 2,
+          "content": "Filter the sessions to exclude those that are already subscribed."
+        },
+        {
+          "order": 3,
+          "content": "Sort the remaining sessions by project name and then by session name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

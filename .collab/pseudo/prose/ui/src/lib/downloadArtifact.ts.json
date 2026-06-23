@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/downloadArtifact.ts",
+  "title": "Artifact download utility with type-specific content handling",
+  "purpose": "Provides a function to download various types of artifacts (diagrams, documents, designs, etc.) by fetching their content and creating downloadable files.",
+  "module_context": "Exports a single async function for downloading artifacts of different types with appropriate MIME types and filenames.",
+  "methods": [
+    {
+      "id": "m_c4185476",
+      "name": "downloadArtifact",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, item: Item): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the artifact type and fetch the corresponding content from the API."
+        },
+        {
+          "order": 2,
+          "content": "IF the API fetch returns no data, exit early without creating a file."
+        },
+        {
+          "order": 3,
+          "content": "Format the content appropriately based on the artifact type, including JSON stringification for structured data."
+        },
+        {
+          "order": 4,
+          "content": "Construct a filename with appropriate extension based on the artifact type and name."
+        },
+        {
+          "order": 5,
+          "content": "Create a blob with the formatted content and specified MIME type."
+        },
+        {
+          "order": 6,
+          "content": "Generate a temporary URL for the blob and create a download link element."
+        },
+        {
+          "order": 7,
+          "content": "Trigger the browser's download mechanism by simulating a click on the link."
+        },
+        {
+          "order": 8,
+          "content": "Clean up the temporary URL and remove the link element from the DOM."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

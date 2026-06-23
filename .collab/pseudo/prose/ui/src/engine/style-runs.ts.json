@@ -1,0 +1,505 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/style-runs.ts",
+  "title": "Style run manipulation utilities for text formatting",
+  "purpose": "Provides functions to manage and manipulate style runs in text content, including applying, removing, and toggling formatting styles like bold, italic, and text decoration.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_ef4da21e",
+      "name": "getStyleAt",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], index: number): CharacterStyleOverride",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through the style runs to find the one containing the specified index."
+        },
+        {
+          "order": 2,
+          "content": "IF the index falls within a run's range, return the style associated with that run."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return an empty style object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b2db7de8",
+      "name": "expandRuns",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], textLength: number): (CharacterStyleOverride | null)[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an array of null values with length equal to the text length."
+        },
+        {
+          "order": 2,
+          "content": "For each style run, iterate through its character positions and merge its style with existing styles."
+        },
+        {
+          "order": 3,
+          "content": "Return the array of character styles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_745968a1",
+      "name": "applyStyleToRange",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, patch: CharacterStyleOverride, textLength: number): StyleRun[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Expand the existing style runs into individual character styles."
+        },
+        {
+          "order": 2,
+          "content": "For each character in the specified range, apply the patch style."
+        },
+        {
+          "order": 3,
+          "content": "Compact the character styles back into style runs."
+        },
+        {
+          "order": 4,
+          "content": "Return the updated style runs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4e5edc1a",
+      "name": "removeStyleFromRange",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, keys: (keyof CharacterStyleOverride)[], textLength: number): StyleRun[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Expand the existing style runs into individual character styles."
+        },
+        {
+          "order": 2,
+          "content": "For each character in the specified range, remove the specified style keys."
+        },
+        {
+          "order": 3,
+          "content": "If the resulting style is empty, set it to null."
+        },
+        {
+          "order": 4,
+          "content": "Compact the character styles back into style runs."
+        },
+        {
+          "order": 5,
+          "content": "Return the updated style runs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cfd0ac63",
+      "name": "selectionHasStyle",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, key: keyof CharacterStyleOverride, value: unknown): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each character in the specified range."
+        },
+        {
+          "order": 2,
+          "content": "For each character, retrieve its style and check if the specified key matches the expected value."
+        },
+        {
+          "order": 3,
+          "content": "IF any character does not match, return false."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e13ff07e",
+      "name": "stylesEqual",
+      "enclosing_class": null,
+      "normalized_params": "(a: CharacterStyleOverride | null, b: CharacterStyleOverride | null): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF both styles are identical references, return true."
+        },
+        {
+          "order": 2,
+          "content": "IF either style is null, return true only if both are null."
+        },
+        {
+          "order": 3,
+          "content": "Compare the number of keys in both styles."
+        },
+        {
+          "order": 4,
+          "content": "IF the key counts differ, return false."
+        },
+        {
+          "order": 5,
+          "content": "For each key in the first style, compare its value with the second style."
+        },
+        {
+          "order": 6,
+          "content": "IF any key value differs, return false."
+        },
+        {
+          "order": 7,
+          "content": "ELSE return true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9fdb2b65",
+      "name": "isEmptyStyle",
+      "enclosing_class": null,
+      "normalized_params": "(style: CharacterStyleOverride | null): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the style is null, return true."
+        },
+        {
+          "order": 2,
+          "content": "ELSE check if the style has any keys."
+        },
+        {
+          "order": 3,
+          "content": "IF no keys exist, return true."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ea0fad5",
+      "name": "compactRuns",
+      "enclosing_class": null,
+      "normalized_params": "(chars: (CharacterStyleOverride | null)[]): StyleRun[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty result array for style runs."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through the character styles starting from index 0."
+        },
+        {
+          "order": 3,
+          "content": "Skip any empty styles."
+        },
+        {
+          "order": 4,
+          "content": "Record the start index and style of a contiguous group."
+        },
+        {
+          "order": 5,
+          "content": "Continue until the group ends and create a style run for it."
+        },
+        {
+          "order": 6,
+          "content": "Return the compacted style runs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_57d4abd9",
+      "name": "adjustRunsForInsert",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], pos: number, insertLength: number): StyleRun[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map over each existing style run."
+        },
+        {
+          "order": 2,
+          "content": "IF the insertion position is before the run's start, shift the run's start forward."
+        },
+        {
+          "order": 3,
+          "content": "IF the insertion position is within the run's range, extend the run's length."
+        },
+        {
+          "order": 4,
+          "content": "ELSE keep the run unchanged."
+        },
+        {
+          "order": 5,
+          "content": "Return the adjusted style runs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8907d259",
+      "name": "adjustRunsForDelete",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, deleteLength: number): StyleRun[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty result array for style runs."
+        },
+        {
+          "order": 2,
+          "content": "Process each existing style run."
+        },
+        {
+          "order": 3,
+          "content": "IF the run is entirely before the deletion range, keep it unchanged."
+        },
+        {
+          "order": 4,
+          "content": "IF the run is entirely after the deletion range, shift its start backward."
+        },
+        {
+          "order": 5,
+          "content": "IF the run overlaps with the deletion range, calculate the new start and length."
+        },
+        {
+          "order": 6,
+          "content": "IF the new length is positive, add the adjusted run to the result."
+        },
+        {
+          "order": 7,
+          "content": "Return the adjusted style runs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_321c27d2",
+      "name": "toggleBoldInRange",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, nodeWeight: number, textLength: number): { runs: StyleRun[]; newWeight: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the entire selection is already bold."
+        },
+        {
+          "order": 2,
+          "content": "IF the selection is all bold, remove the bold style from the range."
+        },
+        {
+          "order": 3,
+          "content": "ELSE apply bold style to the range."
+        },
+        {
+          "order": 4,
+          "content": "Return the updated runs and the new font weight."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_99e29412",
+      "name": "selectionAllBold",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, nodeWeight: number): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each character in the specified range."
+        },
+        {
+          "order": 2,
+          "content": "For each character, retrieve its style and get the font weight."
+        },
+        {
+          "order": 3,
+          "content": "IF any character's weight is less than 700, return false."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6ef028c2",
+      "name": "toggleItalicInRange",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, nodeItalic: boolean, textLength: number): { runs: StyleRun[]; newItalic: boolean }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the entire selection is already italic."
+        },
+        {
+          "order": 2,
+          "content": "IF the selection is all italic, remove the italic style from the range."
+        },
+        {
+          "order": 3,
+          "content": "ELSE apply italic style to the range."
+        },
+        {
+          "order": 4,
+          "content": "Return the updated runs and the new italic state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_02f9f3ac",
+      "name": "selectionAllItalic",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, nodeItalic: boolean): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each character in the specified range."
+        },
+        {
+          "order": 2,
+          "content": "For each character, retrieve its style and check if it's italic."
+        },
+        {
+          "order": 3,
+          "content": "IF any character is not italic, return false."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cd9c468d",
+      "name": "toggleDecorationInRange",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, deco: TextDecoration, nodeDeco: TextDecoration, textLength: number): { runs: StyleRun[]; newDeco: TextDecoration }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the entire selection already has the specified decoration."
+        },
+        {
+          "order": 2,
+          "content": "IF the selection has the decoration, remove it from the range."
+        },
+        {
+          "order": 3,
+          "content": "ELSE apply the decoration to the range."
+        },
+        {
+          "order": 4,
+          "content": "Return the updated runs and the new decoration state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_627595d8",
+      "name": "selectionAllHasDecoration",
+      "enclosing_class": null,
+      "normalized_params": "(runs: StyleRun[], start: number, end: number, deco: TextDecoration, nodeDeco: TextDecoration): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each character in the specified range."
+        },
+        {
+          "order": 2,
+          "content": "For each character, retrieve its style and check if it has the specified decoration."
+        },
+        {
+          "order": 3,
+          "content": "IF any character does not have the decoration, return false."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

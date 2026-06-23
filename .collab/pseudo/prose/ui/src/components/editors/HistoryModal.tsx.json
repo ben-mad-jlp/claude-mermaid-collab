@@ -1,0 +1,99 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/HistoryModal.tsx",
+  "title": "History modal component with diff view and relative time formatting",
+  "purpose": "Displays a modal overlay showing the difference between historical and current content with relative timestamp formatting and keyboard/backdrop close functionality.",
+  "module_context": "Exports a HistoryModal React component that accepts props for content, timestamp, and document name, along with an onClose handler. Includes a helper function for formatting relative timestamps.",
+  "methods": [
+    {
+      "id": "m_40238969",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(isoString: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input ISO timestamp into a date object."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the time difference between now and the input date in milliseconds."
+        },
+        {
+          "order": 3,
+          "content": "Convert the time difference to seconds, minutes, hours, and days."
+        },
+        {
+          "order": 4,
+          "content": "IF the difference is less than a minute, return 'just now'."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the difference is less than an hour, return the minutes ago."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the difference is less than a day, return the hours ago."
+        },
+        {
+          "order": 7,
+          "content": "ELSE IF the difference is exactly one day, return 'Yesterday'."
+        },
+        {
+          "order": 8,
+          "content": "ELSE return the days ago."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c0ebb69c",
+      "name": "HistoryModal",
+      "enclosing_class": null,
+      "normalized_params": "(props: HistoryModalProps): React.ReactElement | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique identifier for the component."
+        },
+        {
+          "order": 2,
+          "content": "Set up a keyboard event listener for the Escape key to close the modal."
+        },
+        {
+          "order": 3,
+          "content": "Prevent body scroll when the modal is open."
+        },
+        {
+          "order": 4,
+          "content": "Clean up the keyboard event listener and restore body scroll on unmount."
+        },
+        {
+          "order": 5,
+          "content": "IF the modal is not open, return null."
+        },
+        {
+          "order": 6,
+          "content": "Define a handler for backdrop clicks to close the modal."
+        },
+        {
+          "order": 7,
+          "content": "Render the modal overlay with backdrop and content."
+        },
+        {
+          "order": 8,
+          "content": "Display the document name and relative timestamp in the header."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

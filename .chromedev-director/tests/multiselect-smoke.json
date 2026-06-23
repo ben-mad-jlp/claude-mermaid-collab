@@ -1,0 +1,17 @@
+{
+  "id": "multiselect-smoke",
+  "name": "multiselect-smoke",
+  "definition": {
+    "url": "http://localhost:9002/",
+    "steps": [
+      {
+        "wait": 3000
+      },
+      {
+        "screenshot": true
+      }
+    ]
+  },
+  "createdAt": "2026-04-20T18:00:30.846Z",
+  "updatedAt": "2026-04-20T18:00:30.846Z"
+}

@@ -144,6 +144,15 @@ export function buildTmuxAttachCommand(base: string, grouped?: string, cwd?: str
  *  applied on attach never remaps the prefix, so C-b is safe.) */
 export const TMUX_DETACH_SEQUENCE = '\x02d';
 
+/** Tty line-kill (Ctrl-U, VKILL) prepended to every attach command. If a prior
+ *  detach key (`\x02d`) was sent to a shell that turned out NOT to be attached to
+ *  tmux (a stale `currentTmuxTarget` after a failed attach), the un-consumed
+ *  `^Bd` sits in the shell's canonical line buffer; flushing the attach onto the
+ *  same line produced `^Bd(tmux …)` → `/bin/sh: Syntax error` and a stuck loop.
+ *  Leading the command with VKILL clears any such stray bytes; it's a no-op at a
+ *  clean prompt. */
+export const TMUX_LINE_KILL = '\x15';
+
 /** Fallback delay before flushing a queued re-point attach if tmux's `[detached
  *  …]` line is never observed (e.g. an unusual detach path). Long enough that the
  *  normal detach (tens of ms) always wins via the marker; short enough to stay
@@ -499,7 +508,7 @@ export class PTYManager {
     // establishes the client (which natively redraws), then refresh-client -S
     // re-syncs its size and forces the pane to repaint cleanly. This replaces
     // the server-side RingBuffer replay that desynced the TUI.
-    const attachPayload = `${attachCmd} \\; refresh-client -S\n`;
+    const attachPayload = `${TMUX_LINE_KILL}${attachCmd} \\; refresh-client -S\n`;
 
     try {
       if (!session.ready) {

@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useWorktreeStatus.ts",
+  "title": "React hook to track worktree status with polling scaffold",
+  "purpose": "Provides access to worktree status information for a session, including dirty state, branch, and type, with a placeholder polling mechanism.",
+  "module_context": "Exports a React hook function named useWorktreeStatus that depends on agent store state and implements a placeholder polling interval.",
+  "methods": [
+    {
+      "id": "m_7a9b7a1e",
+      "name": "useWorktreeStatus",
+      "enclosing_class": null,
+      "normalized_params": "(sessionId: string | null): WorktreeStatus",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to the worktree and worktreeDirty values from the agent store."
+        },
+        {
+          "order": 2,
+          "content": "Set up a polling interval that does nothing but maintains the hook's surface for future implementation."
+        },
+        {
+          "order": 3,
+          "content": "IF the session ID is null, return a default status with no dirty state, branch, or kind."
+        },
+        {
+          "order": 4,
+          "content": "IF the worktree is non_git, return a status indicating non_git type with no dirty state or branch."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return a status with the dirty state, branch from the worktree, and git kind."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDesignNodeProps.ts",
+  "title": "Design node properties hook with undo support",
+  "purpose": "Manages property values for selected design nodes and provides functions to update them with undo/redo capabilities. Used by the PropertiesPanel to synchronize UI with scene state.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_9c77ac75",
+      "name": "useDesignNodeProps",
+      "enclosing_class": null,
+      "normalized_params": "(): { node: SceneNode | null; nodes: SceneNode[]; updateProp: (key: string, value: number | string | boolean) => void; commitProp: (key: string) => void; updateNodeWithUndo: (key: string, value: number | string | boolean, label?: string) => void }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to selected node IDs and scene version from the design editor store."
+        },
+        {
+          "order": 2,
+          "content": "Initialize a ref to track original property values before editing begins."
+        },
+        {
+          "order": 3,
+          "content": "Clear original values when the selection changes to prevent stale data."
+        },
+        {
+          "order": 4,
+          "content": "Derive the list of selected nodes from the store, updating when selection or scene version changes."
+        },
+        {
+          "order": 5,
+          "content": "Determine if exactly one node is selected for single-node operations."
+        },
+        {
+          "order": 6,
+          "content": "Return an object containing the selected node, all selected nodes, and functions to update properties with undo support."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d074269f",
+      "name": "updateProp",
+      "enclosing_class": "useDesignNodeProps",
+      "normalized_params": "(key: string, value: number | string | boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current store state and editor references."
+        },
+        {
+          "order": 2,
+          "content": "For each selected node, capture the original property value if not already recorded."
+        },
+        {
+          "order": 3,
+          "content": "Update the property value for all selected nodes."
+        },
+        {
+          "order": 4,
+          "content": "If only one node is selected, update that specific node directly."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_34c58f5c",
+      "name": "commitProp",
+      "enclosing_class": "useDesignNodeProps",
+      "normalized_params": "(key: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current store state and selected nodes."
+        },
+        {
+          "order": 2,
+          "content": "For each selected node, commit the property update using the captured original value as the previous state."
+        },
+        {
+          "order": 3,
+          "content": "Clear the original values for the committed property from the tracking ref."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a73d6d07",
+      "name": "updateNodeWithUndo",
+      "enclosing_class": "useDesignNodeProps",
+      "normalized_params": "(key: string, value: number | string | boolean, label?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current store state and selected nodes."
+        },
+        {
+          "order": 2,
+          "content": "For each selected node, update the property with undo support using the provided label or a default label."
+        },
+        {
+          "order": 3,
+          "content": "If only one node is selected, update that specific node directly."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/ContextMeter.tsx",
+  "title": "Token usage progress bar component with color coding",
+  "purpose": "Displays a visual progress bar showing current token usage relative to maximum capacity, with color changes based on usage percentage.",
+  "module_context": "Exports a React functional component named ContextMeter that accepts used and max token counts as props.",
+  "methods": [
+    {
+      "id": "m_ad2f8f45",
+      "name": "ContextMeter",
+      "enclosing_class": null,
+      "normalized_params": "(props: Props): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate a safe maximum value to prevent division by zero."
+        },
+        {
+          "order": 2,
+          "content": "Determine the usage ratio clamped between 0 and 1."
+        },
+        {
+          "order": 3,
+          "content": "Convert the ratio to a percentage value."
+        },
+        {
+          "order": 4,
+          "content": "Select the appropriate color class based on the percentage threshold."
+        },
+        {
+          "order": 5,
+          "content": "Render the progress bar with the calculated width and color."
+        },
+        {
+          "order": 6,
+          "content": "Display the token usage count and percentage below the bar."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

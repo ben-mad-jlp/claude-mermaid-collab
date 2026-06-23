@@ -1,0 +1,122 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/designEditorRefs.ts",
+  "title": "Design editor references manager with WASM and GPU resources",
+  "purpose": "Manages singleton references to non-serializable editor objects like WASM handles, GPU resources, and mutable data structures that cannot be stored in React state.",
+  "module_context": "Exports a module-level singleton object containing references to editor resources including SceneGraph, UndoManager, CanvasKit, SkiaRenderer, and TextEditor. Provides functions to initialize, destroy, and reset these references.",
+  "methods": [
+    {
+      "id": "m_1f62e115",
+      "name": "getEditorRefs",
+      "enclosing_class": null,
+      "normalized_params": "(): EditorRefs",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the singleton reference object containing all editor resources."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_26db196a",
+      "name": "initEditorRefs",
+      "enclosing_class": null,
+      "normalized_params": "(ck: CanvasKit, renderer: SkiaRenderer): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Assign the provided CanvasKit instance to the singleton references."
+        },
+        {
+          "order": 2,
+          "content": "Assign the provided SkiaRenderer instance to the singleton references."
+        },
+        {
+          "order": 3,
+          "content": "Create a new TextEditor instance using the CanvasKit and set its renderer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b21eec00",
+      "name": "destroyEditorRefs",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Destroy the current renderer if it exists."
+        },
+        {
+          "order": 2,
+          "content": "Clear all references to the renderer, CanvasKit, and TextEditor."
+        },
+        {
+          "order": 3,
+          "content": "Reset the SceneGraph to a new instance."
+        },
+        {
+          "order": 4,
+          "content": "Clear the UndoManager."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c731db28",
+      "name": "resetSceneGraph",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace the current SceneGraph with a new instance."
+        },
+        {
+          "order": 2,
+          "content": "Clear the UndoManager."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cfb35fa4",
+      "name": "setSceneGraph",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace the current SceneGraph with the provided instance."
+        },
+        {
+          "order": 2,
+          "content": "Clear the UndoManager."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

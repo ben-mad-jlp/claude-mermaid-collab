@@ -1,0 +1,377 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/websocket.ts",
+  "title": "WebSocket client with automatic reconnection and event handling",
+  "purpose": "Provides a WebSocket client that automatically reconnects on disconnect, handles message subscription/publishing, and supports event emitter pattern for lifecycle events.",
+  "module_context": "Exports WebSocketMessage interface, broadcast message types, event detail interfaces, dispatchWebSocketEvent function, MessageHandler and EventHandler types, Subscription interface, WebSocketClient class with reconnection logic, and singleton pattern functions getWebSocketClient and resetWebSocketClient.",
+  "methods": [
+    {
+      "id": "m_cd655f6a",
+      "name": "dispatchWebSocketEvent",
+      "enclosing_class": null,
+      "normalized_params": "(type: BroadcastMessageType, detail: unknown): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a CustomEvent with the specified type and detail."
+        },
+        {
+          "order": 2,
+          "content": "Dispatch the CustomEvent to the window object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0579f0a7",
+      "name": "connect",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a new WebSocket connection to the configured URL."
+        },
+        {
+          "order": 2,
+          "content": "Set up the onopen handler to reset reconnection attempts and notify connection listeners."
+        },
+        {
+          "order": 3,
+          "content": "Set up the onmessage handler to parse incoming messages and dispatch broadcast events."
+        },
+        {
+          "order": 4,
+          "content": "Set up the onclose handler to trigger connection closed logic."
+        },
+        {
+          "order": 5,
+          "content": "Set up the onerror handler to log WebSocket errors."
+        },
+        {
+          "order": 6,
+          "content": "Resolve the promise when the connection is successfully established."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_55f35249",
+      "name": "disconnect",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Mark the client as intentionally closed to prevent automatic reconnection."
+        },
+        {
+          "order": 2,
+          "content": "Clear any pending reconnection timeout if one exists."
+        },
+        {
+          "order": 3,
+          "content": "Close the current WebSocket connection if it exists."
+        },
+        {
+          "order": 4,
+          "content": "Set the socket reference to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_634d0479",
+      "name": "send",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(message: WebSocketMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the socket is connected and open."
+        },
+        {
+          "order": 2,
+          "content": "IF the socket is not connected, queue the message for later delivery."
+        },
+        {
+          "order": 3,
+          "content": "ELSE send the message via the WebSocket connection."
+        },
+        {
+          "order": 4,
+          "content": "IF sending fails, queue the message for retry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_157af481",
+      "name": "onMessage",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(handler: MessageHandler): Subscription",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the message handler to the set of registered handlers."
+        },
+        {
+          "order": 2,
+          "content": "Return a subscription object with an unsubscribe method."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_93986028",
+      "name": "onConnect",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(handler: EventHandler): Subscription",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the connection handler to the set of registered handlers."
+        },
+        {
+          "order": 2,
+          "content": "Return a subscription object with an unsubscribe method."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59b87b8e",
+      "name": "onDisconnect",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(handler: EventHandler): Subscription",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the disconnect handler to the set of registered handlers."
+        },
+        {
+          "order": 2,
+          "content": "Return a subscription object with an unsubscribe method."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6d86a15",
+      "name": "isConnected",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the socket reference exists and is in an open state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1ba34218",
+      "name": "subscribe",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(channel: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a subscription message to the server for the specified channel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a5190767",
+      "name": "unsubscribe",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(channel: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send an unsubscription message to the server for the specified channel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_120f71df",
+      "name": "onConnectionClosed",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the socket reference to null."
+        },
+        {
+          "order": 2,
+          "content": "Notify all disconnect listeners of the connection closure."
+        },
+        {
+          "order": 3,
+          "content": "IF the closure was not intentional and maximum reconnection attempts have not been reached, schedule a reconnection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_71441a86",
+      "name": "scheduleReconnect",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the reconnection delay using exponential backoff."
+        },
+        {
+          "order": 2,
+          "content": "Increment the reconnection attempt counter."
+        },
+        {
+          "order": 3,
+          "content": "Log the scheduled reconnection attempt."
+        },
+        {
+          "order": 4,
+          "content": "Set a timeout to attempt reconnection after the calculated delay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9b5ec16b",
+      "name": "flushPendingMessages",
+      "enclosing_class": "WebSocketClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process all pending messages in the queue."
+        },
+        {
+          "order": 2,
+          "content": "Send each pending message via the WebSocket connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e1e156c3",
+      "name": "getWebSocketClient",
+      "enclosing_class": null,
+      "normalized_params": "(url: string): WebSocketClient",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a shared client instance does not exist, create a new one with the provided URL."
+        },
+        {
+          "order": 2,
+          "content": "Return the shared client instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_498f7293",
+      "name": "getDefaultWebSocketURL",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF running in a server-side context, return the default localhost URL."
+        },
+        {
+          "order": 2,
+          "content": "ELSE construct the WebSocket URL based on the current protocol and host."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b5678805",
+      "name": "resetWebSocketClient",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a shared client exists, disconnect it."
+        },
+        {
+          "order": 2,
+          "content": "Set the shared client reference to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

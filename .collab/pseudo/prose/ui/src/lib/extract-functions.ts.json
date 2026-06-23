@@ -1,0 +1,227 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/extract-functions.ts",
+  "title": "TS/JS function metadata extractor with Lezer-based symbol finder",
+  "purpose": "Parses TypeScript and JavaScript source code to extract function definitions and find identifiers at cursor positions using CodeMirror's syntax tree.",
+  "module_context": "Exports two main functions: extractFunctions for parsing source code into function metadata, and findSymbolAtPos for resolving identifiers at editor positions. Uses regex patterns to match function declarations and leverages CodeMirror's syntax tree for precise symbol resolution.",
+  "methods": [
+    {
+      "id": "m_dee82dc4",
+      "name": "trimReturnType",
+      "enclosing_class": null,
+      "normalized_params": "(raw: string | undefined): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the input is empty or undefined, return an empty string."
+        },
+        {
+          "order": 2,
+          "content": "Remove trailing characters that indicate end of return type declaration."
+        },
+        {
+          "order": 3,
+          "content": "Trim whitespace from the resulting string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f99069e9",
+      "name": "findMatchingBraceLineIndex",
+      "enclosing_class": null,
+      "normalized_params": "(lines: string[], startIndex: number): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a stack to track string and comment state."
+        },
+        {
+          "order": 2,
+          "content": "Track block comment state and brace depth."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through lines starting from the given index."
+        },
+        {
+          "order": 4,
+          "content": "Process each character in the current line."
+        },
+        {
+          "order": 5,
+          "content": "Handle block comment start and end."
+        },
+        {
+          "order": 6,
+          "content": "Track string literal boundaries and skip escaped characters."
+        },
+        {
+          "order": 7,
+          "content": "Handle template string interpolation."
+        },
+        {
+          "order": 8,
+          "content": "Count opening and closing braces while tracking nesting depth."
+        },
+        {
+          "order": 9,
+          "content": "Return the line index of the matching closing brace when found."
+        },
+        {
+          "order": 10,
+          "content": "Return null if no matching brace is found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7a2005d3",
+      "name": "computeEndLine",
+      "enclosing_class": null,
+      "normalized_params": "(lines: string[], startIdx: number): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the brace matching function to find the end of the function block."
+        },
+        {
+          "order": 2,
+          "content": "If no matching brace is found, return null."
+        },
+        {
+          "order": 3,
+          "content": "Convert the 0-based line index to 1-based and return it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_764c2890",
+      "name": "extractFunctions",
+      "enclosing_class": null,
+      "normalized_params": "(code: string, language: string): ExtractedFunction[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate input code and language support."
+        },
+        {
+          "order": 2,
+          "content": "Split the code into lines for processing."
+        },
+        {
+          "order": 3,
+          "content": "Initialize an empty array to collect function definitions."
+        },
+        {
+          "order": 4,
+          "content": "Process each line to match function declaration patterns."
+        },
+        {
+          "order": 5,
+          "content": "Match against regular expression for function declarations."
+        },
+        {
+          "order": 6,
+          "content": "Match against regular expression for arrow function assignments."
+        },
+        {
+          "order": 7,
+          "content": "Match against regular expression for function expression assignments."
+        },
+        {
+          "order": 8,
+          "content": "Extract function metadata from matched patterns."
+        },
+        {
+          "order": 9,
+          "content": "Compute the end line of each function block."
+        },
+        {
+          "order": 10,
+          "content": "Sort collected functions by their source line numbers."
+        },
+        {
+          "order": 11,
+          "content": "Return the sorted list of extracted functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ece5daa0",
+      "name": "isIdentifierType",
+      "enclosing_class": null,
+      "normalized_params": "(type: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the provided type matches known identifier node types."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the type is a variable or property name."
+        },
+        {
+          "order": 3,
+          "content": "Return false for all other node types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_33b7df36",
+      "name": "findSymbolAtPos",
+      "enclosing_class": null,
+      "normalized_params": "(view: EditorView, pos: number): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the syntax tree node at the given position in the editor."
+        },
+        {
+          "order": 2,
+          "content": "Walk up to three ancestor levels to find an identifier-like node."
+        },
+        {
+          "order": 3,
+          "content": "If an identifier node is found, extract and return its text content."
+        },
+        {
+          "order": 4,
+          "content": "If no identifier is found within three levels, return null."
+        },
+        {
+          "order": 5,
+          "content": "Handle any errors during the process by returning null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

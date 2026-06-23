@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/snap.ts",
+  "title": "Scene node snapping and selection bounds calculation",
+  "purpose": "Provides utilities for calculating snap distances and selection boundaries for scene nodes during interactive editing.",
+  "module_context": "Exports constants for snap threshold and interfaces for snap guides and results. Defines functions for computing snap adjustments and selection bounds.",
+  "methods": [
+    {
+      "id": "m_e93af902",
+      "name": "getEdges",
+      "enclosing_class": null,
+      "normalized_params": "(node: SceneNode): { left: number; right: number; centerX: number; top: number; bottom: number; centerY: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate edge positions for a node with zero rotation."
+        },
+        {
+          "order": 2,
+          "content": "IF the node has a non-zero rotation, compute rotated corner positions."
+        },
+        {
+          "order": 3,
+          "content": "Determine the bounding rectangle of the rotated corners."
+        },
+        {
+          "order": 4,
+          "content": "Return the calculated edge positions including center coordinates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4232a644",
+      "name": "computeSnap",
+      "enclosing_class": null,
+      "normalized_params": "(movingIds: Set<string>, movingBounds: Rect, allNodes: SceneNode[]): SnapResult",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter out nodes that are currently moving from the list of all nodes."
+        },
+        {
+          "order": 2,
+          "content": "IF no target nodes remain, return zero snap adjustments and empty guides."
+        },
+        {
+          "order": 3,
+          "content": "Calculate edge positions for the moving nodes."
+        },
+        {
+          "order": 4,
+          "content": "For each target node, evaluate potential x-axis snap positions."
+        },
+        {
+          "order": 5,
+          "content": "For each target node, evaluate potential y-axis snap positions."
+        },
+        {
+          "order": 6,
+          "content": "Track the best snap adjustments and collect guide information."
+        },
+        {
+          "order": 7,
+          "content": "Return the computed snap adjustments and guide information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0cee2fe0",
+      "name": "computeSelectionBounds",
+      "enclosing_class": null,
+      "normalized_params": "(nodes: SceneNode[]): Rect | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no nodes are provided, return null for bounds."
+        },
+        {
+          "order": 2,
+          "content": "Initialize boundary coordinates with extreme values."
+        },
+        {
+          "order": 3,
+          "content": "For each node, calculate its edge positions."
+        },
+        {
+          "order": 4,
+          "content": "Update the boundary coordinates based on each node's edges."
+        },
+        {
+          "order": 5,
+          "content": "Return the calculated bounding rectangle for the selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 3,
+  "file": "src/ai-ui.ts",
+  "title": "AI-UI Component Types for json-render Integration",
+  "purpose": "Defines all 22 UI components used in the AI-powered UI system with their props and types for integration with json-render schema.",
+  "module_context": "Exports interfaces for 22 UI components organized into 5 categories: Input, Data Display, Interactive, Layout, and Mermaid Integration. Also exports union types for component groups and MCP tool parameters for UI rendering and updates.",
+  "methods": [
+    {
+      "id": "m_fb885ca8",
+      "name": "isValidComponentType",
+      "enclosing_class": null,
+      "normalized_params": "(type: string): type is AnyComponent['type']",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the provided component type exists in the list of all valid component names."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the type is found in the catalog, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

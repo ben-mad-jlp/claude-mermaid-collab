@@ -1,0 +1,30 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/task-graph/index.ts",
+  "title": "Task graph view component re-export",
+  "purpose": "Exports the TaskGraphView component and its props type for use in other parts of the application.",
+  "module_context": "Exports the TaskGraphView component and its associated type definition for public consumption.",
+  "methods": [
+    {
+      "id": "m_5970173c",
+      "name": "TaskGraphView",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TaskGraphView component for use in other modules."
+        },
+        {
+          "order": 2,
+          "content": "Export the TaskGraphViewProps type for type checking and documentation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

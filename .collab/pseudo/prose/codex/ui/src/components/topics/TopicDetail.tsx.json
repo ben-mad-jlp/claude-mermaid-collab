@@ -1,0 +1,175 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/TopicDetail.tsx",
+  "title": "Topic detail view component with metadata, tabs, and action buttons",
+  "purpose": "Displays comprehensive topic information including metadata, document content across different types, and provides actions like verify, edit, and delete.",
+  "module_context": "Exports a TopicDetail component that uses React hooks for data fetching and state management, with helper functions for formatting confidence levels and dates.",
+  "methods": [
+    {
+      "id": "m_3859a0e5",
+      "name": "getConfidenceBadgeClasses",
+      "enclosing_class": null,
+      "normalized_params": "(confidence: ConfidenceTier): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return CSS class names for a badge based on the confidence tier value."
+        },
+        {
+          "order": 2,
+          "content": "Map high confidence to green styling."
+        },
+        {
+          "order": 3,
+          "content": "Map medium confidence to yellow styling."
+        },
+        {
+          "order": 4,
+          "content": "Map low confidence to red styling."
+        },
+        {
+          "order": 5,
+          "content": "Return gray styling for unknown confidence levels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14bde95f",
+      "name": "formatConfidence",
+      "enclosing_class": null,
+      "normalized_params": "(confidence: ConfidenceTier): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the first character of the confidence tier to uppercase."
+        },
+        {
+          "order": 2,
+          "content": "Return the capitalized confidence tier string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6d0d7128",
+      "name": "formatDate",
+      "enclosing_class": null,
+      "normalized_params": "(dateString: string | null): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no date is provided, return 'Never'."
+        },
+        {
+          "order": 2,
+          "content": "Parse the date string into a Date object."
+        },
+        {
+          "order": 3,
+          "content": "Format the date with year, month, day, hour, and minute."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ed945a3b",
+      "name": "TopicDetail",
+      "enclosing_class": null,
+      "normalized_params": "(props: TopicDetailProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for active document tab and verification status."
+        },
+        {
+          "order": 2,
+          "content": "Fetch topic data using the useTopic hook."
+        },
+        {
+          "order": 3,
+          "content": "Render loading state while data is being fetched."
+        },
+        {
+          "order": 4,
+          "content": "Render error state with retry and back options if data fetch fails."
+        },
+        {
+          "order": 5,
+          "content": "Render not found state if topic does not exist."
+        },
+        {
+          "order": 6,
+          "content": "Render the full topic detail view with metadata, tabs, and content viewer."
+        },
+        {
+          "order": 7,
+          "content": "Handle the verify action by calling the verify function and updating UI state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b21bbe1f",
+      "name": "handleVerify",
+      "enclosing_class": "TopicDetail",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the verification status to true to indicate ongoing operation."
+        },
+        {
+          "order": 2,
+          "content": "Call the verify function from the useTopic hook."
+        },
+        {
+          "order": 3,
+          "content": "Reset the verification status to false after the operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_212b5912",
+      "name": "getCurrentContent",
+      "enclosing_class": "TopicDetail",
+      "normalized_params": "(topic: TopicFull): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the document content for the currently active tab."
+        },
+        {
+          "order": 2,
+          "content": "Return the content string or an empty string if no content exists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

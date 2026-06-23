@@ -1,0 +1,163 @@
+{
+  "schema_version": 3,
+  "file": "src/types/update-log.ts",
+  "title": "Document update log type definitions for tracking changes and history",
+  "purpose": "Defines TypeScript interfaces and types for tracking document changes with timestamps and diffs, enabling history reconstruction and version control.",
+  "module_context": "Exports interfaces for ChangeEntry, DocumentLogEntry, UpdateLog, HistoryResponse, and VersionResponse, along with a ResourceType union type for categorizing tracked resources.",
+  "methods": [
+    {
+      "id": "m_9da2a89a",
+      "name": "ChangeEntry",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define structure for a single change entry with timestamp and diff details."
+        },
+        {
+          "order": 2,
+          "content": "Include ISO timestamp for when the change was made."
+        },
+        {
+          "order": 3,
+          "content": "Include diff object containing old and new string values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_693c0ebb",
+      "name": "DocumentLogEntry",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define structure for a document log entry containing original content and changes."
+        },
+        {
+          "order": 2,
+          "content": "Include full original content of the document."
+        },
+        {
+          "order": 3,
+          "content": "Include array of change entries applied after the original was captured."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bdb05163",
+      "name": "ResourceType",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define union type for resource categories that can be tracked."
+        },
+        {
+          "order": 2,
+          "content": "Include documents, diagrams, designs, spreadsheets, and snippets as valid resource types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1408abb7",
+      "name": "UpdateLog",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define complete update log structure mapping resource IDs to their change history."
+        },
+        {
+          "order": 2,
+          "content": "Include maps for each resource type with document, diagram, design, spreadsheet, and snippet entries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_618ead41",
+      "name": "HistoryResponse",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define API response structure for retrieving change history of a specific resource."
+        },
+        {
+          "order": 2,
+          "content": "Include resource ID that was queried."
+        },
+        {
+          "order": 3,
+          "content": "Include original content of the resource."
+        },
+        {
+          "order": 4,
+          "content": "Include array of changes with timestamps and diffs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a5cccc1f",
+      "name": "VersionResponse",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define API response structure for retrieving a reconstructed version of a resource."
+        },
+        {
+          "order": 2,
+          "content": "Include resource ID that was queried."
+        },
+        {
+          "order": 3,
+          "content": "Include reconstructed content at the requested version."
+        },
+        {
+          "order": 4,
+          "content": "Include ISO timestamp of the version."
+        },
+        {
+          "order": 5,
+          "content": "Include version number indicating position in the change history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

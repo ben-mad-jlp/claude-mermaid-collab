@@ -1,0 +1,60 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/question-panel/index.ts",
+  "title": "Question panel component module exports",
+  "purpose": "Provides exports for the question panel UI components including the main panel, question renderer, and history display.",
+  "module_context": "Exports three main components: QuestionPanel, QuestionRenderer, and QuestionHistory along with their default exports. Also exports type definitions for the props of QuestionRenderer and QuestionHistory components.",
+  "methods": [
+    {
+      "id": "m_54e00be1",
+      "name": "QuestionPanel",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the main question panel component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_140ef78b",
+      "name": "QuestionRenderer",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the question renderer component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9db0973",
+      "name": "QuestionHistory",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the question history component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

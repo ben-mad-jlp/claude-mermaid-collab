@@ -1,0 +1,20 @@
+{
+  "id": "milkdown-press-enter",
+  "name": "milkdown-press-enter",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 800
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "wait": 200
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:38:23.731Z",
+  "updatedAt": "2026-04-18T18:38:23.731Z"
+}

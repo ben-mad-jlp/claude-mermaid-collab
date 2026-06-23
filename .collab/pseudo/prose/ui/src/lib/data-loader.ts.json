@@ -1,0 +1,286 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/data-loader.ts",
+  "title": "Session artifact loader with retry and progress tracking",
+  "purpose": "Loads all session artifacts (diagrams, documents, designs, spreadsheets, snippets) in parallel with retry logic and progress events for UI feedback.",
+  "module_context": "Exports loading functions for each artifact type, a parallel loader for all artifacts, progress event handling, and retry utilities with exponential backoff.",
+  "methods": [
+    {
+      "id": "m_f85081ac",
+      "name": "dispatchLoadingProgress",
+      "enclosing_class": null,
+      "normalized_params": "(progress: LoadingProgress): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a custom event with the loading progress details."
+        },
+        {
+          "order": 2,
+          "content": "Dispatch the custom event to the window for UI listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b47da406",
+      "name": "retryWithBackoff",
+      "enclosing_class": null,
+      "normalized_params": "<T>(fn: () => Promise<T>, config?: RetryConfig): Promise<T>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to execute the provided promise-returning function."
+        },
+        {
+          "order": 2,
+          "content": "IF the function succeeds, return its resolved value immediately."
+        },
+        {
+          "order": 3,
+          "content": "IF the function fails, increment the attempt counter and delay before retrying."
+        },
+        {
+          "order": 4,
+          "content": "IF the maximum retry attempts are exceeded, re-throw the last error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9bf73dde",
+      "name": "loadDiagrams",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<Diagram[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load diagrams from the API with retry logic."
+        },
+        {
+          "order": 2,
+          "content": "IF successful, store the diagrams in the session store."
+        },
+        {
+          "order": 3,
+          "content": "IF successful, dispatch a progress event indicating artifact loading completion."
+        },
+        {
+          "order": 4,
+          "content": "IF loading fails, log the error and dispatch an error progress event."
+        },
+        {
+          "order": 5,
+          "content": "IF loading fails, set an empty array in the session store and return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_897a7e04",
+      "name": "loadDocuments",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<Document[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load documents from the API with retry logic."
+        },
+        {
+          "order": 2,
+          "content": "IF successful, store the documents in the session store."
+        },
+        {
+          "order": 3,
+          "content": "IF successful, dispatch a progress event indicating artifact loading completion."
+        },
+        {
+          "order": 4,
+          "content": "IF loading fails, log the error and dispatch an error progress event."
+        },
+        {
+          "order": 5,
+          "content": "IF loading fails, set an empty array in the session store and return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_60707a2d",
+      "name": "loadDesigns",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<Design[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load designs from the API with retry logic."
+        },
+        {
+          "order": 2,
+          "content": "IF successful, store the designs in the session store."
+        },
+        {
+          "order": 3,
+          "content": "IF successful, dispatch a progress event indicating artifact loading completion."
+        },
+        {
+          "order": 4,
+          "content": "IF loading fails, log the error and dispatch an error progress event."
+        },
+        {
+          "order": 5,
+          "content": "IF loading fails, set an empty array in the session store and return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_15db46d8",
+      "name": "loadSpreadsheets",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<Spreadsheet[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load spreadsheets from the API with retry logic."
+        },
+        {
+          "order": 2,
+          "content": "IF successful, store the spreadsheets in the session store."
+        },
+        {
+          "order": 3,
+          "content": "IF successful, dispatch a progress event indicating artifact loading completion."
+        },
+        {
+          "order": 4,
+          "content": "IF loading fails, log the error and dispatch an error progress event."
+        },
+        {
+          "order": 5,
+          "content": "IF loading fails, set an empty array in the session store and return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b17b705",
+      "name": "loadSnippets",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<Snippet[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load snippets from the API with retry logic."
+        },
+        {
+          "order": 2,
+          "content": "IF successful, store the snippets in the session store."
+        },
+        {
+          "order": 3,
+          "content": "IF successful, dispatch a progress event indicating artifact loading completion."
+        },
+        {
+          "order": 4,
+          "content": "IF loading fails, log the error and dispatch an error progress event."
+        },
+        {
+          "order": 5,
+          "content": "IF loading fails, set an empty array in the session store and return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3165684d",
+      "name": "loadAllArtifacts",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<{ totalArtifacts: number; diagrams: Diagram[]; documents: Document[]; designs: Design[]; spreadsheets: Spreadsheet[]; snippets: Snippet[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Dispatch a start progress event to indicate loading has begun."
+        },
+        {
+          "order": 2,
+          "content": "Load all artifact types in parallel for optimal performance."
+        },
+        {
+          "order": 3,
+          "content": "IF all loads succeed, calculate the total number of loaded artifacts."
+        },
+        {
+          "order": 4,
+          "content": "IF all loads succeed, dispatch a complete progress event with the total count."
+        },
+        {
+          "order": 5,
+          "content": "IF any load fails, log the error and dispatch an error progress event."
+        },
+        {
+          "order": 6,
+          "content": "IF any load fails, return the artifacts that were successfully loaded."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_caa90a4b",
+      "name": "onLoadingProgress",
+      "enclosing_class": null,
+      "normalized_params": "(callback: (progress: LoadingProgress) => void): () => void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Register a custom event listener for the loading progress event."
+        },
+        {
+          "order": 2,
+          "content": "When the event fires, pass the event details to the provided callback function."
+        },
+        {
+          "order": 3,
+          "content": "Return a cleanup function that removes the event listener when called."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

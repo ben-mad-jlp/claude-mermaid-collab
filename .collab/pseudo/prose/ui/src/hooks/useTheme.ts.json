@@ -1,0 +1,64 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useTheme.ts",
+  "title": "React hook for theme state management with persistence",
+  "purpose": "Provides React components with access to theme state and controls for switching between light and dark modes, with automatic persistence to localStorage.",
+  "module_context": "Exports a hook function 'useTheme' that integrates with a Zustand store for UI state management and includes automatic persistence of theme preference.",
+  "methods": [
+    {
+      "id": "m_50c44bbf",
+      "name": "useTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): UseThemeReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the theme state and control methods from the UI store using shallow comparison for performance."
+        },
+        {
+          "order": 2,
+          "content": "Return an object containing the current theme, a theme setter that wraps the store setter with useCallback, and a toggle function that wraps the store toggle with useCallback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_781b5c40",
+      "name": "setTheme",
+      "enclosing_class": "useTheme",
+      "normalized_params": "(newTheme: Theme): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the theme state in the UI store with the provided theme value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16285258",
+      "name": "toggleTheme",
+      "enclosing_class": "useTheme",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the current theme between light and dark modes in the UI store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/GlobView.tsx",
+  "title": "Glob tool output view component with file count and status display",
+  "purpose": "Displays the output of a glob tool call with pattern, path, file count, and formatted output panel.",
+  "module_context": "Exports a React functional component named GlobView that renders tool call information including pattern, path, file count, and output using an OutputPanel component.",
+  "methods": [
+    {
+      "id": "m_fcc4db11",
+      "name": "GlobView",
+      "enclosing_class": null,
+      "normalized_params": "(props: GlobViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract input properties from the tool call item, defaulting to empty object."
+        },
+        {
+          "order": 2,
+          "content": "Extract and normalize the output string from the tool call item."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the number of non-empty lines in the output to determine file count."
+        },
+        {
+          "order": 4,
+          "content": "Determine the status of the tool call based on error and status properties."
+        },
+        {
+          "order": 5,
+          "content": "Render the pattern and path information if present."
+        },
+        {
+          "order": 6,
+          "content": "Display the file count if output exists."
+        },
+        {
+          "order": 7,
+          "content": "Pass the tool use ID, status, output, error, and format to the OutputPanel component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

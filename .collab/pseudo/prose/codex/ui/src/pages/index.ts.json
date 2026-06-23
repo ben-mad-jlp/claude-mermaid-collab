@@ -1,0 +1,114 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/pages/index.ts",
+  "title": "Page component exports for main application routes",
+  "purpose": "Provides centralized imports for all page components used in the application's routing system.",
+  "module_context": "Exports multiple page components and their corresponding props types for use in the main application navigation and routing.",
+  "methods": [
+    {
+      "id": "m_340b026d",
+      "name": "TopicBrowserPage",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TopicBrowserPage component for use in application routes."
+        },
+        {
+          "order": 2,
+          "content": "Export the TopicBrowserPageProps type for type safety in component usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2a43ec44",
+      "name": "TopicDetailPage",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TopicDetailPage component for use in application routes."
+        },
+        {
+          "order": 2,
+          "content": "Export the TopicDetailPageProps type for type safety in component usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_90cdb29c",
+      "name": "TopicEditorPage",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TopicEditorPage component for use in application routes."
+        },
+        {
+          "order": 2,
+          "content": "Export the TopicEditorPageProps type for type safety in component usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_088689f3",
+      "name": "FlagsPage",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the FlagsPage component for use in application routes."
+        },
+        {
+          "order": 2,
+          "content": "Export the FlagsPageProps type for type safety in component usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a0434d38",
+      "name": "MissingTopicsPage",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the MissingTopicsPage component for use in application routes."
+        },
+        {
+          "order": 2,
+          "content": "Export the MissingTopicsPageProps type for type safety in component usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/WelcomeScreen.tsx",
+  "title": "Onboarding welcome screen with user creation and selection",
+  "purpose": "Provides a welcome interface for new users to enter their name or select an existing user to continue onboarding.",
+  "module_context": "Exports a React component that manages user state and navigation during onboarding, using localStorage for last user tracking and a custom hook for onboarding context.",
+  "methods": [
+    {
+      "id": "m_ac0f4239",
+      "name": "WelcomeScreen",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for users, new name, loading status, and error messages."
+        },
+        {
+          "order": 2,
+          "content": "Fetch existing users from the API when the project context becomes available."
+        },
+        {
+          "order": 3,
+          "content": "Handle user selection by storing the user ID in local storage and navigating to the dashboard."
+        },
+        {
+          "order": 4,
+          "content": "Process new user creation by submitting the name to the API and handling success or failure."
+        },
+        {
+          "order": 5,
+          "content": "Render a loading indicator while fetching users."
+        },
+        {
+          "order": 6,
+          "content": "Display a form for entering a new user name and submitting it."
+        },
+        {
+          "order": 7,
+          "content": "Show a list of existing users for returning users to select from."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_466af53b",
+      "name": "selectUser",
+      "enclosing_class": "WelcomeScreen",
+      "normalized_params": "(user: User): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the selected user's ID in local storage for future sessions."
+        },
+        {
+          "order": 2,
+          "content": "Set the selected user in the onboarding context."
+        },
+        {
+          "order": 3,
+          "content": "Transition the onboarding mode to 'onboard'."
+        },
+        {
+          "order": 4,
+          "content": "Navigate to the onboarding dashboard route."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_47454899",
+      "name": "handleCreate",
+      "enclosing_class": "WelcomeScreen",
+      "normalized_params": "(e: React.FormEvent): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default form submission behavior."
+        },
+        {
+          "order": 2,
+          "content": "Validate that a project and non-empty name are provided."
+        },
+        {
+          "order": 3,
+          "content": "Clear any previous error messages."
+        },
+        {
+          "order": 4,
+          "content": "Submit the new user name to the API to create a user."
+        },
+        {
+          "order": 5,
+          "content": "IF the user creation succeeds, select the newly created user."
+        },
+        {
+          "order": 6,
+          "content": "IF the user creation fails, display an error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

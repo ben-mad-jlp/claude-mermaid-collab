@@ -1,0 +1,71 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/remarkDiagramEmbeds.ts",
+  "title": "Remark plugin for converting diagram and design embeds to image nodes",
+  "purpose": "Processes markdown trees to transform {{diagram:id}} and {{design:id}} syntax into image nodes with specific URLs for rendering.",
+  "module_context": "Exports a remark plugin function that modifies AST nodes to convert custom embed syntax into standard image nodes.",
+  "methods": [
+    {
+      "id": "m_c8c1f435",
+      "name": "remarkDiagramEmbeds",
+      "enclosing_class": null,
+      "normalized_params": "(): (tree: any) => void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a function that accepts a markdown AST tree."
+        },
+        {
+          "order": 2,
+          "content": "Define an inner visitor function that recursively processes tree nodes."
+        },
+        {
+          "order": 3,
+          "content": "For each node with children, examine text content for matching embed patterns."
+        },
+        {
+          "order": 4,
+          "content": "Split text content on embed patterns and convert matches into image nodes."
+        },
+        {
+          "order": 5,
+          "content": "Preserve non-matching text parts as text nodes in the output."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_77825fd2",
+      "name": "visit",
+      "enclosing_class": "remarkDiagramEmbeds",
+      "normalized_params": "(node: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process each child node of the current node."
+        },
+        {
+          "order": 2,
+          "content": "For text nodes containing embed patterns, split and convert them into image nodes."
+        },
+        {
+          "order": 3,
+          "content": "For non-text nodes, recursively visit their children."
+        },
+        {
+          "order": 4,
+          "content": "Replace original children with processed children including converted image nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

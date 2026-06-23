@@ -1,0 +1,580 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/index.ts",
+  "title": "UI engine module exports all core types and utilities for scene graph, rendering, and layout",
+  "purpose": "Provides a centralized export of all UI engine components including scene graph management, rendering capabilities, layout computation, font handling, color utilities, vector operations, snapping, undo functionality, text editing, style runs, and image rendering.",
+  "module_context": "Exports a comprehensive set of types and utilities for building and managing UI components with scene graph, rendering, layout, and styling capabilities.",
+  "methods": [
+    {
+      "id": "m_151e75bc",
+      "name": "SceneGraph",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the SceneGraph class for managing UI component hierarchies."
+        },
+        {
+          "order": 2,
+          "content": "Include type definitions for SceneNode, NodeType, and various UI component properties."
+        },
+        {
+          "order": 3,
+          "content": "Export fill, stroke, mask, effect, blend mode, and other visual styling types."
+        },
+        {
+          "order": 4,
+          "content": "Export layout and constraint types for positioning and sizing UI elements."
+        },
+        {
+          "order": 5,
+          "content": "Export text styling and typography related types."
+        },
+        {
+          "order": 6,
+          "content": "Export vector and gradient related types for complex graphics."
+        },
+        {
+          "order": 7,
+          "content": "Export variable and style related types for design systems."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_49168205",
+      "name": "SkiaRenderer",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the SkiaRenderer class for rendering UI components to canvas."
+        },
+        {
+          "order": 2,
+          "content": "Include type definitions for render overlays and rendering options."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e75e00b",
+      "name": "computeLayout",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for computing layout of individual UI nodes."
+        },
+        {
+          "order": 2,
+          "content": "Include type definitions for layout computation parameters and results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a00a694f",
+      "name": "computeAllLayouts",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for computing layouts for all UI nodes in a scene."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b266b4e3",
+      "name": "getCanvasKit",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for retrieving the CanvasKit library instance."
+        },
+        {
+          "order": 2,
+          "content": "Include type definitions for CanvasKit initialization options."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6218519c",
+      "name": "loadFont",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for loading font resources into the font service."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6f9a79f4",
+      "name": "listFamilies",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for retrieving available font families."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e127b73",
+      "name": "initFontService",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for initializing the font service with configuration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85b85ac6",
+      "name": "getFontProvider",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for retrieving the font provider instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2dac090e",
+      "name": "ensureNodeFont",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for ensuring a UI node has its font properly loaded."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78199abc",
+      "name": "styleToWeight",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for converting text style to font weight."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0df57321",
+      "name": "weightToStyle",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for converting font weight to text style."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6da05e66",
+      "name": "parseColor",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for parsing color values from various formats."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c7b7e0e1",
+      "name": "colorToHex",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for converting color values to hex format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6f285615",
+      "name": "colorToHexRaw",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for converting color values to raw hex format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_15ebaa96",
+      "name": "colorToRgba255",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for converting color values to RGBA 255 format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_30ed8352",
+      "name": "vectorNetworkToPath",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for converting vector network data to path data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_396f1da6",
+      "name": "decodeVectorNetworkBlob",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for decoding vector network blob data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_727a1e4f",
+      "name": "encodeVectorNetworkBlob",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for encoding vector network data to blob format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_39165c55",
+      "name": "computeVectorBounds",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for computing bounding boxes for vector data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1187e8bb",
+      "name": "computeSelectionBounds",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for computing bounds of selected UI elements."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f48b8f4f",
+      "name": "computeSnap",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for computing snap guides for UI element positioning."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a21229d4",
+      "name": "UndoManager",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the UndoManager class for managing undo/redo operations."
+        },
+        {
+          "order": 2,
+          "content": "Include type definitions for undo entries and property change creation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_57d5a8b2",
+      "name": "TextEditor",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TextEditor class for managing text input and editing."
+        },
+        {
+          "order": 2,
+          "content": "Include type definitions for text caret and editor state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a8b7ded",
+      "name": "toggleBoldInRange",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for toggling bold formatting in a text range."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1646248e",
+      "name": "toggleItalicInRange",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for toggling italic formatting in a text range."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_36eed233",
+      "name": "toggleDecorationInRange",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for toggling text decoration in a text range."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_56c832cf",
+      "name": "adjustRunsForInsert",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for adjusting text style runs when inserting text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c6984bf1",
+      "name": "adjustRunsForDelete",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for adjusting text style runs when deleting text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8e4cb83a",
+      "name": "renderNodesToImage",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for rendering UI nodes to image format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_27d7273e",
+      "name": "renderThumbnail",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export function for rendering thumbnails of UI nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

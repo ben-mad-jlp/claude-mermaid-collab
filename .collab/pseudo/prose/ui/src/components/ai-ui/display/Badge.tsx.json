@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/Badge.tsx",
+  "title": "Badge component with variant and size styling",
+  "purpose": "Provides a reusable badge UI element that supports different visual variants and sizing options for displaying short labels or tags.",
+  "module_context": "Exports a Badge component with defined props interface and CSS class mappings for different variants and sizes.",
+  "methods": [
+    {
+      "id": "m_05d204a2",
+      "name": "Badge",
+      "enclosing_class": null,
+      "normalized_params": "(props: BadgeProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept text content and optional styling props for variant and size."
+        },
+        {
+          "order": 2,
+          "content": "Apply default variant and size values if not provided."
+        },
+        {
+          "order": 3,
+          "content": "Construct a span element with combined CSS classes for styling."
+        },
+        {
+          "order": 4,
+          "content": "Render the provided text content inside the styled span."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

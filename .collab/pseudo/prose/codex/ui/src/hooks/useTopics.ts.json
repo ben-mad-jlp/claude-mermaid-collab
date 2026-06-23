@@ -1,0 +1,223 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/hooks/useTopics.ts",
+  "title": "React hook for fetching, filtering, and sorting topic lists with mock data",
+  "purpose": "Provides a React hook that manages a list of topics with filtering, sorting, and loading states using mock data.",
+  "module_context": "Exports a useTopics hook that manages topic data with filtering, sorting, and loading states. Includes mock data for topics and helper functions for filtering and sorting.",
+  "methods": [
+    {
+      "id": "m_50021d75",
+      "name": "isStale",
+      "enclosing_class": null,
+      "normalized_params": "(lastVerified: string | null, staleDays: number): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the last verified date is null or undefined."
+        },
+        {
+          "order": 2,
+          "content": "IF the last verified date is null, return true indicating the topic is stale."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the stale date by subtracting the stale days from the current date."
+        },
+        {
+          "order": 4,
+          "content": "Compare the verified date with the stale date to determine if the topic is stale."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8bbf1e3c",
+      "name": "filterTopics",
+      "enclosing_class": null,
+      "normalized_params": "(topics: TopicSummary[], filters?: TopicFilters): TopicSummary[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no filters are provided, return the original list of topics."
+        },
+        {
+          "order": 2,
+          "content": "Filter topics based on confidence levels if specified in filters."
+        },
+        {
+          "order": 3,
+          "content": "Filter topics based on whether they have open flags if specified in filters."
+        },
+        {
+          "order": 4,
+          "content": "Filter topics based on whether they have drafts if specified in filters."
+        },
+        {
+          "order": 5,
+          "content": "Filter topics based on staleness if specified in filters."
+        },
+        {
+          "order": 6,
+          "content": "Return the filtered list of topics that match all specified criteria."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3fe1cb4c",
+      "name": "sortTopics",
+      "enclosing_class": null,
+      "normalized_params": "(topics: TopicSummary[], sortBy: TopicSortBy, sortOrder: SortOrder): TopicSummary[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a copy of the topics array to avoid mutating the original."
+        },
+        {
+          "order": 2,
+          "content": "Sort the topics based on the specified sort field and order."
+        },
+        {
+          "order": 3,
+          "content": "For name sorting, compare topic names using locale comparison."
+        },
+        {
+          "order": 4,
+          "content": "For confidence sorting, use a predefined confidence order to compare."
+        },
+        {
+          "order": 5,
+          "content": "For last verified sorting, convert dates to timestamps for comparison."
+        },
+        {
+          "order": 6,
+          "content": "For access count sorting, compare numeric access counts directly."
+        },
+        {
+          "order": 7,
+          "content": "Reverse the sort order if descending is specified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2046938e",
+      "name": "useTopics",
+      "enclosing_class": null,
+      "normalized_params": "(filters?: TopicFilters, sortBy?: TopicSortBy, sortOrder?: SortOrder): UseTopicsReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for topics, loading status, and error."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to fetch topics with simulated API delay."
+        },
+        {
+          "order": 3,
+          "content": "Apply filters and sorting to the mock topic data during fetch."
+        },
+        {
+          "order": 4,
+          "content": "Set the fetched and processed topics to state."
+        },
+        {
+          "order": 5,
+          "content": "Handle errors during the fetch operation."
+        },
+        {
+          "order": 6,
+          "content": "Set loading state to false after fetch completes."
+        },
+        {
+          "order": 7,
+          "content": "Use effect to call fetch topics on component mount and when dependencies change."
+        },
+        {
+          "order": 8,
+          "content": "Return the topics list, loading state, error, and refresh function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e2832cb",
+      "name": "fetchTopics",
+      "enclosing_class": "useTopics",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to true before starting the fetch."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing error state before starting the fetch."
+        },
+        {
+          "order": 3,
+          "content": "Simulate an API delay using a timeout."
+        },
+        {
+          "order": 4,
+          "content": "Apply the filters to the mock topics data."
+        },
+        {
+          "order": 5,
+          "content": "Apply the sorting to the filtered topics."
+        },
+        {
+          "order": 6,
+          "content": "Update the topics state with the filtered and sorted results."
+        },
+        {
+          "order": 7,
+          "content": "IF the fetch fails, set the error state with the error details."
+        },
+        {
+          "order": 8,
+          "content": "Set the loading state to false after the fetch completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ac6d60a3",
+      "name": "refresh",
+      "enclosing_class": "useTopics",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the fetch topics function to refresh the topic list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

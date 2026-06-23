@@ -1,0 +1,154 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/image.ts",
+  "title": "Image management tools with API integration",
+  "purpose": "Provides functions to create, list, get, and delete images via a remote API, handling HTTP requests and response parsing.",
+  "module_context": "Defines API base URL from environment variables and exports schemas for image operations. Includes helper function to build API URLs with project and session parameters.",
+  "methods": [
+    {
+      "id": "m_5c7df8cd",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string, session: string, extraParams?: Record<string, string>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL using the provided path and base API endpoint."
+        },
+        {
+          "order": 2,
+          "content": "Set the project parameter in the URL search parameters."
+        },
+        {
+          "order": 3,
+          "content": "Set the session parameter in the URL search parameters."
+        },
+        {
+          "order": 4,
+          "content": "If extra parameters are provided, add each key-value pair to the URL search parameters."
+        },
+        {
+          "order": 5,
+          "content": "Return the final URL string with all parameters included."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6d428a5e",
+      "name": "handleCreateImage",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name: string, source: string): Promise<CreateImageResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the image creation endpoint with the image name and source."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, parse the error message and throw an error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE parse the JSON response to extract the image ID."
+        },
+        {
+          "order": 4,
+          "content": "Return a success result with the image ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_75dad4ae",
+      "name": "handleListImages",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<ListImagesResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the images listing endpoint."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "ELSE parse the JSON response to extract the images array."
+        },
+        {
+          "order": 4,
+          "content": "Return a result containing the list of images."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f29de589",
+      "name": "handleGetImage",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<GetImageResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the specific image endpoint using the image ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, check if it's a 404 error and throw a not found error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE if it's another error, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "ELSE parse the JSON response and return the image data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d497adc3",
+      "name": "handleDeleteImage",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<DeleteImageResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a DELETE request to the specific image endpoint using the image ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, parse the error message and throw an error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return a success result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useTabKeyboard.ts",
+  "title": "Keyboard navigation hook for tab management",
+  "purpose": "Provides keyboard shortcuts for tab navigation, closing, and switching between tabs in a session-based interface.",
+  "module_context": "Exports a React hook useTabKeyboard that manages global keyboard event listeners for tab operations and integrates with tab and session stores.",
+  "methods": [
+    {
+      "id": "m_efd258bb",
+      "name": "isEditingTarget",
+      "enclosing_class": null,
+      "normalized_params": "(e: KeyboardEvent): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the target element from the keyboard event."
+        },
+        {
+          "order": 2,
+          "content": "IF the target is null, return false."
+        },
+        {
+          "order": 3,
+          "content": "IF the target is an input or textarea element, return true."
+        },
+        {
+          "order": 4,
+          "content": "IF the target is content editable, return true."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7846d718",
+      "name": "useTabKeyboard",
+      "enclosing_class": null,
+      "normalized_params": "({ enabled?: boolean } = {}): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Setup a keyboard event listener when the hook is mounted."
+        },
+        {
+          "order": 2,
+          "content": "IF the hook is disabled, do nothing."
+        },
+        {
+          "order": 3,
+          "content": "On each keydown event, check if control or meta key is pressed."
+        },
+        {
+          "order": 4,
+          "content": "IF control or meta key is not pressed, do nothing."
+        },
+        {
+          "order": 5,
+          "content": "IF the target is an editing element and the key is not tab, do nothing."
+        },
+        {
+          "order": 6,
+          "content": "Get the current session from the session store."
+        },
+        {
+          "order": 7,
+          "content": "IF there is no valid session, do nothing."
+        },
+        {
+          "order": 8,
+          "content": "Generate a session key from project and session name."
+        },
+        {
+          "order": 9,
+          "content": "Get the tab entry for this session from the tabs store."
+        },
+        {
+          "order": 10,
+          "content": "IF there is no tab entry, do nothing."
+        },
+        {
+          "order": 11,
+          "content": "Sort the tabs by their order property."
+        },
+        {
+          "order": 12,
+          "content": "IF there are no tabs, do nothing."
+        },
+        {
+          "order": 13,
+          "content": "Find the index of the currently active tab."
+        },
+        {
+          "order": 14,
+          "content": "IF the key is tab, prevent default behavior and navigate to next or previous tab."
+        },
+        {
+          "order": 15,
+          "content": "IF the key is w or W, prevent default behavior and close the active tab."
+        },
+        {
+          "order": 16,
+          "content": "IF the key is a number from 1-9, prevent default behavior and switch to the corresponding tab."
+        },
+        {
+          "order": 17,
+          "content": "Cleanup the event listener when the component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DefinitionPickerPopover.tsx",
+  "title": "Popover component for picking between multiple symbol definitions",
+  "purpose": "Displays a portal popover listing definition candidates for a clicked symbol, allowing users to select one to navigate to. Positions itself relative to the clicked symbol.",
+  "module_context": "Exports a React functional component DefinitionPickerPopover that accepts candidates, symbol name, anchor rectangle, and callback handlers. Includes helper function basename for file path processing.",
+  "methods": [
+    {
+      "id": "m_01d082b1",
+      "name": "basename",
+      "enclosing_class": null,
+      "normalized_params": "(p: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the input path string by forward slashes."
+        },
+        {
+          "order": 2,
+          "content": "Return the last element of the split array or the original path if empty."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b6d3b6f5",
+      "name": "DefinitionPickerPopover",
+      "enclosing_class": null,
+      "normalized_params": "(props: DefinitionPickerPopoverProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref for the popover container element."
+        },
+        {
+          "order": 2,
+          "content": "Calculate and memoize the popover position based on the anchor rectangle."
+        },
+        {
+          "order": 3,
+          "content": "Set up a document mouse event listener to close the popover on outside clicks."
+        },
+        {
+          "order": 4,
+          "content": "Set up a document keydown event listener to close the popover on Escape key."
+        },
+        {
+          "order": 5,
+          "content": "Set up a window scroll event listener to close the popover on scroll."
+        },
+        {
+          "order": 6,
+          "content": "Construct the popover UI with header and body sections."
+        },
+        {
+          "order": 7,
+          "content": "Render each candidate definition with file path, line number, and export status."
+        },
+        {
+          "order": 8,
+          "content": "Return the popover wrapped in a React portal attached to the document body."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/CommitPushPRModal.tsx",
+  "title": "Commit, Push & Open PR modal component with form handling",
+  "purpose": "Provides a modal interface for users to commit changes, push to a branch, and open a pull request with customizable title, body, and draft status.",
+  "module_context": "Exports a React functional component CommitPushPRModal that accepts props for controlling visibility and handling submission, along with a default export of the same component.",
+  "methods": [
+    {
+      "id": "m_0f1e81d3",
+      "name": "CommitPushPRModal",
+      "enclosing_class": null,
+      "normalized_params": "(props: CommitPushPRModalProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state variables for title, body, and draft status."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to commit in flight status from the agent store."
+        },
+        {
+          "order": 3,
+          "content": "Set up effect to reset form fields and focus title input when modal opens."
+        },
+        {
+          "order": 4,
+          "content": "Return null if modal is not open."
+        },
+        {
+          "order": 5,
+          "content": "Define form submission handler that validates input and calls submit callback."
+        },
+        {
+          "order": 6,
+          "content": "Define keyboard handler to close modal on Escape key press."
+        },
+        {
+          "order": 7,
+          "content": "Render modal UI with title, body, and draft status inputs."
+        },
+        {
+          "order": 8,
+          "content": "Include cancel and submit buttons with appropriate disabled states."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7443f966",
+      "name": "useEffect",
+      "enclosing_class": "CommitPushPRModal",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset form fields when modal opens."
+        },
+        {
+          "order": 2,
+          "content": "Focus the title input field after a brief delay to ensure it's mounted."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eaed035f",
+      "name": "handleSubmit",
+      "enclosing_class": "CommitPushPRModal",
+      "normalized_params": "(e: React.FormEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default form submission behavior."
+        },
+        {
+          "order": 2,
+          "content": "Validate that form can be submitted."
+        },
+        {
+          "order": 3,
+          "content": "Call the submit callback with formatted input values."
+        },
+        {
+          "order": 4,
+          "content": "Close the modal after successful submission."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_242f811b",
+      "name": "handleKeyDown",
+      "enclosing_class": "CommitPushPRModal",
+      "normalized_params": "(e: React.KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the pressed key is Escape."
+        },
+        {
+          "order": 2,
+          "content": "IF the key is Escape and commit is not in flight, close the modal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0ba164b2",
+      "name": "onChange",
+      "enclosing_class": "CommitPushPRModal",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the title state with the new input value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9d6dcf44",
+      "name": "onChange",
+      "enclosing_class": "CommitPushPRModal",
+      "normalized_params": "(e: React.ChangeEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the body state with the new input value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0ba164b2",
+      "name": "onChange",
+      "enclosing_class": "CommitPushPRModal",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the draft state with the new checkbox value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

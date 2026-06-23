@@ -1,0 +1,162 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/ProposedEditReview.tsx",
+  "title": "Proposed edit review banner with preview diff and accept/reject controls",
+  "purpose": "Displays a sticky banner showing Claude's proposed code edit, allowing users to preview the changes in a diff modal and accept or reject the proposal.",
+  "module_context": "Exports a React functional component named ProposedEditReview that accepts props for current code, proposed code, message, timestamp, and handler functions for accept/reject actions. Includes a helper function formatRelativeTime for displaying time deltas.",
+  "methods": [
+    {
+      "id": "m_58312773",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(ts: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the time difference between now and the provided timestamp."
+        },
+        {
+          "order": 2,
+          "content": "IF the difference is less than a minute, return 'just now'."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the difference is less than an hour, return the number of minutes ago."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the difference is less than a day, return the number of hours ago."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the number of days ago."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_67f3e769",
+      "name": "ProposedEditReview",
+      "enclosing_class": null,
+      "normalized_params": "(props: ProposedEditReviewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for processing status and preview modal visibility."
+        },
+        {
+          "order": 2,
+          "content": "Determine if the current code differs from the proposed code."
+        },
+        {
+          "order": 3,
+          "content": "Set up a callback to handle accepting the proposed edit with processing state management."
+        },
+        {
+          "order": 4,
+          "content": "Set up a callback to handle rejecting the proposed edit with processing state management."
+        },
+        {
+          "order": 5,
+          "content": "Add an effect to listen for escape key presses to close the preview modal."
+        },
+        {
+          "order": 6,
+          "content": "Render the banner with the proposed edit message and action buttons."
+        },
+        {
+          "order": 7,
+          "content": "IF the preview modal is open, render the diff viewer with current and proposed code."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7e884f37",
+      "name": "handleAccept",
+      "enclosing_class": "ProposedEditReview",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF already processing, return early to prevent concurrent actions."
+        },
+        {
+          "order": 2,
+          "content": "Set the processing state to true."
+        },
+        {
+          "order": 3,
+          "content": "Call the onAccept prop function to process the acceptance."
+        },
+        {
+          "order": 4,
+          "content": "Reset the processing state after the operation completes, whether successful or failed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_97010e87",
+      "name": "handleReject",
+      "enclosing_class": "ProposedEditReview",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF already processing, return early to prevent concurrent actions."
+        },
+        {
+          "order": 2,
+          "content": "Set the processing state to true."
+        },
+        {
+          "order": 3,
+          "content": "Call the onReject prop function to process the rejection."
+        },
+        {
+          "order": 4,
+          "content": "Reset the processing state after the operation completes, whether successful or failed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a48f0bac",
+      "name": "handleKeyDown",
+      "enclosing_class": "ProposedEditReview",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the pressed key is the escape key."
+        },
+        {
+          "order": 2,
+          "content": "IF the escape key is pressed, close the preview modal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

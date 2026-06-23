@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/TurnFooter.tsx",
+  "title": "Turn footer component for agent chat with usage metrics and status",
+  "purpose": "Displays token usage, cost, stop reason, and elapsed time for each turn in an agent chat interface.",
+  "module_context": "Exports a React functional component TurnFooter that accepts usage, stop reason, canceled status, and elapsed time props to render a formatted footer section.",
+  "methods": [
+    {
+      "id": "m_311c9be7",
+      "name": "TurnFooter",
+      "enclosing_class": null,
+      "normalized_params": "(props: TurnFooterProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an array to collect footer parts based on provided props."
+        },
+        {
+          "order": 2,
+          "content": "IF usage data is provided, add input tokens, output tokens, and cost to the parts array."
+        },
+        {
+          "order": 3,
+          "content": "IF elapsed time is provided, calculate seconds and add to the parts array."
+        },
+        {
+          "order": 4,
+          "content": "IF stop reason is provided, add it to the parts array."
+        },
+        {
+          "order": 5,
+          "content": "IF no parts were added and the turn was not canceled, return null to render nothing."
+        },
+        {
+          "order": 6,
+          "content": "ELSE render a flex container with the collected parts and optionally a canceled status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

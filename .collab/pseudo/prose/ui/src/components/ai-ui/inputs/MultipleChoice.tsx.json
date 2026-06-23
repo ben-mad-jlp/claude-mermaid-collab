@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/MultipleChoice.tsx",
+  "title": "Multiple choice input component with controlled and uncontrolled state",
+  "purpose": "Provides a dropdown selection component that supports both controlled and uncontrolled usage patterns with proper accessibility attributes.",
+  "module_context": "Exports a React functional component named MultipleChoice that accepts various props for configuration and rendering a select dropdown with options.",
+  "methods": [
+    {
+      "id": "m_5dbca1cf",
+      "name": "MultipleChoice",
+      "enclosing_class": null,
+      "normalized_params": "(props: MultipleChoiceProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique ID for the component instance."
+        },
+        {
+          "order": 2,
+          "content": "Create IDs for the label and description elements."
+        },
+        {
+          "order": 3,
+          "content": "Initialize internal state for the selected value if not controlled externally."
+        },
+        {
+          "order": 4,
+          "content": "Determine the current value to use, either from controlled prop or internal state."
+        },
+        {
+          "order": 5,
+          "content": "Define the change handler that updates internal state and notifies parent of changes."
+        },
+        {
+          "order": 6,
+          "content": "Render the label element if a label is provided."
+        },
+        {
+          "order": 7,
+          "content": "Render the select dropdown with options and apply all configured attributes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/Dropdown.tsx",
+  "title": "Dropdown component with React and TypeScript",
+  "purpose": "Provides a reusable dropdown UI component with customizable options, labels, and validation.",
+  "module_context": "Exports a React functional component named Dropdown that accepts various props for configuration including options, labels, placeholders, and event handlers.",
+  "methods": [
+    {
+      "id": "m_860b95b0",
+      "name": "Dropdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: DropdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique ID for the component instance."
+        },
+        {
+          "order": 2,
+          "content": "Set up IDs for the label and description elements."
+        },
+        {
+          "order": 3,
+          "content": "Initialize internal state with the default value or empty string."
+        },
+        {
+          "order": 4,
+          "content": "Update internal state when the default value prop changes."
+        },
+        {
+          "order": 5,
+          "content": "Define the change handler to update internal state and notify parent of changes."
+        },
+        {
+          "order": 6,
+          "content": "Render the label and select element with appropriate attributes and options."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

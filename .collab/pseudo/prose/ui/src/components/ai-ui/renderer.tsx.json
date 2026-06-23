@@ -1,0 +1,183 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/renderer.tsx",
+  "title": "AI-UI Recursive Renderer with Action Handling",
+  "purpose": "Recursively renders JSON UI definitions using registered components, handles action callbacks, and provides error fallbacks for invalid components or rendering errors.",
+  "module_context": "Exports a recursive renderer component, a hook for rendering components, and utility functions for rendering multiple components or wrapping components with action handling.",
+  "methods": [
+    {
+      "id": "m_16bf6586",
+      "name": "AIUIRenderer",
+      "enclosing_class": null,
+      "normalized_params": "(props: RendererProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref for collecting form data from inputs."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to collect form data from select, input, and textarea elements."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback function to handle component actions, with error handling."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the component input is a valid object."
+        },
+        {
+          "order": 5,
+          "content": "Extract component type, props, children, and actions from the input."
+        },
+        {
+          "order": 6,
+          "content": "Validate that the component type is registered and retrieve the component."
+        },
+        {
+          "order": 7,
+          "content": "IF the component is not found, render an unknown component fallback."
+        },
+        {
+          "order": 8,
+          "content": "Recursively render child components if they exist."
+        },
+        {
+          "order": 9,
+          "content": "Merge component props with global props and handle disabled state."
+        },
+        {
+          "order": 10,
+          "content": "Render action buttons if present, attaching form data collection to their click handlers."
+        },
+        {
+          "order": 11,
+          "content": "Render the component with its children and actions, handling any rendering errors with an error fallback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aa31c696",
+      "name": "collectFormData",
+      "enclosing_class": "AIUIRenderer",
+      "normalized_params": "(): Record<string, any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the container ref is not set, return an empty data object."
+        },
+        {
+          "order": 2,
+          "content": "Collect form data from select elements by name attribute."
+        },
+        {
+          "order": 3,
+          "content": "Collect form data from input elements by name attribute, handling checkbox and radio types."
+        },
+        {
+          "order": 4,
+          "content": "Collect form data from textarea elements by name attribute."
+        },
+        {
+          "order": 5,
+          "content": "Return the collected form data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7ca85bfa",
+      "name": "handleAction",
+      "enclosing_class": "AIUIRenderer",
+      "normalized_params": "(actionId: string, payload?: any): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF an action callback is provided, invoke it with the action ID and payload."
+        },
+        {
+          "order": 2,
+          "content": "IF the action callback throws an error, log the error to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_894c05b9",
+      "name": "useAIUIRenderer",
+      "enclosing_class": null,
+      "normalized_params": "(): { renderComponent: (component: UIComponent, onAction?: ActionCallback, componentProps?: Record<string, any>) => React.ReactElement }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a callback function to render a single component with action handling."
+        },
+        {
+          "order": 2,
+          "content": "Return an object containing the renderComponent function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e0f7a154",
+      "name": "renderComponents",
+      "enclosing_class": null,
+      "normalized_params": "(components: UIComponent[], onAction?: ActionCallback, componentProps?: Record<string, any>): React.ReactNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map over the list of components to render each one."
+        },
+        {
+          "order": 2,
+          "content": "For each component, create a renderer instance with the provided props and action callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cadfa8a7",
+      "name": "withAIUIRenderer",
+      "enclosing_class": null,
+      "normalized_params": "(WrappedComponent: React.ComponentType<any>, onAction?: ActionCallback): React.ComponentType<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a higher-order component that wraps the input component with AI-UI rendering capabilities."
+        },
+        {
+          "order": 2,
+          "content": "Return a component that renders the wrapped component using the AI-UI renderer with the provided action callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

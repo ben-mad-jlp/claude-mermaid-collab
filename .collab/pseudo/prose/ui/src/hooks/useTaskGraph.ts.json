@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useTaskGraph.ts",
+  "title": "Task graph state management with WebSocket updates",
+  "purpose": "Manages task graph data fetching, real-time updates via CustomEvent, and loading/error states for React components.",
+  "module_context": "Exports a hook that handles task graph state with initial fetch, event listeners, and refresh capability.",
+  "methods": [
+    {
+      "id": "m_51d423a0",
+      "name": "useTaskGraph",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): UseTaskGraphReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state variables for diagram, batches, completed tasks, pending tasks, loading status, and error."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to fetch task graph data from the API endpoint."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback function to handle task_graph_updated CustomEvents and update state."
+        },
+        {
+          "order": 4,
+          "content": "Set up an effect to fetch initial state and add the event listener on mount."
+        },
+        {
+          "order": 5,
+          "content": "Return the current state and refresh function to the caller."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a336f6f8",
+      "name": "fetchTaskGraph",
+      "enclosing_class": "useTaskGraph",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set loading state to true and clear any existing error."
+        },
+        {
+          "order": 2,
+          "content": "Construct the API URL with encoded project and session parameters."
+        },
+        {
+          "order": 3,
+          "content": "Send a fetch request to the API endpoint."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not ok, throw an error with status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the API."
+        },
+        {
+          "order": 6,
+          "content": "Update all state variables with data from the API response."
+        },
+        {
+          "order": 7,
+          "content": "Set loading state to false after successful update."
+        },
+        {
+          "order": 8,
+          "content": "IF the fetch fails, set error state and log the error to console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_09fcead9",
+      "name": "handleTaskGraphUpdate",
+      "enclosing_class": "useTaskGraph",
+      "normalized_params": "(event: Event): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Cast the event to a CustomEvent with TaskGraphUpdatedDetail payload."
+        },
+        {
+          "order": 2,
+          "content": "Extract the payload from the event detail."
+        },
+        {
+          "order": 3,
+          "content": "Update all state variables with data from the event payload."
+        },
+        {
+          "order": 4,
+          "content": "Clear any existing error state after successful update."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing the event fails, log a warning to console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_182c0204",
+      "name": "useEffect",
+      "enclosing_class": "useTaskGraph",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the fetchTaskGraph function to get initial task graph data."
+        },
+        {
+          "order": 2,
+          "content": "Add an event listener for task_graph_updated events on the window."
+        },
+        {
+          "order": 3,
+          "content": "Return a cleanup function that removes the event listener on component unmount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

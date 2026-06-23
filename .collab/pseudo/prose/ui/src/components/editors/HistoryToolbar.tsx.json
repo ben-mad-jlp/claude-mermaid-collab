@@ -1,0 +1,235 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/HistoryToolbar.tsx",
+  "title": "History navigation toolbar with prev/next arrows and dropdown",
+  "purpose": "Provides a toolbar for navigating document history with previous/next buttons and a dropdown menu to jump to specific versions.",
+  "module_context": "Exports a HistoryToolbar React component that integrates with document editing and session management. Includes a helper function for formatting relative timestamps.",
+  "methods": [
+    {
+      "id": "m_a3c2c2d3",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the time difference between now and the provided timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Format the difference as a relative time string based on minutes, hours, or days."
+        },
+        {
+          "order": 3,
+          "content": "Return 'just now' for less than a minute ago."
+        },
+        {
+          "order": 4,
+          "content": "Return minutes, hours, or days ago for larger differences."
+        },
+        {
+          "order": 5,
+          "content": "Return yesterday or a formatted date for differences of a week or more."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_83ba30ef",
+      "name": "fetchHistory",
+      "enclosing_class": "HistoryToolbar",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if document ID, project, and session are available."
+        },
+        {
+          "order": 2,
+          "content": "IF any required context is missing, clear the history and return."
+        },
+        {
+          "order": 3,
+          "content": "Set loading state to true before fetching."
+        },
+        {
+          "order": 4,
+          "content": "Fetch document history from the API endpoint with project and session parameters."
+        },
+        {
+          "order": 5,
+          "content": "IF the response is successful, parse and store the history data."
+        },
+        {
+          "order": 6,
+          "content": "Reset the current index to represent the most recent version."
+        },
+        {
+          "order": 7,
+          "content": "IF the response indicates not found, clear the history."
+        },
+        {
+          "order": 8,
+          "content": "IF the fetch fails, clear the history."
+        },
+        {
+          "order": 9,
+          "content": "Reset loading state after the fetch completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cc36b518",
+      "name": "getVersionAt",
+      "enclosing_class": "HistoryToolbar",
+      "normalized_params": "(timestamp: string): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if document ID, project, and session are available."
+        },
+        {
+          "order": 2,
+          "content": "IF any required context is missing, return null."
+        },
+        {
+          "order": 3,
+          "content": "Fetch the specific version content from the API endpoint with project, session, and timestamp parameters."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is successful, parse and return the content."
+        },
+        {
+          "order": 5,
+          "content": "IF the fetch fails, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0046f3a6",
+      "name": "handlePrev",
+      "enclosing_class": "HistoryToolbar",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if navigation to a previous version is possible."
+        },
+        {
+          "order": 2,
+          "content": "IF navigation is not possible, return early."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the new index for the previous version."
+        },
+        {
+          "order": 4,
+          "content": "Fetch the content for the previous version."
+        },
+        {
+          "order": 5,
+          "content": "Fetch the content for the version before the previous one for comparison."
+        },
+        {
+          "order": 6,
+          "content": "Update the current index and notify parent component of the selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e24c0bc",
+      "name": "handleNext",
+      "enclosing_class": "HistoryToolbar",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if navigation to a next version is possible."
+        },
+        {
+          "order": 2,
+          "content": "IF navigation is not possible, return early."
+        },
+        {
+          "order": 3,
+          "content": "Handle navigation to the current version if at the first historical index."
+        },
+        {
+          "order": 4,
+          "content": "Calculate the new index for the next version."
+        },
+        {
+          "order": 5,
+          "content": "Fetch the content for the next version."
+        },
+        {
+          "order": 6,
+          "content": "Fetch the content for the version before the next one for comparison."
+        },
+        {
+          "order": 7,
+          "content": "Update the current index and notify parent component of the selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9106ab0d",
+      "name": "handleDropdownSelect",
+      "enclosing_class": "HistoryToolbar",
+      "normalized_params": "(index: number): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Handle selection of the current version if index is -1."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the content for the selected historical version."
+        },
+        {
+          "order": 3,
+          "content": "Fetch the content for the version before the selected one for comparison."
+        },
+        {
+          "order": 4,
+          "content": "Update the current index and notify parent component of the selection."
+        },
+        {
+          "order": 5,
+          "content": "Close the dropdown after selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

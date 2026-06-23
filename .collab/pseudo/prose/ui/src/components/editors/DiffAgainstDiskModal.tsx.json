@@ -1,0 +1,183 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DiffAgainstDiskModal.tsx",
+  "title": "Diff viewer modal for comparing editor content with disk or last-pushed version",
+  "purpose": "Displays a unified diff between current editor code and either the file on disk or the last pushed version. Used for confirming changes before pushing and as a standalone preview tool.",
+  "module_context": "Exports a React functional component DiffAgainstDiskModal that accepts props for controlling display and behavior, including loading state, error handling, and comparison mode switching.",
+  "methods": [
+    {
+      "id": "m_dba8d2ca",
+      "name": "parseSnippetEnvelope",
+      "enclosing_class": null,
+      "normalized_params": "(content: string | undefined): ParsedSnippet",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no content is provided, return empty snippet values."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to parse the content as JSON."
+        },
+        {
+          "order": 3,
+          "content": "Extract code, originalCode, and diskCode from the parsed data if they are strings."
+        },
+        {
+          "order": 4,
+          "content": "If parsing fails, treat the entire content as the code value and return empty original and disk values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d7547f8",
+      "name": "basename",
+      "enclosing_class": null,
+      "normalized_params": "(p: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the path is empty, return an empty string."
+        },
+        {
+          "order": 2,
+          "content": "Find the last occurrence of the forward slash character in the path."
+        },
+        {
+          "order": 3,
+          "content": "If a slash is found, return the substring after the last slash."
+        },
+        {
+          "order": 4,
+          "content": "If no slash is found, return the entire path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_71b2a9a0",
+      "name": "DiffAgainstDiskModal",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiffAgainstDiskModalProps): React.ReactElement | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for parsed snippet data, loading status, error message, and comparison mode."
+        },
+        {
+          "order": 2,
+          "content": "Fetch snippet data from the API when the modal opens."
+        },
+        {
+          "order": 3,
+          "content": "Set up keyboard event listener for escape key to close the modal."
+        },
+        {
+          "order": 4,
+          "content": "Handle confirmation action by calling the provided confirm callback and then closing the modal."
+        },
+        {
+          "order": 5,
+          "content": "Render the modal UI with header, body showing diff or status messages, and footer with action buttons."
+        },
+        {
+          "order": 6,
+          "content": "Display loading, error, or no changes messages in the body based on current state."
+        },
+        {
+          "order": 7,
+          "content": "Show the diff viewer with appropriate titles and content based on the selected comparison mode."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d41c4496",
+      "name": "useEffect",
+      "enclosing_class": "DiffAgainstDiskModal",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch snippet data when the modal opens."
+        },
+        {
+          "order": 2,
+          "content": "Set up cancellation flag to prevent state updates after unmount."
+        },
+        {
+          "order": 3,
+          "content": "Load snippet from API and update parsed state with the snippet content."
+        },
+        {
+          "order": 4,
+          "content": "Handle errors during snippet loading by setting error state."
+        },
+        {
+          "order": 5,
+          "content": "Set loading state to false after fetch completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d41c4496",
+      "name": "useEffect",
+      "enclosing_class": "DiffAgainstDiskModal",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set up keyboard event listener for escape key to close the modal."
+        },
+        {
+          "order": 2,
+          "content": "Clean up the keyboard event listener when the component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d96c4f12",
+      "name": "handleConfirm",
+      "enclosing_class": "DiffAgainstDiskModal",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the provided confirm callback if it exists."
+        },
+        {
+          "order": 2,
+          "content": "Close the modal after confirming or after the confirm callback completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

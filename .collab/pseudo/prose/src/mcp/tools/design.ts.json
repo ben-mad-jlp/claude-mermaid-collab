@@ -1,0 +1,220 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/design.ts",
+  "title": "MCP Design Tools for CRUD operations on design files",
+  "purpose": "Provides tools for creating, reading, updating, deleting, and exporting design files stored as .design.json in session folders.",
+  "module_context": "Exports interfaces for design data structures and schemas for API request validation, along with async handler functions for each CRUD operation.",
+  "methods": [
+    {
+      "id": "m_2a975512",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string, session: string, extraParams?: Record<string, string>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL using the base API endpoint and provided path."
+        },
+        {
+          "order": 2,
+          "content": "Add project and session as query parameters to the URL."
+        },
+        {
+          "order": 3,
+          "content": "IF extra parameters are provided, append them to the URL search parameters."
+        },
+        {
+          "order": 4,
+          "content": "Return the fully constructed URL string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_874ec90d",
+      "name": "handleCreateDesign",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name: string, content: any): Promise<CreateDesignResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the API endpoint for creating a design."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, parse the error message and throw an error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE parse the response JSON to extract the created design ID."
+        },
+        {
+          "order": 4,
+          "content": "Return a success result with the ID of the created design."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_70b886f1",
+      "name": "handleUpdateDesign",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, content: any): Promise<UpdateDesignResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the API endpoint for updating a design."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, parse the error message and throw an error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return a success result with the ID of the updated design."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78088faf",
+      "name": "handleGetDesign",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<GetDesignResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the API endpoint for retrieving a design."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, throw an error indicating the design was not found."
+        },
+        {
+          "order": 3,
+          "content": "ELSE parse the response JSON to extract design data."
+        },
+        {
+          "order": 4,
+          "content": "IF the content is a string, parse it as JSON."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed design data with name, ID, content, and last modified timestamp."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6bf19b55",
+      "name": "handleListDesigns",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<ListDesignsResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the API endpoint for listing designs."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, throw an error indicating the listing failed."
+        },
+        {
+          "order": 3,
+          "content": "ELSE parse the response JSON to extract the list of designs."
+        },
+        {
+          "order": 4,
+          "content": "Return the list of designs in a result object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ce8c6318",
+      "name": "handleDeleteDesign",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<DeleteDesignResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a DELETE request to the API endpoint for deleting a design."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, parse the error message and throw an error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return a success result indicating the design was deleted."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42b7a002",
+      "name": "handleExportDesign",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, format?: string, scale?: number, outputPath?: string): Promise<{ success: boolean; filePath: string; format: string; size: number }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the API endpoint for exporting a design."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, parse the error message and throw an error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE read the response as an array buffer and convert it to a Uint8Array."
+        },
+        {
+          "order": 4,
+          "content": "Determine the file extension based on the format parameter."
+        },
+        {
+          "order": 5,
+          "content": "IF an output path is provided, use it; otherwise, generate a temporary file path."
+        },
+        {
+          "order": 6,
+          "content": "Write the binary data to the specified file path."
+        },
+        {
+          "order": 7,
+          "content": "Return a success result with the file path, format, and size."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

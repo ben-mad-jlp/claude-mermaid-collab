@@ -1,0 +1,134 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/HistoryDiffSettingsDropdown.tsx",
+  "title": "Document history diff settings dropdown component",
+  "purpose": "Provides a dropdown interface for configuring how document history differences are displayed, including view mode and comparison options.",
+  "module_context": "Exports a React functional component named HistoryDiffSettingsDropdown that accepts props for view mode, compare mode, change handler, and previous version availability. Includes internal state management for dropdown visibility and event listeners for click-outside and escape key handling.",
+  "methods": [
+    {
+      "id": "m_d6749576",
+      "name": "HistoryDiffSettingsDropdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: HistoryDiffSettingsDropdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize internal state for dropdown visibility."
+        },
+        {
+          "order": 2,
+          "content": "Set up event listeners for click outside and escape key to close the dropdown."
+        },
+        {
+          "order": 3,
+          "content": "Define handlers for view mode and compare mode changes that notify the parent component."
+        },
+        {
+          "order": 4,
+          "content": "Render the dropdown button with appropriate styling and accessibility attributes."
+        },
+        {
+          "order": 5,
+          "content": "Render the dropdown menu with view mode and compare mode options when open."
+        },
+        {
+          "order": 6,
+          "content": "Apply conditional styling to indicate the currently selected view and compare modes."
+        },
+        {
+          "order": 7,
+          "content": "Disable the previous version compare option when no previous version is available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6ca6d263",
+      "name": "handleClickOutside",
+      "enclosing_class": "HistoryDiffSettingsDropdown",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked target is outside the dropdown element."
+        },
+        {
+          "order": 2,
+          "content": "Close the dropdown if the click occurred outside its boundaries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9e70d157",
+      "name": "handleEscape",
+      "enclosing_class": "HistoryDiffSettingsDropdown",
+      "normalized_params": "(event: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for escape key press events."
+        },
+        {
+          "order": 2,
+          "content": "Close the dropdown when the escape key is pressed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78aff086",
+      "name": "handleViewModeChange",
+      "enclosing_class": "HistoryDiffSettingsDropdown",
+      "normalized_params": "(newViewMode: 'inline' | 'side-by-side'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Notify the parent component of the new view mode selection."
+        },
+        {
+          "order": 2,
+          "content": "Preserve the current compare mode setting during the update."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6d92ece",
+      "name": "handleCompareModeChange",
+      "enclosing_class": "HistoryDiffSettingsDropdown",
+      "normalized_params": "(newCompareMode: 'vs-current' | 'vs-previous'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Notify the parent component of the new compare mode selection."
+        },
+        {
+          "order": 2,
+          "content": "Preserve the current view mode setting during the update."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

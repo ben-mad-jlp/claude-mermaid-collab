@@ -1,0 +1,32 @@
+{
+  "id": "milkdown-chevron-test",
+  "name": "milkdown-chevron-test",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1000
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "(()=>{const chevs=document.querySelectorAll('[data-testid^=heading-collapse-chevron]'); const first=chevs[1]||chevs[0]; const before={n:chevs.length, exp:first?.getAttribute('aria-expanded'), sid:first?.getAttribute('data-section-id'), visibleBelowHeading:0}; const heading=first?.closest('h1,h2,h3'); let sibling=heading?.nextElementSibling; let count=0; while(sibling && !['H1','H2','H3'].includes(sibling.tagName)){ if(sibling.offsetHeight>0) count++; sibling=sibling.nextElementSibling; } before.visibleBelowHeading=count; first.click(); return before;})()",
+        "as": "before"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "eval": "(()=>{const chevs=document.querySelectorAll('[data-testid^=heading-collapse-chevron]'); const first=chevs[1]||chevs[0]; const heading=first?.closest('h1,h2,h3'); let sibling=heading?.nextElementSibling; let visibleCount=0, hiddenCount=0; while(sibling && !['H1','H2','H3'].includes(sibling.tagName)){ if(sibling.offsetHeight>0) visibleCount++; else hiddenCount++; sibling=sibling.nextElementSibling; } return {exp:first?.getAttribute('aria-expanded'), visibleCount, hiddenCount};})()",
+        "as": "afterCollapse"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:42:20.772Z",
+  "updatedAt": "2026-04-18T18:42:20.772Z"
+}

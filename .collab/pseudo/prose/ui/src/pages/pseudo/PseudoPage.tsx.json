@@ -1,0 +1,163 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/PseudoPage.tsx",
+  "title": "Pseudo-file viewer page with file tree, viewer, and search functionality",
+  "purpose": "Manages the layout and state for viewing pseudo-code files with file navigation, search capabilities, and function jumping.",
+  "module_context": "Exports a default React component that serves as the main page for pseudo-file viewing, handling project selection, file listing, navigation, and search functionality.",
+  "methods": [
+    {
+      "id": "m_7c467a33",
+      "name": "PseudoPage",
+      "enclosing_class": null,
+      "normalized_params": "(): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize URL parameter parsing to determine current file path."
+        },
+        {
+          "order": 2,
+          "content": "Set up navigation function for URL changes."
+        },
+        {
+          "order": 3,
+          "content": "Load available projects on component mount."
+        },
+        {
+          "order": 4,
+          "content": "Fetch pseudo files for the currently selected project."
+        },
+        {
+          "order": 5,
+          "content": "Set up global keyboard shortcuts for search functionality."
+        },
+        {
+          "order": 6,
+          "content": "Configure file tree navigation handler."
+        },
+        {
+          "order": 7,
+          "content": "Build and return the complete UI layout with file tree, viewer, and jump panel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b260d243",
+      "name": "handleAddProject",
+      "enclosing_class": "PseudoPage",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt the user to enter a project path."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to add the project to the backend."
+        },
+        {
+          "order": 3,
+          "content": "IF the request fails, display an error message to the user."
+        },
+        {
+          "order": 4,
+          "content": "IF the request succeeds, refresh the project list and select the new project."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_793dfc18",
+      "name": "loadPseudoFiles",
+      "enclosing_class": "PseudoPage",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch pseudo files for the currently selected project."
+        },
+        {
+          "order": 2,
+          "content": "IF the fetch succeeds, update the file list state."
+        },
+        {
+          "order": 3,
+          "content": "IF the fetch fails, log the error and clear the file list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59b1add8",
+      "name": "handleNavigate",
+      "enclosing_class": "PseudoPage",
+      "normalized_params": "(stem: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Navigate to the specified file path in the URL."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_753d4116",
+      "name": "handleSearchClose",
+      "enclosing_class": "PseudoPage",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the search overlay by updating the search open state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5bb72ba3",
+      "name": "handleSearchNavigate",
+      "enclosing_class": "PseudoPage",
+      "normalized_params": "(file: string, functionName?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Navigate to the specified file path."
+        },
+        {
+          "order": 2,
+          "content": "Close the search overlay."
+        },
+        {
+          "order": 3,
+          "content": "IF a function name is provided, set the pending scroll target for the viewer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

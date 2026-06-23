@@ -1,0 +1,104 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/layout/Alert.tsx",
+  "title": "Alert component with multiple severity types and dismissible functionality",
+  "purpose": "Displays status messages with different severity levels (success, warning, error, info) and supports optional title, message, actions, and dismissal.",
+  "module_context": "Exports an Alert component that accepts various props for styling and behavior, including type, title, message, dismissible flag, actions, and persistent display. Includes helper functions for determining styles and icons based on alert type.",
+  "methods": [
+    {
+      "id": "m_8244d659",
+      "name": "getAlertStyles",
+      "enclosing_class": null,
+      "normalized_params": "(alertType: string): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the alert type to a set of predefined CSS classes for container, icon, title, message, and button styling."
+        },
+        {
+          "order": 2,
+          "content": "Return the styles object for the specified alert type or default to info styles if the type is unrecognized."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6ca4d40b",
+      "name": "getAlertIcon",
+      "enclosing_class": null,
+      "normalized_params": "(alertType: string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a specific SVG icon component based on the alert type."
+        },
+        {
+          "order": 2,
+          "content": "Use a success icon for success type, warning for warning, error for error, and info for default or unknown types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7c9a32c",
+      "name": "Alert",
+      "enclosing_class": null,
+      "normalized_params": "(props: AlertComponentProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a local state to track whether the alert has been dismissed."
+        },
+        {
+          "order": 2,
+          "content": "IF the alert is hidden or dismissed and not persistent, return null to render nothing."
+        },
+        {
+          "order": 3,
+          "content": "Determine the appropriate styling classes based on the alert type."
+        },
+        {
+          "order": 4,
+          "content": "Select the icon to display, either from props or generated based on the alert type."
+        },
+        {
+          "order": 5,
+          "content": "Define a handler for dismissing the alert that updates the local state and calls the provided dismiss callback."
+        },
+        {
+          "order": 6,
+          "content": "Render the alert container with appropriate styling and layout."
+        },
+        {
+          "order": 7,
+          "content": "Display the icon within the alert container."
+        },
+        {
+          "order": 8,
+          "content": "Render the title and message content if provided."
+        },
+        {
+          "order": 9,
+          "content": "IF action buttons are provided, render them below the message."
+        },
+        {
+          "order": 10,
+          "content": "IF the alert is dismissible, render a dismiss button with an icon."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

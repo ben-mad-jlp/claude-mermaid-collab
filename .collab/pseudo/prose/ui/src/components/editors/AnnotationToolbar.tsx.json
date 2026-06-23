@@ -1,0 +1,168 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/AnnotationToolbar.tsx",
+  "title": "Annotation toolbar component with editor integration",
+  "purpose": "Provides a toolbar for adding and clearing annotations in a CodeMirror editor, supporting comment, propose, approve, reject, and clear actions.",
+  "module_context": "Exports AnnotationToolbar component and helper functions insertAnnotation and clearAnnotations for managing document annotations in CodeMirror editor views.",
+  "methods": [
+    {
+      "id": "m_dd9b5faa",
+      "name": "insertAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "(view: EditorView, type: AnnotationType, reason?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the editor view is provided."
+        },
+        {
+          "order": 2,
+          "content": "Determine if there is an active text selection."
+        },
+        {
+          "order": 3,
+          "content": "IF there is a selection, wrap the selected text with appropriate annotation markers."
+        },
+        {
+          "order": 4,
+          "content": "ELSE insert a block marker at the cursor position."
+        },
+        {
+          "order": 5,
+          "content": "Dispatch the changes to the editor view with the new annotation text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a85a7e08",
+      "name": "clearAnnotations",
+      "enclosing_class": null,
+      "normalized_params": "(view: EditorView): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the editor view is provided."
+        },
+        {
+          "order": 2,
+          "content": "Determine the text range to process (selection or current line)."
+        },
+        {
+          "order": 3,
+          "content": "Fetch the text content from the determined range."
+        },
+        {
+          "order": 4,
+          "content": "Remove all annotation patterns from the text using regular expressions."
+        },
+        {
+          "order": 5,
+          "content": "Collapse multiple consecutive newlines into double newlines."
+        },
+        {
+          "order": 6,
+          "content": "Dispatch the cleaned text back to the editor view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2cbe455d",
+      "name": "handleComment",
+      "enclosing_class": "AnnotationToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the editor view is available, insert a comment annotation at the current cursor position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ef98faec",
+      "name": "handlePropose",
+      "enclosing_class": "AnnotationToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the editor view is available, insert a propose annotation at the current cursor position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e74cc239",
+      "name": "handleApprove",
+      "enclosing_class": "AnnotationToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the editor view is available, insert an approve annotation at the current cursor position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8cbfc533",
+      "name": "handleReject",
+      "enclosing_class": "AnnotationToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt the user for a rejection reason."
+        },
+        {
+          "order": 2,
+          "content": "IF a reason is provided and the editor view is available, insert a reject annotation with the reason."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c7cf6398",
+      "name": "handleClear",
+      "enclosing_class": "AnnotationToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the editor view is available, clear all annotations from the current selection or line."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

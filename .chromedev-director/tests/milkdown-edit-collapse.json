@@ -1,0 +1,45 @@
+{
+  "id": "milkdown-edit-collapse",
+  "name": "milkdown-edit-collapse",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1000
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "click": {
+          "selector": "[data-testid=document-edit-toggle]"
+        }
+      },
+      {
+        "wait": 800
+      },
+      {
+        "eval": "({editToggleAfter: document.querySelector('[data-testid=document-edit-toggle]')?.getAttribute('aria-label'), pmCls: document.querySelector('.ProseMirror')?.className, contentEditable: document.querySelector('.ProseMirror')?.getAttribute('contenteditable'), hasChevrons: document.querySelectorAll('[data-testid^=heading-collapse-chevron]').length})",
+        "as": "state"
+      },
+      {
+        "click": {
+          "selector": "[data-testid^=heading-collapse-chevron]"
+        }
+      },
+      {
+        "wait": 400
+      },
+      {
+        "eval": "(()=>{const ch=document.querySelector('[data-testid^=heading-collapse-chevron]'); return {expanded: ch?.getAttribute('aria-expanded'), collapsedCount: document.querySelectorAll('.section-collapsed').length, hiddenCount: document.querySelectorAll('[style*=\"display: none\"], [hidden]').length, firstHeadingText: document.querySelector('.ProseMirror h1')?.innerText};})()",
+        "as": "afterCollapse"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:40:06.180Z",
+  "updatedAt": "2026-04-18T18:40:06.180Z"
+}

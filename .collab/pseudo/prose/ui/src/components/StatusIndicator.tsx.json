@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/StatusIndicator.tsx",
+  "title": "Status indicator component with visual icons and color coding",
+  "purpose": "Displays agent status with distinct visual indicators and messages for working, waiting, and idle states. Supports custom messages and dark mode styling.",
+  "module_context": "Exports a React functional component StatusIndicator that accepts status, message, and className props. Defines TypeScript interface StatusIndicatorProps for type safety. Includes default messages and styling for each status type.",
+  "methods": [
+    {
+      "id": "m_a28017dd",
+      "name": "StatusIndicator",
+      "enclosing_class": null,
+      "normalized_params": "(props: StatusIndicatorProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept status, message, and className props from component configuration."
+        },
+        {
+          "order": 2,
+          "content": "Define default messages for each status type: processing, waiting for input, and ready."
+        },
+        {
+          "order": 3,
+          "content": "Determine the message to display, using custom message if provided or default message."
+        },
+        {
+          "order": 4,
+          "content": "Map status to corresponding background, text, and border color styles for light and dark modes."
+        },
+        {
+          "order": 5,
+          "content": "Generate ARIA label combining status and display message for accessibility."
+        },
+        {
+          "order": 6,
+          "content": "Render a container div with appropriate styling and accessibility attributes."
+        },
+        {
+          "order": 7,
+          "content": "Display a spinner icon for working status or warning/check icon for waiting/idle status."
+        },
+        {
+          "order": 8,
+          "content": "Show the status message text with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

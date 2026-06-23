@@ -1,0 +1,63 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DiagramHistoryPreview.tsx",
+  "title": "Side-by-side diagram history preview with revert and back functionality",
+  "purpose": "Displays current and historical diagram versions side-by-side with controls to revert to a historical version or return to the previous view.",
+  "module_context": "Exports a React functional component named DiagramHistoryPreview that accepts props for current and historical content, timestamp, and callback functions for revert and close actions. Includes a helper function formatTimestamp for displaying human-readable dates.",
+  "methods": [
+    {
+      "id": "m_18d45038",
+      "name": "formatTimestamp",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the ISO timestamp string into a Date object."
+        },
+        {
+          "order": 2,
+          "content": "Format the date into a human-readable string with short month, numeric day, and 2-digit hour and minute."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_da5ed4c8",
+      "name": "DiagramHistoryPreview",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiagramHistoryPreviewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a header section with timestamp information and action buttons."
+        },
+        {
+          "order": 2,
+          "content": "Display the historical version content in a left panel with a header showing the timestamp."
+        },
+        {
+          "order": 3,
+          "content": "Display the current version content in a right panel with a header labeled 'Current'."
+        },
+        {
+          "order": 4,
+          "content": "Include a 'Revert to this version' button that triggers the onRevert callback."
+        },
+        {
+          "order": 5,
+          "content": "Include a 'Back' button that triggers the onClose callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

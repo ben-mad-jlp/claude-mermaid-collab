@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/TeamDashboard.tsx",
+  "title": "Team dashboard component for onboarding progress tracking",
+  "purpose": "Displays team progress overview including member completion stats, category coverage, and topic completion heatmap for onboarding.",
+  "module_context": "Exports a React functional component named TeamDashboard that uses React hooks and consumes onboarding API data.",
+  "methods": [
+    {
+      "id": "m_02d16ade",
+      "name": "TeamDashboard",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access project, mode, and current user data from the onboarding context."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state for team members, topics, categories, and loading status."
+        },
+        {
+          "order": 3,
+          "content": "Fetch team, topics, and categories data from the onboarding API when project changes."
+        },
+        {
+          "order": 4,
+          "content": "Calculate total topics count from the fetched topics."
+        },
+        {
+          "order": 5,
+          "content": "Compute category coverage statistics for each category based on team member exploration."
+        },
+        {
+          "order": 6,
+          "content": "Render loading indicator while data is being fetched."
+        },
+        {
+          "order": 7,
+          "content": "IF no team members exist, display a message indicating no data yet."
+        },
+        {
+          "order": 8,
+          "content": "ELSE render team overview cards showing individual member progress."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_44eda6c3",
+      "name": "useEffect",
+      "enclosing_class": "TeamDashboard",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if project data is available before proceeding with API calls."
+        },
+        {
+          "order": 2,
+          "content": "Set loading state to true while fetching data."
+        },
+        {
+          "order": 3,
+          "content": "Execute concurrent API calls to fetch team, topics, and categories."
+        },
+        {
+          "order": 4,
+          "content": "Update component state with fetched data from all API responses."
+        },
+        {
+          "order": 5,
+          "content": "Reset loading state to false after all data has been processed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2f52de3f",
+      "name": "categoryCoverage",
+      "enclosing_class": "TeamDashboard",
+      "normalized_params": "(): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map over each category to calculate completion statistics."
+        },
+        {
+          "order": 2,
+          "content": "For each category, count how many team members have explored all its topics."
+        },
+        {
+          "order": 3,
+          "content": "Return an object containing category name, topic count, members complete, and total members."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

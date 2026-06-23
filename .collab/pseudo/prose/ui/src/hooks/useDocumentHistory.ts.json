@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDocumentHistory.ts",
+  "title": "Document history hook with fetch and version retrieval",
+  "purpose": "Manages document change history fetching and version retrieval for a React component.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_d7d12a63",
+      "name": "useDocumentHistory",
+      "enclosing_class": null,
+      "normalized_params": "(documentId: string | null): UseDocumentHistoryReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for history, loading status, and error."
+        },
+        {
+          "order": 2,
+          "content": "Extract project and session from the current session."
+        },
+        {
+          "order": 3,
+          "content": "Define async function to fetch document history from the API."
+        },
+        {
+          "order": 4,
+          "content": "Define async function to retrieve document version at a specific timestamp."
+        },
+        {
+          "order": 5,
+          "content": "Trigger history fetch on component mount and when document ID changes."
+        },
+        {
+          "order": 6,
+          "content": "Return history state and utility functions for refetching and version retrieval."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ef0aea90",
+      "name": "fetchHistory",
+      "enclosing_class": "useDocumentHistory",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF document ID, project, or session are missing, clear history and return."
+        },
+        {
+          "order": 2,
+          "content": "Set loading state to true and clear any previous error."
+        },
+        {
+          "order": 3,
+          "content": "Construct URL parameters with project and session."
+        },
+        {
+          "order": 4,
+          "content": "Fetch document history from the API endpoint."
+        },
+        {
+          "order": 5,
+          "content": "IF the response status is 404, set history to null."
+        },
+        {
+          "order": 6,
+          "content": "IF the response is successful, parse and set the history data."
+        },
+        {
+          "order": 7,
+          "content": "IF the response fails, set an error message."
+        },
+        {
+          "order": 8,
+          "content": "IF a network error occurs, set a network error message."
+        },
+        {
+          "order": 9,
+          "content": "Reset loading state after the fetch attempt."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_19b36e2b",
+      "name": "getVersionAt",
+      "enclosing_class": "useDocumentHistory",
+      "normalized_params": "(timestamp: string): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF document ID, project, or session are missing, return null."
+        },
+        {
+          "order": 2,
+          "content": "Construct URL parameters with project, session, and timestamp."
+        },
+        {
+          "order": 3,
+          "content": "Fetch document version from the API endpoint."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is successful, parse and return the content."
+        },
+        {
+          "order": 5,
+          "content": "IF the response fails, ignore the error and return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

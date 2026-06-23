@@ -1,0 +1,309 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/ai-ui.ts",
+  "title": "AI-UI component type definitions",
+  "purpose": "Provides type definitions for AI-UI components including cards, sections, columns, accordions, alerts, and UI components with actions.",
+  "module_context": "Exports multiple interface type definitions for AI-UI component props and structure including CommonProps, CardProps, SectionProps, ColumnsProps, AccordionProps, AlertProps, UIComponent, and UIAction.",
+  "methods": [
+    {
+      "id": "m_3ecad170",
+      "name": "CommonProps",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define common properties shared across AI-UI components."
+        },
+        {
+          "order": 2,
+          "content": "Include optional className for CSS styling."
+        },
+        {
+          "order": 3,
+          "content": "Include optional style for inline CSS properties."
+        },
+        {
+          "order": 4,
+          "content": "Include optional hidden flag for component visibility."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5caa0cef",
+      "name": "CardProps",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define properties for card components extending common props."
+        },
+        {
+          "order": 2,
+          "content": "Include optional title for card header."
+        },
+        {
+          "order": 3,
+          "content": "Include optional subtitle for card header."
+        },
+        {
+          "order": 4,
+          "content": "Include optional footer text."
+        },
+        {
+          "order": 5,
+          "content": "Include optional collapsible flag."
+        },
+        {
+          "order": 6,
+          "content": "Include optional collapsed state."
+        },
+        {
+          "order": 7,
+          "content": "Include optional border color."
+        },
+        {
+          "order": 8,
+          "content": "Include optional background color."
+        },
+        {
+          "order": 9,
+          "content": "Include optional elevation level."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_58f663e8",
+      "name": "SectionProps",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define properties for section components extending common props."
+        },
+        {
+          "order": 2,
+          "content": "Include optional heading text."
+        },
+        {
+          "order": 3,
+          "content": "Include optional description text."
+        },
+        {
+          "order": 4,
+          "content": "Include optional heading level from 1 to 6."
+        },
+        {
+          "order": 5,
+          "content": "Include optional divider flag."
+        },
+        {
+          "order": 6,
+          "content": "Include optional collapsible flag."
+        },
+        {
+          "order": 7,
+          "content": "Include optional collapsed state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dd8a01b2",
+      "name": "ColumnsProps",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define properties for column components extending common props."
+        },
+        {
+          "order": 2,
+          "content": "Include required columns count."
+        },
+        {
+          "order": 3,
+          "content": "Include optional gap between columns."
+        },
+        {
+          "order": 4,
+          "content": "Include optional responsive flag."
+        },
+        {
+          "order": 5,
+          "content": "Include optional breakpoints for mobile, tablet, and desktop."
+        },
+        {
+          "order": 6,
+          "content": "Include optional alignment for columns."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_49a4a34d",
+      "name": "AccordionProps",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define properties for accordion components extending common props."
+        },
+        {
+          "order": 2,
+          "content": "Include required sections array with id, title, and content."
+        },
+        {
+          "order": 3,
+          "content": "Include optional allowMultiple flag for multiple open sections."
+        },
+        {
+          "order": 4,
+          "content": "Include optional variant for accordion styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d810c1f",
+      "name": "AlertProps",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define properties for alert components extending common props."
+        },
+        {
+          "order": 2,
+          "content": "Include required type for alert severity."
+        },
+        {
+          "order": 3,
+          "content": "Include optional title for alert header."
+        },
+        {
+          "order": 4,
+          "content": "Include optional message text."
+        },
+        {
+          "order": 5,
+          "content": "Include optional dismissible flag."
+        },
+        {
+          "order": 6,
+          "content": "Include optional icon identifier."
+        },
+        {
+          "order": 7,
+          "content": "Include optional actions array with id and label."
+        },
+        {
+          "order": 8,
+          "content": "Include optional persistent flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_50abc849",
+      "name": "UIComponent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define structure for UI component objects."
+        },
+        {
+          "order": 2,
+          "content": "Include required type identifier."
+        },
+        {
+          "order": 3,
+          "content": "Include required props object for component properties."
+        },
+        {
+          "order": 4,
+          "content": "Include optional children array of nested components."
+        },
+        {
+          "order": 5,
+          "content": "Include optional actions array of component actions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8096b6c8",
+      "name": "UIAction",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define structure for UI action objects."
+        },
+        {
+          "order": 2,
+          "content": "Include required id identifier."
+        },
+        {
+          "order": 3,
+          "content": "Include required label text."
+        },
+        {
+          "order": 4,
+          "content": "Include optional primary flag for primary action styling."
+        },
+        {
+          "order": 5,
+          "content": "Include optional destructive flag for destructive action styling."
+        },
+        {
+          "order": 6,
+          "content": "Include optional alignment for action placement."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

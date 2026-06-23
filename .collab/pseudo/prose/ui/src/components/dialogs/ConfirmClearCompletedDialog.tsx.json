@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dialogs/ConfirmClearCompletedDialog.tsx",
+  "title": "Dialog component for confirming completion of todos",
+  "purpose": "Displays a confirmation dialog when users attempt to clear completed todos, allowing them to confirm or cancel the action.",
+  "module_context": "Exports a React functional component that renders a modal dialog with confirmation and cancellation options, handling keyboard shortcuts and focus management.",
+  "methods": [
+    {
+      "id": "m_e974e62f",
+      "name": "ConfirmClearCompletedDialog",
+      "enclosing_class": null,
+      "normalized_params": "(props: ConfirmClearCompletedDialogProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref for the confirmation button element."
+        },
+        {
+          "order": 2,
+          "content": "Set focus to the confirmation button when the dialog opens."
+        },
+        {
+          "order": 3,
+          "content": "Return null if the dialog is not open."
+        },
+        {
+          "order": 4,
+          "content": "Handle keyboard events for Escape key and Ctrl/Cmd+Enter shortcuts."
+        },
+        {
+          "order": 5,
+          "content": "Determine the appropriate label for completed todos based on count."
+        },
+        {
+          "order": 6,
+          "content": "Render the dialog structure with title, message, and action buttons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

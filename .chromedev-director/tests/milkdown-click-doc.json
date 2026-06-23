@@ -1,0 +1,18 @@
+{
+  "id": "milkdown-click-doc",
+  "name": "milkdown-click-doc",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1200
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); if(!tree) return {err:'no tree'}; const walker=document.createTreeWalker(tree, NodeFilter.SHOW_TEXT); let n; const matches=[]; while(n=walker.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p && p!==tree){ if(p.onclick||p.getAttribute('role')==='button'||p.tagName==='BUTTON'||p.tagName==='A'){ return {found:true, tag:p.tagName, cls:p.className.slice(0,80)}; } p=p.parentElement; } matches.push({tag:n.parentElement.tagName, parentCls:n.parentElement.className.slice(0,100)}); } } return {found:false, matches};})()",
+        "as": "search"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:36:33.501Z",
+  "updatedAt": "2026-04-18T18:36:33.501Z"
+}

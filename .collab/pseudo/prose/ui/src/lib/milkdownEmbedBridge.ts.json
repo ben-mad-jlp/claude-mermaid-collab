@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/milkdownEmbedBridge.ts",
+  "title": "Embed source resolver for diagram and design kinds",
+  "purpose": "Provides functionality to construct API URLs for rendering diagram and design embeds with proper parameter encoding and validation.",
+  "module_context": "Exports a type definition for embed kinds and a regular expression for matching embed patterns. Defines a function to resolve embed source URLs based on kind, reference ID, project, session, and theme parameters.",
+  "methods": [
+    {
+      "id": "m_069ee9bd",
+      "name": "resolveEmbedSrc",
+      "enclosing_class": null,
+      "normalized_params": "(kind: EmbedKind, refId: string, project: string | undefined, session: string | undefined, theme: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that both project and session parameters are provided."
+        },
+        {
+          "order": 2,
+          "content": "IF either project or session is missing, return null immediately."
+        },
+        {
+          "order": 3,
+          "content": "Construct a URL search parameter string with project and session values."
+        },
+        {
+          "order": 4,
+          "content": "IF the embed kind is 'design', build a design render URL with the reference ID and parameters."
+        },
+        {
+          "order": 5,
+          "content": "ELSE build a diagram render URL with the reference ID, parameters, and theme."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

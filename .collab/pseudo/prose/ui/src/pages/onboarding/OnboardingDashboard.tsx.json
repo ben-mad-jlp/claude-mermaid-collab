@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/OnboardingDashboard.tsx",
+  "title": "Onboarding dashboard with progress tracking and suggestions",
+  "purpose": "Displays user's onboarding progress, category breakdowns, and personalized topic suggestions based on explored content.",
+  "module_context": "Exports a React component that manages onboarding dashboard state and data fetching, including progress tracking and What's Next recommendations.",
+  "methods": [
+    {
+      "id": "m_c6712bdb",
+      "name": "OnboardingDashboard",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access onboarding context data including project, mode, and current user."
+        },
+        {
+          "order": 2,
+          "content": "Set up state variables for topics, categories, progress, graph data, and loading status."
+        },
+        {
+          "order": 3,
+          "content": "Redirect to onboarding browse page if not in onboard mode or user is not authenticated."
+        },
+        {
+          "order": 4,
+          "content": "Fetch all required onboarding data including topics, categories, progress, and graph information."
+        },
+        {
+          "order": 5,
+          "content": "Compute explored and skipped topic sets from progress data."
+        },
+        {
+          "order": 6,
+          "content": "Generate progress percentage based on explored topics."
+        },
+        {
+          "order": 7,
+          "content": "Calculate What's Next suggestions using graph data and explored topics."
+        },
+        {
+          "order": 8,
+          "content": "Render dashboard UI with progress bar, suggestions, category cards, and topic list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2494fdf4",
+      "name": "computeWhatNext",
+      "enclosing_class": "OnboardingDashboard",
+      "normalized_params": "(graph: { nodes: GraphNode[]; edges: GraphEdge[] }, exploredTopics: Set<string>): WhatNextSuggestion[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a map to track topic scores based on graph connections."
+        },
+        {
+          "order": 2,
+          "content": "For each edge in the graph, increment the score of connected topics if one is explored and the other is not."
+        },
+        {
+          "order": 3,
+          "content": "IF no scores were generated (no topics explored), calculate connection counts for all unexplored topics."
+        },
+        {
+          "order": 4,
+          "content": "Sort topics by their scores in descending order."
+        },
+        {
+          "order": 5,
+          "content": "Take the top three topics as suggestions."
+        },
+        {
+          "order": 6,
+          "content": "Format the suggestions with filePath, reason, and connection count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

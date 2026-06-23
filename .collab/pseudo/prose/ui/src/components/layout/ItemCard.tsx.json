@@ -1,0 +1,202 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/ItemCard.tsx",
+  "title": "ItemCard component for displaying item information with metadata and actions",
+  "purpose": "Displays item information in a card format with type-specific icons, relative timestamps, and action buttons. Used in the sidebar to show diagrams, documents, designs, spreadsheets, and snippets.",
+  "module_context": "Exports ItemCardProps interface and ItemCard component. Includes helper functions for formatting time, detecting language, and getting snippet metadata. Contains SVG icon components for different item types.",
+  "methods": [
+    {
+      "id": "m_f8823b56",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the time difference between now and the provided timestamp in milliseconds."
+        },
+        {
+          "order": 2,
+          "content": "Convert the time difference to minutes, hours, and days."
+        },
+        {
+          "order": 3,
+          "content": "IF the difference is less than a minute, return 'just now'."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the difference is less than an hour, return the minutes ago."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the difference is less than a day, return the hours ago."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the difference is less than a week, return the days ago."
+        },
+        {
+          "order": 7,
+          "content": "ELSE return the date formatted as a localized string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_02ed74bc",
+      "name": "detectLanguage",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the file extension from the item name."
+        },
+        {
+          "order": 2,
+          "content": "Map the file extension to a display language name using a predefined mapping."
+        },
+        {
+          "order": 3,
+          "content": "IF no mapping is found, return 'Text' as the default language."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5e83db40",
+      "name": "getSnippetMetadata",
+      "enclosing_class": null,
+      "normalized_params": "(item: Item): SnippetMetadata",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the item content as JSON to extract code and language information."
+        },
+        {
+          "order": 2,
+          "content": "IF the parsed content contains code, use it as the code source."
+        },
+        {
+          "order": 3,
+          "content": "IF the parsed content contains a file path, detect the language from the file path."
+        },
+        {
+          "order": 4,
+          "content": "IF the parsed content contains a language identifier, map it to a display name."
+        },
+        {
+          "order": 5,
+          "content": "Count the number of lines in the code."
+        },
+        {
+          "order": 6,
+          "content": "Calculate the size of the code in bytes."
+        },
+        {
+          "order": 7,
+          "content": "Convert the byte size to a human-readable format with appropriate units."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ef17859",
+      "name": "getItemIcon",
+      "enclosing_class": null,
+      "normalized_params": "(type: 'diagram' | 'document' | 'design' | 'spreadsheet' | 'snippet' | 'embed' | 'image'): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a specific SVG icon component based on the item type."
+        },
+        {
+          "order": 2,
+          "content": "IF the type is diagram, return the diagram icon."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the type is design, return the design icon."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the type is spreadsheet, return the spreadsheet icon."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the type is snippet, return the snippet icon."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the type is embed, return the embed icon."
+        },
+        {
+          "order": 7,
+          "content": "ELSE IF the type is image, return the image icon."
+        },
+        {
+          "order": 8,
+          "content": "ELSE return the default document icon."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_53b82d99",
+      "name": "ItemCard",
+      "enclosing_class": null,
+      "normalized_params": "(props: ItemCardProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Format the relative time from the item's last modified timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Calculate snippet metadata if the item is a snippet."
+        },
+        {
+          "order": 3,
+          "content": "Render the card with appropriate styling based on selection state."
+        },
+        {
+          "order": 4,
+          "content": "Display the item name with appropriate text styling."
+        },
+        {
+          "order": 5,
+          "content": "IF the item is a snippet, display snippet-specific metadata."
+        },
+        {
+          "order": 6,
+          "content": "Display the item type and relative time."
+        },
+        {
+          "order": 7,
+          "content": "Render action buttons that appear on hover."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

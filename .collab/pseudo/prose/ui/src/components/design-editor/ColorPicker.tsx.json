@@ -1,0 +1,224 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/design-editor/ColorPicker.tsx",
+  "title": "HSV color picker with saturation/value area, hue slider, opacity slider, and hex input",
+  "purpose": "Provides a color selection interface that allows users to pick colors using HSV color space with additional alpha and hex input controls.",
+  "module_context": "Exports a React functional component named ColorPicker that manages color state and handles user interactions for color selection.",
+  "methods": [
+    {
+      "id": "m_57186b0d",
+      "name": "rgbToHsv",
+      "enclosing_class": null,
+      "normalized_params": "(r: number, g: number, b: number): { h: number; s: number; v: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the maximum and minimum RGB values."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the chroma and saturation based on the maximum value."
+        },
+        {
+          "order": 3,
+          "content": "Set the value to the maximum RGB value."
+        },
+        {
+          "order": 4,
+          "content": "Compute the hue based on which RGB component is the maximum."
+        },
+        {
+          "order": 5,
+          "content": "Normalize the hue to a 0-360 degree scale."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7872da63",
+      "name": "hsvToRgb",
+      "enclosing_class": null,
+      "normalized_params": "(h: number, s: number, v: number): { r: number; g: number; b: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert saturation and value from percentages to decimals."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the chroma and intermediate x value."
+        },
+        {
+          "order": 3,
+          "content": "Determine the primary RGB components based on the hue sector."
+        },
+        {
+          "order": 4,
+          "content": "Add the lightness adjustment to each RGB component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78bd4a7e",
+      "name": "ColorPicker",
+      "enclosing_class": null,
+      "normalized_params": "(props: ColorPickerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for open status, hue, saturation, value, and alpha."
+        },
+        {
+          "order": 2,
+          "content": "Set up a reference to the saturation/value area element."
+        },
+        {
+          "order": 3,
+          "content": "Set up a reference to the popover element."
+        },
+        {
+          "order": 4,
+          "content": "Synchronize HSV values from the incoming color when the picker is closed."
+        },
+        {
+          "order": 5,
+          "content": "Add event listener for clicks outside the picker to close it."
+        },
+        {
+          "order": 6,
+          "content": "Define a callback to emit color changes based on HSV and alpha values."
+        },
+        {
+          "order": 7,
+          "content": "Handle pointer down events on the saturation/value area to update saturation and value."
+        },
+        {
+          "order": 8,
+          "content": "Handle pointer move events on the saturation/value area to update saturation and value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ec2945a2",
+      "name": "emitColor",
+      "enclosing_class": "ColorPicker",
+      "normalized_params": "(h: number, s: number, v: number, a: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the HSV values to RGB components."
+        },
+        {
+          "order": 2,
+          "content": "Call the onChange handler with the new RGB color and alpha value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a0935716",
+      "name": "onSvPointerDown",
+      "enclosing_class": "ColorPicker",
+      "normalized_params": "(e: React.PointerEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Capture the pointer on the saturation/value area element."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the saturation and value from the pointer position."
+        },
+        {
+          "order": 3,
+          "content": "Update the saturation and value state."
+        },
+        {
+          "order": 4,
+          "content": "Emit the new color based on updated HSV and alpha values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_35293fc7",
+      "name": "onSvPointerMove",
+      "enclosing_class": "ColorPicker",
+      "normalized_params": "(e: React.PointerEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the pointer is captured on the saturation/value area."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the saturation and value from the pointer position."
+        },
+        {
+          "order": 3,
+          "content": "Update the saturation and value state."
+        },
+        {
+          "order": 4,
+          "content": "Emit the new color based on updated HSV and alpha values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84087487",
+      "name": "onHexChange",
+      "enclosing_class": "ColorPicker",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the hex input value and remove any leading hash."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the input is a valid 6-character hexadecimal string."
+        },
+        {
+          "order": 3,
+          "content": "Parse the hex string into a color object."
+        },
+        {
+          "order": 4,
+          "content": "Update the color state with the parsed color and current alpha value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

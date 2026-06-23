@@ -1,0 +1,60 @@
+{
+  "id": "collab-interaction-test",
+  "name": "collab-interaction-test",
+  "definition": {
+    "url": "http://localhost:3002/collab",
+    "steps": [
+      {
+        "wait": 2500
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"dashboard\"]') ? 'found' : 'missing'",
+        "as": "dashboard"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"dashboard-sessions-list\"]') ? 'found' : 'missing'",
+        "as": "sessionsList"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"dashboard-items-panel\"]') ? 'found' : 'missing'",
+        "as": "itemsPanel"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"theme-toggle\"]') ? 'found' : 'missing'",
+        "as": "themeToggle"
+      },
+      {
+        "click": {
+          "selector": "[data-testid=\"theme-toggle\"]"
+        }
+      },
+      {
+        "wait": 500
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "eval": "document.documentElement.classList.contains('dark') ? 'dark' : 'light'",
+        "as": "themeAfterToggle"
+      },
+      {
+        "click": {
+          "selector": "[data-testid=\"theme-toggle\"]"
+        }
+      },
+      {
+        "wait": 500
+      },
+      {
+        "eval": "document.documentElement.classList.contains('dark') ? 'dark' : 'light'",
+        "as": "themeAfterToggleBack"
+      }
+    ]
+  },
+  "createdAt": "2026-04-25T19:51:27.516Z",
+  "updatedAt": "2026-04-25T19:51:27.516Z"
+}

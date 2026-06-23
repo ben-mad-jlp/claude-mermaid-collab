@@ -1,0 +1,108 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/remarkAnnotations.ts",
+  "title": "Remark plugin for parsing annotation markers in markdown",
+  "purpose": "Converts HTML comment markers into custom AST nodes for rendering annotations like comments, proposals, approvals, and rejections.",
+  "module_context": "Exports a remark plugin function that processes markdown AST nodes to identify and transform annotation markers into custom annotation nodes. Defines types for annotation types and nodes, and includes regex patterns for matching various annotation marker formats.",
+  "methods": [
+    {
+      "id": "m_10e237ee",
+      "name": "annotationNode",
+      "enclosing_class": null,
+      "normalized_params": "(type: AnnotationType, text?: string | null, children?: RootContent[]): AnnotationMdastNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new annotation AST node with the specified type."
+        },
+        {
+          "order": 2,
+          "content": "Set the text property if provided, otherwise omit it."
+        },
+        {
+          "order": 3,
+          "content": "Set the children property if provided, otherwise omit it."
+        },
+        {
+          "order": 4,
+          "content": "Return the constructed annotation node with type 'annotation'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b24ca106",
+      "name": "findSibling",
+      "enclosing_class": null,
+      "normalized_params": "(parent: { children: RootContent[] }, startIndex: number, pattern: RegExp): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through the children of the parent node starting from the given index."
+        },
+        {
+          "order": 2,
+          "content": "For each child node, check if it is an HTML node and matches the provided regex pattern."
+        },
+        {
+          "order": 3,
+          "content": "IF a matching node is found, return its index."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return null if no matching node is found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ff45bbe7",
+      "name": "remarkAnnotations",
+      "enclosing_class": null,
+      "normalized_params": "(): Plugin<[], Root>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a remark plugin function that processes the markdown AST."
+        },
+        {
+          "order": 2,
+          "content": "Collect all transformations needed to convert HTML comment markers into annotation nodes."
+        },
+        {
+          "order": 3,
+          "content": "Process HTML nodes in reverse order to handle splicing correctly."
+        },
+        {
+          "order": 4,
+          "content": "For each HTML node, attempt to match against various annotation marker patterns."
+        },
+        {
+          "order": 5,
+          "content": "IF a match is found, add a transformation to the list with parent, indices, and replacement node."
+        },
+        {
+          "order": 6,
+          "content": "Apply all transformations in reverse order to preserve indices during splicing."
+        },
+        {
+          "order": 7,
+          "content": "Replace the original nodes with the new annotation nodes in the AST."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

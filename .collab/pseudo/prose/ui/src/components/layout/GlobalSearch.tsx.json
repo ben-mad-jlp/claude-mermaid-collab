@@ -1,0 +1,504 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/GlobalSearch.tsx",
+  "title": "Global search overlay component with keyboard navigation and result handling",
+  "purpose": "Provides a cross-artifact search overlay accessible via Cmd+K/Ctrl+K that searches pseudo files and linked code snippets with unified results and navigation.",
+  "module_context": "Exports a GlobalSearch React component that manages search state, handles keyboard shortcuts, debounces search requests, and renders a searchable overlay with result highlighting and navigation.",
+  "methods": [
+    {
+      "id": "m_d7d163f0",
+      "name": "basename",
+      "enclosing_class": null,
+      "normalized_params": "(p: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return an empty string if the input path is empty."
+        },
+        {
+          "order": 2,
+          "content": "Split the path by '/' and return the last segment as the basename."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5bd52264",
+      "name": "getFileStem",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string | undefined | null): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return an empty string if the file path is null or undefined."
+        },
+        {
+          "order": 2,
+          "content": "Extract the basename from the file path."
+        },
+        {
+          "order": 3,
+          "content": "Find the last dot in the basename."
+        },
+        {
+          "order": 4,
+          "content": "If a dot exists and is not at the start, return the substring before the dot."
+        },
+        {
+          "order": 5,
+          "content": "Otherwise return the basename as-is."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_61b7c8ed",
+      "name": "extractSnippetFilePath",
+      "enclosing_class": null,
+      "normalized_params": "(snip: Snippet): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the snippet content as JSON."
+        },
+        {
+          "order": 2,
+          "content": "IF the parsed content has a filePath property, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if the snippet has a linked property and a filePath metadata."
+        },
+        {
+          "order": 4,
+          "content": "IF the snippet is linked and has filePath metadata, return the metadata path."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the snippet's filePath metadata or null if not present."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c3a32a6d",
+      "name": "isLinkedSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(snip: Snippet): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the snippet has a linked property set to true."
+        },
+        {
+          "order": 2,
+          "content": "IF not, attempt to parse the snippet content as JSON."
+        },
+        {
+          "order": 3,
+          "content": "IF the parsed content has a linked property set to true, return true."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c5ac0864",
+      "name": "findLinkedSnippetForFile",
+      "enclosing_class": null,
+      "normalized_params": "(snippets: Snippet[], filePath: string): Snippet | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the snippets to only include those marked as linked."
+        },
+        {
+          "order": 2,
+          "content": "Look for an exact match of the file path in the linked snippets."
+        },
+        {
+          "order": 3,
+          "content": "IF an exact match is found, return it."
+        },
+        {
+          "order": 4,
+          "content": "ELSE extract the file stem from the target file path."
+        },
+        {
+          "order": 5,
+          "content": "IF no file stem can be extracted, return null."
+        },
+        {
+          "order": 6,
+          "content": "ELSE search for a linked snippet with a matching file stem."
+        },
+        {
+          "order": 7,
+          "content": "Return the matching snippet or null if none found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ea216e76",
+      "name": "openOverlay",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Open the global search overlay in the store."
+        },
+        {
+          "order": 2,
+          "content": "Reset the search query to an empty string."
+        },
+        {
+          "order": 3,
+          "content": "Clear the search results list."
+        },
+        {
+          "order": 4,
+          "content": "Reset the error message to null."
+        },
+        {
+          "order": 5,
+          "content": "Reset the selected index to zero."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a8919164",
+      "name": "closeOverlay",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the global search overlay in the store."
+        },
+        {
+          "order": 2,
+          "content": "Reset the search query to an empty string."
+        },
+        {
+          "order": 3,
+          "content": "Clear the search results list."
+        },
+        {
+          "order": 4,
+          "content": "Reset the error message to null."
+        },
+        {
+          "order": 5,
+          "content": "Reset the selected index to zero."
+        },
+        {
+          "order": 6,
+          "content": "Clear any pending debounce timeout if present."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7813825",
+      "name": "handleKey",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for keyboard events on the document."
+        },
+        {
+          "order": 2,
+          "content": "IF the Cmd or Ctrl key is pressed with K key, prevent default behavior."
+        },
+        {
+          "order": 3,
+          "content": "IF the overlay is already open, close it."
+        },
+        {
+          "order": 4,
+          "content": "ELSE open the overlay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8e08c75f",
+      "name": "autofocusInput",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the overlay is open, set a timeout to focus the input element."
+        },
+        {
+          "order": 2,
+          "content": "Clean up the timeout on component unmount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bfc557c6",
+      "name": "debouncedSearch",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the overlay is not open or no session is available, return early."
+        },
+        {
+          "order": 2,
+          "content": "Trim the search query and return if empty."
+        },
+        {
+          "order": 3,
+          "content": "Clear any existing debounce timeout."
+        },
+        {
+          "order": 4,
+          "content": "Set a new debounce timeout to execute the search after 200ms."
+        },
+        {
+          "order": 5,
+          "content": "Increment the request ID for tracking."
+        },
+        {
+          "order": 6,
+          "content": "Set loading state to true and clear any previous error."
+        },
+        {
+          "order": 7,
+          "content": "Execute the code search API call with the project, session, and query."
+        },
+        {
+          "order": 8,
+          "content": "IF the request ID has changed, ignore the response."
+        },
+        {
+          "order": 9,
+          "content": "Update the results list with the API response."
+        },
+        {
+          "order": 10,
+          "content": "Reset the selected index to zero."
+        },
+        {
+          "order": 11,
+          "content": "IF the API call fails, update the error message and clear results."
+        },
+        {
+          "order": 12,
+          "content": "Reset loading state after the API call completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_24cceb7a",
+      "name": "scrollSelectedRow",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the results list reference is not set, return early."
+        },
+        {
+          "order": 2,
+          "content": "Find the DOM element corresponding to the selected index."
+        },
+        {
+          "order": 3,
+          "content": "Scroll the selected element into view with nearest block alignment."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2589929c",
+      "name": "jumpToSnippet",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(snippetId: string, line: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the pending jump state with the snippet ID and line number."
+        },
+        {
+          "order": 2,
+          "content": "Select the snippet in the session store."
+        },
+        {
+          "order": 3,
+          "content": "Close the global search overlay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f13d0b5b",
+      "name": "handleResultClick",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(result: CodeSearchResult): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the result is of code kind, jump to the snippet."
+        },
+        {
+          "order": 2,
+          "content": "ELSE find an existing linked snippet for the file path."
+        },
+        {
+          "order": 3,
+          "content": "IF an existing snippet is found, jump to it."
+        },
+        {
+          "order": 4,
+          "content": "ELSE prepare a link candidate for the new snippet."
+        },
+        {
+          "order": 5,
+          "content": "Set the link dialog state to open with the candidate and symbol name."
+        },
+        {
+          "order": 6,
+          "content": "Set the target line number for the link."
+        },
+        {
+          "order": 7,
+          "content": "Open the link and navigation dialog."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e1e42fe9",
+      "name": "handleLinkConfirm",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no session or link candidate is available, return early."
+        },
+        {
+          "order": 2,
+          "content": "Link the file using the project and session information."
+        },
+        {
+          "order": 3,
+          "content": "Set the pending jump state with the new snippet ID and line number."
+        },
+        {
+          "order": 4,
+          "content": "Select the new snippet in the session store."
+        },
+        {
+          "order": 5,
+          "content": "Close the link dialog and reset link candidate state."
+        },
+        {
+          "order": 6,
+          "content": "Close the global search overlay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_20e69b47",
+      "name": "handleInputKeyDown",
+      "enclosing_class": "GlobalSearch",
+      "normalized_params": "(e: React.KeyboardEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the Escape key is pressed, prevent default and close the overlay."
+        },
+        {
+          "order": 2,
+          "content": "IF the Down arrow key is pressed, prevent default and move selection down."
+        },
+        {
+          "order": 3,
+          "content": "IF the Up arrow key is pressed, prevent default and move selection up."
+        },
+        {
+          "order": 4,
+          "content": "IF the Enter key is pressed, prevent default and handle the selected result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

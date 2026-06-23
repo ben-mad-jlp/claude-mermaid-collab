@@ -1,0 +1,286 @@
+{
+  "schema_version": 3,
+  "file": "src/services/metadata-manager.ts",
+  "title": "Metadata manager for tracking folders and item properties with persistence",
+  "purpose": "Manages folder structure and item metadata including locking, deprecation, pinning, and blueprint status, with file-based persistence.",
+  "module_context": "Exports a MetadataManager class that handles loading, saving, and updating metadata in a JSON file.",
+  "methods": [
+    {
+      "id": "m_113090da",
+      "name": "initialize",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the metadata file exists in the session directory."
+        },
+        {
+          "order": 2,
+          "content": "IF the file exists, read and parse its contents into the metadata object."
+        },
+        {
+          "order": 3,
+          "content": "IF parsing fails, log the error and initialize with default empty metadata."
+        },
+        {
+          "order": 4,
+          "content": "IF the file does not exist, initialize with default empty metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b1952b98",
+      "name": "save",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Serialize the current metadata object to a JSON string with indentation."
+        },
+        {
+          "order": 2,
+          "content": "Write the serialized metadata to the metadata file."
+        },
+        {
+          "order": 3,
+          "content": "Mark the metadata as no longer dirty after successful write."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3038c211",
+      "name": "setItemFolder",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(id: string, folder: string | null): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the target folder exists if it is not null."
+        },
+        {
+          "order": 2,
+          "content": "Initialize item metadata if it does not already exist."
+        },
+        {
+          "order": 3,
+          "content": "Set the folder property of the item metadata to the provided folder."
+        },
+        {
+          "order": 4,
+          "content": "Persist the updated metadata to the file system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_89b88295",
+      "name": "setItemLocked",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(id: string, locked: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize item metadata if it does not already exist."
+        },
+        {
+          "order": 2,
+          "content": "Set the locked property of the item metadata to the provided value."
+        },
+        {
+          "order": 3,
+          "content": "Persist the updated metadata to the file system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3f9a9823",
+      "name": "updateItem",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(id: string, updates: Partial<ItemMetadata>): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize item metadata if it does not already exist."
+        },
+        {
+          "order": 2,
+          "content": "IF a folder update is provided, validate the folder exists and update the item's folder."
+        },
+        {
+          "order": 3,
+          "content": "IF a locked update is provided, update the item's locked status."
+        },
+        {
+          "order": 4,
+          "content": "IF a deprecated update is provided, update the item's deprecated status."
+        },
+        {
+          "order": 5,
+          "content": "IF a pinned update is provided, update the item's pinned status."
+        },
+        {
+          "order": 6,
+          "content": "IF a blueprint update is provided, update the item's blueprint status."
+        },
+        {
+          "order": 7,
+          "content": "Persist the updated metadata to the file system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8c481b38",
+      "name": "createFolder",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(name: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the folder name does not already exist."
+        },
+        {
+          "order": 2,
+          "content": "Add the new folder name to the list of folders."
+        },
+        {
+          "order": 3,
+          "content": "Persist the updated metadata to the file system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd3f641d",
+      "name": "renameFolder",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(oldName: string, newName: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the index of the old folder name in the folders list."
+        },
+        {
+          "order": 2,
+          "content": "IF the old folder does not exist, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the new folder name does not already exist."
+        },
+        {
+          "order": 4,
+          "content": "Replace the old folder name with the new folder name in the folders list."
+        },
+        {
+          "order": 5,
+          "content": "Update all items that were in the old folder to be in the new folder."
+        },
+        {
+          "order": 6,
+          "content": "Persist the updated metadata to the file system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_abbae853",
+      "name": "deleteFolder",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(name: string, moveItemsToRoot: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the index of the folder name in the folders list."
+        },
+        {
+          "order": 2,
+          "content": "IF the folder does not exist, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Check if items exist in the folder and if items should not be moved to root."
+        },
+        {
+          "order": 4,
+          "content": "IF items exist and should not be moved, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Move all items in the folder to the root folder."
+        },
+        {
+          "order": 6,
+          "content": "Remove the folder from the folders list."
+        },
+        {
+          "order": 7,
+          "content": "Persist the updated metadata to the file system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_deadf5d6",
+      "name": "removeItem",
+      "enclosing_class": "MetadataManager",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the item exists in the metadata."
+        },
+        {
+          "order": 2,
+          "content": "IF the item exists, delete it from the metadata."
+        },
+        {
+          "order": 3,
+          "content": "Persist the updated metadata to the file system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

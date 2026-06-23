@@ -1,0 +1,67 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dialogs/ConfirmDialog.tsx",
+  "title": "Confirm dialog component with keyboard navigation and focus management",
+  "purpose": "Provides a reusable confirmation dialog UI component that handles keyboard events, manages focus, and supports custom labels and actions.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_ff2a1c8b",
+      "name": "ConfirmDialog",
+      "enclosing_class": null,
+      "normalized_params": "(props: ConfirmDialogProps): React.JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref for the confirm button element."
+        },
+        {
+          "order": 2,
+          "content": "Set focus to the confirm button when the dialog opens."
+        },
+        {
+          "order": 3,
+          "content": "Render nothing if the dialog is not open."
+        },
+        {
+          "order": 4,
+          "content": "Handle keyboard events for escape key and command/ctrl+enter shortcuts."
+        },
+        {
+          "order": 5,
+          "content": "Render the dialog backdrop with proper accessibility attributes."
+        },
+        {
+          "order": 6,
+          "content": "Render the dialog content including title, message, and action buttons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9a422493",
+      "name": "handleKeyDown",
+      "enclosing_class": "ConfirmDialog",
+      "normalized_params": "(e: React.KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the dialog when the escape key is pressed."
+        },
+        {
+          "order": 2,
+          "content": "Confirm the action when command or control key is combined with enter key."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDiagramUpdateQueue.ts",
+  "title": "Diagram update queue with debouncing and batching",
+  "purpose": "Manages batched diagram updates with debouncing to reduce API calls and improve performance during rapid modifications.",
+  "module_context": "Exports a React hook that provides queueing and debouncing functionality for diagram updates with configurable delay and immediate flush capability.",
+  "methods": [
+    {
+      "id": "m_da4d0353",
+      "name": "useDiagramUpdateQueue",
+      "enclosing_class": null,
+      "normalized_params": "(updateDiagram: (id: string, updates: { content: string; lastModified: number }): void, options: UseDiagramUpdateQueueOptions): { queueUpdate: (id: string, content: string, lastModified: number) => void; flushNow: () => void }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pending updates map and debounce timer reference."
+        },
+        {
+          "order": 2,
+          "content": "Store the updateDiagram callback in a ref to prevent effect re-runs."
+        },
+        {
+          "order": 3,
+          "content": "Return an object containing queueUpdate and flushNow functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_71196c66",
+      "name": "flush",
+      "enclosing_class": "useDiagramUpdateQueue",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there are any pending updates to process."
+        },
+        {
+          "order": 2,
+          "content": "Apply each pending update by calling the updateDiagram callback."
+        },
+        {
+          "order": 3,
+          "content": "Clear the pending updates map after applying all updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e6cc3611",
+      "name": "queueUpdate",
+      "enclosing_class": "useDiagramUpdateQueue",
+      "normalized_params": "(id: string, content: string, lastModified: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add or replace the update in the pending map for the given diagram ID."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing debounce timer if present."
+        },
+        {
+          "order": 3,
+          "content": "Set a new debounce timer to flush pending updates after the configured delay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_292fbf14",
+      "name": "flushNow",
+      "enclosing_class": "useDiagramUpdateQueue",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Cancel any pending debounce timer if present."
+        },
+        {
+          "order": 2,
+          "content": "Immediately flush all pending updates by calling the flush function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e124caa",
+      "name": "cleanup",
+      "enclosing_class": "useDiagramUpdateQueue",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear any existing debounce timer on component unmount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,215 @@
+{
+  "schema_version": 3,
+  "file": "src/services/update-log-manager.ts",
+  "title": "Manages document update history logging and replay with atomic file operations",
+  "purpose": "Tracks document changes over time with timestamps and diffs, enabling history retrieval and content reconstruction at any point in time. Uses atomic file operations to ensure data consistency.",
+  "module_context": "Exports a UpdateLogManager class that handles logging and replaying document updates with support for multiple resource types including documents, diagrams, designs, spreadsheets, and snippets.",
+  "methods": [
+    {
+      "id": "m_61c8d3d0",
+      "name": "constructor",
+      "enclosing_class": "UpdateLogManager",
+      "normalized_params": "(basePath: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the base path for the session folder."
+        },
+        {
+          "order": 2,
+          "content": "Set the log file path to update-log.json within the session folder."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_31297db9",
+      "name": "logUpdate",
+      "enclosing_class": "UpdateLogManager",
+      "normalized_params": "(resourceType: ResourceType, resourceId: string, oldContent: string, newContent: string, diff?: { oldString: string; newString: string }): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Skip logging if the old and new content are identical."
+        },
+        {
+          "order": 2,
+          "content": "Load the existing update log from disk."
+        },
+        {
+          "order": 3,
+          "content": "Create a new log entry for the resource if this is the first update."
+        },
+        {
+          "order": 4,
+          "content": "Compute a diff if one is not provided."
+        },
+        {
+          "order": 5,
+          "content": "Create a change entry with the current timestamp and diff."
+        },
+        {
+          "order": 6,
+          "content": "Append the change entry to the resource's change history."
+        },
+        {
+          "order": 7,
+          "content": "Save the updated log to disk atomically."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b5aad161",
+      "name": "getHistory",
+      "enclosing_class": "UpdateLogManager",
+      "normalized_params": "(resourceType: ResourceType, resourceId: string): Promise<DocumentLogEntry | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the update log from disk."
+        },
+        {
+          "order": 2,
+          "content": "Return the history for the specified resource or null if not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_394df779",
+      "name": "replayToTimestamp",
+      "enclosing_class": "UpdateLogManager",
+      "normalized_params": "(resourceType: ResourceType, resourceId: string, timestamp: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the history for the specified resource."
+        },
+        {
+          "order": 2,
+          "content": "Throw an error if no history is found for the resource."
+        },
+        {
+          "order": 3,
+          "content": "Parse the target timestamp into a numeric time value."
+        },
+        {
+          "order": 4,
+          "content": "Initialize content with the original resource content."
+        },
+        {
+          "order": 5,
+          "content": "Iterate through changes in chronological order up to the target timestamp."
+        },
+        {
+          "order": 6,
+          "content": "Apply each change by replacing the old string with the new string in the content."
+        },
+        {
+          "order": 7,
+          "content": "Stop applying changes once a timestamp exceeds the target."
+        },
+        {
+          "order": 8,
+          "content": "Return the reconstructed content at the target timestamp."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6c6c187a",
+      "name": "loadLog",
+      "enclosing_class": "UpdateLogManager",
+      "normalized_params": "(): Promise<UpdateLog>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the log file exists at the configured path."
+        },
+        {
+          "order": 2,
+          "content": "Return an empty log with all resource type keys if the file does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Read the content of the log file from disk."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON content into a log object."
+        },
+        {
+          "order": 5,
+          "content": "Ensure all resource type keys exist in the log for backwards compatibility."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed log object."
+        },
+        {
+          "order": 7,
+          "content": "IF file reading or JSON parsing fails, return an empty log and log a warning."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eada6db9",
+      "name": "saveLog",
+      "enclosing_class": "UpdateLogManager",
+      "normalized_params": "(log: UpdateLog): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a temporary file path for the log."
+        },
+        {
+          "order": 2,
+          "content": "Serialize the log object into formatted JSON text."
+        },
+        {
+          "order": 3,
+          "content": "Write the JSON content to the temporary file."
+        },
+        {
+          "order": 4,
+          "content": "Atomically rename the temporary file to the actual log file path."
+        },
+        {
+          "order": 5,
+          "content": "IF the rename operation fails, delete the temporary file and re-throw the error."
+        },
+        {
+          "order": 6,
+          "content": "IF the write operation fails, throw an error indicating the save failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

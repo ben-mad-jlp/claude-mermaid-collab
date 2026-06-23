@@ -1,0 +1,955 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/text-editor.ts",
+  "title": "Text editor with caret positioning and selection management",
+  "purpose": "Manages text editing operations within a scene node, handling cursor movement, text insertion/deletion, and selection ranges with caret positioning.",
+  "module_context": "Exports a TextEditor class that maintains editor state and provides methods for text manipulation, caret positioning, and selection handling using CanvasKit for paragraph layout.",
+  "methods": [
+    {
+      "id": "m_0465ca7f",
+      "name": "prepareMove",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): TextEditorState | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state exists, return null."
+        },
+        {
+          "order": 3,
+          "content": "IF extending selection and no anchor is set, assign current cursor position as anchor."
+        },
+        {
+          "order": 4,
+          "content": "IF not extending selection, clear the selection anchor."
+        },
+        {
+          "order": 5,
+          "content": "Return the updated state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6dfa5fb4",
+      "name": "start",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(node: SceneNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the editor state with node properties."
+        },
+        {
+          "order": 2,
+          "content": "Set cursor position to end of node text."
+        },
+        {
+          "order": 3,
+          "content": "Build the paragraph layout for the node text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e3804f1f",
+      "name": "stop",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(): { nodeId: string; text: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no active editor state, return null."
+        },
+        {
+          "order": 2,
+          "content": "Capture the node ID and current text."
+        },
+        {
+          "order": 3,
+          "content": "Delete the paragraph layout from memory."
+        },
+        {
+          "order": 4,
+          "content": "Clear the editor state."
+        },
+        {
+          "order": 5,
+          "content": "Return the captured node ID and text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a338f093",
+      "name": "rebuildParagraph",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(node: SceneNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or renderer exists, return early."
+        },
+        {
+          "order": 3,
+          "content": "Delete the existing paragraph layout."
+        },
+        {
+          "order": 4,
+          "content": "Build a new paragraph layout for the node text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_663776b0",
+      "name": "hasSelection",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state exists, return false."
+        },
+        {
+          "order": 3,
+          "content": "IF selection anchor is null, return false."
+        },
+        {
+          "order": 4,
+          "content": "IF anchor and cursor positions are equal, return false."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return true indicating a selection exists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_50c817da",
+      "name": "getSelectionRange",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(): [number, number] | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no selection anchor, return null."
+        },
+        {
+          "order": 3,
+          "content": "IF cursor and anchor are equal, return null."
+        },
+        {
+          "order": 4,
+          "content": "Calculate the lower and upper bounds of the selection."
+        },
+        {
+          "order": 5,
+          "content": "Return the selection range as a tuple."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6bb60f4",
+      "name": "getSelectedText",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the selection range."
+        },
+        {
+          "order": 2,
+          "content": "IF no range or no state, return empty string."
+        },
+        {
+          "order": 3,
+          "content": "Extract and return the text within the selection range."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c30e3d70",
+      "name": "selectAll",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "Set selection anchor to start of text."
+        },
+        {
+          "order": 4,
+          "content": "Set cursor position to end of text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3536d84e",
+      "name": "selectWord",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(pos: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "Determine the start of the word at the given position."
+        },
+        {
+          "order": 4,
+          "content": "Determine the end of the word at the given position."
+        },
+        {
+          "order": 5,
+          "content": "Set selection anchor to start of word."
+        },
+        {
+          "order": 6,
+          "content": "Set cursor position to end of word."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4fdb87a",
+      "name": "setCursorAt",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(x: number, y: number, extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Find the glyph position at the given coordinate."
+        },
+        {
+          "order": 4,
+          "content": "IF extending selection and no anchor set, assign current cursor as anchor."
+        },
+        {
+          "order": 5,
+          "content": "IF not extending selection, clear the selection anchor."
+        },
+        {
+          "order": 6,
+          "content": "Set cursor position to found glyph position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3107ebbc",
+      "name": "selectLine",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(pos: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Find the line number at the given position."
+        },
+        {
+          "order": 4,
+          "content": "IF line number is invalid, return early."
+        },
+        {
+          "order": 5,
+          "content": "Get metrics for the line."
+        },
+        {
+          "order": 6,
+          "content": "IF no metrics, return early."
+        },
+        {
+          "order": 7,
+          "content": "Set selection anchor to start index of line."
+        },
+        {
+          "order": 8,
+          "content": "Set cursor position to end of line excluding whitespaces."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe39fe7d",
+      "name": "selectWordAt",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(x: number, y: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Find the glyph position at the given coordinate."
+        },
+        {
+          "order": 4,
+          "content": "Select the word at the found position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a722212a",
+      "name": "selectLineAt",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(x: number, y: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Find the glyph position at the given coordinate."
+        },
+        {
+          "order": 4,
+          "content": "Select the line at the found position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_95b66cdc",
+      "name": "insert",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(text: string, node: SceneNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the current selection range."
+        },
+        {
+          "order": 4,
+          "content": "IF a selection exists, replace the selected text with new text."
+        },
+        {
+          "order": 5,
+          "content": "IF no selection, insert text at cursor position."
+        },
+        {
+          "order": 6,
+          "content": "Clear the selection anchor."
+        },
+        {
+          "order": 7,
+          "content": "Rebuild the paragraph layout for updated text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8238011c",
+      "name": "backspace",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(node: SceneNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the current selection range."
+        },
+        {
+          "order": 4,
+          "content": "IF a selection exists, remove the selected text."
+        },
+        {
+          "order": 5,
+          "content": "IF no selection and cursor is not at start, remove character before cursor."
+        },
+        {
+          "order": 6,
+          "content": "Clear the selection anchor."
+        },
+        {
+          "order": 7,
+          "content": "Rebuild the paragraph layout for updated text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f9fc889b",
+      "name": "delete",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(node: SceneNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the current selection range."
+        },
+        {
+          "order": 4,
+          "content": "IF a selection exists, remove the selected text."
+        },
+        {
+          "order": 5,
+          "content": "IF no selection and cursor is not at end, remove character after cursor."
+        },
+        {
+          "order": 6,
+          "content": "Clear the selection anchor."
+        },
+        {
+          "order": 7,
+          "content": "Rebuild the paragraph layout for updated text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c25d4f46",
+      "name": "moveLeft",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "IF not extending and a selection exists, move cursor to start of selection."
+        },
+        {
+          "order": 4,
+          "content": "IF not extending and a selection exists, clear the selection anchor."
+        },
+        {
+          "order": 5,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 6,
+          "content": "IF cursor is not at start, move cursor left."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf554530",
+      "name": "moveRight",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "IF not extending and a selection exists, move cursor to end of selection."
+        },
+        {
+          "order": 4,
+          "content": "IF not extending and a selection exists, clear the selection anchor."
+        },
+        {
+          "order": 5,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 6,
+          "content": "IF cursor is not at end, move cursor right."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e4fead9f",
+      "name": "moveUp",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 4,
+          "content": "Get the caret rectangle position."
+        },
+        {
+          "order": 5,
+          "content": "IF no caret rectangle, return early."
+        },
+        {
+          "order": 6,
+          "content": "Calculate font size from line metrics."
+        },
+        {
+          "order": 7,
+          "content": "Find glyph position at coordinate above current caret."
+        },
+        {
+          "order": 8,
+          "content": "Set cursor to found glyph position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3aa6d0eb",
+      "name": "moveDown",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 4,
+          "content": "Get the caret rectangle position."
+        },
+        {
+          "order": 5,
+          "content": "IF no caret rectangle, return early."
+        },
+        {
+          "order": 6,
+          "content": "Calculate font size from line metrics."
+        },
+        {
+          "order": 7,
+          "content": "Find glyph position at coordinate below current caret."
+        },
+        {
+          "order": 8,
+          "content": "Set cursor to found glyph position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_460cf7b1",
+      "name": "moveToLineStart",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 4,
+          "content": "Find the line number at current cursor position."
+        },
+        {
+          "order": 5,
+          "content": "IF line number is invalid, return early."
+        },
+        {
+          "order": 6,
+          "content": "Get metrics for the line."
+        },
+        {
+          "order": 7,
+          "content": "IF no metrics, return early."
+        },
+        {
+          "order": 8,
+          "content": "Set cursor position to start index of line."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9378f2db",
+      "name": "moveToLineEnd",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return early."
+        },
+        {
+          "order": 3,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 4,
+          "content": "Find the line number at current cursor position."
+        },
+        {
+          "order": 5,
+          "content": "IF line number is invalid, return early."
+        },
+        {
+          "order": 6,
+          "content": "Get metrics for the line."
+        },
+        {
+          "order": 7,
+          "content": "IF no metrics, return early."
+        },
+        {
+          "order": 8,
+          "content": "Set cursor position to end of line excluding whitespaces."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8202f35d",
+      "name": "moveWordLeft",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "Traverse backwards through text to find word boundary."
+        },
+        {
+          "order": 4,
+          "content": "Traverse backwards through text to find start of word."
+        },
+        {
+          "order": 5,
+          "content": "Set cursor position to start of word."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d120445d",
+      "name": "moveWordRight",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(extend: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare for movement with selection extension."
+        },
+        {
+          "order": 2,
+          "content": "IF no state, return early."
+        },
+        {
+          "order": 3,
+          "content": "Traverse forwards through text to find end of word."
+        },
+        {
+          "order": 4,
+          "content": "Traverse forwards through text to find next word boundary."
+        },
+        {
+          "order": 5,
+          "content": "Set cursor position to start of next word."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_55b7ad68",
+      "name": "getCaretRect",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(): TextCaret | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return null."
+        },
+        {
+          "order": 3,
+          "content": "Get the text and cursor position."
+        },
+        {
+          "order": 4,
+          "content": "IF text is empty, return rectangle for first line."
+        },
+        {
+          "order": 5,
+          "content": "Determine the range of glyphs to measure."
+        },
+        {
+          "order": 6,
+          "content": "Get rectangles for the glyph range."
+        },
+        {
+          "order": 7,
+          "content": "IF no rectangles found, return null."
+        },
+        {
+          "order": 8,
+          "content": "Return the caret rectangle with calculated coordinates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e2ecf91d",
+      "name": "getSelectionRects",
+      "enclosing_class": "TextEditor",
+      "normalized_params": "(): Rect[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF no state or no paragraph, return empty array."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the selection range."
+        },
+        {
+          "order": 4,
+          "content": "IF no range, return empty array."
+        },
+        {
+          "order": 5,
+          "content": "Get rectangles for the selection range."
+        },
+        {
+          "order": 6,
+          "content": "Transform rectangle data into standard rect format."
+        },
+        {
+          "order": 7,
+          "content": "Return array of selection rectangles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

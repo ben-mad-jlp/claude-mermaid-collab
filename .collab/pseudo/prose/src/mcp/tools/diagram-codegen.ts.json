@@ -1,0 +1,361 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/diagram-codegen.ts",
+  "title": "Code-to-Mermaid diagram generator for class, dependency, and module diagrams",
+  "purpose": "Parses source files using regex to generate Mermaid diagrams representing class hierarchies, import dependencies, and module groupings.",
+  "module_context": "Exports a schema definition for diagram generation parameters and a main handler function that orchestrates reading files and generating diagrams of specified types.",
+  "methods": [
+    {
+      "id": "m_c71d9046",
+      "name": "readFiles",
+      "enclosing_class": null,
+      "normalized_params": "(filePaths: string[]): Promise<FileContent[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect file contents."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each file path provided in the input."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to read the file content as UTF-8 text."
+        },
+        {
+          "order": 4,
+          "content": "IF the read operation succeeds, add the file path and content to the results array."
+        },
+        {
+          "order": 5,
+          "content": "IF the read operation fails, silently skip the file and continue processing."
+        },
+        {
+          "order": 6,
+          "content": "Return the collected file contents."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_016f383c",
+      "name": "extractClasses",
+      "enclosing_class": null,
+      "normalized_params": "(files: FileContent[]): ClassInfo[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect class information."
+        },
+        {
+          "order": 2,
+          "content": "Process each file in the input collection."
+        },
+        {
+          "order": 3,
+          "content": "Match class or interface declarations using a regular expression."
+        },
+        {
+          "order": 4,
+          "content": "Extract the class name, parent class, and implemented interfaces from the match."
+        },
+        {
+          "order": 5,
+          "content": "Locate the class body by finding the opening brace after the declaration."
+        },
+        {
+          "order": 6,
+          "content": "Extract method signatures from the class body using a regular expression."
+        },
+        {
+          "order": 7,
+          "content": "Extract property declarations from the class body using a regular expression."
+        },
+        {
+          "order": 8,
+          "content": "Limit the number of extracted methods and properties to ten each."
+        },
+        {
+          "order": 9,
+          "content": "Add the collected class information to the results array."
+        },
+        {
+          "order": 10,
+          "content": "Return the complete list of class information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_30968355",
+      "name": "generateClassDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(files: FileContent[]): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract class information from the input files."
+        },
+        {
+          "order": 2,
+          "content": "IF no classes are found, return a default diagram indicating no classes."
+        },
+        {
+          "order": 3,
+          "content": "Initialize an array to collect diagram lines."
+        },
+        {
+          "order": 4,
+          "content": "Add the Mermaid class diagram directive to the lines."
+        },
+        {
+          "order": 5,
+          "content": "For each class, add a class definition block with its properties and methods."
+        },
+        {
+          "order": 6,
+          "content": "Add inheritance relationships for parent classes."
+        },
+        {
+          "order": 7,
+          "content": "Add implementation relationships for interfaces."
+        },
+        {
+          "order": 8,
+          "content": "Join all lines into a single Mermaid diagram string and return it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a82b3ac9",
+      "name": "extractImports",
+      "enclosing_class": null,
+      "normalized_params": "(files: FileContent[], projectRoot: string): ImportInfo[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect import information."
+        },
+        {
+          "order": 2,
+          "content": "Process each file in the input collection."
+        },
+        {
+          "order": 3,
+          "content": "Determine the relative path of the current file from the project root."
+        },
+        {
+          "order": 4,
+          "content": "Match import statements in the file content using a regular expression."
+        },
+        {
+          "order": 5,
+          "content": "Filter imports to only include relative paths starting with a dot."
+        },
+        {
+          "order": 6,
+          "content": "Resolve the target path of each relative import to a path relative to the project root."
+        },
+        {
+          "order": 7,
+          "content": "Add the import relationship to the results array."
+        },
+        {
+          "order": 8,
+          "content": "Return the collected import relationships."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fa92dd19",
+      "name": "sanitizeMermaidId",
+      "enclosing_class": null,
+      "normalized_params": "(str: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace all non-alphanumeric characters with underscores."
+        },
+        {
+          "order": 2,
+          "content": "Trim leading and trailing underscores from the result."
+        },
+        {
+          "order": 3,
+          "content": "IF the result is empty, generate a random ID with a prefix."
+        },
+        {
+          "order": 4,
+          "content": "IF the result starts with a digit, prepend an 'f' to make it valid."
+        },
+        {
+          "order": 5,
+          "content": "Return the sanitized ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_baf82933",
+      "name": "generateDependencyDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(files: FileContent[], projectRoot: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract import relationships from the input files."
+        },
+        {
+          "order": 2,
+          "content": "IF no imports are found, return a default diagram indicating no imports."
+        },
+        {
+          "order": 3,
+          "content": "Initialize an array to collect diagram lines."
+        },
+        {
+          "order": 4,
+          "content": "Add the Mermaid graph directive to the lines."
+        },
+        {
+          "order": 5,
+          "content": "Track seen IDs to avoid duplicate node definitions."
+        },
+        {
+          "order": 6,
+          "content": "Collect all unique file paths involved in imports."
+        },
+        {
+          "order": 7,
+          "content": "Add node definitions for each unique file path."
+        },
+        {
+          "order": 8,
+          "content": "Add edges representing import relationships between nodes."
+        },
+        {
+          "order": 9,
+          "content": "Join all lines into a single Mermaid diagram string and return it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5c3878a3",
+      "name": "generateModuleDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(files: FileContent[], projectRoot: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract import relationships from the input files."
+        },
+        {
+          "order": 2,
+          "content": "Group files by their directory relative to the project root."
+        },
+        {
+          "order": 3,
+          "content": "IF no directories are found, return a default diagram indicating no modules."
+        },
+        {
+          "order": 4,
+          "content": "Initialize an array to collect diagram lines."
+        },
+        {
+          "order": 5,
+          "content": "Add the Mermaid graph directive to the lines."
+        },
+        {
+          "order": 6,
+          "content": "Create subgraphs for each directory and add file nodes within them."
+        },
+        {
+          "order": 7,
+          "content": "Add edges for cross-directory import relationships."
+        },
+        {
+          "order": 8,
+          "content": "Join all lines into a single Mermaid diagram string and return it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51a704a4",
+      "name": "handleDiagramFromCode",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, filePaths: string[], diagramType: 'class' | 'dependency' | 'module'): Promise<{ success: boolean; mermaidSource: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the files specified by the input paths."
+        },
+        {
+          "order": 2,
+          "content": "IF no files could be read, throw an error indicating failure."
+        },
+        {
+          "order": 3,
+          "content": "Generate the appropriate Mermaid diagram based on the specified diagram type."
+        },
+        {
+          "order": 4,
+          "content": "IF the diagram type is 'class', generate a class diagram."
+        },
+        {
+          "order": 5,
+          "content": "IF the diagram type is 'dependency', generate a dependency diagram."
+        },
+        {
+          "order": 6,
+          "content": "IF the diagram type is 'module', generate a module diagram."
+        },
+        {
+          "order": 7,
+          "content": "IF the diagram type is unknown, throw an error indicating invalid type."
+        },
+        {
+          "order": 8,
+          "content": "Return the success status and generated Mermaid source."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

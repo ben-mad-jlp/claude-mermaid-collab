@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/mermaid/index.ts",
+  "title": "Mermaid diagram embedding components for AI UI",
+  "purpose": "Provides components for displaying Mermaid diagrams inline within AI UI applications. Exports a diagram embed component that renders Mermaid syntax as visual diagrams.",
+  "module_context": "Exports the DiagramEmbed component and its associated props type for rendering Mermaid diagrams in the UI.",
+  "methods": [
+    {
+      "id": "m_71e1a6d3",
+      "name": "DiagramEmbed",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiagramEmbedProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Receive the diagram content and configuration through props."
+        },
+        {
+          "order": 2,
+          "content": "Render the Mermaid diagram using the provided content."
+        },
+        {
+          "order": 3,
+          "content": "Apply any specified styling or configuration options."
+        },
+        {
+          "order": 4,
+          "content": "Display the rendered diagram in the component's output."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/Sidebar.tsx",
+  "title": "Sidebar component with document navigation and subscriptions",
+  "purpose": "Provides a sidebar layout with document navigation, vibe instructions, subscriptions panel, and artifact tree for project organization.",
+  "module_context": "Exports a React functional component named Sidebar that accepts className prop and uses Zustand store for session data and custom hook for data loading.",
+  "methods": [
+    {
+      "id": "m_45d37be7",
+      "name": "Sidebar",
+      "enclosing_class": null,
+      "normalized_params": "(props: SidebarProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract documents, selected document ID, and current session from the session store."
+        },
+        {
+          "order": 2,
+          "content": "Access the data loader hook for document selection functionality."
+        },
+        {
+          "order": 3,
+          "content": "Determine if the sidebar is disabled based on the presence of a current session."
+        },
+        {
+          "order": 4,
+          "content": "Find the vibe instructions document within the list of documents."
+        },
+        {
+          "order": 5,
+          "content": "Render the sidebar container with appropriate styling and test identifier."
+        },
+        {
+          "order": 6,
+          "content": "IF a vibe instructions document exists and the sidebar is not disabled, render the document button with appropriate styling and click handler."
+        },
+        {
+          "order": 7,
+          "content": "Render the subscriptions panel component with the current project."
+        },
+        {
+          "order": 8,
+          "content": "Render the artifact tree component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

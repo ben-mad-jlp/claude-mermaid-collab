@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/flags/FlagActions.tsx",
+  "title": "Flag status-aware action buttons component",
+  "purpose": "Displays appropriate action buttons (Resolve/Dismiss or Reopen) based on the flag's current status.",
+  "module_context": "Exports a React functional component FlagActions that accepts flag data and action handlers as props, and renders conditional UI elements based on flag status.",
+  "methods": [
+    {
+      "id": "m_21a66b12",
+      "name": "FlagActions",
+      "enclosing_class": null,
+      "normalized_params": "(props: FlagActionsProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the flag is open or addressed."
+        },
+        {
+          "order": 2,
+          "content": "IF the flag is open or addressed, render resolve and dismiss buttons."
+        },
+        {
+          "order": 3,
+          "content": "IF the flag is resolved or dismissed, render the reopen button."
+        },
+        {
+          "order": 4,
+          "content": "Return the appropriate set of action buttons based on flag status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

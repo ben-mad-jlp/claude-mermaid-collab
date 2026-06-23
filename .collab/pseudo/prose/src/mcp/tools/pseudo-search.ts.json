@@ -1,0 +1,113 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-search.ts",
+  "title": "MCP tools for FTS5-backed search and function finding",
+  "purpose": "Provides pseudo_search and pseudo_find_function tools that perform full-text search on project data using FTS5, with optional origin filtering and enrichment of search results.",
+  "module_context": "Exports SearchOptions interface, SearchHit interface, and two async tool functions: pseudo_search and pseudo_find_function. Both functions initialize a pseudo database handle, perform FTS queries, and enrich results with origin information.",
+  "methods": [
+    {
+      "id": "m_4ccf7be7",
+      "name": "pseudo_search",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, query: string, opts?: SearchOptions): Promise<SearchHit[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Perform a full-text search on the database using the provided query and limit."
+        },
+        {
+          "order": 3,
+          "content": "IF no origin filter is specified, enrich the search results with origin information."
+        },
+        {
+          "order": 4,
+          "content": "ELSE filter the search results by the specified origin and then enrich them with origin information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8a5dff16",
+      "name": "pseudo_find_function",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, name: string, limit?: number): Promise<SearchHit[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Perform a function name search on the database using the provided name and limit."
+        },
+        {
+          "order": 3,
+          "content": "Enrich the search results with origin information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51088a35",
+      "name": "enrich",
+      "enclosing_class": null,
+      "normalized_params": "(db: any, results: FtsSearchResult[]): SearchHit[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each search result to fetch origin information from the database."
+        },
+        {
+          "order": 2,
+          "content": "For each result, query the files table to get the prose origin for the file path."
+        },
+        {
+          "order": 3,
+          "content": "Construct a new result object with the original data and the fetched origin information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe350981",
+      "name": "filterByOrigin",
+      "enclosing_class": null,
+      "normalized_params": "(db: any, results: FtsSearchResult[], origin: string): FtsSearchResult[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each search result to check if it matches the specified origin."
+        },
+        {
+          "order": 2,
+          "content": "For each result, query the files table to get the prose origin for the file path."
+        },
+        {
+          "order": 3,
+          "content": "IF the fetched origin matches the specified origin, include the result in the filtered output."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

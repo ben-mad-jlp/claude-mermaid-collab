@@ -1,0 +1,117 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/flags/FlagRow.tsx",
+  "title": "Flag row component for displaying flag details and actions",
+  "purpose": "Displays a single flag entry in a list with topic, comment, status, dates, and action controls. Used in flag management interfaces.",
+  "module_context": "Exports a React functional component FlagRow that accepts flag data and action handlers as props. Includes helper functions for status formatting and date formatting.",
+  "methods": [
+    {
+      "id": "m_f3eda195",
+      "name": "getStatusBadgeClasses",
+      "enclosing_class": null,
+      "normalized_params": "(status: FlagStatus): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the CSS class names for a badge based on the flag status."
+        },
+        {
+          "order": 2,
+          "content": "Return specific color classes for open, addressed, resolved, and dismissed statuses."
+        },
+        {
+          "order": 3,
+          "content": "Return default gray classes for any unrecognized status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3931cf62",
+      "name": "formatStatus",
+      "enclosing_class": null,
+      "normalized_params": "(status: FlagStatus): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the first character of the status to uppercase."
+        },
+        {
+          "order": 2,
+          "content": "Return the capitalized status string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bc5f106a",
+      "name": "formatDate",
+      "enclosing_class": null,
+      "normalized_params": "(dateString: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input date string into a JavaScript Date object."
+        },
+        {
+          "order": 2,
+          "content": "Format the date using the user's locale with short month, numeric day, and numeric year."
+        },
+        {
+          "order": 3,
+          "content": "Return the formatted date string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b927c8db",
+      "name": "FlagRow",
+      "enclosing_class": null,
+      "normalized_params": "(props: FlagRowProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a table row containing flag details."
+        },
+        {
+          "order": 2,
+          "content": "Display the topic name as a clickable button that navigates to the topic."
+        },
+        {
+          "order": 3,
+          "content": "Show the flag comment with optional dismissed reason below."
+        },
+        {
+          "order": 4,
+          "content": "Display the flag status in a colored badge with appropriate styling."
+        },
+        {
+          "order": 5,
+          "content": "Show the creation date formatted in a readable way."
+        },
+        {
+          "order": 6,
+          "content": "Include action controls for resolving, dismissing, or reopening the flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

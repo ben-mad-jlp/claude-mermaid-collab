@@ -1,0 +1,202 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/registry.ts",
+  "title": "AI-UI Component Registry with Metadata and Validation",
+  "purpose": "Provides centralized access to 33 AI-UI components with metadata, validation, and category-based lookup capabilities. Used to dynamically resolve and validate component references in the UI.",
+  "module_context": "Exports a registry map containing 33 component metadata entries organized by category, along with utility functions for component lookup, validation, and statistics. Includes default export of the registry object.",
+  "methods": [
+    {
+      "id": "m_9398e12d",
+      "name": "getComponent",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): React.ComponentType<any> | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the component metadata by name in the registry."
+        },
+        {
+          "order": 2,
+          "content": "IF metadata exists, return the component from the metadata."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a693689",
+      "name": "getComponentMetadata",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): ComponentMetadata | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up and return the component metadata by name from the registry."
+        },
+        {
+          "order": 2,
+          "content": "IF the name is not found, return undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dcf67806",
+      "name": "hasComponent",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the component name exists in the registry."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the name is found, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad24e3ae",
+      "name": "getAllComponentNames",
+      "enclosing_class": null,
+      "normalized_params": "(): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract and return all component names from the registry keys."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4cd0122e",
+      "name": "getAllComponents",
+      "enclosing_class": null,
+      "normalized_params": "(): ComponentMetadata[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract and return all component metadata from the registry values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad736d98",
+      "name": "getComponentsByCategory",
+      "enclosing_class": null,
+      "normalized_params": "(category: 'display' | 'layout' | 'interactive' | 'inputs' | 'mermaid'): ComponentMetadata[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter all component metadata by the specified category."
+        },
+        {
+          "order": 2,
+          "content": "Return the filtered array of metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_177a18bb",
+      "name": "validateComponent",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): ComponentMetadata",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the component metadata by name in the registry."
+        },
+        {
+          "order": 2,
+          "content": "IF metadata is not found, throw an error with available component names."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the found metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc8e6de1",
+      "name": "getComponentCount",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the total number of registered components from the registry size."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5f75593",
+      "name": "getCategoryStats",
+      "enclosing_class": null,
+      "normalized_params": "(): Record<string, number>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize statistics object with zero counts for each category."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all component metadata in the registry."
+        },
+        {
+          "order": 3,
+          "content": "Increment the count for each component's category."
+        },
+        {
+          "order": 4,
+          "content": "Return the populated statistics object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

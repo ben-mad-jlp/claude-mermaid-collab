@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/index.ts",
+  "title": "UI layout components export module",
+  "purpose": "Exports all core layout components and their type definitions for the Mermaid Collab UI.",
+  "module_context": "This file serves as a central export point for all layout components including Header, Sidebar, SplitPane, SessionPanel, EditorToolbar, BottomTabBar, and MobileLayout with their respective props types.",
+  "methods": [
+    {
+      "id": "m_09599da6",
+      "name": "export",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Header component and its props type."
+        },
+        {
+          "order": 2,
+          "content": "Export the Sidebar component and its props type."
+        },
+        {
+          "order": 3,
+          "content": "Export the SplitPane and ThreeWaySplitPane components and their props types."
+        },
+        {
+          "order": 4,
+          "content": "Export the SessionPanel component and its props types."
+        },
+        {
+          "order": 5,
+          "content": "Export the EditorToolbar component and its props type."
+        },
+        {
+          "order": 6,
+          "content": "Export the BottomTabBar component and its props types."
+        },
+        {
+          "order": 7,
+          "content": "Export the MobileLayout component and its props types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

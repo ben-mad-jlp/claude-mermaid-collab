@@ -1,0 +1,129 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/flags/FlagsList.tsx",
+  "title": "Flags list table component with action handlers and confirmation dialog",
+  "purpose": "Displays a table of flags with action controls and handles user interactions like resolving, dismissing, and reopening flags. Shows a confirmation dialog for dismiss actions.",
+  "module_context": "Exports a FlagsList React component that accepts flags data and action handlers as props, and manages state for dialog visibility and dismiss reason input.",
+  "methods": [
+    {
+      "id": "m_6f20c068",
+      "name": "FlagsList",
+      "enclosing_class": null,
+      "normalized_params": "(props: FlagsListProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for dialog management and dismiss reason input."
+        },
+        {
+          "order": 2,
+          "content": "Define the action handler that processes resolve, dismiss, and reopen actions."
+        },
+        {
+          "order": 3,
+          "content": "Define the dismiss confirmation handler that executes the dismiss action with a reason."
+        },
+        {
+          "order": 4,
+          "content": "Define the dismiss cancel handler that resets the dialog state and reason input."
+        },
+        {
+          "order": 5,
+          "content": "Render empty state message if no flags are present."
+        },
+        {
+          "order": 6,
+          "content": "Render the flags table with headers and rows using the FlagRow component."
+        },
+        {
+          "order": 7,
+          "content": "Include a confirmation dialog for dismiss actions with reason input."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_573a69a5",
+      "name": "handleAction",
+      "enclosing_class": "FlagsList",
+      "normalized_params": "(flagId: number, action: 'resolve' | 'dismiss' | 'reopen', reason?: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the current user from authentication context."
+        },
+        {
+          "order": 2,
+          "content": "IF the action is resolve, call the resolve handler with the flag ID and user."
+        },
+        {
+          "order": 3,
+          "content": "IF the action is dismiss, set the dialog state to show the dismiss confirmation."
+        },
+        {
+          "order": 4,
+          "content": "IF the action is reopen, call the reopen handler with the flag ID and user."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a065b48f",
+      "name": "handleDismissConfirm",
+      "enclosing_class": "FlagsList",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a flag ID is set in the dialog state."
+        },
+        {
+          "order": 2,
+          "content": "Determine the current user from authentication context."
+        },
+        {
+          "order": 3,
+          "content": "Execute the dismiss handler with the flag ID, user, and dismiss reason."
+        },
+        {
+          "order": 4,
+          "content": "Reset the dialog state and dismiss reason input after confirmation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_382f4101",
+      "name": "handleDismissCancel",
+      "enclosing_class": "FlagsList",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the dialog state to hide the confirmation dialog."
+        },
+        {
+          "order": 2,
+          "content": "Clear the dismiss reason input field."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

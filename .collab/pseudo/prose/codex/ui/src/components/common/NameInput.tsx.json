@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/common/NameInput.tsx",
+  "title": "Name input component for user identification fields",
+  "purpose": "Provides a reusable text input field for capturing user names in editing and review workflows with support for labels, placeholders, and validation.",
+  "module_context": "Exports a React functional component named NameInput that accepts various props for customization and includes default values for optional parameters. Also exports the component as default.",
+  "methods": [
+    {
+      "id": "m_34641642",
+      "name": "NameInput",
+      "enclosing_class": null,
+      "normalized_params": "(props: NameInputProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique ID for the input element."
+        },
+        {
+          "order": 2,
+          "content": "Render a container div with flex column layout and optional class names."
+        },
+        {
+          "order": 3,
+          "content": "IF a label is provided, render a label element associated with the input ID."
+        },
+        {
+          "order": 4,
+          "content": "IF the label is required, append a red asterisk to indicate requirement."
+        },
+        {
+          "order": 5,
+          "content": "Render an input element with text type and bind its value to the provided prop."
+        },
+        {
+          "order": 6,
+          "content": "Attach an event handler to update the value via the onChange prop when input changes."
+        },
+        {
+          "order": 7,
+          "content": "Apply default placeholder text and required/disabled states from props."
+        },
+        {
+          "order": 8,
+          "content": "Style the input with Tailwind classes for appearance and focus states."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

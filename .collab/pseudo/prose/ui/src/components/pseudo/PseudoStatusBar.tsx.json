@@ -1,0 +1,79 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/pseudo/PseudoStatusBar.tsx",
+  "title": "Pseudo status bar component with polling and warning display",
+  "purpose": "Displays project status information including file counts, prose breakdown, scanning progress, and warnings. Polls for updates and handles loading/error states.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_5e738d4b",
+      "name": "PseudoStatusBar",
+      "enclosing_class": null,
+      "normalized_params": "(props: PseudoStatusBarProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for status and error tracking."
+        },
+        {
+          "order": 2,
+          "content": "Set up a polling interval to fetch status updates from the backend."
+        },
+        {
+          "order": 3,
+          "content": "IF the component is still mounted, update the status state with fetched data."
+        },
+        {
+          "order": 4,
+          "content": "IF an error occurs during fetch, update the error state with the error message."
+        },
+        {
+          "order": 5,
+          "content": "Return an error message if an error is present."
+        },
+        {
+          "order": 6,
+          "content": "Return a loading indicator if no status is available yet."
+        },
+        {
+          "order": 7,
+          "content": "Calculate and display scanning progress if available."
+        },
+        {
+          "order": 8,
+          "content": "Display warning count if any warnings exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85e3e88e",
+      "name": "poll",
+      "enclosing_class": "PseudoStatusBar",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch the latest status from the backend using the provided fetchStatus function."
+        },
+        {
+          "order": 2,
+          "content": "IF the component is still mounted, update the status state with the fetched data."
+        },
+        {
+          "order": 3,
+          "content": "IF the fetch operation fails, update the error state with the error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/WorktreeHeader.tsx",
+  "title": "Worktree header component with commit/push/PR functionality",
+  "purpose": "Displays worktree branch information, dirty status, and provides controls for committing, pushing, and opening pull requests. Shows a diff viewer and modal for commit/push/PR actions.",
+  "module_context": "Exports a React functional component WorktreeHeader that receives a session ID prop and manages state for modal and diff visibility. Uses agent store hooks for worktree data and session management.",
+  "methods": [
+    {
+      "id": "m_d9999279",
+      "name": "WorktreeHeader",
+      "enclosing_class": null,
+      "normalized_params": "(props: WorktreeHeaderProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract worktree, dirty status, commit in flight status, and multi-session data from the agent store."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state for modal and diff visibility."
+        },
+        {
+          "order": 3,
+          "content": "Get the commitPushPR function from the agent session hook."
+        },
+        {
+          "order": 4,
+          "content": "Build a list of worktrees from the multi-session data."
+        },
+        {
+          "order": 5,
+          "content": "Return null if no worktree exists or if it's a non-git worktree."
+        },
+        {
+          "order": 6,
+          "content": "Render the header with branch name, dirty indicator, worktree switcher, diff button, PR status badge, and commit/push/PR button."
+        },
+        {
+          "order": 7,
+          "content": "Conditionally render the diff viewer modal when diff is open."
+        },
+        {
+          "order": 8,
+          "content": "Render the commit/push/PR modal with the appropriate handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cb97da17",
+      "name": "worktrees",
+      "enclosing_class": "WorktreeHeader",
+      "normalized_params": "(): { sessionId: string; path: string; branch?: string }[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map over the multi-session sessions to extract session information."
+        },
+        {
+          "order": 2,
+          "content": "Transform each session into an object with sessionId, path, and branch properties."
+        },
+        {
+          "order": 3,
+          "content": "Use the session name as path when path is not available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

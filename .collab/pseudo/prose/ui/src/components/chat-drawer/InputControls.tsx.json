@@ -1,0 +1,138 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/chat-drawer/InputControls.tsx",
+  "title": "Chat input controls with clear and send functionality",
+  "purpose": "Provides a reusable input component with clear and send buttons for chat interfaces, handling text input, sending messages, and clearing the input area.",
+  "module_context": "Exports a React functional component InputControls that accepts props for send and clear callbacks, and manages local input state with textarea auto-resizing and keyboard handling.",
+  "methods": [
+    {
+      "id": "m_a310cab9",
+      "name": "InputControls",
+      "enclosing_class": null,
+      "normalized_params": "(props: InputControlsProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize local state for the input value and reference to the textarea element."
+        },
+        {
+          "order": 2,
+          "content": "Define a handler for sending messages that validates input, calls the send callback, clears the input, and resets textarea height."
+        },
+        {
+          "order": 3,
+          "content": "Define a handler for keyboard input that triggers send on Enter key press without shift."
+        },
+        {
+          "order": 4,
+          "content": "Define a handler for input changes that updates the local state and dynamically adjusts textarea height."
+        },
+        {
+          "order": 5,
+          "content": "Define a handler for clear button clicks that calls the clear callback."
+        },
+        {
+          "order": 6,
+          "content": "Render the clear button, textarea input field, and send button with appropriate styling and event handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_895d90ce",
+      "name": "handleSend",
+      "enclosing_class": "InputControls",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the input value is empty or only whitespace, return without taking action."
+        },
+        {
+          "order": 2,
+          "content": "Call the onSend callback with the trimmed input value."
+        },
+        {
+          "order": 3,
+          "content": "Clear the local input state."
+        },
+        {
+          "order": 4,
+          "content": "Reset the textarea height to auto and then set it to the minimum of scroll height or 150 pixels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_06695382",
+      "name": "handleKeyDown",
+      "enclosing_class": "InputControls",
+      "normalized_params": "(e: React.KeyboardEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the pressed key is Enter and shift key is not pressed, prevent the default behavior."
+        },
+        {
+          "order": 2,
+          "content": "Trigger the handleSend function to process the message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b83f9b4d",
+      "name": "handleInputChange",
+      "enclosing_class": "InputControls",
+      "normalized_params": "(e: React.ChangeEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the local input state with the new value from the textarea."
+        },
+        {
+          "order": 2,
+          "content": "Reset the textarea height to auto to allow recalculation."
+        },
+        {
+          "order": 3,
+          "content": "Set the textarea height to the minimum of its scroll height or 150 pixels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc21560b",
+      "name": "handleClear",
+      "enclosing_class": "InputControls",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the onClear callback to notify parent component of the clear action."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

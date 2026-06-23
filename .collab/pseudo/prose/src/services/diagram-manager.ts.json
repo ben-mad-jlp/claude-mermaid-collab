@@ -1,0 +1,254 @@
+{
+  "schema_version": 3,
+  "file": "src/services/diagram-manager.ts",
+  "title": "Manages diagram files with indexing and CRUD operations",
+  "purpose": "Provides methods to create, read, update, and delete Mermaid diagram files while maintaining an in-memory index of available diagrams.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_8d70b14b",
+      "name": "initialize",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the base directory exists for storing diagrams."
+        },
+        {
+          "order": 2,
+          "content": "Scan all files in the base directory."
+        },
+        {
+          "order": 3,
+          "content": "For each file ending in .mmd, extract its ID and metadata."
+        },
+        {
+          "order": 4,
+          "content": "Store the metadata in the internal index map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_98469379",
+      "name": "listDiagrams",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(): Promise<DiagramListItem[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all entries in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "Construct a list of diagram items with their IDs, names, and last modified timestamps."
+        },
+        {
+          "order": 3,
+          "content": "Return the constructed list of diagram items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_83cde3ad",
+      "name": "getDiagram",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(id: string): Promise<Diagram | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the diagram metadata by ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF the diagram does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "ELSE read the diagram content from the file system."
+        },
+        {
+          "order": 4,
+          "content": "Return the diagram with its content and metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14881138",
+      "name": "saveDiagram",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the diagram metadata by ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF the diagram does not exist, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the content size does not exceed the maximum allowed."
+        },
+        {
+          "order": 4,
+          "content": "Write the new content to the diagram file."
+        },
+        {
+          "order": 5,
+          "content": "Update the last modified timestamp in the index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d1eee152",
+      "name": "createDiagram",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(name: string, content: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sanitize the diagram name to create a valid filename."
+        },
+        {
+          "order": 2,
+          "content": "Construct the full file path for the new diagram."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the diagram ID does not already exist."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the content size does not exceed the maximum allowed."
+        },
+        {
+          "order": 5,
+          "content": "Write the diagram content to the file system."
+        },
+        {
+          "order": 6,
+          "content": "Update the internal index with the new diagram metadata."
+        },
+        {
+          "order": 7,
+          "content": "Return the ID of the newly created diagram."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_08425994",
+      "name": "deleteDiagram",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the diagram metadata by ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF the diagram does not exist, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Delete the diagram file from the file system."
+        },
+        {
+          "order": 4,
+          "content": "Remove the diagram entry from the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_756237be",
+      "name": "updateIndex",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(id: string, path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to retrieve file statistics for the given path."
+        },
+        {
+          "order": 2,
+          "content": "IF the statistics are successfully retrieved, update the index with new metadata."
+        },
+        {
+          "order": 3,
+          "content": "IF retrieving statistics fails, log an error and optionally remove the entry from the index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_52c1cff4",
+      "name": "removeFromIndex",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the entry for the given ID from the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d7b44eb9",
+      "name": "reset",
+      "enclosing_class": "DiagramManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all entries from the internal index map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

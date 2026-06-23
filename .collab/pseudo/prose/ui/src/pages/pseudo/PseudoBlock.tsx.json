@@ -1,0 +1,153 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/PseudoBlock.tsx",
+  "title": "Pseudo-code function block renderer with references and calls",
+  "purpose": "Displays parsed pseudo-code functions with syntax highlighting, export badges, and navigable references and calls sections.",
+  "module_context": "Exports a PseudoBlock component that renders function blocks with keyword highlighting, export indicators, and lazy-loaded reference information.",
+  "methods": [
+    {
+      "id": "m_9cc0d759",
+      "name": "tokenizeLine",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): React.ReactNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the input text into segments based on keyword patterns."
+        },
+        {
+          "order": 2,
+          "content": "For each keyword match, wrap it in a bold element."
+        },
+        {
+          "order": 3,
+          "content": "Return an array of text and bold elements representing the formatted line."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9813b765",
+      "name": "renderStep",
+      "enclosing_class": null,
+      "normalized_params": "(step: { content: string; depth: number }, index: number): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the content of the step to remove leading/trailing whitespace."
+        },
+        {
+          "order": 2,
+          "content": "IF the trimmed content is empty, return a zero-height div."
+        },
+        {
+          "order": 3,
+          "content": "Extract the first word of the content to determine test identifier."
+        },
+        {
+          "order": 4,
+          "content": "IF the first word is IF or ELSE, apply a test identifier to the content."
+        },
+        {
+          "order": 5,
+          "content": "Format the content with keyword highlighting and indentation."
+        },
+        {
+          "order": 6,
+          "content": "Return a styled div element with bullet point and indented content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ae35cb85",
+      "name": "PseudoBlock",
+      "enclosing_class": null,
+      "normalized_params": "(props: PseudoBlockProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking reference visibility and loading status."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to toggle reference visibility and load references when first opened."
+        },
+        {
+          "order": 3,
+          "content": "Render the function header with keyword, name, parameters, and return type."
+        },
+        {
+          "order": 4,
+          "content": "Display export badge if the function is exported."
+        },
+        {
+          "order": 5,
+          "content": "Render a button to toggle the reference section with loading indicator."
+        },
+        {
+          "order": 6,
+          "content": "IF the reference section is open, render the used by references with lazy loading."
+        },
+        {
+          "order": 7,
+          "content": "Render the calls section if the function has any calls."
+        },
+        {
+          "order": 8,
+          "content": "Display the function body with indented steps and keyword highlighting."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_19c4df4d",
+      "name": "handleToggleRefs",
+      "enclosing_class": "PseudoBlock",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF references are not open and no references are loaded, begin loading references."
+        },
+        {
+          "order": 2,
+          "content": "Load references from the API using project, function name, and current file stem."
+        },
+        {
+          "order": 3,
+          "content": "IF loading succeeds, store the loaded references."
+        },
+        {
+          "order": 4,
+          "content": "IF loading fails, set references to an empty array."
+        },
+        {
+          "order": 5,
+          "content": "Set loading state to false after loading completes."
+        },
+        {
+          "order": 6,
+          "content": "Toggle the visibility state of the references section."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

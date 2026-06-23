@@ -1,0 +1,84 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/design-ai.ts",
+  "title": "Designing a Modern Web Application with React and Tailwind CSS",
+  "purpose": "To create a responsive, visually appealing web application using React components and Tailwind CSS for styling, focusing on user experience and modern design principles.",
+  "module_context": "This module focuses on building a complete web application using React and Tailwind CSS, emphasizing component-based architecture, responsive design, and modern UI/UX practices.",
+  "methods": [
+    {
+      "id": "m_349a5e4f",
+      "name": "Component-Based Architecture",
+      "enclosing_class": "Application Structure",
+      "normalized_params": "React components with props and state management",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define reusable React components for UI elements like buttons, cards, and navigation bars"
+        },
+        {
+          "order": 2,
+          "content": "Implement state management using React hooks (useState, useEffect) for dynamic content"
+        },
+        {
+          "order": 3,
+          "content": "Create parent-child component relationships to manage data flow and UI interactions"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_918760fc",
+      "name": "Responsive Design with Tailwind CSS",
+      "enclosing_class": "Styling and Layout",
+      "normalized_params": "Tailwind CSS utility classes for responsive layouts",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Use Tailwind's responsive prefixes (sm:, md:, lg:, xl:) to create adaptive layouts"
+        },
+        {
+          "order": 2,
+          "content": "Implement flexbox and grid layouts using Tailwind utility classes"
+        },
+        {
+          "order": 3,
+          "content": "Apply responsive spacing and typography using Tailwind's spacing scale and text utilities"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d424c3e6",
+      "name": "Modern UI/UX Principles",
+      "enclosing_class": "User Interface Design",
+      "normalized_params": "Design principles including accessibility, consistency, and user feedback",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure accessibility by using semantic HTML and ARIA attributes"
+        },
+        {
+          "order": 2,
+          "content": "Implement consistent design patterns and visual hierarchy"
+        },
+        {
+          "order": 3,
+          "content": "Provide user feedback through hover effects, transitions, and interactive elements"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

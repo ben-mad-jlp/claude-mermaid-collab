@@ -1,0 +1,116 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dashboard/ItemCard.tsx",
+  "title": "ItemCard component for displaying diagram or document information",
+  "purpose": "Renders a clickable card UI element showing item name, type, and last modified time with appropriate styling and hover effects.",
+  "module_context": "Exports ItemCard component and supporting helper functions for formatting time and getting item icons. Defines ItemType and ItemCardProps types.",
+  "methods": [
+    {
+      "id": "m_b7a72097",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: number | undefined): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the timestamp is not provided, return an empty string."
+        },
+        {
+          "order": 2,
+          "content": "Convert the timestamp to a Date object."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the difference in milliseconds between now and the provided timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Convert the difference to minutes, hours, and days."
+        },
+        {
+          "order": 5,
+          "content": "IF the difference is less than a minute, return 'just now'."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the difference is less than an hour, return the minutes with 'm ago' suffix."
+        },
+        {
+          "order": 7,
+          "content": "ELSE IF the difference is less than a day, return the hours with 'h ago' suffix."
+        },
+        {
+          "order": 8,
+          "content": "ELSE IF the difference is less than a week, return the days with 'd ago' suffix."
+        },
+        {
+          "order": 9,
+          "content": "ELSE return the date formatted as a localized string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e8d2d91d",
+      "name": "getItemIcon",
+      "enclosing_class": null,
+      "normalized_params": "(type: ItemType): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the item type is 'diagram', return a diagram icon SVG."
+        },
+        {
+          "order": 2,
+          "content": "ELSE IF the item type is 'design', return a design icon SVG."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return a document icon SVG."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c4bb5da6",
+      "name": "ItemCard",
+      "enclosing_class": null,
+      "normalized_params": "(props: ItemCardProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a button element with test identifier and click handler."
+        },
+        {
+          "order": 2,
+          "content": "Apply conditional CSS classes based on selection state and hover state."
+        },
+        {
+          "order": 3,
+          "content": "Render the card header containing the icon, name, and type badge."
+        },
+        {
+          "order": 4,
+          "content": "IF the item has a last modified timestamp, render the last modified time."
+        },
+        {
+          "order": 5,
+          "content": "Return the complete card UI structure with all elements properly formatted."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

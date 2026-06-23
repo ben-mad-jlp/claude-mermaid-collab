@@ -1,0 +1,735 @@
+{
+  "schema_version": 3,
+  "file": "public/js/dashboard.js",
+  "title": "Dashboard UI for managing diagrams and documents in collab sessions",
+  "purpose": "Provides a user interface for browsing, creating, editing, and organizing diagrams and documents within collaborative sessions. Handles session management, item filtering, and real-time updates via WebSocket.",
+  "module_context": "Initializes theme, sets up API client, defines global state variables for sessions, diagrams, documents, and metadata. Configures DOM element references and event listeners for UI interactions.",
+  "methods": [
+    {
+      "id": "m_c0c43c85",
+      "name": "getStoredSession",
+      "enclosing_class": null,
+      "normalized_params": "(): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to retrieve stored session data from localStorage."
+        },
+        {
+          "order": 2,
+          "content": "If stored data exists, parse and return it."
+        },
+        {
+          "order": 3,
+          "content": "IF parsing fails, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d62bc09",
+      "name": "storeSession",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Serialize project and session identifiers into JSON string."
+        },
+        {
+          "order": 2,
+          "content": "Store the serialized session data in localStorage."
+        },
+        {
+          "order": 3,
+          "content": "IF storing fails, log the error and continue."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e41de64",
+      "name": "clearStoredSession",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove stored session data from localStorage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84c6c7fb",
+      "name": "loadSessions",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch list of available sessions from the API."
+        },
+        {
+          "order": 2,
+          "content": "Store the fetched sessions in global variable."
+        },
+        {
+          "order": 3,
+          "content": "Render the session dropdown with fetched sessions."
+        },
+        {
+          "order": 4,
+          "content": "Attempt to restore previously stored session if present."
+        },
+        {
+          "order": 5,
+          "content": "IF stored session is valid and exists, set it as current and load items."
+        },
+        {
+          "order": 6,
+          "content": "IF stored session is invalid or no longer exists, clear stored session."
+        },
+        {
+          "order": 7,
+          "content": "IF no session is selected, render empty state."
+        },
+        {
+          "order": 8,
+          "content": "IF loading sessions fails, render empty state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8208a5bc",
+      "name": "renderSessionDropdown",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear existing session dropdown options."
+        },
+        {
+          "order": 2,
+          "content": "Group sessions by project name."
+        },
+        {
+          "order": 3,
+          "content": "Render grouped session options in dropdown."
+        },
+        {
+          "order": 4,
+          "content": "For single project sessions, render as simple options."
+        },
+        {
+          "order": 5,
+          "content": "For multiple project sessions, render as optgroups."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5b57550",
+      "name": "renderNoSessionState",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear grid content."
+        },
+        {
+          "order": 2,
+          "content": "Display empty state message."
+        },
+        {
+          "order": 3,
+          "content": "Show different message based on whether sessions exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e92db61",
+      "name": "loadItems",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a session is currently selected."
+        },
+        {
+          "order": 2,
+          "content": "IF no session is selected, render empty state."
+        },
+        {
+          "order": 3,
+          "content": "Fetch diagrams, documents, and metadata from API."
+        },
+        {
+          "order": 4,
+          "content": "Store fetched diagrams in global variable."
+        },
+        {
+          "order": 5,
+          "content": "Store fetched documents in global variable."
+        },
+        {
+          "order": 6,
+          "content": "Store fetched metadata in global variable."
+        },
+        {
+          "order": 7,
+          "content": "Update folder dropdown with fetched metadata."
+        },
+        {
+          "order": 8,
+          "content": "Render grid with fetched items."
+        },
+        {
+          "order": 9,
+          "content": "IF loading fails, render empty state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f0efc29a",
+      "name": "updateFolderDropdown",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear existing folder dropdown options."
+        },
+        {
+          "order": 2,
+          "content": "Add default options for all items and root."
+        },
+        {
+          "order": 3,
+          "content": "Add folder options from metadata."
+        },
+        {
+          "order": 4,
+          "content": "Restore previous selection if still valid."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_162026db",
+      "name": "getItemMeta",
+      "enclosing_class": null,
+      "normalized_params": "(id: string): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up metadata for the given item ID."
+        },
+        {
+          "order": 2,
+          "content": "IF metadata exists, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return default metadata with null folder and unlocked status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cec57442",
+      "name": "isSmachContent",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test if content matches SMACH YAML pattern."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4932c55c",
+      "name": "initMermaid",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if Mermaid is already initialized."
+        },
+        {
+          "order": 2,
+          "content": "IF already initialized, return immediately."
+        },
+        {
+          "order": 3,
+          "content": "IF initialization is already in progress, return existing promise."
+        },
+        {
+          "order": 4,
+          "content": "Initialize Mermaid with default configuration."
+        },
+        {
+          "order": 5,
+          "content": "Register wireframe plugin for diagram rendering."
+        },
+        {
+          "order": 6,
+          "content": "Mark Mermaid as initialized."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_53cddfed",
+      "name": "hashContent",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize hash value to zero."
+        },
+        {
+          "order": 2,
+          "content": "For each character in content, update hash value."
+        },
+        {
+          "order": 3,
+          "content": "Convert hash to 32-bit integer."
+        },
+        {
+          "order": 4,
+          "content": "Convert hash to base-36 string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7752db16",
+      "name": "getCachedThumbnail",
+      "enclosing_class": null,
+      "normalized_params": "(diagramId: string, content: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate cache key using diagram ID and content hash."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to retrieve cached thumbnail from localStorage."
+        },
+        {
+          "order": 3,
+          "content": "IF retrieval fails, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf1a9835",
+      "name": "cacheThumbnail",
+      "enclosing_class": null,
+      "normalized_params": "(diagramId: string, content: string, svg: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate cache key using diagram ID and content hash."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to store thumbnail in localStorage."
+        },
+        {
+          "order": 3,
+          "content": "IF storing fails due to space, clean old cache entries."
+        },
+        {
+          "order": 4,
+          "content": "IF storing still fails, ignore the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0f5d0076",
+      "name": "cleanThumbnailCache",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify all cached thumbnail keys in localStorage."
+        },
+        {
+          "order": 2,
+          "content": "Calculate number of entries to remove (half of total)."
+        },
+        {
+          "order": 3,
+          "content": "Remove half of the cached thumbnail entries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66eb8505",
+      "name": "renderThumbnails",
+      "enclosing_class": null,
+      "normalized_params": "(items: any[]): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize Mermaid if not already done."
+        },
+        {
+          "order": 2,
+          "content": "Build map of diagram content for items."
+        },
+        {
+          "order": 3,
+          "content": "For each thumbnail element, retrieve diagram content."
+        },
+        {
+          "order": 4,
+          "content": "IF content is SMACH YAML, transpile to Mermaid format."
+        },
+        {
+          "order": 5,
+          "content": "Check if thumbnail is cached."
+        },
+        {
+          "order": 6,
+          "content": "IF cached, display cached thumbnail."
+        },
+        {
+          "order": 7,
+          "content": "ELSE render thumbnail with Mermaid."
+        },
+        {
+          "order": 8,
+          "content": "Cache rendered thumbnail result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7dec2efb",
+      "name": "getDocumentPreview",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to find first heading in document content."
+        },
+        {
+          "order": 2,
+          "content": "IF heading found, return heading text."
+        },
+        {
+          "order": 3,
+          "content": "ELSE remove comments and heading markers from content."
+        },
+        {
+          "order": 4,
+          "content": "Return first 100 characters of cleaned content with ellipsis."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_beb894d4",
+      "name": "renderGrid",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a session is currently selected."
+        },
+        {
+          "order": 2,
+          "content": "IF no session is selected, render empty state."
+        },
+        {
+          "order": 3,
+          "content": "Filter diagrams and documents based on search term."
+        },
+        {
+          "order": 4,
+          "content": "Filter items based on selected type filter."
+        },
+        {
+          "order": 5,
+          "content": "Filter items based on selected folder filter."
+        },
+        {
+          "order": 6,
+          "content": "Sort items by last modified date."
+        },
+        {
+          "order": 7,
+          "content": "Build HTML for folder cards."
+        },
+        {
+          "order": 8,
+          "content": "Build HTML for item cards."
+        },
+        {
+          "order": 9,
+          "content": "Render combined folder and item cards in grid."
+        },
+        {
+          "order": 10,
+          "content": "Render thumbnails for diagram items."
+        },
+        {
+          "order": 11,
+          "content": "Add click handlers for folder cards."
+        },
+        {
+          "order": 12,
+          "content": "Add click handlers for item cards."
+        },
+        {
+          "order": 13,
+          "content": "Add click handlers for move buttons."
+        },
+        {
+          "order": 14,
+          "content": "Add click handlers for move dropdown options."
+        },
+        {
+          "order": 15,
+          "content": "Add click handlers for lock buttons."
+        },
+        {
+          "order": 16,
+          "content": "Add click handlers for delete buttons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_12c00955",
+      "name": "getItemsInCurrentView",
+      "enclosing_class": null,
+      "normalized_params": "(): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get current folder filter value."
+        },
+        {
+          "order": 2,
+          "content": "Combine diagrams and documents into single list."
+        },
+        {
+          "order": 3,
+          "content": "Filter items based on folder filter value."
+        },
+        {
+          "order": 4,
+          "content": "Return filtered list of items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9aa9453",
+      "name": "deleteAllItems",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a session is currently selected."
+        },
+        {
+          "order": 2,
+          "content": "IF no session is selected, show alert and return."
+        },
+        {
+          "order": 3,
+          "content": "Get items in current folder view."
+        },
+        {
+          "order": 4,
+          "content": "Filter out locked items from deletion list."
+        },
+        {
+          "order": 5,
+          "content": "IF no unlocked items to delete, show alert and return."
+        },
+        {
+          "order": 6,
+          "content": "Confirm deletion with user."
+        },
+        {
+          "order": 7,
+          "content": "Delete all unlocked items in current view."
+        },
+        {
+          "order": 8,
+          "content": "Reload items after deletion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9937acfe",
+      "name": "detectContentType",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test if content matches SMACH YAML pattern."
+        },
+        {
+          "order": 2,
+          "content": "IF matches SMACH pattern, return 'smach'."
+        },
+        {
+          "order": 3,
+          "content": "ELSE test if content matches Mermaid diagram pattern."
+        },
+        {
+          "order": 4,
+          "content": "IF matches Mermaid pattern, return 'diagram'."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return 'document'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5f7851f3",
+      "name": "renderFoldersList",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if metadata contains any folders."
+        },
+        {
+          "order": 2,
+          "content": "IF no folders exist, show empty message."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render list of folders with item counts."
+        },
+        {
+          "order": 4,
+          "content": "Add rename handlers to each folder."
+        },
+        {
+          "order": 5,
+          "content": "Add delete handlers to each folder."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

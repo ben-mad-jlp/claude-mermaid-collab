@@ -1,0 +1,59 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/embed.ts",
+  "title": "Embed types definition for storybook metadata and embed configurations",
+  "purpose": "Defines the TypeScript interfaces for embed objects and storybook metadata used in the UI application.",
+  "module_context": "Exports two interfaces: StorybookMetadata containing storybook identification and port information, and Embed containing embed configuration with optional storybook metadata.",
+  "methods": [
+    {
+      "id": "m_108ca20d",
+      "name": "StorybookMetadata",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for storybook metadata with story identifier and port number."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e1eb94ff",
+      "name": "Embed",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for embed configuration including identifier, name, URL, and optional properties."
+        },
+        {
+          "order": 2,
+          "content": "Specify that subtype can be 'storybook' or undefined."
+        },
+        {
+          "order": 3,
+          "content": "Define optional width and height properties for embed dimensions."
+        },
+        {
+          "order": 4,
+          "content": "Include creation timestamp for embed objects."
+        },
+        {
+          "order": 5,
+          "content": "Add optional storybook metadata property for storybook-specific configurations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

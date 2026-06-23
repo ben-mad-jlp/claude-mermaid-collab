@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/code-search-api.ts",
+  "title": "Code search API client for cross-artifact search queries",
+  "purpose": "Provides a client interface to search code across pseudo files and linked snippets using a unified API endpoint.",
+  "module_context": "Exports an interface for code search results and a function to fetch those results via HTTP POST.",
+  "methods": [
+    {
+      "id": "m_a3fceab4",
+      "name": "fetchCodeSearch",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, query: string, limit?: number): Promise<CodeSearchResponse>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct URL parameters including project and session identifiers."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to the code search API endpoint with query and limit."
+        },
+        {
+          "order": 3,
+          "content": "IF the response indicates failure, parse the error message and throw an exception."
+        },
+        {
+          "order": 4,
+          "content": "ELSE parse and return the JSON response containing the search results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

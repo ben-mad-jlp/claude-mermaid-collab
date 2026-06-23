@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/diagramEmbedView.tsx",
+  "title": "Diagram embed view component with lazy loading iframe",
+  "purpose": "Renders a diagram embed view that displays an iframe with a resolved embed source, handling broken embeds and user interactions like selection and opening.",
+  "module_context": "Exports a React component DiagramEmbedView that accepts props for embed kind, reference ID, project, session, theme, and interaction handlers. Also exports a helper function resolveEmbedSrc from milkdownEmbedBridge.",
+  "methods": [
+    {
+      "id": "m_4c87bded",
+      "name": "DiagramEmbedView",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiagramEmbedViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract all props including kind, refId, project, session, theme, selected, onOpen, and onSelect."
+        },
+        {
+          "order": 2,
+          "content": "IF the refId is missing or empty, render a broken embed indicator with styling."
+        },
+        {
+          "order": 3,
+          "content": "ELSE resolve the embed source using the provided kind, refId, project, session, and theme."
+        },
+        {
+          "order": 4,
+          "content": "Render a container div with appropriate styling and event handlers for selection and double-click."
+        },
+        {
+          "order": 5,
+          "content": "Render a header section with embed kind and reference ID, and an open button."
+        },
+        {
+          "order": 6,
+          "content": "IF the resolved source exists, render an iframe with the source and appropriate styling."
+        },
+        {
+          "order": 7,
+          "content": "ELSE render a message indicating the embed is unavailable due to missing project or session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+{
+  "schema_version": 3,
+  "file": "src/services/document-manager.ts",
+  "title": "Document manager for file-based storage with indexing",
+  "purpose": "Manages document storage, retrieval, and indexing in a file system with support for create, read, update, and delete operations.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_c3cf2448",
+      "name": "initialize",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the base directory exists for document storage."
+        },
+        {
+          "order": 2,
+          "content": "Read all files from the base directory."
+        },
+        {
+          "order": 3,
+          "content": "For each Markdown file, extract its ID and metadata."
+        },
+        {
+          "order": 4,
+          "content": "Store the metadata in the internal index map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_88e53972",
+      "name": "listDocuments",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(): Promise<DocumentListItem[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all entries in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "Construct document list items using the stored metadata."
+        },
+        {
+          "order": 3,
+          "content": "Return the constructed list of document items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a3ee92cf",
+      "name": "getDocument",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(id: string): Promise<Document | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the document metadata by ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, return null."
+        },
+        {
+          "order": 3,
+          "content": "Read the document content from the file system."
+        },
+        {
+          "order": 4,
+          "content": "Construct and return a document object with the content and metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85a6a73e",
+      "name": "saveDocument",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the document metadata by ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, throw an error indicating the document does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the content size does not exceed the maximum allowed."
+        },
+        {
+          "order": 4,
+          "content": "Write the content to the file system."
+        },
+        {
+          "order": 5,
+          "content": "Update the document's last modified timestamp in the index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e906378",
+      "name": "createDocument",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(name: string, content: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sanitize the document name to create a valid filename."
+        },
+        {
+          "order": 2,
+          "content": "Construct the full file path for the new document."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the document ID does not already exist."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the content size does not exceed the maximum allowed."
+        },
+        {
+          "order": 5,
+          "content": "Write the content to the file system."
+        },
+        {
+          "order": 6,
+          "content": "Update the internal index with the new document metadata."
+        },
+        {
+          "order": 7,
+          "content": "Return the ID of the newly created document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f789d90b",
+      "name": "deleteDocument",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the document metadata by ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, throw an error indicating the document does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Delete the document file from the file system."
+        },
+        {
+          "order": 4,
+          "content": "Remove the document from the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8fbd66ff",
+      "name": "getCleanContent",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(id: string): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the document by ID from the file system."
+        },
+        {
+          "order": 2,
+          "content": "IF the document does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Strip all comment and status markers from the document content."
+        },
+        {
+          "order": 4,
+          "content": "Return the cleaned content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c1c87f7",
+      "name": "updateIndex",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(id: string, path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the file statistics for the given path."
+        },
+        {
+          "order": 2,
+          "content": "Update the internal index with the new metadata for the document."
+        },
+        {
+          "order": 3,
+          "content": "IF the file statistics retrieval fails, log an error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e9988464",
+      "name": "removeFromIndex",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the document entry from the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85c1fdda",
+      "name": "reset",
+      "enclosing_class": "DocumentManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all entries from the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

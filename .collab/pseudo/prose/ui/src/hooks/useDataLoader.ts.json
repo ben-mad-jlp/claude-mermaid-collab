@@ -1,0 +1,274 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDataLoader.ts",
+  "title": "Data loader hook for sessions and session items",
+  "purpose": "Provides async functions to load sessions and session items from the API and populate the session store, with loading and error tracking.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_e6c87dd7",
+      "name": "useDataLoader",
+      "enclosing_class": null,
+      "normalized_params": "(): UseDataLoaderReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize loading and error state variables."
+        },
+        {
+          "order": 2,
+          "content": "Extract store setter and getter functions from the session store."
+        },
+        {
+          "order": 3,
+          "content": "Return an object containing loading state, error state, and all data loading functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b1e79868",
+      "name": "loadSessions",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to true and clear any previous error."
+        },
+        {
+          "order": 2,
+          "content": "Fetch all available sessions from the API."
+        },
+        {
+          "order": 3,
+          "content": "Store the fetched sessions in the session store."
+        },
+        {
+          "order": 4,
+          "content": "IF the API call fails, capture the error message and set it in state."
+        },
+        {
+          "order": 5,
+          "content": "Reset the loading state to false after the operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7d66ca33",
+      "name": "loadCollabState",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(project: string, session: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch the collaborative session state from the API."
+        },
+        {
+          "order": 2,
+          "content": "Store the fetched collaborative state in the session store."
+        },
+        {
+          "order": 3,
+          "content": "IF the API call fails, log the error and set the collaborative state to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e6a5ce5",
+      "name": "loadSessionItems",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(project: string, session: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to true and clear any previous error."
+        },
+        {
+          "order": 2,
+          "content": "Fetch diagrams, documents, designs, spreadsheets, snippets, embeds, and images for the session in parallel."
+        },
+        {
+          "order": 3,
+          "content": "Store the fetched items in their respective sections of the session store."
+        },
+        {
+          "order": 4,
+          "content": "Fetch and store the collaborative session state."
+        },
+        {
+          "order": 5,
+          "content": "IF any of the API calls fail, capture the error message and set it in state."
+        },
+        {
+          "order": 6,
+          "content": "Reset the loading state to false after the operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8e84509a",
+      "name": "refreshSessionItems",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(project: string, session: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Capture the current selection state from the session store."
+        },
+        {
+          "order": 2,
+          "content": "Load fresh session items for the specified project and session."
+        },
+        {
+          "order": 3,
+          "content": "Restore the previous selection if the selected item still exists in the refreshed data."
+        },
+        {
+          "order": 4,
+          "content": "IF the selected item no longer exists, do not change the selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d42d5f9",
+      "name": "selectDiagramWithContent",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the selected diagram ID in the session store for immediate UI feedback."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the full content of the selected diagram from the API."
+        },
+        {
+          "order": 3,
+          "content": "Update the diagram in the store with its fetched content."
+        },
+        {
+          "order": 4,
+          "content": "IF the API call fails, capture the error message and set it in state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c41eb25c",
+      "name": "selectDocumentWithContent",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the selected document ID in the session store for immediate UI feedback."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the full content of the selected document from the API."
+        },
+        {
+          "order": 3,
+          "content": "Update the document in the store with its fetched content."
+        },
+        {
+          "order": 4,
+          "content": "IF the API call fails, capture the error message and set it in state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9f8516cf",
+      "name": "selectDesignWithContent",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the selected design ID in the session store for immediate UI feedback."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the full content of the selected design from the API."
+        },
+        {
+          "order": 3,
+          "content": "Update the design in the store with its fetched content."
+        },
+        {
+          "order": 4,
+          "content": "IF the API call fails, capture the error message and set it in state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2e7b341",
+      "name": "selectSpreadsheetWithContent",
+      "enclosing_class": "useDataLoader",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the selected spreadsheet ID in the session store for immediate UI feedback."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the full content of the selected spreadsheet from the API."
+        },
+        {
+          "order": 3,
+          "content": "Update the spreadsheet in the store with its fetched content."
+        },
+        {
+          "order": 4,
+          "content": "IF the API call fails, capture the error message and set it in state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

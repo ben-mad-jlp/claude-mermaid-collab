@@ -1,0 +1,615 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/SpreadsheetEditor.tsx",
+  "title": "Spreadsheet editor component with CRUD operations and sorting",
+  "purpose": "Provides a full-featured spreadsheet editor with data editing, sorting, row/column operations, and clipboard support.",
+  "module_context": "Exports a React component that manages spreadsheet data state, handles user interactions, and integrates with session and API stores for persistence.",
+  "methods": [
+    {
+      "id": "m_901d69c5",
+      "name": "saveData",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(newData: SpreadsheetData): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the new data to a JSON string."
+        },
+        {
+          "order": 2,
+          "content": "Update the spreadsheet in the session store with the new content."
+        },
+        {
+          "order": 3,
+          "content": "Clear any existing save timer."
+        },
+        {
+          "order": 4,
+          "content": "Schedule a delayed API call to persist the changes to the backend."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b651123",
+      "name": "handleCopy",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(e: ClipboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that there are selected rows and data available."
+        },
+        {
+          "order": 2,
+          "content": "Prevent the default browser copy behavior if editing a cell."
+        },
+        {
+          "order": 3,
+          "content": "Generate tab-separated values for headers and selected rows."
+        },
+        {
+          "order": 4,
+          "content": "Set the clipboard data to the generated tab-separated values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e37b41ae",
+      "name": "handlePaste",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(e: ClipboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available and not editing a cell."
+        },
+        {
+          "order": 2,
+          "content": "Prevent the default browser paste behavior."
+        },
+        {
+          "order": 3,
+          "content": "Parse the clipboard text into lines and filter out empty lines."
+        },
+        {
+          "order": 4,
+          "content": "Detect if the first line contains column headers."
+        },
+        {
+          "order": 5,
+          "content": "Map clipboard columns to spreadsheet columns based on header names or position."
+        },
+        {
+          "order": 6,
+          "content": "Parse values from clipboard lines into appropriate data types."
+        },
+        {
+          "order": 7,
+          "content": "Create new rows from parsed data and append them to the spreadsheet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4f4aa7fb",
+      "name": "sortedRows",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(): SpreadsheetRow[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if data is available and sorting is configured."
+        },
+        {
+          "order": 2,
+          "content": "Find the column to sort by."
+        },
+        {
+          "order": 3,
+          "content": "Sort the rows based on the column values and direction."
+        },
+        {
+          "order": 4,
+          "content": "Handle null values appropriately during sorting."
+        },
+        {
+          "order": 5,
+          "content": "Apply numeric or string sorting based on column type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b4308927",
+      "name": "handleSort",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(colId: string, direction?: 'asc' | 'desc'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If a direction is provided, set the sort column and direction."
+        },
+        {
+          "order": 2,
+          "content": "If the column is already sorted, toggle the sort direction."
+        },
+        {
+          "order": 3,
+          "content": "If the column is not sorted, set the direction to ascending."
+        },
+        {
+          "order": 4,
+          "content": "If the column is already sorted in ascending order, set the direction to descending."
+        },
+        {
+          "order": 5,
+          "content": "If the column is already sorted in descending order, clear the sort."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d6fe6e40",
+      "name": "handleCellClick",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(rowId: string, colId: string, col: SpreadsheetColumn): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the column is boolean type, toggle the cell value."
+        },
+        {
+          "order": 2,
+          "content": "If the column is boolean type, save the updated data."
+        },
+        {
+          "order": 3,
+          "content": "Otherwise, prepare for cell editing by setting the editing state."
+        },
+        {
+          "order": 4,
+          "content": "Set the edit value to the current cell value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9d8f860",
+      "name": "handleCellSave",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that editing cell and data are available."
+        },
+        {
+          "order": 2,
+          "content": "Find the column associated with the editing cell."
+        },
+        {
+          "order": 3,
+          "content": "Parse the edit value based on the column type."
+        },
+        {
+          "order": 4,
+          "content": "Update the data with the new cell value."
+        },
+        {
+          "order": 5,
+          "content": "Save the updated data to the session store and backend."
+        },
+        {
+          "order": 6,
+          "content": "Clear the editing state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d5cbca0",
+      "name": "handleAddRow",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "Create a new row with a unique ID and empty cells."
+        },
+        {
+          "order": 3,
+          "content": "Append the new row to the existing rows."
+        },
+        {
+          "order": 4,
+          "content": "Save the updated data to the session store and backend."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14b6ef78",
+      "name": "handleDeleteRow",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(rowId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "Filter out the row to delete from the rows array."
+        },
+        {
+          "order": 3,
+          "content": "Save the updated data to the session store and backend."
+        },
+        {
+          "order": 4,
+          "content": "Remove the row from selected rows."
+        },
+        {
+          "order": 5,
+          "content": "Close the context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_239ed0f2",
+      "name": "handleDuplicateRow",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(rowId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "Find the index of the row to duplicate."
+        },
+        {
+          "order": 3,
+          "content": "Create a clone of the row with a new unique ID."
+        },
+        {
+          "order": 4,
+          "content": "Insert the cloned row after the original row."
+        },
+        {
+          "order": 5,
+          "content": "Save the updated data to the session store and backend."
+        },
+        {
+          "order": 6,
+          "content": "Close the context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c520077d",
+      "name": "handleInsertRowAbove",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(rowId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "Find the index of the row to insert above."
+        },
+        {
+          "order": 3,
+          "content": "Create a new row with a unique ID and empty cells."
+        },
+        {
+          "order": 4,
+          "content": "Insert the new row at the specified index."
+        },
+        {
+          "order": 5,
+          "content": "Save the updated data to the session store and backend."
+        },
+        {
+          "order": 6,
+          "content": "Close the context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f26d10f6",
+      "name": "handleDeleteColumn",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(colId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "Filter out the column to delete from the columns array."
+        },
+        {
+          "order": 3,
+          "content": "Remove the column from all rows' cells."
+        },
+        {
+          "order": 4,
+          "content": "Update or remove the column from aggregates if present."
+        },
+        {
+          "order": 5,
+          "content": "Save the updated data to the session store and backend."
+        },
+        {
+          "order": 6,
+          "content": "Clear sorting if the deleted column was being sorted."
+        },
+        {
+          "order": 7,
+          "content": "Close the context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_680f9e15",
+      "name": "handleDuplicateColumn",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(colId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "Find the original column to duplicate."
+        },
+        {
+          "order": 3,
+          "content": "Generate a new unique column ID."
+        },
+        {
+          "order": 4,
+          "content": "Create a new column with the same properties but a new ID and name."
+        },
+        {
+          "order": 5,
+          "content": "Append the new column to the columns array."
+        },
+        {
+          "order": 6,
+          "content": "Copy values from the original column to the new column for all rows."
+        },
+        {
+          "order": 7,
+          "content": "Save the updated data to the session store and backend."
+        },
+        {
+          "order": 8,
+          "content": "Close the context menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3adb1215",
+      "name": "handleAddColumn",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data and column name are available."
+        },
+        {
+          "order": 2,
+          "content": "Generate a slug from the column name."
+        },
+        {
+          "order": 3,
+          "content": "Create a unique column ID."
+        },
+        {
+          "order": 4,
+          "content": "Create a new column with the provided properties."
+        },
+        {
+          "order": 5,
+          "content": "Append the new column to the columns array."
+        },
+        {
+          "order": 6,
+          "content": "Save the updated data to the session store and backend."
+        },
+        {
+          "order": 7,
+          "content": "Reset the new column form fields."
+        },
+        {
+          "order": 8,
+          "content": "Close the add column form."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_348a3271",
+      "name": "handleRowSelect",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(rowId: string, shiftKey: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "If shift key is pressed, perform range selection."
+        },
+        {
+          "order": 3,
+          "content": "Otherwise, toggle the selection state of the row."
+        },
+        {
+          "order": 4,
+          "content": "Update the reference to the last selected row."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_77ed5553",
+      "name": "handleContextMenu",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(e: React.MouseEvent, type: 'row' | 'column', targetId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default context menu behavior."
+        },
+        {
+          "order": 2,
+          "content": "Set the context menu state with position and target information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_49f6f38c",
+      "name": "handleTableBodyClick",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(e: React.MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is not a row number cell."
+        },
+        {
+          "order": 2,
+          "content": "If not a row number cell, deselect all rows."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cd3e3b28",
+      "name": "computeAggregate",
+      "enclosing_class": "SpreadsheetEditor",
+      "normalized_params": "(colId: string, fn: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that data is available."
+        },
+        {
+          "order": 2,
+          "content": "Extract values from the specified column."
+        },
+        {
+          "order": 3,
+          "content": "Filter out null and empty values."
+        },
+        {
+          "order": 4,
+          "content": "Convert values to numbers for calculations."
+        },
+        {
+          "order": 5,
+          "content": "Perform the specified aggregation function on the values."
+        },
+        {
+          "order": 6,
+          "content": "Format the result according to the function type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

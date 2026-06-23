@@ -1,0 +1,134 @@
+{
+  "schema_version": 3,
+  "file": "src/services/status-manager.ts",
+  "title": "Global agent status manager with WebSocket broadcasting",
+  "purpose": "Manages and broadcasts agent status updates across WebSocket clients and local listeners. Used to track agent activity state and communicate changes in real-time.",
+  "module_context": "Exports a singleton StatusManager instance that maintains agent status state and handles WebSocket communication and local event subscription.",
+  "methods": [
+    {
+      "id": "m_b253d801",
+      "name": "setWebSocketHandler",
+      "enclosing_class": "StatusManager",
+      "normalized_params": "(wsHandler: WebSocketHandler): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the provided WebSocket handler for future status broadcasting."
+        },
+        {
+          "order": 2,
+          "content": "Replace any existing WebSocket handler with the new one."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_956d772c",
+      "name": "updateStatus",
+      "enclosing_class": "StatusManager",
+      "normalized_params": "(status: AgentStatus, message?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the internal status state with the new status and optional message."
+        },
+        {
+          "order": 2,
+          "content": "Record the current timestamp as the last activity time."
+        },
+        {
+          "order": 3,
+          "content": "IF a WebSocket handler is configured, broadcast the status update to connected clients."
+        },
+        {
+          "order": 4,
+          "content": "Notify all registered local listeners of the status change."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0bf362d0",
+      "name": "getStatus",
+      "enclosing_class": "StatusManager",
+      "normalized_params": "(): StatusResponse",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return a status response object with current status."
+        },
+        {
+          "order": 2,
+          "content": "Include the optional message if present."
+        },
+        {
+          "order": 3,
+          "content": "Format and include the last activity timestamp as an ISO string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b545aded",
+      "name": "subscribe",
+      "enclosing_class": "StatusManager",
+      "normalized_params": "(listener: (status: StatusResponse) => void): () => void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided listener function to the list of subscribers."
+        },
+        {
+          "order": 2,
+          "content": "Return an unsubscribe function that removes the listener from the list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_189addee",
+      "name": "notifyListeners",
+      "enclosing_class": "StatusManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current status state as a response object."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all registered listeners."
+        },
+        {
+          "order": 3,
+          "content": "Call each listener with the current status."
+        },
+        {
+          "order": 4,
+          "content": "IF a listener throws an error, log the error but continue notifying other listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

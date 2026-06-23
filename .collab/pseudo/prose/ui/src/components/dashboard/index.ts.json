@@ -1,0 +1,70 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dashboard/index.ts",
+  "title": "Dashboard components export module",
+  "purpose": "Exports all main dashboard components for session and item browsing with their respective props types.",
+  "module_context": "Exports multiple dashboard components including Dashboard, SessionCard, ItemCard, ItemGrid, and TaskGraphCard along with their corresponding TypeScript prop types.",
+  "methods": [
+    {
+      "id": "m_440e7340",
+      "name": "default",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Dashboard component as the default export."
+        },
+        {
+          "order": 2,
+          "content": "Export the DashboardProps type for the Dashboard component."
+        },
+        {
+          "order": 3,
+          "content": "Export the SessionCard component."
+        },
+        {
+          "order": 4,
+          "content": "Export the SessionCardProps type for the SessionCard component."
+        },
+        {
+          "order": 5,
+          "content": "Export the ItemCard component."
+        },
+        {
+          "order": 6,
+          "content": "Export the ItemCardProps type for the ItemCard component."
+        },
+        {
+          "order": 7,
+          "content": "Export the ItemType type for the ItemCard component."
+        },
+        {
+          "order": 8,
+          "content": "Export the ItemGrid component."
+        },
+        {
+          "order": 9,
+          "content": "Export the ItemGridProps type for the ItemGrid component."
+        },
+        {
+          "order": 10,
+          "content": "Export the GridItem type for the ItemGrid component."
+        },
+        {
+          "order": 11,
+          "content": "Export the TaskGraphCard component."
+        },
+        {
+          "order": 12,
+          "content": "Export the TaskGraphCardProps type for the TaskGraphCard component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

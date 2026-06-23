@@ -1,0 +1,101 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/notificationStore.ts",
+  "title": "Zustand-based notification store with toast management",
+  "purpose": "Manages application notifications (toasts) with add, remove, and clear functionality using Zustand state management.",
+  "module_context": "Exports a Zustand store with toast management actions and a helper function for generating random IDs.",
+  "methods": [
+    {
+      "id": "m_0fb8e60f",
+      "name": "randomHex",
+      "enclosing_class": null,
+      "normalized_params": "(length: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a random number between 0 and 16^length."
+        },
+        {
+          "order": 2,
+          "content": "Convert the random number to a hexadecimal string."
+        },
+        {
+          "order": 3,
+          "content": "Pad the string with leading zeros to ensure it has the specified length."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d39c915",
+      "name": "addToast",
+      "enclosing_class": "useNotificationStore",
+      "normalized_params": "(toast: Omit<Toast, 'id' | 'timestamp'>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique ID for the toast using timestamp and random hex."
+        },
+        {
+          "order": 2,
+          "content": "Construct the full toast object with generated ID and current timestamp."
+        },
+        {
+          "order": 3,
+          "content": "Add the new toast to the existing toasts array in state."
+        },
+        {
+          "order": 4,
+          "content": "IF the toast has a duration greater than zero, schedule its removal after that duration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_836f870f",
+      "name": "removeToast",
+      "enclosing_class": "useNotificationStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the toasts array to exclude the toast with the specified ID."
+        },
+        {
+          "order": 2,
+          "content": "Update the state with the filtered toasts array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b4cbc1fa",
+      "name": "clearAll",
+      "enclosing_class": "useNotificationStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace the toasts array in state with an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

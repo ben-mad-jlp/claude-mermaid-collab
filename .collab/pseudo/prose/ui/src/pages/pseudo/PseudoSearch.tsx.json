@@ -1,0 +1,154 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/PseudoSearch.tsx",
+  "title": "PseudoCode search overlay component with keyboard navigation",
+  "purpose": "Provides a searchable overlay for pseudocode files with debounced search, keyboard navigation, and result highlighting.",
+  "module_context": "Exports a default PseudoSearch component that manages search state, handles keyboard events, and renders search results with file paths, method names, and highlighted snippets.",
+  "methods": [
+    {
+      "id": "m_ed3052b5",
+      "name": "getFileStem",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the '.pseudo' file extension from the provided file path."
+        },
+        {
+          "order": 2,
+          "content": "Return the resulting file stem."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f95b4adf",
+      "name": "PseudoSearch",
+      "enclosing_class": null,
+      "normalized_params": "({ project, isOpen, onClose, onNavigate }: PseudoSearchProps): JSX.Element | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for search query, results, highlighted index, and loading status."
+        },
+        {
+          "order": 2,
+          "content": "Set up a debounced search function that executes after 200ms of inactivity."
+        },
+        {
+          "order": 3,
+          "content": "Execute the debounced search whenever the query changes."
+        },
+        {
+          "order": 4,
+          "content": "Handle keyboard navigation events for arrow keys, enter, and escape."
+        },
+        {
+          "order": 5,
+          "content": "Listen for clicks outside the overlay to close the search."
+        },
+        {
+          "order": 6,
+          "content": "Focus the search input when the overlay opens."
+        },
+        {
+          "order": 7,
+          "content": "Render the search overlay with input field and results list when open."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78f47642",
+      "name": "performSearch",
+      "enclosing_class": "PseudoSearch",
+      "normalized_params": "(searchQuery: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear results and reset highlighted index if query is empty."
+        },
+        {
+          "order": 2,
+          "content": "Set loading state to true before initiating search."
+        },
+        {
+          "order": 3,
+          "content": "Call the search API with the project and search query."
+        },
+        {
+          "order": 4,
+          "content": "Update results and reset highlighted index on successful search."
+        },
+        {
+          "order": 5,
+          "content": "Handle errors by clearing results and resetting loading state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9e06be57",
+      "name": "handleKeyDown",
+      "enclosing_class": "PseudoSearch",
+      "normalized_params": "(e: React.KeyboardEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the overlay if escape key is pressed."
+        },
+        {
+          "order": 2,
+          "content": "Move highlighted index down if arrow down key is pressed."
+        },
+        {
+          "order": 3,
+          "content": "Move highlighted index up if arrow up key is pressed."
+        },
+        {
+          "order": 4,
+          "content": "Navigate to selected result if enter key is pressed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb14d337",
+      "name": "handleMouseDown",
+      "enclosing_class": "PseudoSearch",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is the overlay background."
+        },
+        {
+          "order": 2,
+          "content": "Close the overlay if the click is on the overlay background."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,287 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/serializerConfig.ts",
+  "title": "Milkdown serializer configuration with round-trip fidelity plugins",
+  "purpose": "Provides plugins to override Milkdown's default markdown serialization behavior and preserve original marker characters and formatting during parse-to-string round-trips.",
+  "module_context": "Exports an array of Milkdown plugins that modify remark-stringify options and override default schemas for emphasis, strong, bullet lists, ordered lists, list items, headings, and hard breaks to maintain fidelity with original markdown conventions.",
+  "methods": [
+    {
+      "id": "m_a05400be",
+      "name": "bulletStringifyOption",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the remark stringify options context to customize bullet list markers and emphasis/strong formatting."
+        },
+        {
+          "order": 2,
+          "content": "Override the text handler to unescape benign characters while preserving literal backslashes."
+        },
+        {
+          "order": 3,
+          "content": "Customize break node handling to preserve original line-break styles (spaces, backslash, or html)."
+        },
+        {
+          "order": 4,
+          "content": "Implement a custom join function to control blank line spacing based on raw trailing data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_da496110",
+      "name": "unescapeBenign",
+      "enclosing_class": "bulletStringifyOption",
+      "normalized_params": "(s: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process input string character by character to identify and unescape benign escape sequences."
+        },
+        {
+          "order": 2,
+          "content": "Preserve literal backslashes by detecting '\\\\' patterns and maintaining them as double backslashes."
+        },
+        {
+          "order": 3,
+          "content": "Remove backslash prefixes from specific characters (*, _, ~, #) that are normally escaped in markdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0322a231",
+      "name": "customTextHandler",
+      "enclosing_class": "bulletStringifyOption",
+      "normalized_params": "(node: any, parent: any, state: any, info: any): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the previous text handler or fallback to safe text generation."
+        },
+        {
+          "order": 2,
+          "content": "Apply the unescape function to the original text output to restore benign characters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5641c15a",
+      "name": "emphasisMarker",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a custom emphasis mark schema that preserves the original markdown marker character."
+        },
+        {
+          "order": 2,
+          "content": "Configure parsing from DOM elements to extract marker attributes."
+        },
+        {
+          "order": 3,
+          "content": "Configure DOM rendering to include marker data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Implement markdown parsing and serialization to maintain marker fidelity."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b165b578",
+      "name": "strongMarker",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a custom strong mark schema that preserves the original markdown marker character."
+        },
+        {
+          "order": 2,
+          "content": "Configure parsing from DOM elements to extract marker attributes."
+        },
+        {
+          "order": 3,
+          "content": "Configure DOM rendering to include marker data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Implement markdown parsing and serialization to maintain marker fidelity."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_df63704f",
+      "name": "bulletListMarker",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a custom bullet list node schema that preserves the original bullet character."
+        },
+        {
+          "order": 2,
+          "content": "Configure parsing from DOM elements to extract bullet attributes."
+        },
+        {
+          "order": 3,
+          "content": "Configure DOM rendering to include bullet data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Implement markdown parsing and serialization to maintain bullet fidelity."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0bce3d78",
+      "name": "orderedListMarker",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a custom ordered list node schema that preserves the original marker character and start number."
+        },
+        {
+          "order": 2,
+          "content": "Configure parsing from DOM elements to extract marker and start attributes."
+        },
+        {
+          "order": 3,
+          "content": "Configure DOM rendering to include marker and start data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Implement markdown parsing and serialization to maintain marker and start number fidelity."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_86e6ec72",
+      "name": "listItemTight",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a custom list item node schema that controls spread behavior per item."
+        },
+        {
+          "order": 2,
+          "content": "Configure parsing from DOM elements to extract item attributes including spread and raw trailing data."
+        },
+        {
+          "order": 3,
+          "content": "Configure DOM rendering to include appropriate data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Implement markdown parsing and serialization to control item spread and preserve raw trailing data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82d23a28",
+      "name": "headingRawTrailing",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a custom heading node schema that preserves raw trailing whitespace/newline data."
+        },
+        {
+          "order": 2,
+          "content": "Configure parsing from DOM elements to extract heading attributes including raw trailing data."
+        },
+        {
+          "order": 3,
+          "content": "Configure DOM rendering to include heading level and id attributes."
+        },
+        {
+          "order": 4,
+          "content": "Implement markdown parsing and serialization to maintain raw trailing data for spacing control."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_07e355e7",
+      "name": "hardBreakStyle",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a custom hard break node schema that preserves the original line-break style."
+        },
+        {
+          "order": 2,
+          "content": "Configure parsing from DOM elements to extract style attributes."
+        },
+        {
+          "order": 3,
+          "content": "Configure DOM rendering to include appropriate style data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Implement markdown parsing and serialization to maintain original break style."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

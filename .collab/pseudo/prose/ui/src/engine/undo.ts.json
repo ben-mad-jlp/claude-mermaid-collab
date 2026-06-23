@@ -1,0 +1,233 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/undo.ts",
+  "title": "Undo manager implementation with batch support for scene graph modifications",
+  "purpose": "Provides undo/redo functionality for scene graph node modifications with support for batching multiple operations into single undoable actions.",
+  "module_context": "Exports an UndoManager class for managing undo/redo stacks and a factory function for creating property change undo entries.",
+  "methods": [
+    {
+      "id": "m_45c45ceb",
+      "name": "apply",
+      "enclosing_class": "UndoManager",
+      "normalized_params": "(entry: UndoEntry): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the forward operation of the undo entry."
+        },
+        {
+          "order": 2,
+          "content": "IF currently in a batch operation, add the entry to the batch."
+        },
+        {
+          "order": 3,
+          "content": "ELSE add the entry to the undo stack and clear the redo stack."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bbb46310",
+      "name": "push",
+      "enclosing_class": "UndoManager",
+      "normalized_params": "(entry: UndoEntry): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF currently in a batch operation, add the entry to the batch."
+        },
+        {
+          "order": 2,
+          "content": "ELSE add the entry to the undo stack and clear the redo stack."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5212cd5c",
+      "name": "undo",
+      "enclosing_class": "UndoManager",
+      "normalized_params": "(): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Pop the most recent entry from the undo stack."
+        },
+        {
+          "order": 2,
+          "content": "IF no entry exists, return null."
+        },
+        {
+          "order": 3,
+          "content": "Execute the inverse operation of the popped entry."
+        },
+        {
+          "order": 4,
+          "content": "Add the popped entry to the redo stack."
+        },
+        {
+          "order": 5,
+          "content": "Return the label of the undone entry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eac7129f",
+      "name": "redo",
+      "enclosing_class": "UndoManager",
+      "normalized_params": "(): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Pop the most recent entry from the redo stack."
+        },
+        {
+          "order": 2,
+          "content": "IF no entry exists, return null."
+        },
+        {
+          "order": 3,
+          "content": "Execute the forward operation of the popped entry."
+        },
+        {
+          "order": 4,
+          "content": "Add the popped entry to the undo stack."
+        },
+        {
+          "order": 5,
+          "content": "Return the label of the redone entry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c229fef6",
+      "name": "beginBatch",
+      "enclosing_class": "UndoManager",
+      "normalized_params": "(label: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the provided batch label."
+        },
+        {
+          "order": 2,
+          "content": "Initialize a new empty array to collect batch entries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc67c760",
+      "name": "commitBatch",
+      "enclosing_class": "UndoManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no batch entries exist or the batch is empty, reset the batch tracking."
+        },
+        {
+          "order": 2,
+          "content": "ELSE collect the batch entries and label."
+        },
+        {
+          "order": 3,
+          "content": "Reset the batch tracking."
+        },
+        {
+          "order": 4,
+          "content": "Create a new undo entry that executes all forward operations in the batch."
+        },
+        {
+          "order": 5,
+          "content": "Create a new undo entry that executes all inverse operations in reverse order of the batch."
+        },
+        {
+          "order": 6,
+          "content": "Add the combined batch entry to the undo stack and clear the redo stack."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3ef966ec",
+      "name": "clear",
+      "enclosing_class": "UndoManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the undo stack."
+        },
+        {
+          "order": 2,
+          "content": "Clear the redo stack."
+        },
+        {
+          "order": 3,
+          "content": "Reset the batch tracking."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_798d9254",
+      "name": "createPropertyChange",
+      "enclosing_class": null,
+      "normalized_params": "(node: SceneNode, changes: Partial<SceneNode>, label: string): UndoEntry",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Capture the current values of the changed properties from the scene node."
+        },
+        {
+          "order": 2,
+          "content": "Build and return an undo entry with the specified label."
+        },
+        {
+          "order": 3,
+          "content": "Configure the forward operation to apply the new property values to the scene node."
+        },
+        {
+          "order": 4,
+          "content": "Configure the inverse operation to restore the original property values to the scene node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

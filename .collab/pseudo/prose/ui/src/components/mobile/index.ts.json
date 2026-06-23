@@ -1,0 +1,60 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/mobile/index.ts",
+  "title": "Mobile components re-export module",
+  "purpose": "Provides a centralized export point for all mobile-specific UI components and their TypeScript types.",
+  "module_context": "Exports three mobile UI components: ItemDrawer, MobilePreviewTab, and ChatTab along with their respective TypeScript interfaces.",
+  "methods": [
+    {
+      "id": "m_49c0202a",
+      "name": "ItemDrawer",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ItemDrawer component for mobile interface usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0dd09c17",
+      "name": "MobilePreviewTab",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the MobilePreviewTab component for mobile interface usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0118ec7c",
+      "name": "ChatTab",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ChatTab component for mobile interface usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

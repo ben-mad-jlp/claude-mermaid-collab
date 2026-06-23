@@ -1,0 +1,195 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/AttachmentDropzone.tsx",
+  "title": "Attachment dropzone component with drag, drop, and paste support",
+  "purpose": "Provides a UI component that accepts file uploads via drag-and-drop, file selection, or clipboard paste, and handles the upload process to a backend API.",
+  "module_context": "Exports a React component named AttachmentDropzone that manages drag state and file upload operations. Includes interfaces for attachment data and component props.",
+  "methods": [
+    {
+      "id": "m_3e0a1689",
+      "name": "AttachmentDropzone",
+      "enclosing_class": null,
+      "normalized_params": "(props: AttachmentDropzoneProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the drag-over state to false."
+        },
+        {
+          "order": 2,
+          "content": "Define and memoize the file upload function that sends files to the backend API."
+        },
+        {
+          "order": 3,
+          "content": "Define and memoize the clipboard paste handler that processes pasted files."
+        },
+        {
+          "order": 4,
+          "content": "Define and memoize the drag-over handler that updates the drag state."
+        },
+        {
+          "order": 5,
+          "content": "Define and memoize the drag-leave handler that updates the drag state."
+        },
+        {
+          "order": 6,
+          "content": "Determine the CSS class name based on the drag-over state."
+        },
+        {
+          "order": 7,
+          "content": "Render the dropzone container with event handlers and child content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59fde6d1",
+      "name": "uploadFile",
+      "enclosing_class": "AttachmentDropzone",
+      "normalized_params": "(file: File): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a form data object and append the file to it."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to the backend API with the file data."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, exit the function."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the API."
+        },
+        {
+          "order": 5,
+          "content": "Call the upload callback with the parsed attachment data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fa0664f2",
+      "name": "handlePaste",
+      "enclosing_class": "AttachmentDropzone",
+      "normalized_params": "(e: React.ClipboardEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the clipboard data items from the event."
+        },
+        {
+          "order": 2,
+          "content": "IF clipboard data is not available, exit the handler."
+        },
+        {
+          "order": 3,
+          "content": "Filter the clipboard items to extract file objects."
+        },
+        {
+          "order": 4,
+          "content": "IF no files are found in the clipboard, exit the handler."
+        },
+        {
+          "order": 5,
+          "content": "Prevent the default paste behavior."
+        },
+        {
+          "order": 6,
+          "content": "Upload each extracted file using the upload function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad3cf059",
+      "name": "handleDrop",
+      "enclosing_class": "AttachmentDropzone",
+      "normalized_params": "(e: React.DragEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drop behavior."
+        },
+        {
+          "order": 2,
+          "content": "Reset the drag-over state to false."
+        },
+        {
+          "order": 3,
+          "content": "Extract the dropped files from the event data transfer."
+        },
+        {
+          "order": 4,
+          "content": "IF no files are present, exit the handler."
+        },
+        {
+          "order": 5,
+          "content": "Upload each dropped file using the upload function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_23f0a564",
+      "name": "handleDragOver",
+      "enclosing_class": "AttachmentDropzone",
+      "normalized_params": "(e: React.DragEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag-over behavior."
+        },
+        {
+          "order": 2,
+          "content": "Set the drag-over state to true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9a576119",
+      "name": "handleDragLeave",
+      "enclosing_class": "AttachmentDropzone",
+      "normalized_params": "(e: React.DragEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag-leave behavior."
+        },
+        {
+          "order": 2,
+          "content": "Set the drag-over state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

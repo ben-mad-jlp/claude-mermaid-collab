@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "src/config.ts",
+  "title": "Application configuration loader with environment validation",
+  "purpose": "Loads and validates application settings from environment variables and defaults, providing a centralized configuration object for the server.",
+  "module_context": "Defines the project root directory by detecting the current module location in both Bun and Node.js environments, then builds a configuration object with validated port number and default values for server settings.",
+  "methods": [
+    {
+      "id": "m_c622de8a",
+      "name": "validatePort",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the PORT environment variable or default to '9002'."
+        },
+        {
+          "order": 2,
+          "content": "Convert the port value to an integer."
+        },
+        {
+          "order": 3,
+          "content": "IF the conversion results in NaN, throw an error indicating invalid port format."
+        },
+        {
+          "order": 4,
+          "content": "IF the port number is outside the valid range of 1-65535, throw an error indicating out-of-range value."
+        },
+        {
+          "order": 5,
+          "content": "RETURN the validated port number."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

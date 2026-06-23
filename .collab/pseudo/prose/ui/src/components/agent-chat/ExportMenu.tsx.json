@@ -1,0 +1,84 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/ExportMenu.tsx",
+  "title": "Export menu component with copy, export turn, and export session options",
+  "purpose": "Provides a dropdown menu for exporting chat session data with options to copy the current turn, export the current turn, or export the entire session.",
+  "module_context": "Exports a React functional component named ExportMenu that accepts props for handling different export actions and manages its own open/closed state.",
+  "methods": [
+    {
+      "id": "m_a1956449",
+      "name": "ExportMenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: ExportMenuProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the open state to false."
+        },
+        {
+          "order": 2,
+          "content": "Create a ref to track the menu's DOM element."
+        },
+        {
+          "order": 3,
+          "content": "Set up a document event listener to close the menu when clicking outside."
+        },
+        {
+          "order": 4,
+          "content": "Define a handler for menu items that executes the provided callback and closes the menu."
+        },
+        {
+          "order": 5,
+          "content": "Render the menu button and conditional dropdown with three export options."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a1a83fed",
+      "name": "handleClick",
+      "enclosing_class": "ExportMenu",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is outside the menu element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, close the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03d1c5ad",
+      "name": "handleItem",
+      "enclosing_class": "ExportMenu",
+      "normalized_params": "(handler?: () => void): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a handler is provided, execute it."
+        },
+        {
+          "order": 2,
+          "content": "Close the menu after executing the handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

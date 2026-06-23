@@ -1,0 +1,58 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/citations.ts",
+  "title": "Parse citations from text and match them to tool calls",
+  "purpose": "Extract citation references from text and map them to corresponding tool calls, returning segments that are either plain text or citation references.",
+  "module_context": "Exports types ToolCallRef and CitationSegment, and the parseCitations function that processes text to identify and resolve citation references.",
+  "methods": [
+    {
+      "id": "m_0706ed4c",
+      "name": "parseCitations",
+      "enclosing_class": null,
+      "normalized_params": "(text: string, toolCalls: ReadonlyArray<ToolCallRef>): CitationSegment[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the input text is empty, return an empty array of segments."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an empty array to collect the parsed segments and a regex to match citation patterns."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through all matches of the citation pattern in the text."
+        },
+        {
+          "order": 4,
+          "content": "For each match, extract the citation kind and index, and determine the corresponding tool call."
+        },
+        {
+          "order": 5,
+          "content": "If a matching tool call is found, add a citation segment with tool details."
+        },
+        {
+          "order": 6,
+          "content": "If no matching tool call is found, add a text segment with the original citation text."
+        },
+        {
+          "order": 7,
+          "content": "Add any preceding text before the citation as a text segment."
+        },
+        {
+          "order": 8,
+          "content": "Add any trailing text after the final citation as a text segment."
+        },
+        {
+          "order": 9,
+          "content": "Return the complete array of parsed segments."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

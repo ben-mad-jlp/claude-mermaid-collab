@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/JsonFallback.tsx",
+  "title": "JSON fallback component for agent tool calls",
+  "purpose": "Displays input, output, and error information for agent tool calls in a formatted JSON structure with appropriate styling.",
+  "module_context": "Defines a React component that renders tool call data including input, output, and error properties with consistent styling and conditional rendering.",
+  "methods": [
+    {
+      "id": "m_8494f056",
+      "name": "JsonFallback",
+      "enclosing_class": null,
+      "normalized_params": "(props: JsonFallbackProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the tool call has output data."
+        },
+        {
+          "order": 2,
+          "content": "Format the output data as a string, either using the raw string or JSON stringifying the object."
+        },
+        {
+          "order": 3,
+          "content": "Render the tool call input as a formatted JSON string in a preformatted element."
+        },
+        {
+          "order": 4,
+          "content": "IF output data exists, render it in a separate preformatted element with a header."
+        },
+        {
+          "order": 5,
+          "content": "IF an error exists, render it in a red monospace text element."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/Markdown.tsx",
+  "title": "Markdown component with syntax highlighting and custom renderers",
+  "purpose": "Renders markdown content with custom styling and syntax highlighting for code blocks, supporting both light and dark themes.",
+  "module_context": "Exports a Markdown React component that accepts markdown content and various rendering options, including code highlighting and HTML allowance.",
+  "methods": [
+    {
+      "id": "m_53b18fb6",
+      "name": "Markdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: MarkdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the current theme is dark mode based on system preference."
+        },
+        {
+          "order": 2,
+          "content": "Define custom renderer components for various markdown elements including headers, paragraphs, lists, tables, code blocks, and links."
+        },
+        {
+          "order": 3,
+          "content": "Configure the ReactMarkdown component with custom renderers and appropriate remark plugins based on props."
+        },
+        {
+          "order": 4,
+          "content": "Render the markdown content within a styled container with appropriate accessibility attributes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4c652918",
+      "name": "p",
+      "enclosing_class": "Markdown",
+      "normalized_params": "({ node, children, ...props }: any): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the paragraph children contain block-level elements such as code blocks or divs."
+        },
+        {
+          "order": 2,
+          "content": "IF block-level elements are detected, render the paragraph as a div to avoid invalid nesting."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the paragraph as a standard p element with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7e9376a8",
+      "name": "code",
+      "enclosing_class": "Markdown",
+      "normalized_params": "({ node, inline, className, children, ...props }: any): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the language from the code block's class name if present."
+        },
+        {
+          "order": 2,
+          "content": "Determine if the code block should be rendered as a block element based on inline property and language class."
+        },
+        {
+          "order": 3,
+          "content": "IF the code block is a block and highlighting is enabled, render with syntax highlighting."
+        },
+        {
+          "order": 4,
+          "content": "ELSE render inline code with appropriate styling."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render as a preformatted block with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

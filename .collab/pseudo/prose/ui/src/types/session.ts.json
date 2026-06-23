@@ -1,0 +1,166 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/session.ts",
+  "title": "Session management core types definition",
+  "purpose": "Defines the TypeScript interfaces for session data structures used in the application's session management system.",
+  "module_context": "Exports four interface types: Session, CollabState, VerificationIssue, and TaskBatch with their respective properties and relationships.",
+  "methods": [
+    {
+      "id": "m_f74d5765",
+      "name": "Session",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for session data including project identifier and name."
+        },
+        {
+          "order": 2,
+          "content": "Include optional display name field for user-friendly session identification."
+        },
+        {
+          "order": 3,
+          "content": "Add optional timestamp for last activity to track session freshness."
+        },
+        {
+          "order": 4,
+          "content": "Include optional item count to represent session content size."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e47cfc35",
+      "name": "CollabState",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the collaborative state structure with display name and state."
+        },
+        {
+          "order": 2,
+          "content": "Include required timestamp for last activity tracking."
+        },
+        {
+          "order": 3,
+          "content": "Add optional array of verification issues that may affect collaboration."
+        },
+        {
+          "order": 4,
+          "content": "Include optional worktree path for file system navigation."
+        },
+        {
+          "order": 5,
+          "content": "Add optional array of batches containing task information."
+        },
+        {
+          "order": 6,
+          "content": "Include optional arrays for tracking completed and pending tasks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_47abe0bb",
+      "name": "VerificationIssue",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for verification issues with drift type."
+        },
+        {
+          "order": 2,
+          "content": "Include required phase field to identify issue context."
+        },
+        {
+          "order": 3,
+          "content": "Add required description field for issue explanation."
+        },
+        {
+          "order": 4,
+          "content": "Include required file field to identify affected file."
+        },
+        {
+          "order": 5,
+          "content": "Add required timestamp for when issue was detected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d9b39e2",
+      "name": "BatchTask",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for individual tasks within a batch."
+        },
+        {
+          "order": 2,
+          "content": "Include required task identifier."
+        },
+        {
+          "order": 3,
+          "content": "Add required status field with specific allowed values."
+        },
+        {
+          "order": 4,
+          "content": "Include required array of task dependencies."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0022bf41",
+      "name": "TaskBatch",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for task batches containing multiple tasks."
+        },
+        {
+          "order": 2,
+          "content": "Include required batch identifier."
+        },
+        {
+          "order": 3,
+          "content": "Add required array of tasks within this batch."
+        },
+        {
+          "order": 4,
+          "content": "Include required status field with specific allowed values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

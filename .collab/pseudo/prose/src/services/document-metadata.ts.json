@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "src/services/document-metadata.ts",
+  "title": "Document metadata validation and schema handling",
+  "purpose": "Provides runtime validation for document metadata and annotations, ensuring data integrity while allowing schema evolution.",
+  "module_context": "Exports types for AnnotationKind, Annotation, and DocumentMetadata. Defines constants CURRENT_METADATA_VERSION and EMPTY_METADATA. Includes helper functions isAnnotationKind and validateAnnotation for internal validation logic.",
+  "methods": [
+    {
+      "id": "m_5fe59963",
+      "name": "isAnnotationKind",
+      "enclosing_class": null,
+      "normalized_params": "(x: unknown): x is AnnotationKind",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the input value equals 'comment'."
+        },
+        {
+          "order": 2,
+          "content": "Check if the input value equals 'proposed'."
+        },
+        {
+          "order": 3,
+          "content": "Check if the input value equals 'approved'."
+        },
+        {
+          "order": 4,
+          "content": "Check if the input value equals 'rejected'."
+        },
+        {
+          "order": 5,
+          "content": "Return true if any of the above checks pass, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42099b83",
+      "name": "validateAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "(raw: unknown): Annotation | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input is an object and not null."
+        },
+        {
+          "order": 2,
+          "content": "Check that the annotation has a valid string ID."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the annotation kind is one of the allowed values."
+        },
+        {
+          "order": 4,
+          "content": "Ensure the anchor property exists and is an object."
+        },
+        {
+          "order": 5,
+          "content": "Validate that the anchor has numeric from and to properties, and string text and checksum properties."
+        },
+        {
+          "order": 6,
+          "content": "Confirm that the body is a string."
+        },
+        {
+          "order": 7,
+          "content": "Verify that the created at timestamp is a number."
+        },
+        {
+          "order": 8,
+          "content": "Construct and return a validated annotation object with all required fields."
+        },
+        {
+          "order": 9,
+          "content": "If optional fields are present, include them in the validated annotation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c0c281d1",
+      "name": "validateDocumentMetadata",
+      "enclosing_class": null,
+      "normalized_params": "(raw: unknown): DocumentMetadata",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the input is an object and not null."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an output metadata object with empty annotations and schema version."
+        },
+        {
+          "order": 3,
+          "content": "If the annotations array exists, process each item through the annotation validation function."
+        },
+        {
+          "order": 4,
+          "content": "Collect all valid annotations into the output object."
+        },
+        {
+          "order": 5,
+          "content": "If the schema version is a number, include it in the output."
+        },
+        {
+          "order": 6,
+          "content": "Copy all other properties from the input to the output, skipping annotations and schema version."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

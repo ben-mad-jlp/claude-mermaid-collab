@@ -1,0 +1,273 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/MilkdownEditor.tsx",
+  "title": "Milkdown WYSIWYG editor component with collaborative features",
+  "purpose": "Provides a rich text editor with markdown support, collaborative editing capabilities, and custom node views for diagrams and details sections.",
+  "module_context": "Exports a React component that wraps the Milkdown editor with additional features like autosave, annotations, and custom node views. Uses React context for project/session data and manages editor lifecycle with hooks.",
+  "methods": [
+    {
+      "id": "m_726cd15f",
+      "name": "useProjectSession",
+      "enclosing_class": null,
+      "normalized_params": "(): { project?: string; session?: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the project and session data from the context."
+        },
+        {
+          "order": 2,
+          "content": "Return the project and session values from the context."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b92e0eb0",
+      "name": "DetailsViewBridge",
+      "enclosing_class": null,
+      "normalized_params": "(): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render the DetailsView component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14da6e37",
+      "name": "DiagramEmbedViewBridge",
+      "enclosing_class": null,
+      "normalized_params": "(): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the node and selected state from the node view context."
+        },
+        {
+          "order": 2,
+          "content": "Read the selected project from the project store."
+        },
+        {
+          "order": 3,
+          "content": "Read the current session from the session store."
+        },
+        {
+          "order": 4,
+          "content": "Extract the kind and refId attributes from the node."
+        },
+        {
+          "order": 5,
+          "content": "Render the DiagramEmbedView component with project, session, kind, refId, and selected props."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f681891d",
+      "name": "MilkdownInner",
+      "enclosing_class": null,
+      "normalized_params": "(props: MilkdownInnerProps, ref: MutableRefObject<MilkdownEditorHandle | null>): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a node view factory using the prosemirror adapter."
+        },
+        {
+          "order": 2,
+          "content": "Capture the initial autosave delay value to prevent plugin recreation."
+        },
+        {
+          "order": 3,
+          "content": "Memoize the diagram embed view component with the node view factory."
+        },
+        {
+          "order": 4,
+          "content": "Memoize the image view component with the node view factory."
+        },
+        {
+          "order": 5,
+          "content": "Memoize the details view component with the node view factory."
+        },
+        {
+          "order": 6,
+          "content": "Memoize the heading view component with the node view factory."
+        },
+        {
+          "order": 7,
+          "content": "Create a milkdown plugin for annotations that updates the prose plugins context."
+        },
+        {
+          "order": 8,
+          "content": "Build the complete plugins array including core plugins, custom plugins, and node views."
+        },
+        {
+          "order": 9,
+          "content": "Initialize the milkdown editor with the configured plugins and initial markdown."
+        },
+        {
+          "order": 10,
+          "content": "Bridge the React collapsible sections context to the PM heading-collapse plugin."
+        },
+        {
+          "order": 11,
+          "content": "Emit telemetry data when the editor mounts."
+        },
+        {
+          "order": 12,
+          "content": "Fire the onReady callback once the ProseMirror editor view is available."
+        },
+        {
+          "order": 13,
+          "content": "Set up imperative handle methods for setting markdown and getting the editor view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_86cff1fa",
+      "name": "MilkdownEditor",
+      "enclosing_class": null,
+      "normalized_params": "(props: MilkdownEditorProps, ref: MutableRefObject<MilkdownEditorHandle | null>): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a ref for the host element."
+        },
+        {
+          "order": 2,
+          "content": "Read the selected project from the project store."
+        },
+        {
+          "order": 3,
+          "content": "Read the current session from the session store."
+        },
+        {
+          "order": 4,
+          "content": "Create a context value with project and session data."
+        },
+        {
+          "order": 5,
+          "content": "Create refs for onChange, onPersist, editable, annotations, and onReady callbacks."
+        },
+        {
+          "order": 6,
+          "content": "Update the onChange ref on prop changes."
+        },
+        {
+          "order": 7,
+          "content": "Update the onPersist ref with telemetry data."
+        },
+        {
+          "order": 8,
+          "content": "Update the editable ref on prop changes and trigger a view update if needed."
+        },
+        {
+          "order": 9,
+          "content": "Update the annotations ref on prop changes."
+        },
+        {
+          "order": 10,
+          "content": "Update the onReady ref on prop changes."
+        },
+        {
+          "order": 11,
+          "content": "Set up forwarding of the inner editor handle through a local ref."
+        },
+        {
+          "order": 12,
+          "content": "Dispatch the latest annotations to the PM plugin when props change."
+        },
+        {
+          "order": 13,
+          "content": "Render the Milkdown editor with provider components and context."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4c5a4b3",
+      "name": "setRefs",
+      "enclosing_class": "MilkdownEditor",
+      "normalized_params": "(h: MilkdownEditorHandle | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the received handle in the inner handle ref."
+        },
+        {
+          "order": 2,
+          "content": "Forward the handle to the outer ref if it's a function."
+        },
+        {
+          "order": 3,
+          "content": "Forward the handle to the outer ref if it's a mutable ref object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8fbc5f90",
+      "name": "emitTelemetry",
+      "enclosing_class": "MilkdownEditor",
+      "normalized_params": "({ editor_variant, timestamp, autosave_latency_ms }: { editor_variant: string; timestamp: number; autosave_latency_ms?: number }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send telemetry data about the editor variant and timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Include autosave latency if available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5e49a561",
+      "name": "nowMs",
+      "enclosing_class": "MilkdownEditor",
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the current timestamp in milliseconds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

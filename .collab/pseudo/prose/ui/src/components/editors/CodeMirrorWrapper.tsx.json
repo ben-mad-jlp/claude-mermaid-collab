@@ -1,0 +1,257 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/CodeMirrorWrapper.tsx",
+  "title": "CodeMirror wrapper component with syntax highlighting and annotations",
+  "purpose": "Provides a React interface to CodeMirror 6 with language-specific syntax highlighting, theme support, and annotation capabilities.",
+  "module_context": "Exports a CodeMirrorWrapper component that handles editor state, language extensions, theme switching, and various editor features like line highlighting, annotations, and symbol interactions. Includes helper functions for building extensions and managing editor state.",
+  "methods": [
+    {
+      "id": "m_ccc9f72b",
+      "name": "getLanguageExtension",
+      "enclosing_class": null,
+      "normalized_params": "(language: Language): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the provided language string to its corresponding CodeMirror language extension."
+        },
+        {
+          "order": 2,
+          "content": "Return the appropriate language extension for JavaScript, TypeScript, Markdown, YAML, HTML, JSON, Python, C++, C#, CSS, or plain text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2fa646cf",
+      "name": "buildHighlightExtension",
+      "enclosing_class": null,
+      "normalized_params": "(lines: number[]): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no lines are provided for highlighting, return an empty array."
+        },
+        {
+          "order": 2,
+          "content": "Create a set of line numbers to highlight for efficient lookup."
+        },
+        {
+          "order": 3,
+          "content": "Build and return a CodeMirror extension that decorates specified lines with a highlighted background."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f15bd1be",
+      "name": "AnnotationWidget",
+      "enclosing_class": null,
+      "normalized_params": "(ann: SnippetAnnotation, callbacks: AnnotationCallbacks): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the annotation widget with the provided annotation and callback handlers."
+        },
+        {
+          "order": 2,
+          "content": "Create a DOM element representing the annotation with icon, text, and line number display."
+        },
+        {
+          "order": 3,
+          "content": "Set up click handler to enter edit mode when the annotation is clicked."
+        },
+        {
+          "order": 4,
+          "content": "Replace the display text with an editable textarea in edit mode."
+        },
+        {
+          "order": 5,
+          "content": "Add delete button and keyboard shortcuts for saving or canceling edits."
+        },
+        {
+          "order": 6,
+          "content": "Handle blur events to save changes when editing is complete."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d067a4cb",
+      "name": "buildAnnotationExtension",
+      "enclosing_class": null,
+      "normalized_params": "(annotations: SnippetAnnotation[], callbacks: AnnotationCallbacks): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no annotations are provided, return an empty array."
+        },
+        {
+          "order": 2,
+          "content": "Sort annotations by start line number for consistent rendering."
+        },
+        {
+          "order": 3,
+          "content": "Create a decoration builder that maps each annotation to a widget in the editor."
+        },
+        {
+          "order": 4,
+          "content": "Define a state field that tracks annotation decorations and updates them when the document changes."
+        },
+        {
+          "order": 5,
+          "content": "Return the annotation theme and state field as a CodeMirror extension."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bc666363",
+      "name": "buildSelectionListenerExtension",
+      "enclosing_class": null,
+      "normalized_params": "(onSelectionChange: (sel: { startLine: number; endLine: number } | null) => void): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a CodeMirror view plugin that listens for selection changes."
+        },
+        {
+          "order": 2,
+          "content": "When a selection is made, determine the start and end line numbers."
+        },
+        {
+          "order": 3,
+          "content": "If the selection is empty, notify the parent with null selection."
+        },
+        {
+          "order": 4,
+          "content": "If the selection is not empty, notify the parent with start and end line numbers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f820838b",
+      "name": "buildSymbolClickExtension",
+      "enclosing_class": null,
+      "normalized_params": "(onSymbolClick: (symbol: string, rect: DOMRect) => void): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a CodeMirror DOM event handler for click events."
+        },
+        {
+          "order": 2,
+          "content": "When a click occurs, determine the position in the editor."
+        },
+        {
+          "order": 3,
+          "content": "If the click is not a cmd/ctrl-click, find the symbol at the clicked position."
+        },
+        {
+          "order": 4,
+          "content": "If a symbol is found, calculate its coordinates and notify the parent component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c4ddeefd",
+      "name": "buildSymbolGoToDefExtension",
+      "enclosing_class": null,
+      "normalized_params": "(onSymbolGoToDefinition: (symbol: string, rect: DOMRect) => void): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a CodeMirror DOM event handler for context menu events."
+        },
+        {
+          "order": 2,
+          "content": "When a context menu is triggered, determine the position in the editor."
+        },
+        {
+          "order": 3,
+          "content": "Find the symbol at the clicked position."
+        },
+        {
+          "order": 4,
+          "content": "If a symbol is found, calculate its coordinates and notify the parent component."
+        },
+        {
+          "order": 5,
+          "content": "Prevent the default context menu from appearing."
+        },
+        {
+          "order": 6,
+          "content": "Handle mousedown events for cmd/ctrl-click to trigger Go-to-Definition."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f5e0710f",
+      "name": "CodeMirrorWrapper",
+      "enclosing_class": null,
+      "normalized_params": "(props: CodeMirrorWrapperProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the component with provided props and theme context."
+        },
+        {
+          "order": 2,
+          "content": "Ensure the component is loaded before rendering to avoid hydration mismatches."
+        },
+        {
+          "order": 3,
+          "content": "Set up effect to notify parent when the editor is mounted or unmounted."
+        },
+        {
+          "order": 4,
+          "content": "Memoize language extension, theme classes, and various editor extensions."
+        },
+        {
+          "order": 5,
+          "content": "Build the complete list of extensions including language, highlighting, annotations, and interaction handlers."
+        },
+        {
+          "order": 6,
+          "content": "Render the CodeMirror editor with the configured extensions and settings."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

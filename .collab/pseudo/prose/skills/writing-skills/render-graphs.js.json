@@ -1,0 +1,174 @@
+{
+  "schema_version": 3,
+  "file": "skills/writing-skills/render-graphs.js",
+  "title": "Graphviz diagram renderer for skill documentation",
+  "purpose": "Extracts and renders graphviz diagrams from SKILL.md files into SVG format for visualization of process flows.",
+  "module_context": "This is a command-line script that processes markdown files to extract code blocks and render them as SVG diagrams using graphviz.",
+  "methods": [
+    {
+      "id": "m_95aa4733",
+      "name": "extractDotBlocks",
+      "enclosing_class": null,
+      "normalized_params": "(markdown: string): Array<{ name: string; content: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find all code blocks in the markdown that are marked as dot language."
+        },
+        {
+          "order": 2,
+          "content": "Extract the content of each dot block and trim whitespace."
+        },
+        {
+          "order": 3,
+          "content": "Parse the digraph name from the dot content if present."
+        },
+        {
+          "order": 4,
+          "content": "Generate a default name for the graph if no name is found in the content."
+        },
+        {
+          "order": 5,
+          "content": "Return an array of graph objects containing name and content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_afb54901",
+      "name": "extractGraphBody",
+      "enclosing_class": null,
+      "normalized_params": "(dotContent: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the body portion of a digraph by matching the content between opening and closing braces."
+        },
+        {
+          "order": 2,
+          "content": "Remove any rankdir declarations from the body to avoid conflicts."
+        },
+        {
+          "order": 3,
+          "content": "Return the cleaned body content with leading whitespace trimmed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_668c00b5",
+      "name": "combineGraphs",
+      "enclosing_class": null,
+      "normalized_params": "(blocks: Array<{ name: string; content: string }>, skillName: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process each graph block to extract its body content."
+        },
+        {
+          "order": 2,
+          "content": "Wrap each graph body in a cluster with a labeled subgraph for visual grouping."
+        },
+        {
+          "order": 3,
+          "content": "Construct a combined digraph with top-level settings for rank direction and clustering."
+        },
+        {
+          "order": 4,
+          "content": "Return the complete combined dot content as a string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5810ff8",
+      "name": "renderToSvg",
+      "enclosing_class": null,
+      "normalized_params": "(dotContent: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the graphviz dot command to convert the dot content to SVG format."
+        },
+        {
+          "order": 2,
+          "content": "IF the conversion succeeds, return the generated SVG content."
+        },
+        {
+          "order": 3,
+          "content": "IF the conversion fails, log the error and return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bd42bcb3",
+      "name": "main",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse command-line arguments to determine if diagrams should be combined."
+        },
+        {
+          "order": 2,
+          "content": "Validate that a skill directory argument was provided."
+        },
+        {
+          "order": 3,
+          "content": "Resolve the skill directory path and construct the path to SKILL.md."
+        },
+        {
+          "order": 4,
+          "content": "Verify that the SKILL.md file exists."
+        },
+        {
+          "order": 5,
+          "content": "Check that the graphviz dot command is available on the system."
+        },
+        {
+          "order": 6,
+          "content": "Read and parse the markdown content to extract dot blocks."
+        },
+        {
+          "order": 7,
+          "content": "IF no dot blocks are found, notify the user and exit."
+        },
+        {
+          "order": 8,
+          "content": "Create the output directory for diagrams if it does not exist."
+        },
+        {
+          "order": 9,
+          "content": "IF the combine flag is set, merge all diagrams into one and render it."
+        },
+        {
+          "order": 10,
+          "content": "ELSE render each diagram separately."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

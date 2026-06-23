@@ -1,0 +1,678 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-db.ts",
+  "title": "Pseudo DB service with SQLite backend for pseudocode analysis",
+  "purpose": "Provides database access and management for pseudocode files including full-text search, call graph analysis, and impact analysis using an in-memory SQLite database.",
+  "module_context": "Exports PseudoDbV6Shim class and factory functions for database initialization and management. Includes type definitions for pseudocode file structures, search results, and analysis data. Uses singleton pattern for database instances with lazy initialization and automatic cleanup.",
+  "methods": [
+    {
+      "id": "m_4eb5f020",
+      "name": "upsertStructural",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(filePath: string, language: string, scan: unknown): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log a warning that this operation is a no-op under V6."
+        },
+        {
+          "order": 2,
+          "content": "Inform the user that the indexer runs automatically."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cae04e2e",
+      "name": "upsertProse",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(filePath: string, data: unknown): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log a warning that this operation is a no-op under V6."
+        },
+        {
+          "order": 2,
+          "content": "Inform the user to use the pseudo-indexer prose flow."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b4daef4",
+      "name": "deleteStructural",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(filePath: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log a warning that this operation is a no-op under V6."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2bdc85e",
+      "name": "checkpointWal",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log a warning that this operation is a no-op under V6."
+        },
+        {
+          "order": 2,
+          "content": "Inform the user that the database is in-memory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84b78545",
+      "name": "getFileState",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(filePath: string): { filePath: string; sourceHash: string | null; scannedAt: string | null; proseUpdatedAt: string | null; hasProse: boolean; methods: { name: string; params: string | null; sourceHash: string | null; hasSteps: boolean }[] } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for file information matching the provided file path."
+        },
+        {
+          "order": 2,
+          "content": "IF no file is found, return null."
+        },
+        {
+          "order": 3,
+          "content": "ELSE construct and return a file state object with method details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe784655",
+      "name": "listFiles",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): Array<{ filePath: string; title: string; methodCount: number; exportCount: number; lastUpdated: string }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for all files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f060ccf5",
+      "name": "getFileByStem",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(stem: string): { filePath: string; title: string; purpose: string; moduleContext: string; proseUpdatedAt: string | null; hasProse: boolean; structuralIndexedAt: string; language: string | null; methods: PseudoMethodWithMeta[] } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for a file matching the provided stem."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d770027a",
+      "name": "getFile",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(filePath: string): { filePath: string; title: string; purpose: string; moduleContext: string; proseUpdatedAt: string | null; hasProse: boolean; structuralIndexedAt: string; language: string | null; methods: PseudoMethodWithMeta[] } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for a file matching the provided file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4d918820",
+      "name": "search",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(query: string): Array<{ filePath: string; methodName: string; snippet: string; rank: number }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Perform a full-text search in the database using the provided query."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b4b27c61",
+      "name": "getReferences",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(methodName: string, fileStem: string): Array<{ file: string; callerMethod: string; sourceLine: number | null }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for references to the specified method in the given file stem."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51ff08e7",
+      "name": "getCallGraph",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): { nodes: GraphNode[]; edges: GraphEdge[] } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for the complete call graph structure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4c14f48",
+      "name": "getExports",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): Array<{ filePath: string; methodName: string; stepSummary: string }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for all exported methods and their step summaries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_528f269c",
+      "name": "getFilesByDirectory",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(dir: string): Array<{ filePath: string; title: string; methodCount: number; exportCount: number; lastUpdated: string }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for files within the specified directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c74dbddb",
+      "name": "getImpactAnalysis",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(methodName: string, fileStem: string): Array<{ filePath: string; methodName: string; depth: number }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for impact analysis of the specified method in the given file stem."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3de9c73b",
+      "name": "getOrphanFunctions",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): Array<{ filePath: string; methodName: string }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for functions that are not exported and have no callers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c47d6ce",
+      "name": "getStaleFunctions",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(daysThreshold: number): Array<{ filePath: string; methodName: string; lastUpdated: string | null }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return an empty array as this method is not implemented."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1918308a",
+      "name": "getStats",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): StatsReport | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for statistics about files, methods, and exports."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7d8593a6",
+      "name": "getCoverage",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(directory?: string): CoverageReport | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a directory is provided, resolve it to an absolute path."
+        },
+        {
+          "order": 2,
+          "content": "Query the database for coverage statistics for the specified directory or project root."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5e8f0026",
+      "name": "getSourceLink",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(name: string, hintFileStem?: string): SourceLinkCandidate | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for source link candidates matching the provided name and optional hint file stem."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f8cbaaee",
+      "name": "getFunctionsForSource",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(sourceFilePath: string): Array<FunctionForSource> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for functions associated with the specified source file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2dc9e2b1",
+      "name": "getMethodLocation",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(filePath: string, methodName: string): { sourceLine: number | null; sourceFilePath: string | null } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for the location of a method within a specified file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9d5f54a",
+      "name": "close",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the instance from the shim instances map."
+        },
+        {
+          "order": 2,
+          "content": "Dispose of the database handle."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dcb26987",
+      "name": "getPseudoDb",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): PseudoDbV6Shim",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a cached instance exists for the project."
+        },
+        {
+          "order": 2,
+          "content": "IF a cached instance exists, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE initialize a new database handle."
+        },
+        {
+          "order": 4,
+          "content": "Create a new shim instance with the project and database handle."
+        },
+        {
+          "order": 5,
+          "content": "Store the shim instance in the cache."
+        },
+        {
+          "order": 6,
+          "content": "Return the new shim instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b66a389",
+      "name": "probeSnapshotInputsV6",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<{ count: number; samples: Map<string, string> }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Spawn a git process to list tracked files."
+        },
+        {
+          "order": 2,
+          "content": "Collect stdout data from the git process."
+        },
+        {
+          "order": 3,
+          "content": "IF the git process fails, resolve with empty inputs."
+        },
+        {
+          "order": 4,
+          "content": "IF the git process exits with non-zero code, resolve with empty inputs."
+        },
+        {
+          "order": 5,
+          "content": "Parse the output to extract relative file paths."
+        },
+        {
+          "order": 6,
+          "content": "IF no files are found, resolve with empty inputs."
+        },
+        {
+          "order": 7,
+          "content": "Randomly select up to 5 files from the list."
+        },
+        {
+          "order": 8,
+          "content": "Compute SHA1 hashes for the selected files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5b7614af",
+      "name": "initPseudoDbV6",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, opts?: { attachWatcher?: boolean; attachDrift?: boolean }): PseudoDbV6Handle",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if an existing instance exists for the project."
+        },
+        {
+          "order": 2,
+          "content": "IF an existing instance exists and is not disposed, return it."
+        },
+        {
+          "order": 3,
+          "content": "Initialize database connection in memory."
+        },
+        {
+          "order": 4,
+          "content": "Run legacy v1 database migration if present."
+        },
+        {
+          "order": 5,
+          "content": "Run prose file migration to relative paths."
+        },
+        {
+          "order": 6,
+          "content": "Create the database schema."
+        },
+        {
+          "order": 7,
+          "content": "Initialize the pseudo indexer."
+        },
+        {
+          "order": 8,
+          "content": "Initialize drift checker if enabled."
+        },
+        {
+          "order": 9,
+          "content": "Initialize watcher if enabled."
+        },
+        {
+          "order": 10,
+          "content": "Start the drift checker and watcher."
+        },
+        {
+          "order": 11,
+          "content": "Attempt to load snapshot data if available."
+        },
+        {
+          "order": 12,
+          "content": "Perform a full scan if snapshot loading fails or is not available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11c1506b",
+      "name": "retryScan",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the handle is disposed, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "IF a recent failure occurred, return immediately."
+        },
+        {
+          "order": 3,
+          "content": "IF a scan is already in flight, return immediately."
+        },
+        {
+          "order": 4,
+          "content": "Set the state to cold-scanning."
+        },
+        {
+          "order": 5,
+          "content": "Run a full scan using the indexer."
+        },
+        {
+          "order": 6,
+          "content": "Set the state to ready upon successful completion."
+        },
+        {
+          "order": 7,
+          "content": "Clear any previous error state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7ef12698",
+      "name": "dispose",
+      "enclosing_class": "PseudoDbV6Shim",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the handle is already disposed, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "Mark the handle as disposed."
+        },
+        {
+          "order": 3,
+          "content": "Stop the watcher if present."
+        },
+        {
+          "order": 4,
+          "content": "Stop the drift checker if present."
+        },
+        {
+          "order": 5,
+          "content": "Cancel the indexer."
+        },
+        {
+          "order": 6,
+          "content": "Wait for any in-flight scan to complete."
+        },
+        {
+          "order": 7,
+          "content": "Close the database connection."
+        },
+        {
+          "order": 8,
+          "content": "Remove the instance from the v6 instances map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cd026148",
+      "name": "disposeAllPseudoDbV6",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get all current v6 instances."
+        },
+        {
+          "order": 2,
+          "content": "Dispose of each instance in parallel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6ab42cbe",
+      "name": "_v6InstanceCount",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the number of current v6 instances."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

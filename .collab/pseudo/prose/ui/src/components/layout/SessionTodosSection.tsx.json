@@ -1,0 +1,401 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/SessionTodosSection.tsx",
+  "title": "Session todos section with drag-and-drop reordering and completion tracking",
+  "purpose": "Manages a section for displaying and editing session todos with features like adding, editing, deleting, toggling completion, clearing completed items, and drag-and-drop reordering.",
+  "module_context": "Exports a forward-ref component SessionTodosSection that manages session todos using Zustand store and API calls, with a nested TodoRow component for individual todo rendering and editing.",
+  "methods": [
+    {
+      "id": "m_fd50cd92",
+      "name": "TodoRow",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(props: TodoRowProps): React.FC<TodoRowProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a todo item with checkbox for completion toggle."
+        },
+        {
+          "order": 2,
+          "content": "Display todo text in either read-only or edit mode based on editing state."
+        },
+        {
+          "order": 3,
+          "content": "Allow editing todo text by clicking on it or using input field."
+        },
+        {
+          "order": 4,
+          "content": "Provide delete functionality with hover visibility."
+        },
+        {
+          "order": 5,
+          "content": "Support drag-and-drop operations for reordering todos."
+        },
+        {
+          "order": 6,
+          "content": "Handle optimistic updates and API calls for todo toggling, editing, and deletion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69a4770c",
+      "name": "handleToggle",
+      "enclosing_class": "TodoRow",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare the next state for the todo by toggling its completed status."
+        },
+        {
+          "order": 2,
+          "content": "Update the todo in the store with the optimistic next state."
+        },
+        {
+          "order": 3,
+          "content": "Send a PATCH request to update the todo on the server."
+        },
+        {
+          "order": 4,
+          "content": "IF the server update fails, revert the store to the original state."
+        },
+        {
+          "order": 5,
+          "content": "Log any errors that occur during the toggle operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e89eeaa",
+      "name": "commitEdit",
+      "enclosing_class": "TodoRow",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the draft text and exit editing mode."
+        },
+        {
+          "order": 2,
+          "content": "IF the trimmed text is empty or unchanged, do not proceed with update."
+        },
+        {
+          "order": 3,
+          "content": "Update the todo in the store with the optimistic new text."
+        },
+        {
+          "order": 4,
+          "content": "Send a PATCH request to update the todo text on the server."
+        },
+        {
+          "order": 5,
+          "content": "IF the server update fails, revert the store and input to original state."
+        },
+        {
+          "order": 6,
+          "content": "Log any errors that occur during the edit operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1c16e199",
+      "name": "handleDelete",
+      "enclosing_class": "TodoRow",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Capture a snapshot of the current session todos before deletion."
+        },
+        {
+          "order": 2,
+          "content": "Remove the todo from the local store."
+        },
+        {
+          "order": 3,
+          "content": "Send a DELETE request to remove the todo from the server."
+        },
+        {
+          "order": 4,
+          "content": "IF the server deletion fails, restore the todos from the snapshot."
+        },
+        {
+          "order": 5,
+          "content": "Log any errors that occur during the deletion operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ade93c0",
+      "name": "SessionTodosSection",
+      "enclosing_class": null,
+      "normalized_params": "(props: SessionTodosSectionProps, ref: React.Ref<SessionTodosSectionHandle>): React.ForwardRefExoticComponent<SessionTodosSectionProps & React.RefAttributes<SessionTodosSectionHandle>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state and store selectors for session todos and related data."
+        },
+        {
+          "order": 2,
+          "content": "Set up refs and state for drag-and-drop operations and UI visibility."
+        },
+        {
+          "order": 3,
+          "content": "Define the revealAddInput function to show and focus the add input field."
+        },
+        {
+          "order": 4,
+          "content": "Use imperative handle to expose revealAddInput to parent components."
+        },
+        {
+          "order": 5,
+          "content": "Sort todos by order and filter based on show completed setting."
+        },
+        {
+          "order": 6,
+          "content": "Render the section header with toggle and count."
+        },
+        {
+          "order": 7,
+          "content": "Render the todo list with show completed toggle and clear completed button."
+        },
+        {
+          "order": 8,
+          "content": "Render the add input field for new todos."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d7b03e16",
+      "name": "revealAddInput",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the add input visibility to true."
+        },
+        {
+          "order": 2,
+          "content": "Focus the add input field after a brief timeout."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_99daa4d6",
+      "name": "handleAddTodo",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a session is active and the input text is not empty."
+        },
+        {
+          "order": 2,
+          "content": "Clear the input text after validation."
+        },
+        {
+          "order": 3,
+          "content": "Send a POST request to create a new todo on the server."
+        },
+        {
+          "order": 4,
+          "content": "IF the server creation fails, restore the input text to its previous value."
+        },
+        {
+          "order": 5,
+          "content": "Log any errors that occur during the add operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6b4ea5d9",
+      "name": "handleDragStart",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(e: React.DragEvent, id: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the dragged todo ID in a ref."
+        },
+        {
+          "order": 2,
+          "content": "Set the drag effect allowed to move."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_921c6d31",
+      "name": "handleDragOver",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(e: React.DragEvent, id: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag over behavior."
+        },
+        {
+          "order": 2,
+          "content": "Set the drop effect to move."
+        },
+        {
+          "order": 3,
+          "content": "Update the drag over ID to highlight the drop target."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_54a83d8b",
+      "name": "handleDrop",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(e: React.DragEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drop behavior."
+        },
+        {
+          "order": 2,
+          "content": "Mark that a drop occurred."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_65e61520",
+      "name": "handleDragEnd",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a drop occurred and reset the drop flag."
+        },
+        {
+          "order": 2,
+          "content": "IF no drop occurred, reset drag state and return."
+        },
+        {
+          "order": 3,
+          "content": "Determine the from and to IDs for reordering."
+        },
+        {
+          "order": 4,
+          "content": "IF session or IDs are invalid, return without reordering."
+        },
+        {
+          "order": 5,
+          "content": "Calculate new order IDs based on drag positions."
+        },
+        {
+          "order": 6,
+          "content": "Update the store with the optimistic reordered todos."
+        },
+        {
+          "order": 7,
+          "content": "Send a PATCH request to reorder todos on the server."
+        },
+        {
+          "order": 8,
+          "content": "IF the server reorder fails, revert the store to the original state."
+        },
+        {
+          "order": 9,
+          "content": "Log any errors that occur during the reorder operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5c105157",
+      "name": "handleClearCompleted",
+      "enclosing_class": "SessionTodosSection",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a session is active."
+        },
+        {
+          "order": 2,
+          "content": "Close the confirmation dialog."
+        },
+        {
+          "order": 3,
+          "content": "Filter out completed todos from the store."
+        },
+        {
+          "order": 4,
+          "content": "Send a DELETE request to clear completed todos on the server."
+        },
+        {
+          "order": 5,
+          "content": "IF the server clear fails, restore the todos from the snapshot."
+        },
+        {
+          "order": 6,
+          "content": "Log any errors that occur during the clear operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

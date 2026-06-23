@@ -1,0 +1,642 @@
+{
+  "schema_version": 3,
+  "file": "public/js/document-editor.js",
+  "title": "Markdown document editor with real-time collaboration and preview",
+  "purpose": "Provides a rich text editing experience for markdown documents with real-time collaboration, preview synchronization, and status tracking features.",
+  "module_context": "Initializes CodeMirror editor with custom markdown support, sets up WebSocket connections for real-time updates, handles document loading and saving, manages preview rendering with custom processing, and implements UI controls for editing, commenting, and status management.",
+  "methods": [
+    {
+      "id": "m_70febf50",
+      "name": "findLineForText",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the editor content if available."
+        },
+        {
+          "order": 2,
+          "content": "Split content into lines for searching."
+        },
+        {
+          "order": 3,
+          "content": "Clean the search text for matching by removing markdown formatting artifacts."
+        },
+        {
+          "order": 4,
+          "content": "Search for the text in each line using case-insensitive partial matching."
+        },
+        {
+          "order": 5,
+          "content": "IF a match is found in a line, return the line number."
+        },
+        {
+          "order": 6,
+          "content": "ELSE search in the entire content as a whole for a match."
+        },
+        {
+          "order": 7,
+          "content": "IF a match is found in the content, count newlines before the match position and return the line number."
+        },
+        {
+          "order": 8,
+          "content": "IF no match is found, return -1."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a9de68b",
+      "name": "jumpToLine",
+      "enclosing_class": null,
+      "normalized_params": "(lineNumber: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if editor view is available and line number is valid."
+        },
+        {
+          "order": 2,
+          "content": "Get the document from the editor view."
+        },
+        {
+          "order": 3,
+          "content": "IF line number exceeds document lines, return early."
+        },
+        {
+          "order": 4,
+          "content": "Get the line from the document using the line number."
+        },
+        {
+          "order": 5,
+          "content": "Set the cursor to the start of the line and scroll into view."
+        },
+        {
+          "order": 6,
+          "content": "Focus the editor view."
+        },
+        {
+          "order": 7,
+          "content": "Request animation frame to flash highlight the active line."
+        },
+        {
+          "order": 8,
+          "content": "After flash duration, remove the flash highlight class."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8029f6aa",
+      "name": "getDirectTextContent",
+      "enclosing_class": null,
+      "normalized_params": "(element: Element): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty text string."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all child nodes of the element."
+        },
+        {
+          "order": 3,
+          "content": "IF node is a text node, append its text content to the result."
+        },
+        {
+          "order": 4,
+          "content": "IF node is an element node, include its text content if it's not a block element."
+        },
+        {
+          "order": 5,
+          "content": "Return the trimmed text content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c0fc3418",
+      "name": "setupClickToSource",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add a click event listener to the preview element."
+        },
+        {
+          "order": 2,
+          "content": "For each click, find the closest block-level element."
+        },
+        {
+          "order": 3,
+          "content": "IF a block element is found, get its direct text content."
+        },
+        {
+          "order": 4,
+          "content": "Find the line number in the editor for the text content."
+        },
+        {
+          "order": 5,
+          "content": "IF a valid line number is found, jump to that line in the editor."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_17e4767b",
+      "name": "initCodeEditor",
+      "enclosing_class": null,
+      "normalized_params": "(initialContent: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new CodeMirror editor view with the initial content."
+        },
+        {
+          "order": 2,
+          "content": "Configure the editor with custom setup extensions."
+        },
+        {
+          "order": 3,
+          "content": "Add markdown language support to the editor."
+        },
+        {
+          "order": 4,
+          "content": "Apply the current editor theme."
+        },
+        {
+          "order": 5,
+          "content": "Set up update listener to schedule saves and auto-refreshes on document changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2424b24",
+      "name": "recreateEditorWithTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current editor content."
+        },
+        {
+          "order": 2,
+          "content": "Destroy the existing editor view."
+        },
+        {
+          "order": 3,
+          "content": "Recreate the editor view with the same content."
+        },
+        {
+          "order": 4,
+          "content": "Apply the updated theme to the new editor view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_48160837",
+      "name": "loadDocument",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch document content from the API."
+        },
+        {
+          "order": 2,
+          "content": "Set the editor content to the fetched document."
+        },
+        {
+          "order": 3,
+          "content": "Render the preview for the document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e86d0d38",
+      "name": "renderPreview",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if diff mode is active."
+        },
+        {
+          "order": 2,
+          "content": "IF diff mode is active, render the preview with diff."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the preview normally."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_275224b0",
+      "name": "refreshPreview",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if diff mode is active."
+        },
+        {
+          "order": 2,
+          "content": "IF diff mode is active, render the preview with diff."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the preview normally."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5917f857",
+      "name": "setupSyncScroll",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the CodeMirror scroll element."
+        },
+        {
+          "order": 2,
+          "content": "Add scroll event listener to the CodeMirror scroller."
+        },
+        {
+          "order": 3,
+          "content": "On scroll, calculate scroll percentage and synchronize preview scroll."
+        },
+        {
+          "order": 4,
+          "content": "Add scroll event listener to the preview scroll element."
+        },
+        {
+          "order": 5,
+          "content": "On scroll, calculate scroll percentage and synchronize editor scroll."
+        },
+        {
+          "order": 6,
+          "content": "Update minimap viewport indicator on preview scroll."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9ce001db",
+      "name": "setupMinimap",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add click event listener to the minimap track."
+        },
+        {
+          "order": 2,
+          "content": "On track click, calculate scroll position and jump to that position."
+        },
+        {
+          "order": 3,
+          "content": "Add click event listener to minimap markers."
+        },
+        {
+          "order": 4,
+          "content": "On marker click, scroll to the associated element."
+        },
+        {
+          "order": 5,
+          "content": "Add resize event listener to update minimap on window resize."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69681857",
+      "name": "setupResizer",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add mousedown event listener to the resizer element."
+        },
+        {
+          "order": 2,
+          "content": "On mousedown, set resizing flag and update cursor style."
+        },
+        {
+          "order": 3,
+          "content": "Add mousemove event listener to resize the editor pane."
+        },
+        {
+          "order": 4,
+          "content": "On mousemove, calculate new pane width and update flex property."
+        },
+        {
+          "order": 5,
+          "content": "Add mouseup event listener to stop resizing and save position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bd1ffdb9",
+      "name": "computeLocalDiff",
+      "enclosing_class": null,
+      "normalized_params": "(oldContent: string, newContent: string): { oldString: string; newString: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compare old and new content for differences."
+        },
+        {
+          "order": 2,
+          "content": "IF content is identical, return null."
+        },
+        {
+          "order": 3,
+          "content": "ELSE extract differing portions and return as patch object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0ee8da06",
+      "name": "showDiffAutomatically",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Show the diff toggle button."
+        },
+        {
+          "order": 2,
+          "content": "Render the preview with diff."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_73e348e1",
+      "name": "clearDiff",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Hide the diff toggle button."
+        },
+        {
+          "order": 2,
+          "content": "Reset the last patch information."
+        },
+        {
+          "order": 3,
+          "content": "Render the preview normally."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_af1c9588",
+      "name": "updateUndoRedoButtons",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if editor view is available."
+        },
+        {
+          "order": 2,
+          "content": "IF editor view is not available, disable undo and redo buttons."
+        },
+        {
+          "order": 3,
+          "content": "ELSE enable undo and redo buttons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a55ec810",
+      "name": "getCurrentLineInfo",
+      "enclosing_class": null,
+      "normalized_params": "(text: string, cursorPos: number): { lineStart: number; lineEnd: number; lineContent: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the text before the cursor position."
+        },
+        {
+          "order": 2,
+          "content": "Find the start of the current line."
+        },
+        {
+          "order": 3,
+          "content": "Get the text after the cursor position."
+        },
+        {
+          "order": 4,
+          "content": "Find the end of the current line."
+        },
+        {
+          "order": 5,
+          "content": "Extract the content of the current line."
+        },
+        {
+          "order": 6,
+          "content": "Return line start, end, and content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d7ec2df",
+      "name": "parseListItem",
+      "enclosing_class": null,
+      "normalized_params": "(line: string): { marker: string; content: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Match bullet list items with markers."
+        },
+        {
+          "order": 2,
+          "content": "IF bullet list match is found, return marker and content."
+        },
+        {
+          "order": 3,
+          "content": "ELSE match numbered list items with markers."
+        },
+        {
+          "order": 4,
+          "content": "IF numbered list match is found, return marker and content."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b677714",
+      "name": "findNearestHeading",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, cursorPos: number): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the text before the cursor position."
+        },
+        {
+          "order": 2,
+          "content": "Find the nearest heading position."
+        },
+        {
+          "order": 3,
+          "content": "Return the position of the nearest heading."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7cc1075",
+      "name": "escapeRegex",
+      "enclosing_class": null,
+      "normalized_params": "(string: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Escape special regex characters in the string."
+        },
+        {
+          "order": 2,
+          "content": "Return the escaped string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3dc3124a",
+      "name": "insertAtPosition",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, position: number, text: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content at the specified position."
+        },
+        {
+          "order": 2,
+          "content": "Concatenate the first part, new text, and second part."
+        },
+        {
+          "order": 3,
+          "content": "Return the updated content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

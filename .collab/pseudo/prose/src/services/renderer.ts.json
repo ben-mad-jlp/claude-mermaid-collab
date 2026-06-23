@@ -1,0 +1,179 @@
+{
+  "schema_version": 3,
+  "file": "src/services/renderer.ts",
+  "title": "Mermaid diagram renderer with JSDOM compatibility fixes",
+  "purpose": "Renders Mermaid diagrams as SVG with fixes for JSDOM's limitations in calculating text bounds and element positions. Provides thumbnail generation with caching.",
+  "module_context": "Exports a Renderer class that manages diagram rendering and caching of thumbnails. Includes utility functions for fixing SVG dimensions and viewBox in JSDOM environments.",
+  "methods": [
+    {
+      "id": "m_098b28df",
+      "name": "fixNodeDimensions",
+      "enclosing_class": null,
+      "normalized_params": "(svg: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify node groups in the SVG that contain rectangles and foreignObjects with text content."
+        },
+        {
+          "order": 2,
+          "content": "Calculate appropriate dimensions for each node based on the length of its text content."
+        },
+        {
+          "order": 3,
+          "content": "Update the dimensions of both the rectangle and foreignObject elements to match the calculated size."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3cd8a058",
+      "name": "fixEdgeLabels",
+      "enclosing_class": null,
+      "normalized_params": "(svg: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Locate edge label foreignObjects that have zero width and height."
+        },
+        {
+          "order": 2,
+          "content": "Calculate proper dimensions for each edge label based on its text content."
+        },
+        {
+          "order": 3,
+          "content": "Update the dimensions and positioning of the foreignObjects to display the labels correctly."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2452dc1a",
+      "name": "fixViewBox",
+      "enclosing_class": null,
+      "normalized_params": "(svg: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract transform attributes and element positions from the SVG to determine overall bounds."
+        },
+        {
+          "order": 2,
+          "content": "Parse rectangle and circle elements to calculate minimum and maximum coordinates."
+        },
+        {
+          "order": 3,
+          "content": "Calculate a new viewBox that encompasses all elements with appropriate padding."
+        },
+        {
+          "order": 4,
+          "content": "Update the viewBox and max-width style attributes of the SVG to reflect the calculated bounds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9353c8f8",
+      "name": "renderSVG",
+      "enclosing_class": "Renderer",
+      "normalized_params": "(content: string, theme: Theme): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the mermaid library with the specified theme and disable automatic loading."
+        },
+        {
+          "order": 2,
+          "content": "Generate the SVG diagram from the provided mermaid content."
+        },
+        {
+          "order": 3,
+          "content": "Apply fixes to node dimensions to correct JSDOM rendering issues."
+        },
+        {
+          "order": 4,
+          "content": "Apply fixes to edge labels to correct their display dimensions."
+        },
+        {
+          "order": 5,
+          "content": "Apply fixes to the viewBox to properly size the diagram for JSDOM environment."
+        },
+        {
+          "order": 6,
+          "content": "Return the fully corrected SVG string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51ae6e3f",
+      "name": "generateThumbnail",
+      "enclosing_class": "Renderer",
+      "normalized_params": "(id: string, content: string): Promise<Buffer>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a cached thumbnail exists for the given ID and return it if available."
+        },
+        {
+          "order": 2,
+          "content": "Generate the SVG diagram for the provided content using the default theme."
+        },
+        {
+          "order": 3,
+          "content": "Convert the SVG string to a UTF-8 buffer."
+        },
+        {
+          "order": 4,
+          "content": "Implement cache management by removing the oldest entry if the cache exceeds 100 items."
+        },
+        {
+          "order": 5,
+          "content": "Store the generated buffer in the cache under the provided ID."
+        },
+        {
+          "order": 6,
+          "content": "Return the generated thumbnail buffer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_90e20e5b",
+      "name": "clearCache",
+      "enclosing_class": "Renderer",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove all entries from the thumbnail cache."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/TopicEditor.tsx",
+  "title": "Topic editor component with document tabs and code editor",
+  "purpose": "Provides a form for creating or editing topics with multiple document types, code editing capabilities, and save/cancel functionality.",
+  "module_context": "Exports a TopicEditor React component that manages document state, handles user interactions, and provides save/cancel actions with verification options.",
+  "methods": [
+    {
+      "id": "m_28cff1f8",
+      "name": "getLanguageForDocType",
+      "enclosing_class": null,
+      "normalized_params": "(docType: DocumentType): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the language hint for the given document type."
+        },
+        {
+          "order": 2,
+          "content": "Always return 'markdown' regardless of the document type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c20791ce",
+      "name": "TopicEditor",
+      "enclosing_class": null,
+      "normalized_params": "(props: TopicEditorProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for documents, active tab, editor name, and saving status."
+        },
+        {
+          "order": 2,
+          "content": "Track which documents have been modified using a set."
+        },
+        {
+          "order": 3,
+          "content": "Determine if the component is in create mode based on whether a topic name is provided."
+        },
+        {
+          "order": 4,
+          "content": "Set up a memoized check for whether any documents have changed since initial load."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to handle document content changes and update the modified documents set."
+        },
+        {
+          "order": 6,
+          "content": "Define a handler for save actions that validates the editor name and calls the save callback."
+        },
+        {
+          "order": 7,
+          "content": "Define a handler for cancel actions that confirms with the user if there are unsaved changes."
+        },
+        {
+          "order": 8,
+          "content": "Render the topic editor UI with header, document tabs, code editor, and action buttons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d6bbb1da",
+      "name": "handleDocumentChange",
+      "enclosing_class": "TopicEditor",
+      "normalized_params": "(content: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the document content for the active tab."
+        },
+        {
+          "order": 2,
+          "content": "Mark the active tab as modified."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_29ed2476",
+      "name": "handleSave",
+      "enclosing_class": "TopicEditor",
+      "normalized_params": "(verify: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the editor name is provided."
+        },
+        {
+          "order": 2,
+          "content": "Set the appropriate saving state based on whether verification is requested."
+        },
+        {
+          "order": 3,
+          "content": "Call the save callback with the current documents, editor name, and verification flag."
+        },
+        {
+          "order": 4,
+          "content": "Reset the saving state after the save operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_760cc58c",
+      "name": "handleCancel",
+      "enclosing_class": "TopicEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there are unsaved changes."
+        },
+        {
+          "order": 2,
+          "content": "IF unsaved changes exist, prompt the user for confirmation before canceling."
+        },
+        {
+          "order": 3,
+          "content": "IF user confirms or there are no changes, call the cancel callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c36d933f",
+      "name": "hasChanges",
+      "enclosing_class": "TopicEditor",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "In create mode, check if any document has non-empty content."
+        },
+        {
+          "order": 2,
+          "content": "In edit mode, compare current document content with initial content."
+        },
+        {
+          "order": 3,
+          "content": "Return true if any document has changed from its initial state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

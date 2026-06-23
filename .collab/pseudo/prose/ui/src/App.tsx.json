@@ -1,0 +1,536 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/App.tsx",
+  "title": "Main application component with theme management and unified editor",
+  "purpose": "Serves as the root component that manages the application's layout, theme, session state, and provides unified editing experience for various artifact types.",
+  "module_context": "Exports a main App component that handles routing, state management, WebSocket connections, and UI rendering for diagrams, documents, designs, spreadsheets, snippets, embeds, and images with mobile and desktop layouts.",
+  "methods": [
+    {
+      "id": "m_344e0638",
+      "name": "ErrorBoundary",
+      "enclosing_class": null,
+      "normalized_params": "(props: { children: React.ReactNode }): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Catch errors in child components and display fallback UI."
+        },
+        {
+          "order": 2,
+          "content": "Render error message and reload button when an error occurs."
+        },
+        {
+          "order": 3,
+          "content": "Display the error details in the fallback UI."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad26a5d9",
+      "name": "LoadingOverlay",
+      "enclosing_class": null,
+      "normalized_params": "(props: { show: boolean }): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Display a loading spinner overlay when show is true."
+        },
+        {
+          "order": 2,
+          "content": "Show loading text and spinner in the overlay."
+        },
+        {
+          "order": 3,
+          "content": "Hide the overlay when show is false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c87af0f4",
+      "name": "App",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize mobile detection and theme state."
+        },
+        {
+          "order": 2,
+          "content": "Set up session and UI state management with Zustand stores."
+        },
+        {
+          "order": 3,
+          "content": "Load sessions and project data on component mount."
+        },
+        {
+          "order": 4,
+          "content": "Establish WebSocket connection for real-time updates."
+        },
+        {
+          "order": 5,
+          "content": "Handle incoming WebSocket messages for incremental updates."
+        },
+        {
+          "order": 6,
+          "content": "Render either mobile or desktop layout based on viewport detection."
+        },
+        {
+          "order": 7,
+          "content": "Provide unified editor experience for different artifact types."
+        },
+        {
+          "order": 8,
+          "content": "Manage auto-save functionality with 2s debounce."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6b0531dc",
+      "name": "loadProjects",
+      "enclosing_class": "App",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch registered projects from the API endpoint."
+        },
+        {
+          "order": 2,
+          "content": "Parse the response and extract project paths."
+        },
+        {
+          "order": 3,
+          "content": "Update the registered projects state with fetched data."
+        },
+        {
+          "order": 4,
+          "content": "Handle errors during project loading gracefully."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66aee03f",
+      "name": "restoreUIState",
+      "enclosing_class": "App",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch cached UI state from backend for current session."
+        },
+        {
+          "order": 2,
+          "content": "Restore UI state in chat store from cached data."
+        },
+        {
+          "order": 3,
+          "content": "Handle errors during UI state restoration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4951f804",
+      "name": "handleSave",
+      "enclosing_class": "App",
+      "normalized_params": "(content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the local store with new content for the selected item."
+        },
+        {
+          "order": 2,
+          "content": "Send update message via WebSocket if connection is active."
+        },
+        {
+          "order": 3,
+          "content": "Determine the appropriate message type based on item type."
+        },
+        {
+          "order": 4,
+          "content": "Send the update message with project, session, and content details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d3f39586",
+      "name": "handleSessionSelect",
+      "enclosing_class": "App",
+      "normalized_params": "(session: Session): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the selected session in the session store."
+        },
+        {
+          "order": 2,
+          "content": "Update the current session state with the selected session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82e3399d",
+      "name": "handleCreateSession",
+      "enclosing_class": "App",
+      "normalized_params": "(project: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a suggested session name."
+        },
+        {
+          "order": 2,
+          "content": "Set the create session dialog state with project and suggested name."
+        },
+        {
+          "order": 3,
+          "content": "Display the create session dialog."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7e96ef76",
+      "name": "handleCreateSessionConfirm",
+      "enclosing_class": "App",
+      "normalized_params": "(name: string, useRenderUI: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new session via API with provided name and UI settings."
+        },
+        {
+          "order": 2,
+          "content": "Refresh sessions list after creating new session."
+        },
+        {
+          "order": 3,
+          "content": "Select the newly created session."
+        },
+        {
+          "order": 4,
+          "content": "Handle errors during session creation."
+        },
+        {
+          "order": 5,
+          "content": "Close the create session dialog."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_441b9465",
+      "name": "handleCreateSessionClose",
+      "enclosing_class": "App",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the create session dialog state."
+        },
+        {
+          "order": 2,
+          "content": "Hide the create session dialog."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7881017c",
+      "name": "handleAddProject",
+      "enclosing_class": "App",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt user for project path."
+        },
+        {
+          "order": 2,
+          "content": "Send POST request to register the project with the API."
+        },
+        {
+          "order": 3,
+          "content": "Handle API response and display error if registration fails."
+        },
+        {
+          "order": 4,
+          "content": "Refresh projects and sessions lists after successful registration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8545c2a0",
+      "name": "handleRemoveProject",
+      "enclosing_class": "App",
+      "normalized_params": "(projectPath: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send DELETE request to remove the project from API."
+        },
+        {
+          "order": 2,
+          "content": "Handle API response and display error if removal fails."
+        },
+        {
+          "order": 3,
+          "content": "Clear current session if it belongs to the removed project."
+        },
+        {
+          "order": 4,
+          "content": "Refresh projects and sessions lists after successful removal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ede1c133",
+      "name": "handleRefreshAll",
+      "enclosing_class": "App",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Refresh projects list."
+        },
+        {
+          "order": 2,
+          "content": "Refresh sessions list."
+        },
+        {
+          "order": 3,
+          "content": "Refresh current session items if a session is selected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ee044422",
+      "name": "handleDeleteEmbed",
+      "enclosing_class": "App",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send DELETE request to remove the embed from API."
+        },
+        {
+          "order": 2,
+          "content": "Handle API response and display error if deletion fails."
+        },
+        {
+          "order": 3,
+          "content": "Remove the embed from the local store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7ff0c87",
+      "name": "handleDeleteSession",
+      "enclosing_class": "App",
+      "normalized_params": "(session: Session): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the session to be cleaned up in the cleanup dialog state."
+        },
+        {
+          "order": 2,
+          "content": "Display the session cleanup dialog."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a84bb7b2",
+      "name": "handleCleanupAction",
+      "enclosing_class": "App",
+      "normalized_params": "(action: CleanupAction): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process the cleanup action based on user selection."
+        },
+        {
+          "order": 2,
+          "content": "Archive or delete session via API based on action type."
+        },
+        {
+          "order": 3,
+          "content": "Clear current session if it was deleted or archived."
+        },
+        {
+          "order": 4,
+          "content": "Refresh sessions list after processing cleanup action."
+        },
+        {
+          "order": 5,
+          "content": "Handle errors during cleanup action processing."
+        },
+        {
+          "order": 6,
+          "content": "Close the cleanup dialog after processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_866c4b73",
+      "name": "handleCleanupClose",
+      "enclosing_class": "App",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the cleanup dialog if not processing."
+        },
+        {
+          "order": 2,
+          "content": "Prevent closing during cleanup processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8472963f",
+      "name": "handleContentChange",
+      "enclosing_class": "App",
+      "normalized_params": "(content: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the local content state with new content."
+        },
+        {
+          "order": 2,
+          "content": "Trigger auto-save with updated content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3993e44f",
+      "name": "renderMainContent",
+      "enclosing_class": "App",
+      "normalized_params": "(): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render loading state if data is loading."
+        },
+        {
+          "order": 2,
+          "content": "Render error state if data loading fails."
+        },
+        {
+          "order": 3,
+          "content": "Render task graph view when selected."
+        },
+        {
+          "order": 4,
+          "content": "Render embed viewer when embed is selected."
+        },
+        {
+          "order": 5,
+          "content": "Render image viewer when image is selected."
+        },
+        {
+          "order": 6,
+          "content": "Render pseudo viewer when pseudo path is selected."
+        },
+        {
+          "order": 7,
+          "content": "Render unified editor for documents, diagrams, snippets, designs, and spreadsheets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

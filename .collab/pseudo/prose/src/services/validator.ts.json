@@ -1,0 +1,160 @@
+{
+  "schema_version": 3,
+  "file": "src/services/validator.ts",
+  "title": "SMACH and Mermaid diagram validator with YAML parsing",
+  "purpose": "Validates diagram content to ensure it conforms to SMACH YAML structure or Mermaid syntax. Used to verify diagram integrity before processing.",
+  "module_context": "Exports an interface ValidationResult and utility functions isSmachYaml and validateSmachYaml. Contains a Validator class with an async validate method that handles both SMACH and Mermaid validation.",
+  "methods": [
+    {
+      "id": "m_c1b3e1df",
+      "name": "isSmachYaml",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test if the content matches the SMACH YAML pattern starting with 'smach_diagram:'"
+        },
+        {
+          "order": 2,
+          "content": "Return true if the pattern is found, false otherwise"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b3ed2d17",
+      "name": "validateSmachYaml",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): ValidationResult",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the YAML content into a JavaScript object"
+        },
+        {
+          "order": 2,
+          "content": "IF parsing fails, return a validation error with the parse error message"
+        },
+        {
+          "order": 3,
+          "content": "Verify that the parsed object contains a smach_diagram root"
+        },
+        {
+          "order": 4,
+          "content": "IF smach_diagram is missing, return a validation error indicating the missing root"
+        },
+        {
+          "order": 5,
+          "content": "Ensure that smach_diagram contains exactly one root StateMachine"
+        },
+        {
+          "order": 6,
+          "content": "IF multiple or no root StateMachines are found, return a validation error with details"
+        },
+        {
+          "order": 7,
+          "content": "Validate that the root StateMachine is an object"
+        },
+        {
+          "order": 8,
+          "content": "IF the root StateMachine is not an object, return a validation error"
+        },
+        {
+          "order": 9,
+          "content": "Confirm that the root StateMachine is of type StateMachine"
+        },
+        {
+          "order": 10,
+          "content": "IF the root StateMachine is not of type StateMachine, return a validation error"
+        },
+        {
+          "order": 11,
+          "content": "Ensure that the root StateMachine has at least one state"
+        },
+        {
+          "order": 12,
+          "content": "IF no states are present, return a validation error"
+        },
+        {
+          "order": 13,
+          "content": "Verify that the root StateMachine has an initial_state defined"
+        },
+        {
+          "order": 14,
+          "content": "IF initial_state is missing, return a validation error"
+        },
+        {
+          "order": 15,
+          "content": "Confirm that the root StateMachine has outcomes defined"
+        },
+        {
+          "order": 16,
+          "content": "IF outcomes are missing, return a validation error"
+        },
+        {
+          "order": 17,
+          "content": "Return a successful validation result if all checks pass"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_411e17ce",
+      "name": "validate",
+      "enclosing_class": "Validator",
+      "normalized_params": "(content: string): Promise<ValidationResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the content is empty or only whitespace, return a validation error indicating the diagram cannot be empty"
+        },
+        {
+          "order": 2,
+          "content": "Check if the content is SMACH YAML by testing for the smach_diagram pattern"
+        },
+        {
+          "order": 3,
+          "content": "IF the content is SMACH YAML, validate it using the validateSmachYaml function"
+        },
+        {
+          "order": 4,
+          "content": "ELSE attempt to dynamically import the mermaid library"
+        },
+        {
+          "order": 5,
+          "content": "IF the import fails, return a validation error indicating invalid mermaid syntax"
+        },
+        {
+          "order": 6,
+          "content": "Try to parse the diagram content using the mermaid parser"
+        },
+        {
+          "order": 7,
+          "content": "IF parsing fails, extract line number from error message if available"
+        },
+        {
+          "order": 8,
+          "content": "IF parsing fails, return a validation error with the error message and line number"
+        },
+        {
+          "order": 9,
+          "content": "Return a successful validation result if parsing succeeds"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

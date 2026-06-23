@@ -1,0 +1,71 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/pages/MissingTopicsPage.tsx",
+  "title": "Missing topics management page with navigation handler",
+  "purpose": "Displays a list of missing topics requested by users and provides navigation to create new topics. Used as a dedicated route page for topic management.",
+  "module_context": "Exports a React functional component MissingTopicsPage that wraps MissingTopicsView with layout and header. Includes a navigation callback prop for creating new topics.",
+  "methods": [
+    {
+      "id": "m_248b838c",
+      "name": "MissingTopicsPage",
+      "enclosing_class": null,
+      "normalized_params": "(props: MissingTopicsPageProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept props including optional navigation callback and class name."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to handle creating new topics."
+        },
+        {
+          "order": 3,
+          "content": "IF a navigation callback is provided, use it to navigate to the editor."
+        },
+        {
+          "order": 4,
+          "content": "ELSE use default browser navigation to the new topic page with pre-filled name."
+        },
+        {
+          "order": 5,
+          "content": "Render the page layout with header and missing topics view."
+        },
+        {
+          "order": 6,
+          "content": "Pass the create topic handler to the missing topics view component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6b40fc9f",
+      "name": "handleCreateTopic",
+      "enclosing_class": "MissingTopicsPage",
+      "normalized_params": "(topicName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a navigation callback is available."
+        },
+        {
+          "order": 2,
+          "content": "IF the callback exists, invoke it with the topic name."
+        },
+        {
+          "order": 3,
+          "content": "ELSE navigate to the new topic editor page with the topic name encoded in the URL."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

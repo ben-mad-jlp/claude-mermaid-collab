@@ -1,0 +1,67 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/ToolCardFrame.tsx",
+  "title": "Tool card component with collapsible content and status indicators",
+  "purpose": "Displays tool execution information in a collapsible card format with status badges and optional duration tracking.",
+  "module_context": "Exports a React functional component ToolCardFrame that accepts various props including name, title, status, and children. Defines helper functions for formatting duration and mapping status to CSS classes and labels.",
+  "methods": [
+    {
+      "id": "m_a62542db",
+      "name": "formatDuration",
+      "enclosing_class": null,
+      "normalized_params": "(ms: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert milliseconds to a human-readable string."
+        },
+        {
+          "order": 2,
+          "content": "IF the duration is less than 1000 milliseconds, return the rounded value with 'ms' suffix."
+        },
+        {
+          "order": 3,
+          "content": "ELSE divide by 1000, round to one decimal place, and return with 's' suffix."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_caa90490",
+      "name": "ToolCardFrame",
+      "enclosing_class": null,
+      "normalized_params": "(props: ToolCardFrameProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the collapsed state based on the defaultCollapsed prop."
+        },
+        {
+          "order": 2,
+          "content": "Construct the CSS classes for the card element including conditional styling for historical items."
+        },
+        {
+          "order": 3,
+          "content": "Render a button that toggles the collapsed state when clicked."
+        },
+        {
+          "order": 4,
+          "content": "Display the tool name, status badge, title, and duration within the button."
+        },
+        {
+          "order": 5,
+          "content": "IF the card is not collapsed, render the children content within a nested div."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

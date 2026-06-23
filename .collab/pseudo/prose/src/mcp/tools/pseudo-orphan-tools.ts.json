@@ -1,0 +1,83 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-orphan-tools.ts",
+  "title": "Pseudo orphaned prose listing and cleanup tools",
+  "purpose": "Provides functionality to list orphaned prose files and clean them up from both the file system and database.",
+  "module_context": "Exports two main functions for handling orphaned prose: listing and cleaning up. Uses a pseudo-database interface for data access.",
+  "methods": [
+    {
+      "id": "m_dff8ab18",
+      "name": "pseudo_list_orphaned_prose",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<OrphanListResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo-database handle for the given project."
+        },
+        {
+          "order": 2,
+          "content": "Query the database for all orphaned prose entries."
+        },
+        {
+          "order": 3,
+          "content": "Parse the suggestions field from each database row."
+        },
+        {
+          "order": 4,
+          "content": "Categorize each entry as either cross-branch or actual orphan."
+        },
+        {
+          "order": 5,
+          "content": "Return the categorized orphan entries in a structured result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d7b8f07",
+      "name": "pseudo_cleanup_orphaned_prose",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, files: string[], confirm: boolean): Promise<CleanupResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the confirm flag is set to true."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the pseudo-database handle for the given project."
+        },
+        {
+          "order": 3,
+          "content": "Prepare a statement for deleting entries from the orphan_prose table."
+        },
+        {
+          "order": 4,
+          "content": "For each file in the input list, attempt to delete it from the file system."
+        },
+        {
+          "order": 5,
+          "content": "Delete the corresponding database entry for each successfully removed file."
+        },
+        {
+          "order": 6,
+          "content": "Track the number of successfully deleted files and any errors encountered."
+        },
+        {
+          "order": 7,
+          "content": "Return the cleanup results including deleted count and errors."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

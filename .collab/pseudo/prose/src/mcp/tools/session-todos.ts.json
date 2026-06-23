@@ -1,0 +1,437 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/session-todos.ts",
+  "title": "Session todos management tools with file I/O and concurrency control",
+  "purpose": "Provides MCP tools for managing per-session todo items stored in JSON files with thread-safe write operations and schema validation.",
+  "module_context": "Exports type definitions for session todos and their file structure, schema definitions for all tool interfaces, and a global mutex map for coordinating concurrent file writes across projects and sessions.",
+  "methods": [
+    {
+      "id": "m_7e6f4cd2",
+      "name": "withLock",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, fn: () => Promise<T>): Promise<T>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique key from project and session identifiers."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the previous promise for this key or use a resolved promise as default."
+        },
+        {
+          "order": 3,
+          "content": "Chain the provided function to the previous promise to ensure sequential execution."
+        },
+        {
+          "order": 4,
+          "content": "Store the new promise in the mutex map and set up cleanup to remove it on resolution or rejection."
+        },
+        {
+          "order": 5,
+          "content": "Return the chained promise to ensure the function executes after previous operations complete."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b51d0870",
+      "name": "getSessionTodosPath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the file path for session todos using project root, collab directory, sessions subdirectory, session name, and the todos filename."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c3a4436",
+      "name": "readSessionTodosFile",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<SessionTodosFile>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the file path for the session todos file."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to read the file content as UTF-8 text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the file content as JSON and validate its structure."
+        },
+        {
+          "order": 4,
+          "content": "IF parsing fails or the structure is invalid, return a default empty todos file."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the parsed todos file with validated structure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84acf6ef",
+      "name": "writeSessionTodosFile",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, data: SessionTodosFile): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the file path for the session todos file."
+        },
+        {
+          "order": 2,
+          "content": "Create the directory path for the file if it does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Serialize the data to JSON with indentation and write it to the file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e2aa08c",
+      "name": "nowIso",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the current timestamp in ISO format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1ca2af33",
+      "name": "listSessionTodos",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, opts: ListSessionTodosOptions): Promise<SessionTodo[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the session todos file for the specified project and session."
+        },
+        {
+          "order": 2,
+          "content": "Filter the todos based on whether completed items should be included."
+        },
+        {
+          "order": 3,
+          "content": "Sort the filtered todos by their order property."
+        },
+        {
+          "order": 4,
+          "content": "Return the sorted list of todos."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6c1619fd",
+      "name": "addSessionTodo",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, text: string): Promise<SessionTodo>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the input text and validate that it is not empty."
+        },
+        {
+          "order": 2,
+          "content": "Acquire a lock for the project and session to prevent concurrent writes."
+        },
+        {
+          "order": 3,
+          "content": "Read the current session todos file."
+        },
+        {
+          "order": 4,
+          "content": "Determine the maximum order value among existing todos."
+        },
+        {
+          "order": 5,
+          "content": "Create a new todo with the provided text, default properties, and calculated order."
+        },
+        {
+          "order": 6,
+          "content": "Add the new todo to the todos list and increment the next id."
+        },
+        {
+          "order": 7,
+          "content": "Write the updated todos file back to disk."
+        },
+        {
+          "order": 8,
+          "content": "Return the newly created todo."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b5543dfd",
+      "name": "updateSessionTodo",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: number, updates: { text?: string; completed?: boolean; order?: number }): Promise<SessionTodo>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the text if it is provided in updates and validate that it is not empty."
+        },
+        {
+          "order": 2,
+          "content": "Acquire a lock for the project and session to prevent concurrent writes."
+        },
+        {
+          "order": 3,
+          "content": "Read the current session todos file."
+        },
+        {
+          "order": 4,
+          "content": "Find the todo with the specified id."
+        },
+        {
+          "order": 5,
+          "content": "IF the todo is not found, throw an error."
+        },
+        {
+          "order": 6,
+          "content": "Update the todo's properties with the provided values."
+        },
+        {
+          "order": 7,
+          "content": "Update the todo's last modified timestamp."
+        },
+        {
+          "order": 8,
+          "content": "Write the updated todos file back to disk."
+        },
+        {
+          "order": 9,
+          "content": "Return the updated todo."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0bc83019",
+      "name": "toggleSessionTodo",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: number, completed?: boolean): Promise<SessionTodo>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Acquire a lock for the project and session to prevent concurrent writes."
+        },
+        {
+          "order": 2,
+          "content": "Read the current session todos file."
+        },
+        {
+          "order": 3,
+          "content": "Find the todo with the specified id."
+        },
+        {
+          "order": 4,
+          "content": "IF the todo is not found, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Determine the next completion state based on provided value or toggle current state."
+        },
+        {
+          "order": 6,
+          "content": "Update the todo's completion state."
+        },
+        {
+          "order": 7,
+          "content": "Update the todo's last modified timestamp."
+        },
+        {
+          "order": 8,
+          "content": "Write the updated todos file back to disk."
+        },
+        {
+          "order": 9,
+          "content": "Return the updated todo."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_109fa1c3",
+      "name": "removeSessionTodo",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: number): Promise<SessionTodo>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Acquire a lock for the project and session to prevent concurrent writes."
+        },
+        {
+          "order": 2,
+          "content": "Read the current session todos file."
+        },
+        {
+          "order": 3,
+          "content": "Find the index of the todo with the specified id."
+        },
+        {
+          "order": 4,
+          "content": "IF the todo is not found, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Remove the todo from the todos list."
+        },
+        {
+          "order": 6,
+          "content": "Write the updated todos file back to disk."
+        },
+        {
+          "order": 7,
+          "content": "Return the removed todo."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c2add8ed",
+      "name": "clearCompletedSessionTodos",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<ClearCompletedResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Acquire a lock for the project and session to prevent concurrent writes."
+        },
+        {
+          "order": 2,
+          "content": "Read the current session todos file."
+        },
+        {
+          "order": 3,
+          "content": "Count the number of todos before filtering."
+        },
+        {
+          "order": 4,
+          "content": "Filter out completed todos from the todos list."
+        },
+        {
+          "order": 5,
+          "content": "Calculate the number of removed todos."
+        },
+        {
+          "order": 6,
+          "content": "IF any todos were removed, write the updated todos file back to disk."
+        },
+        {
+          "order": 7,
+          "content": "Return the count of removed todos."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a417e6c2",
+      "name": "reorderSessionTodos",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, orderedIds: number[]): Promise<SessionTodo[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Acquire a lock for the project and session to prevent concurrent writes."
+        },
+        {
+          "order": 2,
+          "content": "Read the current session todos file."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the orderedIds array matches the number of existing todos."
+        },
+        {
+          "order": 4,
+          "content": "Validate that orderedIds contains no duplicates."
+        },
+        {
+          "order": 5,
+          "content": "Validate that orderedIds contains only existing todo ids."
+        },
+        {
+          "order": 6,
+          "content": "Update the order and timestamp properties of todos based on the orderedIds."
+        },
+        {
+          "order": 7,
+          "content": "Reorder the todos list according to orderedIds."
+        },
+        {
+          "order": 8,
+          "content": "Write the updated todos file back to disk."
+        },
+        {
+          "order": 9,
+          "content": "Return the reordered list of todos."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

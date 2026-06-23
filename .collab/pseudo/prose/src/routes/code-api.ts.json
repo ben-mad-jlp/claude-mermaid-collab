@@ -1,0 +1,594 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/code-api.ts",
+  "title": "Code API routes for project file operations, snippet management, and search",
+  "purpose": "Provides REST endpoints for listing project files, pushing/pulling snippet code to/from disk, computing diffs, and performing cross-artifact searches.",
+  "module_context": "Exports a main handler function 'handleCodeAPI' that routes requests to specific endpoint handlers based on path and HTTP method. Uses session and project registries for validation, SnippetManager for snippet operations, and WebSocket handler for broadcasting updates.",
+  "methods": [
+    {
+      "id": "m_4dba92f5",
+      "name": "handleCodeAPI",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract project and session parameters from the request URL."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the project parameter is present."
+        },
+        {
+          "order": 3,
+          "content": "Route GET /files requests to the file listing handler."
+        },
+        {
+          "order": 4,
+          "content": "Route POST /push/:id requests to the push-to-file handler."
+        },
+        {
+          "order": 5,
+          "content": "Route POST /sync/:id requests to the sync-from-disk handler."
+        },
+        {
+          "order": 6,
+          "content": "Route POST /proposed-edit/:id/accept requests to the accept proposed edit handler."
+        },
+        {
+          "order": 7,
+          "content": "Route POST /proposed-edit/:id/reject requests to the reject proposed edit handler."
+        },
+        {
+          "order": 8,
+          "content": "Route POST /proposed-edit/:id requests to the create/replace proposed edit handler."
+        },
+        {
+          "order": 9,
+          "content": "Route GET /diff/:id requests to the diff computation handler."
+        },
+        {
+          "order": 10,
+          "content": "Route POST /search requests to the code search handler."
+        },
+        {
+          "order": 11,
+          "content": "Return a 404 error for unrecognized routes."
+        },
+        {
+          "order": 12,
+          "content": "Catch and return a 500 error for any unhandled exceptions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_385789a2",
+      "name": "isKnownProject",
+      "enclosing_class": null,
+      "normalized_params": "(projectPath: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Normalize the candidate project path using resolve."
+        },
+        {
+          "order": 2,
+          "content": "Check if the project exists in projects.json by comparing resolved paths."
+        },
+        {
+          "order": 3,
+          "content": "IF the project is not found in projects.json, check sessions.json for matching sessions."
+        },
+        {
+          "order": 4,
+          "content": "Return true if a matching project is found in either registry, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e2e1253c",
+      "name": "handleListProjectFiles",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, dirPath?: string): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the project path is absolute."
+        },
+        {
+          "order": 2,
+          "content": "Verify that the project is a known/registered project."
+        },
+        {
+          "order": 3,
+          "content": "Normalize the directory path to be relative to the project root."
+        },
+        {
+          "order": 4,
+          "content": "Resolve the target directory path."
+        },
+        {
+          "order": 5,
+          "content": "Validate that the target directory is within the project root using path security checks."
+        },
+        {
+          "order": 6,
+          "content": "Read the directory entries from disk."
+        },
+        {
+          "order": 7,
+          "content": "Filter out excluded names and construct file entry objects with metadata."
+        },
+        {
+          "order": 8,
+          "content": "Sort the entries with directories first, then alphabetically within each group."
+        },
+        {
+          "order": 9,
+          "content": "Return the list of file entries as a JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_daac5ebf",
+      "name": "handlePushToFile",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the snippets directory path for the session."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the snippet manager for the session."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the snippet by ID."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the snippet is linked to a file."
+        },
+        {
+          "order": 5,
+          "content": "Validate that the file path is under the project root."
+        },
+        {
+          "order": 6,
+          "content": "Write the snippet's code to the linked file on disk."
+        },
+        {
+          "order": 7,
+          "content": "Update the snippet envelope with new code, mark as clean, and record push time."
+        },
+        {
+          "order": 8,
+          "content": "Save the updated snippet back to storage."
+        },
+        {
+          "order": 9,
+          "content": "Broadcast a snippet_updated event to connected clients."
+        },
+        {
+          "order": 10,
+          "content": "Return a success response with file path and bytes written."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cb7fc9cc",
+      "name": "handleCreateProposedEdit",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, body: { newCode?: unknown; message?: unknown }): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the newCode in the request body is a string."
+        },
+        {
+          "order": 2,
+          "content": "Resolve the snippets directory path for the session."
+        },
+        {
+          "order": 3,
+          "content": "Initialize the snippet manager for the session."
+        },
+        {
+          "order": 4,
+          "content": "Retrieve the snippet by ID."
+        },
+        {
+          "order": 5,
+          "content": "Validate that the snippet is linked to a file."
+        },
+        {
+          "order": 6,
+          "content": "Short-circuit if the proposed code matches the current code exactly."
+        },
+        {
+          "order": 7,
+          "content": "Replace any existing proposed edit with the new one."
+        },
+        {
+          "order": 8,
+          "content": "Save the updated snippet with the new proposed edit."
+        },
+        {
+          "order": 9,
+          "content": "Broadcast a snippet_updated event to connected clients."
+        },
+        {
+          "order": 10,
+          "content": "Return a success response indicating whether a new proposal was created."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6d15da13",
+      "name": "handleAcceptProposedEdit",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the snippets directory path for the session."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the snippet manager for the session."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the snippet by ID."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the snippet is linked to a file."
+        },
+        {
+          "order": 5,
+          "content": "Validate that there is a pending proposed edit to accept."
+        },
+        {
+          "order": 6,
+          "content": "Update the snippet code with the proposed edit content."
+        },
+        {
+          "order": 7,
+          "content": "Mark the snippet as clean or dirty based on code changes."
+        },
+        {
+          "order": 8,
+          "content": "Remove the proposed edit from the snippet envelope."
+        },
+        {
+          "order": 9,
+          "content": "Save the updated snippet."
+        },
+        {
+          "order": 10,
+          "content": "Broadcast a snippet_updated event to connected clients."
+        },
+        {
+          "order": 11,
+          "content": "Return a success response indicating the new dirty state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6c05f2bc",
+      "name": "handleRejectProposedEdit",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the snippets directory path for the session."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the snippet manager for the session."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the snippet by ID."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the snippet is linked to a file."
+        },
+        {
+          "order": 5,
+          "content": "Idempotently handle the case where no proposed edit exists."
+        },
+        {
+          "order": 6,
+          "content": "Remove the proposed edit from the snippet envelope."
+        },
+        {
+          "order": 7,
+          "content": "Save the updated snippet."
+        },
+        {
+          "order": 8,
+          "content": "Broadcast a snippet_updated event to connected clients."
+        },
+        {
+          "order": 9,
+          "content": "Return a success response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_955f7d30",
+      "name": "handleSyncFromDisk",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the snippets directory path for the session."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the snippet manager for the session."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the snippet by ID."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the snippet is linked to a file."
+        },
+        {
+          "order": 5,
+          "content": "Validate that the file path is under the project root."
+        },
+        {
+          "order": 6,
+          "content": "Read the file content from disk."
+        },
+        {
+          "order": 7,
+          "content": "Handle the case where the file has been deleted."
+        },
+        {
+          "order": 8,
+          "content": "Compare disk content with last known disk content."
+        },
+        {
+          "order": 9,
+          "content": "Compare local code with original code to detect local edits."
+        },
+        {
+          "order": 10,
+          "content": "Update disk code and sync timestamp in the snippet envelope."
+        },
+        {
+          "order": 11,
+          "content": "Automatically sync if disk changed and no local edits exist."
+        },
+        {
+          "order": 12,
+          "content": "Save the updated snippet."
+        },
+        {
+          "order": 13,
+          "content": "Broadcast a snippet_updated event to connected clients."
+        },
+        {
+          "order": 14,
+          "content": "Return a response indicating the sync results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1ac113aa",
+      "name": "handleGetDiff",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the snippets directory path for the session."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the snippet manager for the session."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the snippet by ID."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the snippet is linked to a file."
+        },
+        {
+          "order": 5,
+          "content": "Extract code, original code, disk code, and file name from the snippet envelope."
+        },
+        {
+          "order": 6,
+          "content": "Compute unified diffs between local vs original and local vs disk."
+        },
+        {
+          "order": 7,
+          "content": "Return the computed diffs as a JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_36c2eab8",
+      "name": "handleCodeSearch",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, body: { query?: unknown; limit?: unknown }): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the search query is a non-empty string."
+        },
+        {
+          "order": 2,
+          "content": "Normalize the search query and limit parameters."
+        },
+        {
+          "order": 3,
+          "content": "Perform pseudo full-text search using the pseudo database."
+        },
+        {
+          "order": 4,
+          "content": "Gather results from the pseudo search and add them to the result list."
+        },
+        {
+          "order": 5,
+          "content": "Search through linked snippet content for matches."
+        },
+        {
+          "order": 6,
+          "content": "Gather results from the snippet search and add them to the result list."
+        },
+        {
+          "order": 7,
+          "content": "Return the combined search results with truncation status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_121f9e66",
+      "name": "htmlEscape",
+      "enclosing_class": null,
+      "normalized_params": "(s: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace ampersand characters with HTML entity."
+        },
+        {
+          "order": 2,
+          "content": "Replace less-than characters with HTML entity."
+        },
+        {
+          "order": 3,
+          "content": "Replace greater-than characters with HTML entity."
+        },
+        {
+          "order": 4,
+          "content": "Replace double quote characters with HTML entity."
+        },
+        {
+          "order": 5,
+          "content": "Replace single quote characters with HTML entity."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_698ba1b7",
+      "name": "escapePseudoSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(snippet: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace literal <mark> tokens with sentinel characters."
+        },
+        {
+          "order": 2,
+          "content": "HTML-escape the entire string."
+        },
+        {
+          "order": 3,
+          "content": "Replace sentinel characters back with real <mark> tags."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2203d2f5",
+      "name": "jsonError",
+      "enclosing_class": null,
+      "normalized_params": "(message: string, status: number): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a JSON response object with the error message."
+        },
+        {
+          "order": 2,
+          "content": "Set the HTTP status code on the response."
+        },
+        {
+          "order": 3,
+          "content": "Return the formatted error response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

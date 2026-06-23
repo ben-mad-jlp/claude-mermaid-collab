@@ -1,0 +1,311 @@
+{
+  "schema_version": 3,
+  "file": "src/services/image-manager.ts",
+  "title": "Image manager with metadata and file storage",
+  "purpose": "Manages image files with metadata tracking, including creation, listing, retrieval, and deletion operations.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_4b1ae6df",
+      "name": "initialize",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the base directory exists for storing images."
+        },
+        {
+          "order": 2,
+          "content": "Read all files from the base directory."
+        },
+        {
+          "order": 3,
+          "content": "For each file ending in .meta.json, parse its metadata."
+        },
+        {
+          "order": 4,
+          "content": "IF parsing succeeds, store the metadata in the index map."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing fails due to corruption, skip that metadata file."
+        },
+        {
+          "order": 6,
+          "content": "IF the directory doesn't exist, initialize an empty index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_367ff59e",
+      "name": "create",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(params: { name: string; buffer: Buffer; mimeType: string }): Promise<Image>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the provided mime type is allowed."
+        },
+        {
+          "order": 2,
+          "content": "IF the mime type is not allowed, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the image buffer size is within the maximum limit."
+        },
+        {
+          "order": 4,
+          "content": "IF the buffer size exceeds the limit, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Sanitize the image name to create a base identifier."
+        },
+        {
+          "order": 6,
+          "content": "Generate a unique identifier for the image by appending suffixes if needed."
+        },
+        {
+          "order": 7,
+          "content": "Attempt to create the metadata file with exclusive access."
+        },
+        {
+          "order": 8,
+          "content": "IF the metadata file already exists, increment the suffix and retry."
+        },
+        {
+          "order": 9,
+          "content": "IF too many collisions occur, throw an error."
+        },
+        {
+          "order": 10,
+          "content": "Store the metadata in the index map."
+        },
+        {
+          "order": 11,
+          "content": "Write the binary image data to disk."
+        },
+        {
+          "order": 12,
+          "content": "Return the image object with metadata and path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51d2ca52",
+      "name": "list",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(): Promise<ImageListItem[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all entries in the index map."
+        },
+        {
+          "order": 2,
+          "content": "Construct a list item for each metadata entry."
+        },
+        {
+          "order": 3,
+          "content": "Sort the list items by uploaded time in descending order."
+        },
+        {
+          "order": 4,
+          "content": "Return the sorted list of image items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b07ee96b",
+      "name": "get",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(id: string): Promise<Image | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the metadata for the specified image ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata exists, return null."
+        },
+        {
+          "order": 3,
+          "content": "Construct and return an image object from the metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9556346",
+      "name": "getContent",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(id: string): Promise<{ buffer: Buffer; mimeType: string } | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the metadata for the specified image ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata exists, return null."
+        },
+        {
+          "order": 3,
+          "content": "Read the binary data from the file path stored in metadata."
+        },
+        {
+          "order": 4,
+          "content": "IF reading fails, return null."
+        },
+        {
+          "order": 5,
+          "content": "Return the binary buffer and mime type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d1f01bfa",
+      "name": "delete",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the metadata for the specified image ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata exists, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Delete the binary file associated with the image."
+        },
+        {
+          "order": 4,
+          "content": "IF deletion of the binary fails, tolerate the error."
+        },
+        {
+          "order": 5,
+          "content": "Delete the metadata file associated with the image."
+        },
+        {
+          "order": 6,
+          "content": "IF deletion of the metadata fails, tolerate the error."
+        },
+        {
+          "order": 7,
+          "content": "Remove the image entry from the index map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b10e6c7f",
+      "name": "hasImage",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the specified image ID exists in the index map."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the ID exists, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e04e3520",
+      "name": "getIndexSize",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the number of entries in the index map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6238918f",
+      "name": "reset",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all entries from the index map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e862e9f",
+      "name": "mimeTypeToExt",
+      "enclosing_class": "ImageManager",
+      "normalized_params": "(mimeType: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the provided mime type to its corresponding file extension."
+        },
+        {
+          "order": 2,
+          "content": "IF no mapping exists, return 'bin' as the default extension."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/LinkAndNavigateDialog.tsx",
+  "title": "Dialog component for confirming file linking and navigation",
+  "purpose": "Provides a modal dialog that asks users to confirm linking an unlinked source file and navigating to a target location, used in cross-file navigation and global search features.",
+  "module_context": "Exports a React functional component named LinkAndNavigateDialog that accepts props for controlling visibility, handling user actions, and displaying candidate file information. Includes a helper function basename for extracting filenames from paths.",
+  "methods": [
+    {
+      "id": "m_ce3e2488",
+      "name": "basename",
+      "enclosing_class": null,
+      "normalized_params": "(p: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the input path string by forward slashes."
+        },
+        {
+          "order": 2,
+          "content": "Return the last element of the split array as the filename."
+        },
+        {
+          "order": 3,
+          "content": "IF the split results in an empty array, return the original path string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59b3754d",
+      "name": "LinkAndNavigateDialog",
+      "enclosing_class": null,
+      "normalized_params": "(props: LinkAndNavigateDialogProps): React.ReactElement | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize internal state for processing status and error messages."
+        },
+        {
+          "order": 2,
+          "content": "Set up a keyboard event listener to close the dialog on escape key press."
+        },
+        {
+          "order": 3,
+          "content": "Reset internal state when the dialog opens."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback function to handle confirmation actions."
+        },
+        {
+          "order": 5,
+          "content": "IF the dialog is not open or no candidate is provided, return null."
+        },
+        {
+          "order": 6,
+          "content": "Extract the filename and line information from the candidate."
+        },
+        {
+          "order": 7,
+          "content": "Render the dialog UI with header, body, and footer sections."
+        },
+        {
+          "order": 8,
+          "content": "Display the file linking confirmation message and source path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9a2cf6af",
+      "name": "handleConfirm",
+      "enclosing_class": "LinkAndNavigateDialog",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF already processing, return early to prevent duplicate actions."
+        },
+        {
+          "order": 2,
+          "content": "Set the processing state to true and clear any previous error messages."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to execute the parent-provided confirmation function."
+        },
+        {
+          "order": 4,
+          "content": "IF the confirmation succeeds, allow the parent component to handle closing."
+        },
+        {
+          "order": 5,
+          "content": "IF the confirmation fails, capture the error and reset processing state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

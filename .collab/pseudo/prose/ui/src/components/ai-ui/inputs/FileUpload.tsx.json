@@ -1,0 +1,225 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/FileUpload.tsx",
+  "title": "File upload component with drag-and-drop support",
+  "purpose": "Provides a reusable file upload UI component with validation, drag-and-drop functionality, and file size limits.",
+  "module_context": "Exports a React functional component FileUpload that accepts various props for customization and handles file selection, validation, and display of selected files.",
+  "methods": [
+    {
+      "id": "m_2cee7b94",
+      "name": "validateFiles",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(files: FileList): { valid: boolean; error?: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a maximum file size limit is defined."
+        },
+        {
+          "order": 2,
+          "content": "For each file in the list, verify that its size does not exceed the maximum limit."
+        },
+        {
+          "order": 3,
+          "content": "IF any file exceeds the limit, return an error message indicating the oversized file."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return a valid status with no error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_962e9399",
+      "name": "handleFiles",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(files: FileList | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no files are provided, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "Validate the provided files against size limits."
+        },
+        {
+          "order": 3,
+          "content": "IF validation fails, set the error state and return."
+        },
+        {
+          "order": 4,
+          "content": "ELSE clear any previous error state."
+        },
+        {
+          "order": 5,
+          "content": "Update the selected files state with the validated files."
+        },
+        {
+          "order": 6,
+          "content": "Notify the parent component of the file selection via the onChange callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_73653417",
+      "name": "handleDrop",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(e: React.DragEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag-and-drop behavior."
+        },
+        {
+          "order": 2,
+          "content": "Stop event propagation to prevent parent handlers from firing."
+        },
+        {
+          "order": 3,
+          "content": "Reset the drag active state to false."
+        },
+        {
+          "order": 4,
+          "content": "IF the component is disabled, return without processing files."
+        },
+        {
+          "order": 5,
+          "content": "Process the dropped files through the standard file handling logic."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5c5eca3",
+      "name": "handleDragOver",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(e: React.DragEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag-and-drop behavior."
+        },
+        {
+          "order": 2,
+          "content": "Stop event propagation to prevent parent handlers from firing."
+        },
+        {
+          "order": 3,
+          "content": "IF the component is not disabled, set the drag active state to true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6285f3ff",
+      "name": "handleDragLeave",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(e: React.DragEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag-and-drop behavior."
+        },
+        {
+          "order": 2,
+          "content": "Stop event propagation to prevent parent handlers from firing."
+        },
+        {
+          "order": 3,
+          "content": "Reset the drag active state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_696c4f32",
+      "name": "handleInputChange",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the files from the input change event."
+        },
+        {
+          "order": 2,
+          "content": "Process the selected files through the standard file handling logic."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11f35b3d",
+      "name": "handleClick",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the component is not disabled, programmatically trigger a click on the hidden file input."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d34c0510",
+      "name": "formatFileSize",
+      "enclosing_class": "FileUpload",
+      "normalized_params": "(bytes: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert bytes to a human-readable format with appropriate units."
+        },
+        {
+          "order": 2,
+          "content": "IF bytes are less than 1024, return the value in bytes."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF bytes are less than 1024 kilobytes, return the value in kilobytes."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return the value in megabytes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

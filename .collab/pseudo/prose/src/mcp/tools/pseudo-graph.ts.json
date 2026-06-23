@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-graph.ts",
+  "title": "MCP tools for pseudo-import graph, call chain, and stats delta",
+  "purpose": "Provides tools to analyze project dependencies, method call relationships, and statistical changes between scan runs.",
+  "module_context": "Exports three MCP tool functions: pseudo_import_graph for file dependency analysis, pseudo_call_chain for method call hierarchy traversal, and pseudo_stats_delta for change statistics between scan runs.",
+  "methods": [
+    {
+      "id": "m_71f4e6e6",
+      "name": "pseudo_import_graph",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, file: string): Promise<ImportGraphResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Query the database for files directly imported by the given file."
+        },
+        {
+          "order": 3,
+          "content": "Query the database for files that import the given file."
+        },
+        {
+          "order": 4,
+          "content": "Construct and return the import graph result with imports and imported_by lists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_95728f2c",
+      "name": "pseudo_call_chain",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, methodId: string, opts: CallChainOptions): Promise<CallChainNode[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Set the maximum traversal depth based on options or default to 3."
+        },
+        {
+          "order": 3,
+          "content": "Initialize result array and tracking structures for visited nodes and queue."
+        },
+        {
+          "order": 4,
+          "content": "Add the starting method to the traversal queue."
+        },
+        {
+          "order": 5,
+          "content": "Process nodes in the queue while maintaining depth limits and visited tracking."
+        },
+        {
+          "order": 6,
+          "content": "IF traversing callees, query for methods called by the current method."
+        },
+        {
+          "order": 7,
+          "content": "IF traversing callers, query for methods that call the current method."
+        },
+        {
+          "order": 8,
+          "content": "Add discovered methods to the queue for further traversal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aa11ed92",
+      "name": "pseudo_stats_delta",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, sinceRunId: number): Promise<StatsDelta>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Query the database for the most recent scan run ID."
+        },
+        {
+          "order": 3,
+          "content": "Count the number of scan errors since the specified run ID."
+        },
+        {
+          "order": 4,
+          "content": "Construct and return the statistics delta result with run IDs and error counts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

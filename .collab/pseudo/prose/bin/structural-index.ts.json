@@ -1,0 +1,132 @@
+{
+  "schema_version": 3,
+  "file": "bin/structural-index.ts",
+  "title": "Git pre-commit hook for structural indexing of staged source files",
+  "purpose": "Processes staged source files by scanning them for structural information, updating a pseudo-database, and ensuring the database changes are committed with the current changes.",
+  "module_context": "This module is a command-line script executed by a git pre-commit hook. It uses child process execution to interact with git, manages file system operations for logging and database updates, and integrates with source scanning and pseudo-database services.",
+  "methods": [
+    {
+      "id": "m_2b9ea9f8",
+      "name": "logError",
+      "enclosing_class": null,
+      "normalized_params": "(msg: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the log directory exists for the project."
+        },
+        {
+          "order": 2,
+          "content": "Construct the path to the structural index log file."
+        },
+        {
+          "order": 3,
+          "content": "Append the error message with timestamp to the log file."
+        },
+        {
+          "order": 4,
+          "content": "Silently ignore any failures during logging."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_190aaf67",
+      "name": "getStagedFiles",
+      "enclosing_class": null,
+      "normalized_params": "(): { modified: string[]; deleted: string[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute git command to list modified and added files in the staged changes."
+        },
+        {
+          "order": 2,
+          "content": "Parse the output of the git command into an array of modified file paths."
+        },
+        {
+          "order": 3,
+          "content": "Execute git command to list deleted files in the staged changes."
+        },
+        {
+          "order": 4,
+          "content": "Parse the output of the git command into an array of deleted file paths."
+        },
+        {
+          "order": 5,
+          "content": "IF git commands fail, log the error and return empty arrays."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a15a66de",
+      "name": "main",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the list of modified and deleted staged files."
+        },
+        {
+          "order": 2,
+          "content": "IF there are no modified or deleted files, exit the process."
+        },
+        {
+          "order": 3,
+          "content": "Initialize the pseudo-database instance for the project."
+        },
+        {
+          "order": 4,
+          "content": "Process each modified file by checking its extension and scanning its content."
+        },
+        {
+          "order": 5,
+          "content": "IF scanning succeeds, upsert the structural data into the pseudo-database."
+        },
+        {
+          "order": 6,
+          "content": "IF scanning fails, log the error and continue with the next file."
+        },
+        {
+          "order": 7,
+          "content": "Process each deleted file by checking its extension and removing its data from the pseudo-database."
+        },
+        {
+          "order": 8,
+          "content": "IF deletion fails, log the error and continue with the next file."
+        },
+        {
+          "order": 9,
+          "content": "Checkpoint the write-ahead log of the pseudo-database."
+        },
+        {
+          "order": 10,
+          "content": "Stage the updated database file in git for inclusion in the commit."
+        },
+        {
+          "order": 11,
+          "content": "Log the number of files updated and removed from the index."
+        },
+        {
+          "order": 12,
+          "content": "Exit the process with success code."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

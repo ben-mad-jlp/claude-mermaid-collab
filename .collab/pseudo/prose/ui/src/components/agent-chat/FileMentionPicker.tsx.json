@@ -1,0 +1,166 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/FileMentionPicker.tsx",
+  "title": "File mention picker component with fuzzy search and keyboard navigation",
+  "purpose": "Provides a dropdown picker for selecting files to mention in chat, with fuzzy filtering and keyboard navigation support.",
+  "module_context": "Exports a React component FileMentionPicker that handles file selection and displays a list of matching files based on user input. Includes debounced API fetching when no files prop is provided.",
+  "methods": [
+    {
+      "id": "m_290a0eed",
+      "name": "fuzzyFilter",
+      "enclosing_class": null,
+      "normalized_params": "(items: string[], query: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return all items if query is empty."
+        },
+        {
+          "order": 2,
+          "content": "Convert query to lowercase for case-insensitive matching."
+        },
+        {
+          "order": 3,
+          "content": "Filter items to include only those containing the query string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8a68e1b2",
+      "name": "FileMentionPicker",
+      "enclosing_class": null,
+      "normalized_params": "(props: FileMentionPickerProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for fetched files and active selection index."
+        },
+        {
+          "order": 2,
+          "content": "Set up debounced API call to fetch files when no files prop is provided."
+        },
+        {
+          "order": 3,
+          "content": "Apply fuzzy filtering to either provided files or fetched files based on query."
+        },
+        {
+          "order": 4,
+          "content": "Reset active index when results change."
+        },
+        {
+          "order": 5,
+          "content": "Handle keyboard navigation for arrow keys and enter/escape."
+        },
+        {
+          "order": 6,
+          "content": "Render empty state or file list based on results availability."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7e5a11be",
+      "name": "useEffect",
+      "enclosing_class": "FileMentionPicker",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set up debounced fetch when no files prop is provided."
+        },
+        {
+          "order": 2,
+          "content": "Clear previous timeout before setting new one."
+        },
+        {
+          "order": 3,
+          "content": "Make API request to fetch files matching the query."
+        },
+        {
+          "order": 4,
+          "content": "Process API response to extract file paths."
+        },
+        {
+          "order": 5,
+          "content": "Handle API errors by setting empty file list."
+        },
+        {
+          "order": 6,
+          "content": "Clean up timeout on component unmount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ddef05ef",
+      "name": "useMemo",
+      "enclosing_class": "FileMentionPicker",
+      "normalized_params": "(): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Apply fuzzy filter to provided files if available."
+        },
+        {
+          "order": 2,
+          "content": "Apply fuzzy filter to fetched files if no files prop provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7e5a11be",
+      "name": "useEffect",
+      "enclosing_class": "FileMentionPicker",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set up keyboard event listener for navigation and selection."
+        },
+        {
+          "order": 2,
+          "content": "Handle down arrow key to move selection down."
+        },
+        {
+          "order": 3,
+          "content": "Handle up arrow key to move selection up."
+        },
+        {
+          "order": 4,
+          "content": "Handle enter key to select active item."
+        },
+        {
+          "order": 5,
+          "content": "Handle escape key to dismiss picker."
+        },
+        {
+          "order": 6,
+          "content": "Clean up keyboard event listener on component unmount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

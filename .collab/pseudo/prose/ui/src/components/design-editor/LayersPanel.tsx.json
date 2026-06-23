@@ -1,0 +1,178 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/design-editor/LayersPanel.tsx",
+  "title": "Layers panel component for design editor with tree view and selection",
+  "purpose": "Provides a collapsible tree view of scene graph nodes for selecting and managing layers in the design editor. Supports visibility toggling and expand/collapse functionality.",
+  "module_context": "Exports a React functional component LayersPanel that renders a tree view of scene graph nodes with type icons, visibility indicators, and selection handling. Uses Zustand for state management and zustand/react/shallow for shallow equality checks.",
+  "methods": [
+    {
+      "id": "m_b4b42539",
+      "name": "LayersPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: LayersPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract selected IDs, scene version, and current page ID from the design editor store."
+        },
+        {
+          "order": 2,
+          "content": "Initialize a set to track expanded nodes."
+        },
+        {
+          "order": 3,
+          "content": "Derive the layer items for display by walking the scene graph and building a flat list with depth information."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback to toggle node expansion state."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to handle layer selection on click."
+        },
+        {
+          "order": 6,
+          "content": "Define a callback to toggle node visibility."
+        },
+        {
+          "order": 7,
+          "content": "Render the panel header with close button if provided."
+        },
+        {
+          "order": 8,
+          "content": "Render the list of layers with appropriate styling and interactive elements."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_260f3a17",
+      "name": "walk",
+      "enclosing_class": "LayersPanel",
+      "normalized_params": "(parentId: string, depth: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the parent node from the scene graph."
+        },
+        {
+          "order": 2,
+          "content": "Skip processing if the parent node does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Reverse the order of child IDs to display top layers first."
+        },
+        {
+          "order": 4,
+          "content": "Process each child node in the reversed list."
+        },
+        {
+          "order": 5,
+          "content": "Skip processing if the child node does not exist."
+        },
+        {
+          "order": 6,
+          "content": "Determine if the child node has children."
+        },
+        {
+          "order": 7,
+          "content": "Add the child node information to the result list."
+        },
+        {
+          "order": 8,
+          "content": "Recursively walk the child node if it has children and is expanded."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_37e9bfd6",
+      "name": "toggleExpand",
+      "enclosing_class": "LayersPanel",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new set of expanded IDs based on the previous state."
+        },
+        {
+          "order": 2,
+          "content": "IF the ID is already in the set, remove it to collapse."
+        },
+        {
+          "order": 3,
+          "content": "ELSE add the ID to expand it."
+        },
+        {
+          "order": 4,
+          "content": "Update the expanded state with the new set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e1fdc8de",
+      "name": "handleClick",
+      "enclosing_class": "LayersPanel",
+      "normalized_params": "(id: string, e: React.MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the clicked layer ID in the design editor store."
+        },
+        {
+          "order": 2,
+          "content": "Pass the shift key state to enable additive selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_471862d7",
+      "name": "toggleVisibility",
+      "enclosing_class": "LayersPanel",
+      "normalized_params": "(id: string, e: React.MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop event propagation to prevent parent handlers from triggering."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the node from the scene graph."
+        },
+        {
+          "order": 3,
+          "content": "Skip processing if the node does not exist."
+        },
+        {
+          "order": 4,
+          "content": "Update the node's visibility in the design editor store with undo support."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

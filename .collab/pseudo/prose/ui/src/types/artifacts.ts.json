@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/artifacts.ts",
+  "title": "Artifact notification types for document and diagram creation/update",
+  "purpose": "Defines TypeScript interfaces for artifact notifications received from MCP responses, specifically for document and diagram creation or updates.",
+  "module_context": "Exports a single interface ArtifactNotification that describes the structure of artifact creation/update notifications including type, artifact type, ID, and name.",
+  "methods": [
+    {
+      "id": "m_9263b7a9",
+      "name": "ArtifactNotification",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for artifact notifications."
+        },
+        {
+          "order": 2,
+          "content": "Specify that notifications have a type field restricted to 'created' or 'updated'."
+        },
+        {
+          "order": 3,
+          "content": "Specify that notifications have an artifactType field restricted to 'document' or 'diagram'."
+        },
+        {
+          "order": 4,
+          "content": "Include an ID field for identifying the artifact."
+        },
+        {
+          "order": 5,
+          "content": "Include a name field for the artifact's display name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

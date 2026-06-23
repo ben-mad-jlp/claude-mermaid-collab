@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/link-file.ts",
+  "title": "Utility to link source files as code artifacts in a session",
+  "purpose": "Provides a shared helper to create linked code snippets from disk files, enabling cross-file navigation and global search functionality.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_f19a7d80",
+      "name": "linkFile",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, filePath: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the file name from the file path for use as the snippet name."
+        },
+        {
+          "order": 2,
+          "content": "Construct an empty envelope object with metadata for the linked file."
+        },
+        {
+          "order": 3,
+          "content": "Create a new snippet in the session with the file name and empty envelope."
+        },
+        {
+          "order": 4,
+          "content": "IF the snippet creation fails, throw an error indicating failure."
+        },
+        {
+          "order": 5,
+          "content": "Sync the actual file content from disk to the newly created snippet."
+        },
+        {
+          "order": 6,
+          "content": "Return the ID of the newly created snippet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

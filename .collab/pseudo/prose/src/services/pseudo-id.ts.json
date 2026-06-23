@@ -1,0 +1,351 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-id.ts",
+  "title": "Pseudo ID service for deterministic method identification and body fingerprinting",
+  "purpose": "Provides methods to generate stable identifiers for methods and compute fingerprints of method bodies for indexing purposes.",
+  "module_context": "Exports constants for stop words, parameter modifiers, and JavaScript keywords used in normalization and fingerprinting. Also exports functions for computing method IDs, normalizing parameters, and computing body fingerprints.",
+  "methods": [
+    {
+      "id": "m_e3c1a193",
+      "name": "computeMethodId",
+      "enclosing_class": null,
+      "normalized_params": "(m: MethodIdentity): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Normalize the file path for consistent representation."
+        },
+        {
+          "order": 2,
+          "content": "Construct a key from the normalized file path, enclosing class, method name, and normalized parameters."
+        },
+        {
+          "order": 3,
+          "content": "Generate a SHA1 hash of the constructed key."
+        },
+        {
+          "order": 4,
+          "content": "Return the first 8 characters of the hash prefixed with 'm_'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f5b8cc27",
+      "name": "normalizeParams",
+      "enclosing_class": null,
+      "normalized_params": "(rawParams: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the input parameter string and remove surrounding parentheses if present."
+        },
+        {
+          "order": 2,
+          "content": "Split the parameter string by top-level commas to handle nested structures."
+        },
+        {
+          "order": 3,
+          "content": "Canonicalize each parameter to extract its type."
+        },
+        {
+          "order": 4,
+          "content": "Join the canonicalized parameters with commas."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_702ed17c",
+      "name": "computeBodyFingerprint",
+      "enclosing_class": null,
+      "normalized_params": "(methodBody: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the method body is empty, return a predefined empty fingerprint identifier."
+        },
+        {
+          "order": 2,
+          "content": "Tokenize the method body to extract identifiers."
+        },
+        {
+          "order": 3,
+          "content": "Filter out stop words and JavaScript keywords from the identifiers."
+        },
+        {
+          "order": 4,
+          "content": "If no identifiers remain after filtering, return a predefined empty fingerprint identifier."
+        },
+        {
+          "order": 5,
+          "content": "Sort the remaining identifiers alphabetically."
+        },
+        {
+          "order": 6,
+          "content": "Limit the number of identifiers to a maximum threshold."
+        },
+        {
+          "order": 7,
+          "content": "Generate a SHA1 hash of the sorted and capped identifiers."
+        },
+        {
+          "order": 8,
+          "content": "Return the first 8 characters of the hash prefixed with 'h_'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_31597d57",
+      "name": "normalizeFilePath",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace backslashes with forward slashes in the file path."
+        },
+        {
+          "order": 2,
+          "content": "Remove leading './' from the file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9912058",
+      "name": "splitTopLevelCommas",
+      "enclosing_class": null,
+      "normalized_params": "(s: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize tracking variables for depth, string literals, and parameter parsing."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each character in the input string."
+        },
+        {
+          "order": 3,
+          "content": "Track nesting depth of brackets and parentheses."
+        },
+        {
+          "order": 4,
+          "content": "Identify string literals and skip their contents during parameter parsing."
+        },
+        {
+          "order": 5,
+          "content": "Split parameters at top-level commas while maintaining nested structures."
+        },
+        {
+          "order": 6,
+          "content": "Return the list of parsed parameters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59ff2bfb",
+      "name": "canonicalizeParam",
+      "enclosing_class": null,
+      "normalized_params": "(rawParam: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the input parameter string."
+        },
+        {
+          "order": 2,
+          "content": "If the parameter is empty, return 'any'."
+        },
+        {
+          "order": 3,
+          "content": "Remove leading spread operator from the parameter."
+        },
+        {
+          "order": 4,
+          "content": "Strip leading modifiers such as public, private, etc., from the parameter."
+        },
+        {
+          "order": 5,
+          "content": "Remove assignment expressions from the parameter."
+        },
+        {
+          "order": 6,
+          "content": "Extract the type part from the parameter using a colon."
+        },
+        {
+          "order": 7,
+          "content": "If no type is found, default to 'any'."
+        },
+        {
+          "order": 8,
+          "content": "Clean up whitespace in the type part and return it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc85fa69",
+      "name": "findTopLevelAssign",
+      "enclosing_class": null,
+      "normalized_params": "(s: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize tracking variables for depth and string literals."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each character in the input string."
+        },
+        {
+          "order": 3,
+          "content": "Track nesting depth of brackets and parentheses."
+        },
+        {
+          "order": 4,
+          "content": "Identify string literals and skip their contents during assignment detection."
+        },
+        {
+          "order": 5,
+          "content": "Detect assignment operators at top-level depth."
+        },
+        {
+          "order": 6,
+          "content": "Return the index of the top-level assignment operator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d456b89c",
+      "name": "findTopLevelColon",
+      "enclosing_class": null,
+      "normalized_params": "(s: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize tracking variables for depth and string literals."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each character in the input string."
+        },
+        {
+          "order": 3,
+          "content": "Track nesting depth of brackets and parentheses."
+        },
+        {
+          "order": 4,
+          "content": "Identify string literals and skip their contents during colon detection."
+        },
+        {
+          "order": 5,
+          "content": "Detect colon operators at top-level depth."
+        },
+        {
+          "order": 6,
+          "content": "Return the index of the top-level colon."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a3ea360a",
+      "name": "tokenizeIdentifiers",
+      "enclosing_class": null,
+      "normalized_params": "(body: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Strip string literals and comments from the method body."
+        },
+        {
+          "order": 2,
+          "content": "Extract all identifiers using a regular expression."
+        },
+        {
+          "order": 3,
+          "content": "Return the list of extracted identifiers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_276270a7",
+      "name": "stripStringsAndComments",
+      "enclosing_class": null,
+      "normalized_params": "(s: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize output string and character index."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each character in the input string."
+        },
+        {
+          "order": 3,
+          "content": "Replace single-line comments with spaces."
+        },
+        {
+          "order": 4,
+          "content": "Replace multi-line comments with spaces."
+        },
+        {
+          "order": 5,
+          "content": "Replace string literals with spaces."
+        },
+        {
+          "order": 6,
+          "content": "Return the cleaned string with comments and literals removed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

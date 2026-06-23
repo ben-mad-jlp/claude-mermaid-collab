@@ -1,0 +1,496 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/sidebarTreeStore.ts",
+  "title": "Sidebar tree state management with persistence",
+  "purpose": "Manages the state of a collapsible sidebar tree including section collapse status, deprecated item visibility, search queries, and pseudo-project settings. Persists state to localStorage.",
+  "module_context": "Exports a Zustand store with persistence middleware that manages sidebar tree state including collapsed sections, deprecated item visibility, search queries, and pseudo-project settings. Uses custom storage logic to handle migration from old localStorage keys to new format.",
+  "methods": [
+    {
+      "id": "m_ba2e2842",
+      "name": "getItem",
+      "enclosing_class": "dualKeyStorage",
+      "normalized_params": "(name: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if running in browser environment."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to retrieve all relevant localStorage values for sidebar state."
+        },
+        {
+          "order": 3,
+          "content": "IF all retrieved values are null, return null."
+        },
+        {
+          "order": 4,
+          "content": "Parse and validate the collapsed sections array from localStorage."
+        },
+        {
+          "order": 5,
+          "content": "Parse and validate the show deprecated boolean from localStorage."
+        },
+        {
+          "order": 6,
+          "content": "Parse and validate the pseudo collapsed paths array from localStorage."
+        },
+        {
+          "order": 7,
+          "content": "Parse and validate the active tab from localStorage."
+        },
+        {
+          "order": 8,
+          "content": "Parse and validate the pseudo project from localStorage."
+        },
+        {
+          "order": 9,
+          "content": "Return a JSON string containing the parsed state and version."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_93e8cf5d",
+      "name": "setItem",
+      "enclosing_class": "dualKeyStorage",
+      "normalized_params": "(name: string, value: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if running in browser environment."
+        },
+        {
+          "order": 2,
+          "content": "Parse the incoming value to extract the state object."
+        },
+        {
+          "order": 3,
+          "content": "Extract and validate collapsed sections from the state."
+        },
+        {
+          "order": 4,
+          "content": "Extract and validate show deprecated boolean from the state."
+        },
+        {
+          "order": 5,
+          "content": "Extract and validate pseudo collapsed paths from the state."
+        },
+        {
+          "order": 6,
+          "content": "Extract and validate active tab from the state."
+        },
+        {
+          "order": 7,
+          "content": "Extract and validate pseudo project from the state."
+        },
+        {
+          "order": 8,
+          "content": "Store the validated collapsed sections array to localStorage."
+        },
+        {
+          "order": 9,
+          "content": "Store the validated show deprecated boolean to localStorage."
+        },
+        {
+          "order": 10,
+          "content": "Store the validated pseudo collapsed paths array to localStorage."
+        },
+        {
+          "order": 11,
+          "content": "Store the validated active tab to localStorage."
+        },
+        {
+          "order": 12,
+          "content": "Store the validated pseudo project to localStorage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4cc7d316",
+      "name": "removeItem",
+      "enclosing_class": "dualKeyStorage",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if running in browser environment."
+        },
+        {
+          "order": 2,
+          "content": "Remove all sidebar-related keys from localStorage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9a54e77",
+      "name": "toggleSection",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current set of collapsed sections."
+        },
+        {
+          "order": 2,
+          "content": "Create a new set with the same elements as current."
+        },
+        {
+          "order": 3,
+          "content": "IF the section is currently collapsed, remove it from the set."
+        },
+        {
+          "order": 4,
+          "content": "ELSE add it to the set."
+        },
+        {
+          "order": 5,
+          "content": "Update the store with the new set of collapsed sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_05bb1a15",
+      "name": "setShowDeprecated",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(v: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the show deprecated flag in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb41c252",
+      "name": "setSearchQuery",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(q: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the search query string."
+        },
+        {
+          "order": 2,
+          "content": "Update the search query in the store."
+        },
+        {
+          "order": 3,
+          "content": "IF the trimmed query is empty, clear the force expanded sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ff67288e",
+      "name": "setForceExpandedSections",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(ids: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the input array to a Set and update the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_724b2971",
+      "name": "setActiveTab",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(tab: SidebarTab): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the active tab in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_80c4fd8e",
+      "name": "togglePseudoPath",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current set of pseudo collapsed paths."
+        },
+        {
+          "order": 2,
+          "content": "Create a new set with the same elements as current."
+        },
+        {
+          "order": 3,
+          "content": "IF the path is currently collapsed, remove it from the set."
+        },
+        {
+          "order": 4,
+          "content": "ELSE add it to the set."
+        },
+        {
+          "order": 5,
+          "content": "Update the store with the new set of pseudo collapsed paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85079363",
+      "name": "setPseudoProject",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(project: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the pseudo project in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_846f4ae6",
+      "name": "collapseAllItems",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(ids: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new Set from the input array of section IDs."
+        },
+        {
+          "order": 2,
+          "content": "Update the collapsed sections in the store with the new set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51426872",
+      "name": "expandAllItems",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create an empty Set for collapsed sections."
+        },
+        {
+          "order": 2,
+          "content": "Update the collapsed sections in the store with the empty set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_140890fa",
+      "name": "collapseAllPseudo",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(allDirs: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new Set from the input array of directory paths."
+        },
+        {
+          "order": 2,
+          "content": "Update the pseudo collapsed paths in the store with the new set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e6dbe87",
+      "name": "expandAllPseudo",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create an empty Set for pseudo collapsed paths."
+        },
+        {
+          "order": 2,
+          "content": "Update the pseudo collapsed paths in the store with the empty set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4bd88c50",
+      "name": "getItem",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(name: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate to the dual key storage's getItem method."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_07806089",
+      "name": "setItem",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(name: string, value: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate to the dual key storage's setItem method."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f5dbcf9a",
+      "name": "removeItem",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate to the dual key storage's removeItem method."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_23c5deeb",
+      "name": "partialize",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(state: SidebarTreeState): SidebarTreeState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the collapsed sections Set to an array."
+        },
+        {
+          "order": 2,
+          "content": "Convert the pseudo collapsed paths Set to an array."
+        },
+        {
+          "order": 3,
+          "content": "Return a partial state object with arrays instead of Sets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fac9c8c4",
+      "name": "merge",
+      "enclosing_class": "useSidebarTreeStore",
+      "normalized_params": "(persistedState: unknown, currentState: SidebarTreeState): SidebarTreeState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract and validate collapsed sections from persisted state."
+        },
+        {
+          "order": 2,
+          "content": "Extract and validate show deprecated flag from persisted state."
+        },
+        {
+          "order": 3,
+          "content": "Extract and validate pseudo collapsed paths from persisted state."
+        },
+        {
+          "order": 4,
+          "content": "Extract and validate active tab from persisted state."
+        },
+        {
+          "order": 5,
+          "content": "Extract and validate pseudo project from persisted state."
+        },
+        {
+          "order": 6,
+          "content": "Return a merged state combining current and persisted values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

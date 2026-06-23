@@ -1,0 +1,367 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/design-templates.ts",
+  "title": "Design template and token management for UI component generation",
+  "purpose": "Provides pre-built UI templates and design token presets for rapid design creation and management of design variables.",
+  "module_context": "Exports schema definitions for template creation and token management, token preset mappings, and template generator functions for various UI components.",
+  "methods": [
+    {
+      "id": "m_b09e95bc",
+      "name": "handleCreateFromTemplate",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, designId: string, template: string, params: Record<string, any>, parentId?: string): Promise<{ success: boolean; nodeIds: Record<string, string>; rootNodeId: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the template generator function for the specified template name."
+        },
+        {
+          "order": 2,
+          "content": "IF no generator is found, throw an error listing available templates."
+        },
+        {
+          "order": 3,
+          "content": "Generate the tree specification using the template generator and provided parameters."
+        },
+        {
+          "order": 4,
+          "content": "Create the design from the generated tree specification using the design creation handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_368ad5d0",
+      "name": "generateId",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique identifier using timestamp and random string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a94234f9",
+      "name": "handleCreateDesignTokens",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, designId: string, preset?: string, custom?: Partial<TokenSet>): Promise<{ success: boolean; collectionId: string; variableIds: string[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the token set from either a preset or custom input."
+        },
+        {
+          "order": 2,
+          "content": "IF no token set is provided, throw an error listing available presets."
+        },
+        {
+          "order": 3,
+          "content": "Load the existing design content from the backing store."
+        },
+        {
+          "order": 4,
+          "content": "Ensure the design content has variable collections and variables structures."
+        },
+        {
+          "order": 5,
+          "content": "Generate a unique identifier for the new variable collection and mode."
+        },
+        {
+          "order": 6,
+          "content": "Create color variables from the token set and add them to the design."
+        },
+        {
+          "order": 7,
+          "content": "Create typography variables from the token set and add them to the design."
+        },
+        {
+          "order": 8,
+          "content": "Create spacing variables from the token set and add them to the design."
+        },
+        {
+          "order": 9,
+          "content": "Create radii variables from the token set and add them to the design."
+        },
+        {
+          "order": 10,
+          "content": "Add the new variable collection to the design content."
+        },
+        {
+          "order": 11,
+          "content": "Update the design with the modified content containing new variables."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aaf2d8d3",
+      "name": "handleApplyDesignTokens",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, designId: string, nodeId: string, bindings: Record<string, string>): Promise<{ success: boolean; appliedBindings: Record<string, string> }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the existing design content from the backing store."
+        },
+        {
+          "order": 2,
+          "content": "IF the design has no nodes, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Find the target node by ID in the design content."
+        },
+        {
+          "order": 4,
+          "content": "IF the node is not found, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Look up each variable by name in the design's variables."
+        },
+        {
+          "order": 6,
+          "content": "IF a variable is not found, throw an error."
+        },
+        {
+          "order": 7,
+          "content": "Bind the variable to the node using the variable alias type."
+        },
+        {
+          "order": 8,
+          "content": "Update the design with the modified content containing applied bindings."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f1a64a1a",
+      "name": "generateNavbar",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for title, fill, text color, width, and height with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a navbar component with back, title, and action elements."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_09641aa2",
+      "name": "generateCard",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for title, subtitle, fill, width, and image height with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a card component with image and content sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_91f6a8dd",
+      "name": "generateButton",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for label, fill, text color, width, height, and corner radius with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a button component with centered text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4e4309db",
+      "name": "generateInput",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for placeholder, label, width, and height with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for an input component with optional label and field."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7d7c0a0b",
+      "name": "generateListItem",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for title, subtitle, width, and height with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a list item component with avatar, text content, and chevron."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d992f6a5",
+      "name": "generateAvatar",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for size, fill, initials, and text color with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for an avatar component with initials text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_adccc791",
+      "name": "generateBadge",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for text, fill, text color, and size with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a badge component with centered text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_836b1127",
+      "name": "generateModal",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for title, body, width, and fill with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a modal component with overlay, content, and action buttons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9c9c78e",
+      "name": "generateTabBar",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for items, fill, active color, inactive color, and width with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a tab bar component with tab items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c78720e7",
+      "name": "generateForm",
+      "enclosing_class": null,
+      "normalized_params": "(params: Record<string, any>): TreeSpec",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract parameters for title, fields, width, and submit label with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Build and return a tree specification for a form component with title, input fields, and submit button."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

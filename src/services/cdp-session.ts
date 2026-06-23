@@ -141,7 +141,7 @@ export async function withCDPSession<T>(
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
       throw new Error(
-        `Chrome not reachable on port ${port} — toggle CDP button in VSCodium`
+        `Chrome not reachable on port ${port} — the server-owned Chrome may have failed to start (check server logs)`
       );
     }
     const msg = err?.message ?? String(err);
@@ -191,7 +191,7 @@ export async function focusTab(sessionName: string, port: number): Promise<void>
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
       throw new Error(
-        `Chrome not reachable on port ${port} — toggle CDP button in VSCodium`
+        `Chrome not reachable on port ${port} — the server-owned Chrome may have failed to start (check server logs)`
       );
     }
     throw err;
@@ -235,7 +235,7 @@ export async function createOrReplaceTab(sessionName: string, port: number): Pro
     return targetId;
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
-      throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);
+      throw new Error(`Chrome not reachable on port ${port} — the server-owned Chrome may have failed to start (check server logs)`);
     }
     throw err;
   }
@@ -270,7 +270,7 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
         tabs = await CDP.List({ host: '127.0.0.1', port: effectivePort });
       } catch (err: any) {
         if (err?.code === 'ECONNREFUSED') {
-          throw new Error(`Chrome not reachable on port ${effectivePort} — toggle CDP button in VSCodium`);
+          throw new Error(`Chrome not reachable on port ${effectivePort} — the server-owned Chrome may have failed to start (check server logs)`);
         }
         throw err;
       }
@@ -291,7 +291,7 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
       tabs = await CDP.List({ host: '127.0.0.1', port });
     } catch (err: any) {
       if (err?.code === 'ECONNREFUSED') {
-        throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);
+        throw new Error(`Chrome not reachable on port ${port} — the server-owned Chrome may have failed to start (check server logs)`);
       }
       throw err;
     }
@@ -307,7 +307,7 @@ export async function ensureTab(sessionName: string, port: number): Promise<stri
     return existingId;
   } catch (err: any) {
     if (err?.code === 'ECONNREFUSED') {
-      throw new Error(`Chrome not reachable on port ${port} — toggle CDP button in VSCodium`);
+      throw new Error(`Chrome not reachable on port ${port} — the server-owned Chrome may have failed to start (check server logs)`);
     }
     throw err;
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PTYManager, ptyManager } from './PTYManager';
+import { PTYManager, ptyManager, TMUX_LINE_KILL } from './PTYManager';
 import { RingBuffer } from './RingBuffer';
 import type { ServerWebSocket } from 'bun';
 
@@ -714,6 +714,10 @@ describe('PTYManager', () => {
       const attachWrite = writes.find(w => w.includes('attach-session'));
       expect(attachWrite).toBeDefined();
       expect(attachWrite).toContain('\\; refresh-client -S');
+      // The attach command leads with a tty line-kill so a stray, un-consumed
+      // detach key (`^Bd`) from a stale re-point can't glue onto it and break the
+      // shell parse (`/bin/sh: Syntax error: word unexpected`).
+      expect(attachWrite!.startsWith(TMUX_LINE_KILL)).toBe(true);
 
       // Stale replay buffer is cleared — a later reconnect can't replay
       // cross-target bytes over the freshly tmux-redrawn screen.

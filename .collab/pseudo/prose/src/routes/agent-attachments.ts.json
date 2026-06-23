@@ -1,0 +1,141 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/agent-attachments.ts",
+  "title": "Agent attachments API handler with file storage and retrieval",
+  "purpose": "Provides REST endpoints for managing agent attachments including upload, listing, download, and deletion of files associated with session IDs.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_91295b5b",
+      "name": "jsonError",
+      "enclosing_class": null,
+      "normalized_params": "(message: string, status: number): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create and return a JSON formatted error response with the specified message and status code."
+        },
+        {
+          "order": 2,
+          "content": "Set the content type header to application/json."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c3af3282",
+      "name": "isValidSessionId",
+      "enclosing_class": null,
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session ID contains only alphanumeric characters, hyphens, and underscores."
+        },
+        {
+          "order": 2,
+          "content": "Ensure the session ID does not contain consecutive dots."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5c2a2f44",
+      "name": "dirExists",
+      "enclosing_class": null,
+      "normalized_params": "(p: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to get the file system statistics for the provided path."
+        },
+        {
+          "order": 2,
+          "content": "IF the operation succeeds, return true indicating the directory exists."
+        },
+        {
+          "order": 3,
+          "content": "IF the operation fails, return false indicating the directory does not exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4fb76068",
+      "name": "handleAttachments",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request, url: URL): Promise<Response | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the request URL path starts with the expected attachments endpoint."
+        },
+        {
+          "order": 2,
+          "content": "IF not, return null to indicate the route does not match."
+        },
+        {
+          "order": 3,
+          "content": "Extract and validate the session ID from the query parameters."
+        },
+        {
+          "order": 4,
+          "content": "IF the session ID is missing or invalid, return an error response."
+        },
+        {
+          "order": 5,
+          "content": "Construct the base directory path for the session's attachments."
+        },
+        {
+          "order": 6,
+          "content": "Determine if the request is for a collection or a specific item based on the path."
+        },
+        {
+          "order": 7,
+          "content": "IF the request is for a collection and method is POST, process file upload."
+        },
+        {
+          "order": 8,
+          "content": "IF the request is for a collection and method is GET, list all attachments."
+        },
+        {
+          "order": 9,
+          "content": "IF the request is for a specific item, validate the attachment ID."
+        },
+        {
+          "order": 10,
+          "content": "IF the request is for a specific item and method is GET, serve the attachment."
+        },
+        {
+          "order": 11,
+          "content": "IF the request is for a specific item and method is DELETE, remove the attachment."
+        },
+        {
+          "order": 12,
+          "content": "IF the request method is not allowed, return an error response."
+        },
+        {
+          "order": 13,
+          "content": "IF an error occurs during processing, log it and return a generic error response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

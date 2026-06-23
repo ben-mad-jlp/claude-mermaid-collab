@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/notifications/ToastContainer.tsx",
+  "title": "Toast notification container with auto-dismiss and stacking",
+  "purpose": "Displays active toast notifications in a fixed bottom-right container, limiting visibility to 5 toasts and handling automatic dismissal.",
+  "module_context": "Exports a ToastContainer React component that consumes notifications from a global store and renders them with automatic stacking and dismissal.",
+  "methods": [
+    {
+      "id": "m_a3d65f3a",
+      "name": "ToastContainer",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the global notification store to retrieve all active toasts."
+        },
+        {
+          "order": 2,
+          "content": "Limit the displayed toasts to the most recent 5 entries."
+        },
+        {
+          "order": 3,
+          "content": "Render a fixed-position container with vertical stacking for the toasts."
+        },
+        {
+          "order": 4,
+          "content": "Map each visible toast to a Toast component with dismissal handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

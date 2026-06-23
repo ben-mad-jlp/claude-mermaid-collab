@@ -1,0 +1,195 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/FunctionJumpDropdown.tsx",
+  "title": "Function jump dropdown component with searchable combobox",
+  "purpose": "Provides a searchable dropdown list of functions in the current file for quick navigation, with keyboard and mouse interaction support.",
+  "module_context": "Exports a React functional component FunctionJumpDropdown that accepts functions list and jump handler props, with internal state management for UI behavior and portal-based dropdown positioning.",
+  "methods": [
+    {
+      "id": "m_59f3e6ae",
+      "name": "FunctionJumpDropdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: FunctionJumpDropdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for dropdown open status, search query, highlighted index, and anchor rectangle."
+        },
+        {
+          "order": 2,
+          "content": "Set up refs for button, dropdown, search input, and list elements."
+        },
+        {
+          "order": 3,
+          "content": "Calculate function count and empty state flag from props."
+        },
+        {
+          "order": 4,
+          "content": "Filter functions based on search query using memoization."
+        },
+        {
+          "order": 5,
+          "content": "Attach and detach outside click listeners to close dropdown."
+        },
+        {
+          "order": 6,
+          "content": "Attach and detach escape key listener to close dropdown."
+        },
+        {
+          "order": 7,
+          "content": "Focus search input and reset state when dropdown opens."
+        },
+        {
+          "order": 8,
+          "content": "Adjust highlighted index when filtered functions change."
+        },
+        {
+          "order": 9,
+          "content": "Scroll highlighted item into view when index changes."
+        },
+        {
+          "order": 10,
+          "content": "Capture and update anchor rectangle position when dropdown opens."
+        },
+        {
+          "order": 11,
+          "content": "Handle toggle action to open or close dropdown."
+        },
+        {
+          "order": 12,
+          "content": "Handle selection of a function to jump to its line."
+        },
+        {
+          "order": 13,
+          "content": "Handle keyboard navigation and selection within the dropdown."
+        },
+        {
+          "order": 14,
+          "content": "Render the button and dropdown portal with search input and function list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_20c09894",
+      "name": "handleClick",
+      "enclosing_class": "FunctionJumpDropdown",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is inside the dropdown or button."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside both elements, close the dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_97264dd9",
+      "name": "handleKey",
+      "enclosing_class": "FunctionJumpDropdown",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for escape key press to close the dropdown."
+        },
+        {
+          "order": 2,
+          "content": "Focus the dropdown button after closing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_64baceae",
+      "name": "handleToggle",
+      "enclosing_class": "FunctionJumpDropdown",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the function list is empty, do nothing."
+        },
+        {
+          "order": 2,
+          "content": "ELSE toggle the open state of the dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c3a72ba5",
+      "name": "handleSelect",
+      "enclosing_class": "FunctionJumpDropdown",
+      "normalized_params": "(fn: FunctionJumpItem): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the function has no source line, do nothing."
+        },
+        {
+          "order": 2,
+          "content": "ELSE call the jump handler with the function's source line."
+        },
+        {
+          "order": 3,
+          "content": "Close the dropdown after selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b56aa2a3",
+      "name": "handleKeyDown",
+      "enclosing_class": "FunctionJumpDropdown",
+      "normalized_params": "(e: React.KeyboardEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Handle arrow down key to move highlighted index down."
+        },
+        {
+          "order": 2,
+          "content": "Handle arrow up key to move highlighted index up."
+        },
+        {
+          "order": 3,
+          "content": "Handle enter key to select the highlighted function."
+        },
+        {
+          "order": 4,
+          "content": "Handle escape key to close the dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

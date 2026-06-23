@@ -1,0 +1,43 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/missing/index.ts",
+  "title": "Missing topic components exporter",
+  "purpose": "Exports all UI components related to missing topics for use in other parts of the application.",
+  "module_context": "This file serves as a central export point for all missing topic related UI components, providing a single import location for consumers of these components.",
+  "methods": [
+    {
+      "id": "m_ae87663c",
+      "name": "MissingTopicRow",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the MissingTopicRow component for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5fde20bb",
+      "name": "MissingTopicsView",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the MissingTopicsView component for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

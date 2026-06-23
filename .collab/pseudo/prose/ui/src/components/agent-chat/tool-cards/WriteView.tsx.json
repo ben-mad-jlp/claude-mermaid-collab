@@ -1,0 +1,62 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/WriteView.tsx",
+  "title": "Write view component for displaying file content and tool output",
+  "purpose": "Renders a UI component that displays file path, content preview, and tool execution output for write operations.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_677ab5ea",
+      "name": "WriteView",
+      "enclosing_class": null,
+      "normalized_params": "(props: WriteViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract input properties from the tool call item."
+        },
+        {
+          "order": 2,
+          "content": "Parse file path and content from the input, defaulting to empty strings."
+        },
+        {
+          "order": 3,
+          "content": "Split content into lines and calculate line and character counts."
+        },
+        {
+          "order": 4,
+          "content": "Generate a preview of the content by taking the first 30 lines."
+        },
+        {
+          "order": 5,
+          "content": "Determine if the content was truncated and calculate remaining lines."
+        },
+        {
+          "order": 6,
+          "content": "Extract status and tool use ID from the raw item data."
+        },
+        {
+          "order": 7,
+          "content": "Render the file path if present."
+        },
+        {
+          "order": 8,
+          "content": "Display line and character count statistics."
+        },
+        {
+          "order": 9,
+          "content": "Show a preview of the content in a scrollable preformatted block."
+        },
+        {
+          "order": 10,
+          "content": "Render the output panel with tool execution details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

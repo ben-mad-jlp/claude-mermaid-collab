@@ -1,0 +1,84 @@
+{
+  "schema_version": 3,
+  "file": "src/services/alias-constants.ts",
+  "title": "Alias constants for keyword expansion and synonym mapping",
+  "purpose": "Provides synonym and abbreviation mappings for expanding search queries and generating related aliases. Used by the alias generator to enhance topic discovery and semantic matching.",
+  "module_context": "Exports type definitions for topic content and alias generator options, along with constant sets for stop words, synonyms, and abbreviations used in keyword expansion.",
+  "methods": [
+    {
+      "id": "m_bf7890c6",
+      "name": "STOP_WORDS",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a set of common stop words to exclude from keyword extraction."
+        },
+        {
+          "order": 2,
+          "content": "These words are too generic to be useful as aliases."
+        },
+        {
+          "order": 3,
+          "content": "Include articles, prepositions, conjunctions, pronouns, and auxiliary verbs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_10e5473c",
+      "name": "SYNONYMS",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define mappings for common topic terms to their synonyms."
+        },
+        {
+          "order": 2,
+          "content": "Used to expand queries and generate related aliases."
+        },
+        {
+          "order": 3,
+          "content": "Include mappings for authentication, database, API, frontend, configuration, and development terms."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b24325ff",
+      "name": "ABBREVIATIONS",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define mappings for common topic terms to their standard abbreviations."
+        },
+        {
+          "order": 2,
+          "content": "Used to expand queries with shorter forms and generate abbreviated aliases."
+        },
+        {
+          "order": 3,
+          "content": "Include mappings for authentication, database, application, API, and architecture terms."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

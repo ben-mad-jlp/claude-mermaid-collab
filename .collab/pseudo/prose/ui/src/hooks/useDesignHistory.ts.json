@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDesignHistory.ts",
+  "title": "Design history hook with API fetching and version retrieval",
+  "purpose": "Manages design history state, fetches history from API, and provides version retrieval functionality.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_f96348de",
+      "name": "useDesignHistory",
+      "enclosing_class": null,
+      "normalized_params": "(designId: string | null): UseDesignHistoryReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for history, loading status, and error."
+        },
+        {
+          "order": 2,
+          "content": "Extract project and session from the current session."
+        },
+        {
+          "order": 3,
+          "content": "Set up a ref to track the current design ID for staleness checks."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback to fetch design history from the API."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to retrieve a specific version of the design."
+        },
+        {
+          "order": 6,
+          "content": "Set up an effect to fetch history when design ID changes."
+        },
+        {
+          "order": 7,
+          "content": "Return the history state, loading status, error, refetch function, and version retrieval function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2140c286",
+      "name": "fetchHistory",
+      "enclosing_class": "useDesignHistory",
+      "normalized_params": "(signal?: AbortSignal): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If design ID, project, or session are missing, clear the history and return."
+        },
+        {
+          "order": 2,
+          "content": "Set loading status to true and clear any existing error."
+        },
+        {
+          "order": 3,
+          "content": "Fetch design history from the API using project, session, and design ID."
+        },
+        {
+          "order": 4,
+          "content": "Check if the design ID is still current when the response arrives."
+        },
+        {
+          "order": 5,
+          "content": "IF the response is null, set history to null."
+        },
+        {
+          "order": 6,
+          "content": "ELSE update the history with the fetched data."
+        },
+        {
+          "order": 7,
+          "content": "IF a network error occurs, set error message to 'Network error'."
+        },
+        {
+          "order": 8,
+          "content": "IF the fetch is aborted, return without updating state."
+        },
+        {
+          "order": 9,
+          "content": "IF the design ID is still current, clear loading status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_784236b0",
+      "name": "getVersionAt",
+      "enclosing_class": "useDesignHistory",
+      "normalized_params": "(timestamp: string): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If design ID, project, or session are missing, return null."
+        },
+        {
+          "order": 2,
+          "content": "Fetch a specific version of the design from the API using project, session, design ID, and timestamp."
+        },
+        {
+          "order": 3,
+          "content": "IF version data is returned, extract and return the content."
+        },
+        {
+          "order": 4,
+          "content": "IF an error occurs, ignore it and return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

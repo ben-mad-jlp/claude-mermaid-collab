@@ -1,0 +1,59 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/viewerStore.ts",
+  "title": "Viewer store for managing current artifact view state",
+  "purpose": "Manages the state of the currently viewed artifact (document or diagram) in the viewer pane and provides navigation and reset functionality.",
+  "module_context": "Exports a Zustand store with initial state set to null currentView and two actions: navigateToArtifact and reset.",
+  "methods": [
+    {
+      "id": "m_0701d9c5",
+      "name": "navigateToArtifact",
+      "enclosing_class": null,
+      "normalized_params": "(id: string, type: 'document' | 'diagram'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the store state to set the current view to the specified artifact ID and type."
+        },
+        {
+          "order": 2,
+          "content": "Store the artifact type as either 'document' or 'diagram'."
+        },
+        {
+          "order": 3,
+          "content": "Store the artifact identifier for the view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f9743c7b",
+      "name": "reset",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the current view state to null."
+        },
+        {
+          "order": 2,
+          "content": "Clear the artifact identifier from the store."
+        },
+        {
+          "order": 3,
+          "content": "Clear the artifact type from the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

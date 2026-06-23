@@ -1,9 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ScreencastService } from '../screencast.js';
+import { ensureTab } from '../cdp-session.js';
 
 vi.mock('../cdp-session.js', () => ({
   ensureTab: vi.fn().mockResolvedValue('fake-target-id'),
 }));
+
+const ensureTabMock = vi.mocked(ensureTab);
+
+/** A promise plus its resolver, for opening a controllable "mid-start" window. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
 
 function makeFakeClient() {
   const pageEnable             = vi.fn().mockResolvedValue(undefined);
@@ -37,7 +47,10 @@ function makeService() {
 }
 
 describe('ScreencastService', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ensureTabMock.mockResolvedValue('fake-target-id');
+  });
 
   it('subscribe starts screencast; last unsubscribe stops it', async () => {
     const { svc, fakeClient } = makeService();
@@ -137,5 +150,60 @@ describe('ScreencastService', () => {
 
     expect(sink1).toHaveBeenCalledWith({ data: 'base64data', metadata: { timestamp: 1 }, sessionName: 's1' });
     expect(sink2).toHaveBeenCalledWith({ data: 'base64data', metadata: { timestamp: 1 }, sessionName: 's1' });
+  });
+
+  it('setViewport requested while screencast is starting is applied after start', async () => {
+    const { svc, fakeClient } = makeService();
+    // Hold the start mid-flight by deferring ensureTab so entry.starting stays pending.
+    const gate = deferred<string>();
+    ensureTabMock.mockReturnValue(gate.promise);
+
+    const subPromise = svc.subscribe('s1', vi.fn()); // do NOT await — start is in-flight
+    const vpPromise = svc.setViewport('s1', { width: 1024, height: 768 });
+
+    gate.resolve('fake-target-id'); // let the start complete
+    await Promise.all([subPromise, vpPromise]);
+
+    // The mid-start resize must have been applied (a restart with the panel dims).
+    expect(fakeClient._spies.emulationSetDMO).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 1024, height: 768, mobile: false })
+    );
+    const startCalls = fakeClient._spies.pageStartScreencast.mock.calls;
+    const lastStart = startCalls[startCalls.length - 1][0];
+    expect(lastStart).toMatchObject({ maxWidth: 1024, maxHeight: 768 });
+  });
+
+  it('setQuality requested while screencast is starting is applied after start', async () => {
+    const { svc, fakeClient } = makeService();
+    const gate = deferred<string>();
+    ensureTabMock.mockReturnValue(gate.promise);
+
+    const subPromise = svc.subscribe('s1', vi.fn());
+    const qPromise = svc.setQuality('s1', { quality: 85 });
+
+    gate.resolve('fake-target-id');
+    await Promise.all([subPromise, qPromise]);
+
+    const startCalls = fakeClient._spies.pageStartScreencast.mock.calls;
+    const lastStart = startCalls[startCalls.length - 1][0];
+    expect(lastStart).toMatchObject({ quality: 85 });
+  });
+
+  it('setViewport scales maxWidth/maxHeight by deviceScaleFactor', async () => {
+    const { svc, fakeClient } = makeService();
+    await svc.subscribe('s1', vi.fn());
+
+    fakeClient._spies.pageStartScreencast.mockClear();
+    fakeClient._spies.emulationSetDMO.mockClear();
+
+    await svc.setViewport('s1', { width: 800, height: 600, deviceScaleFactor: 2 });
+
+    expect(fakeClient._spies.emulationSetDMO).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 800, height: 600, deviceScaleFactor: 2, mobile: false })
+    );
+    // Bitmap is CSS px * dsf, so the JPEG cap must be the device-px size.
+    expect(fakeClient._spies.pageStartScreencast).toHaveBeenCalledWith(
+      expect.objectContaining({ maxWidth: 1600, maxHeight: 1200 })
+    );
   });
 });

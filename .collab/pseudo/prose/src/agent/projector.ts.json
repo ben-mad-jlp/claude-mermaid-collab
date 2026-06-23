@@ -1,0 +1,104 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/projector.ts",
+  "title": "Agent event projection from frame data with session tracking",
+  "purpose": "Converts raw frame data from an agent session into structured AgentEvent objects for downstream processing, maintaining session state and turn tracking.",
+  "module_context": "Exports utility functions for tagging parent tool use IDs and managing progress sequence numbers, along with the main projection function that processes frames.",
+  "methods": [
+    {
+      "id": "m_e0d8f6cb",
+      "name": "tagParent",
+      "enclosing_class": null,
+      "normalized_params": "(toolUseId: string, ctx: ProjectionCtx): string | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up and return the parent tool use ID for the given tool use ID from the context's sub-agent parent map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bd568765",
+      "name": "nextProgressSeq",
+      "enclosing_class": null,
+      "normalized_params": "(toolUseId: string, ctx: ProjectionCtx): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current progress sequence number for the tool use ID from the context."
+        },
+        {
+          "order": 2,
+          "content": "Increment and store the new sequence number in the context."
+        },
+        {
+          "order": 3,
+          "content": "Return the previous sequence number."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b3f25fed",
+      "name": "projectFrame",
+      "enclosing_class": null,
+      "normalized_params": "(frame: any, ctx: ProjectionCtx): AgentEvent[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Record the current timestamp for the event."
+        },
+        {
+          "order": 2,
+          "content": "Process the frame based on its type and subtype to generate appropriate agent events."
+        },
+        {
+          "order": 3,
+          "content": "IF the frame is a system event, handle initialization and compaction events."
+        },
+        {
+          "order": 4,
+          "content": "IF the frame is a stream event, process message start, content block start, content block delta, and content block stop events."
+        },
+        {
+          "order": 5,
+          "content": "IF the frame is an assistant message, parse content blocks and generate tool call and message completion events."
+        },
+        {
+          "order": 6,
+          "content": "IF the frame is a user message, process tool result blocks and generate tool call completion events."
+        },
+        {
+          "order": 7,
+          "content": "IF the frame is a tool progress event, generate tool call progress events for stdout and stderr channels."
+        },
+        {
+          "order": 8,
+          "content": "IF the frame is a result event, generate turn end events and reset session tracking state."
+        },
+        {
+          "order": 9,
+          "content": "IF the frame type is unrecognized, generate an error event."
+        },
+        {
+          "order": 10,
+          "content": "IF an error occurs during processing, generate an error event with the error details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

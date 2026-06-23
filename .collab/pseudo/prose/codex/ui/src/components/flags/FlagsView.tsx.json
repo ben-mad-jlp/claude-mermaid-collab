@@ -1,0 +1,113 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/flags/FlagsView.tsx",
+  "title": "Flags view component with tab filtering and status counts",
+  "purpose": "Displays a list of flags with tab navigation to filter by status, showing counts for each status category and handling loading and error states.",
+  "module_context": "Exports a FlagsView component that uses a hook to fetch flags and manages tab state for filtering. Defines tab configurations and counts for each status type.",
+  "methods": [
+    {
+      "id": "m_5878d642",
+      "name": "FlagsView",
+      "enclosing_class": null,
+      "normalized_params": "(props: FlagsViewProps): React.FC<FlagsViewProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the active tab state with the provided initial tab or default to 'all'."
+        },
+        {
+          "order": 2,
+          "content": "Fetch all flags using the useFlags hook including resolve, dismiss, reopen, and refresh functions."
+        },
+        {
+          "order": 3,
+          "content": "Filter the flags based on the currently active tab status."
+        },
+        {
+          "order": 4,
+          "content": "Calculate the count of flags for each tab status."
+        },
+        {
+          "order": 5,
+          "content": "Render a tab bar with navigation buttons for each status type and their respective counts."
+        },
+        {
+          "order": 6,
+          "content": "Display loading state while flags are being fetched."
+        },
+        {
+          "order": 7,
+          "content": "Display error state with retry option if flag loading fails."
+        },
+        {
+          "order": 8,
+          "content": "Render the flags list component with filtered flags and action handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e29ba2b6",
+      "name": "filteredFlags",
+      "enclosing_class": "FlagsView",
+      "normalized_params": "(): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the active tab is 'all', return all flags."
+        },
+        {
+          "order": 2,
+          "content": "ELSE filter the flags to only include those matching the active tab status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fb98022f",
+      "name": "tabCounts",
+      "enclosing_class": "FlagsView",
+      "normalized_params": "(): Record<TabValue, number>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize counts object with all status types set to zero."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all flags and increment the count for each flag's status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6327baed",
+      "name": "handleGoToTopic",
+      "enclosing_class": "FlagsView",
+      "normalized_params": "(topicName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Navigate to the topic detail page using the window location."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

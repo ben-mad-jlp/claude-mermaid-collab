@@ -1,0 +1,29 @@
+{
+  "id": "milkdown-toolbar-explore",
+  "name": "milkdown-toolbar-explore",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1000
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('[data-testid*=editor], [data-testid*=toolbar], [data-testid*=toggle], [data-testid*=view], [data-testid*=mode]')).map(e=>({tag:e.tagName, testid:e.getAttribute('data-testid'), aria:e.getAttribute('aria-label'), title:e.getAttribute('title'), text:(e.textContent||'').slice(0,60)}))",
+        "as": "toolbar"
+      },
+      {
+        "eval": "(()=>{const pm=document.querySelector('.ProseMirror'); const previews=document.querySelectorAll('[data-testid*=preview], [class*=preview], [class*=Preview]'); return {previewEls: Array.from(previews).slice(0,5).map(e=>({tag:e.tagName,cls:(e.className||'').toString().slice(0,80), testid:e.getAttribute('data-testid')})), pmReadOnly: pm?.getAttribute('contenteditable'), editing: !!document.querySelector('.ProseMirror[contenteditable=true]')};})()",
+        "as": "preview"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:39:28.636Z",
+  "updatedAt": "2026-04-18T18:39:28.636Z"
+}

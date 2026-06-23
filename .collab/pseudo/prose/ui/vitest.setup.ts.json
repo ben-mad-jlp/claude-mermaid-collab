@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/vitest.setup.ts",
+  "title": "Vitest setup configuration for DOM testing and component mocking",
+  "purpose": "Configures the testing environment for Vitest by adding jest-dom matchers, setting up cleanup utilities, and mocking components that would otherwise cause test failures.",
+  "module_context": "Imports jest-dom matchers and configures global mocks for ResizeObserver and EmbeddedTerminal component.",
+  "methods": [
+    {
+      "id": "m_69f739b1",
+      "name": "setup",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Import jest-dom matchers to extend DOM testing capabilities."
+        },
+        {
+          "order": 2,
+          "content": "Mock the ResizeObserver API to prevent DOM-related test errors."
+        },
+        {
+          "order": 3,
+          "content": "Replace the EmbeddedTerminal component with a mock version for testing."
+        },
+        {
+          "order": 4,
+          "content": "Configure the mock terminal to render with test identifiers and class names."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

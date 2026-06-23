@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/task-graph/TaskGraphView.tsx",
+  "title": "Task graph visualization component with loading and error states",
+  "purpose": "Displays task graph diagrams using MermaidPreview, handles loading states, errors, and provides zoom controls.",
+  "module_context": "Exports a React functional component TaskGraphView that accepts project and session props and uses hooks for data fetching and UI state management.",
+  "methods": [
+    {
+      "id": "m_0c6b86b5",
+      "name": "TaskGraphView",
+      "enclosing_class": null,
+      "normalized_params": "(props: TaskGraphViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch task graph data using the useTaskGraph hook."
+        },
+        {
+          "order": 2,
+          "content": "Extract zoom level and related functions from the UI store."
+        },
+        {
+          "order": 3,
+          "content": "IF data is loading, display a spinner with loading message."
+        },
+        {
+          "order": 4,
+          "content": "IF an error occurs, show error message with retry button."
+        },
+        {
+          "order": 5,
+          "content": "IF no diagram is available, display placeholder with explanatory text."
+        },
+        {
+          "order": 6,
+          "content": "ELSE render the MermaidPreview component with the diagram and zoom controls."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

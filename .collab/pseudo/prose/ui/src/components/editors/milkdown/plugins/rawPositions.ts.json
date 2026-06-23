@@ -1,0 +1,152 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/rawPositions.ts",
+  "title": "Milkdown plugin for capturing raw positions and break styles in markdown AST",
+  "purpose": "Extends markdown AST nodes with raw position data and break style information to support precise rendering and editing of markdown content.",
+  "module_context": "Exports a unified plugin that modifies mdast nodes with raw position data and break style markers, along with a Milkdown plugin wrapper.",
+  "methods": [
+    {
+      "id": "m_516cf1a0",
+      "name": "remarkCaptureRawPositions",
+      "enclosing_class": null,
+      "normalized_params": "(): Plugin<[], Root>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the file content to a string for position slicing."
+        },
+        {
+          "order": 2,
+          "content": "Process block-level nodes to capture trailing raw content."
+        },
+        {
+          "order": 3,
+          "content": "Determine the break style for each break node."
+        },
+        {
+          "order": 4,
+          "content": "Capture list item markers for list nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14be9054",
+      "name": "visit",
+      "enclosing_class": "remarkCaptureRawPositions",
+      "normalized_params": "(tree: any, nodeType: string, visitor: (node: any) => void): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Traverse the AST to find nodes of the specified type."
+        },
+        {
+          "order": 2,
+          "content": "Apply the visitor function to each matching node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e4a0f80",
+      "name": "visit",
+      "enclosing_class": "remarkCaptureRawPositions",
+      "normalized_params": "(tree: any, visitor: (node: any, index: number, parent: any) => void): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Traverse the AST to find all nodes."
+        },
+        {
+          "order": 2,
+          "content": "Apply the visitor function to each node with its index and parent."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_70ea6db5",
+      "name": "slice",
+      "enclosing_class": "remarkCaptureRawPositions",
+      "normalized_params": "(start: number, end: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract a substring from the source content using the provided start and end offsets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c24af490",
+      "name": "match",
+      "enclosing_class": "remarkCaptureRawPositions",
+      "normalized_params": "(pattern: RegExp): RegExpMatchArray | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Apply a regular expression pattern to match against the source content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a71da134",
+      "name": "test",
+      "enclosing_class": "remarkCaptureRawPositions",
+      "normalized_params": "(pattern: RegExp): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test if a regular expression pattern matches against the source content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1c0f5623",
+      "name": "rawPositionsPlugin",
+      "enclosing_class": null,
+      "normalized_params": "(): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Wrap the remark plugin with Milkdown's $remark utility."
+        },
+        {
+          "order": 2,
+          "content": "Return the configured plugin with the name 'rawPositions'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

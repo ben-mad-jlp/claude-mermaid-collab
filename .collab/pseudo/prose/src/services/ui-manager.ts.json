@@ -1,0 +1,190 @@
+{
+  "schema_version": 3,
+  "file": "src/services/ui-manager.ts",
+  "title": "UI Manager service for handling blocking and non-blocking UI renders",
+  "purpose": "Manages UI rendering requests and responses for both blocking and non-blocking modes, supporting session-based caching and promise resolution.",
+  "module_context": "Exports a UIManager class and a singleton instance for managing UI state and responses across sessions.",
+  "methods": [
+    {
+      "id": "m_b15853d6",
+      "name": "generateUIId",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a timestamp-based component for the UI ID."
+        },
+        {
+          "order": 2,
+          "content": "Generate a random 6-character hexadecimal component for the UI ID."
+        },
+        {
+          "order": 3,
+          "content": "Combine the timestamp and random components into a unique UI ID string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f7aff410",
+      "name": "renderUI",
+      "enclosing_class": "UIManager",
+      "normalized_params": "(request: RenderUIRequest): Promise<UIResponse>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project and session are provided in the request."
+        },
+        {
+          "order": 2,
+          "content": "Validate that UI is a non-null object with a type property."
+        },
+        {
+          "order": 3,
+          "content": "Normalize the blocking flag to default to true if not provided."
+        },
+        {
+          "order": 4,
+          "content": "Use the provided UI ID or generate a new one if not provided."
+        },
+        {
+          "order": 5,
+          "content": "Create a session key from project and session."
+        },
+        {
+          "order": 6,
+          "content": "Cache the UI in the session map for reconnection recovery."
+        },
+        {
+          "order": 7,
+          "content": "IF the mode is non-blocking, return an immediate terminal response."
+        },
+        {
+          "order": 8,
+          "content": "ELSE create and return a promise that will resolve when a response is received."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_31a3a0d3",
+      "name": "receiveResponse",
+      "enclosing_class": "UIManager",
+      "normalized_params": "(sessionKey: string, uiId: string, response: Partial<UIResponse>): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the cached UI for the given session key and UI ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no cached UI is found or the UI ID does not match, return false."
+        },
+        {
+          "order": 3,
+          "content": "Update the cached UI status to responded and record the response time."
+        },
+        {
+          "order": 4,
+          "content": "IF a pending UI exists for the session, resolve the promise with the response."
+        },
+        {
+          "order": 5,
+          "content": "IF a pending UI exists, clean up the pending UI state."
+        },
+        {
+          "order": 6,
+          "content": "Return true to indicate successful response handling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_64d5e417",
+      "name": "dismissUI",
+      "enclosing_class": "UIManager",
+      "normalized_params": "(sessionKey: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the pending UI for the given session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no pending UI is found, return false."
+        },
+        {
+          "order": 3,
+          "content": "Update the cached UI status to canceled."
+        },
+        {
+          "order": 4,
+          "content": "Reject the pending promise with a dismissal error."
+        },
+        {
+          "order": 5,
+          "content": "Clean up the pending UI state from the map."
+        },
+        {
+          "order": 6,
+          "content": "Return true to indicate successful dismissal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5bc318c5",
+      "name": "getUIStatus",
+      "enclosing_class": "UIManager",
+      "normalized_params": "(project: string, session: string, uiId: string): { status: 'pending' | 'responded' | 'stale' | 'not_found'; action?: string; data?: Record<string, any> }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a session key from project and session."
+        },
+        {
+          "order": 2,
+          "content": "Look up the cached UI for the session key."
+        },
+        {
+          "order": 3,
+          "content": "IF no cached UI is found, return not_found status."
+        },
+        {
+          "order": 4,
+          "content": "IF the UI ID does not match the cached UI, return stale status."
+        },
+        {
+          "order": 5,
+          "content": "IF the cached UI status is responded, return responded with action and data."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return pending status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

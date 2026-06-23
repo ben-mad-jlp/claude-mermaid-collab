@@ -1,0 +1,50 @@
+{
+  "id": "collab-editor-state",
+  "name": "collab-editor-state",
+  "definition": {
+    "url": "http://localhost:3002/collab/session?session=codex&project=/srv/codebase/open-collab",
+    "steps": [
+      {
+        "wait": 3000
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"editor-empty-pane\"]') ? 'found' : 'missing'",
+        "as": "emptyPane"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"editor-drop-zones\"]') ? 'found' : 'missing'",
+        "as": "dropZones"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"tab-bar\"]')?.children.length ?? -1",
+        "as": "tabCount"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"pinned-tab-bar\"]') ? 'found' : 'missing'",
+        "as": "pinnedTabBar"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar-search\"]') !== null",
+        "as": "searchInput"
+      },
+      {
+        "click": {
+          "selector": "[data-testid=\"sidebar-search\"]"
+        }
+      },
+      {
+        "wait": 200
+      },
+      {
+        "eval": "document.activeElement?.dataset?.testid || document.activeElement?.tagName",
+        "as": "focusedElement"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"session-todos-section\"]') ? 'found' : 'missing'",
+        "as": "todosSection"
+      }
+    ]
+  },
+  "createdAt": "2026-04-25T19:54:01.158Z",
+  "updatedAt": "2026-04-25T19:54:01.158Z"
+}

@@ -1,0 +1,174 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/MarkdownPreview.tsx",
+  "title": "Markdown preview component with syntax highlighting and diff support",
+  "purpose": "Renders Markdown content with syntax highlighting, theme support, and optional diff highlighting for document patches. Used to display formatted Markdown in a responsive UI.",
+  "module_context": "Exports a MarkdownPreview component that accepts Markdown content and optional diff data. Uses React hooks for theme management and memoization for performance. Includes custom components for headings, lists, code blocks, and other Markdown elements with Tailwind styling.",
+  "methods": [
+    {
+      "id": "m_5d8e7457",
+      "name": "computeLineDiff",
+      "enclosing_class": null,
+      "normalized_params": "(oldContent: string, newContent: string): Array<{ type: 'unchanged' | 'added' | 'removed'; content: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the old and new content into lines."
+        },
+        {
+          "order": 2,
+          "content": "Compute the longest common subsequence between the lines."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through the LCS indices to build segments with unchanged, added, or removed types."
+        },
+        {
+          "order": 4,
+          "content": "Add remaining lines that are not part of the LCS as either added or removed segments."
+        },
+        {
+          "order": 5,
+          "content": "Return the complete list of segments representing the diff."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_02b2e8c0",
+      "name": "computeLCS",
+      "enclosing_class": null,
+      "normalized_params": "(oldLines: string[], newLines: string[]): Array<[number, number]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a dynamic programming table to store the length of common subsequences."
+        },
+        {
+          "order": 2,
+          "content": "Fill the DP table by comparing lines from both arrays."
+        },
+        {
+          "order": 3,
+          "content": "Reconstruct the actual indices of the longest common subsequence from the DP table."
+        },
+        {
+          "order": 4,
+          "content": "Return the list of indices representing the LCS."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_45b2dea6",
+      "name": "handleCheckboxToggle",
+      "enclosing_class": "MarkdownPreview",
+      "normalized_params": "(line: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a content change handler is provided, proceed with toggling."
+        },
+        {
+          "order": 2,
+          "content": "Split the current content into lines."
+        },
+        {
+          "order": 3,
+          "content": "Locate the specific line in the content based on the provided index."
+        },
+        {
+          "order": 4,
+          "content": "Match the line against a checkbox pattern to determine its state."
+        },
+        {
+          "order": 5,
+          "content": "Toggle the checkbox state in the line text."
+        },
+        {
+          "order": 6,
+          "content": "Update the content with the modified line and notify the parent component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e59f6bc4",
+      "name": "components",
+      "enclosing_class": "MarkdownPreview",
+      "normalized_params": "(): { h1: (props: { children?: React.ReactNode }) => React.ReactElement; h2: (props: { children?: React.ReactNode }) => React.ReactElement; h3: (props: { children?: React.ReactNode }) => React.ReactElement; h4: (props: { children?: React.ReactNode }) => React.ReactElement; h5: (props: { children?: React.ReactNode }) => React.ReactElement; h6: (props: { children?: React.ReactNode }) => React.ReactElement; p: (props: { children?: React.ReactNode }) => React.ReactElement; strong: (props: { children?: React.ReactNode }) => React.ReactElement; em: (props: { children?: React.ReactNode }) => React.ReactElement; a: (props: { href?: string; children?: React.ReactNode }) => React.ReactElement; img: (props: { src?: string; alt?: string }) => React.ReactElement; ul: (props: { children?: React.ReactNode }) => React.ReactElement; ol: (props: { children?: React.ReactNode }) => React.ReactElement; li: (props: any) => React.ReactElement; pre: (props: { children?: React.ReactNode }) => React.ReactElement; code: (props: { className?: string; children?: React.ReactNode }) => React.ReactElement; blockquote: (props: { children?: React.ReactNode }) => React.ReactElement; hr: () => React.ReactElement; table: (props: { children?: React.ReactNode }) => React.ReactElement; thead: (props: { children?: React.ReactNode }) => React.ReactElement; tbody: (props: { children?: React.ReactNode }) => React.ReactElement; tr: (props: { children?: React.ReactNode }) => React.ReactElement; td: (props: { children?: React.ReactNode }) => React.ReactElement; th: (props: { children?: React.ReactNode }) => React.ReactElement; annotation: (props: { node?: any }) => React.ReactElement | null; details: (props: { children?: React.ReactNode; open?: boolean | string }) => React.ReactElement; summary: (props: { children?: React.ReactNode }) => React.ReactElement }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a set of React components for rendering different Markdown elements."
+        },
+        {
+          "order": 2,
+          "content": "Configure styling for headings, paragraphs, links, images, lists, code blocks, and other elements."
+        },
+        {
+          "order": 3,
+          "content": "Set up components for handling task list items with checkbox toggling."
+        },
+        {
+          "order": 4,
+          "content": "Implement a pre component that wraps code blocks with syntax highlighting."
+        },
+        {
+          "order": 5,
+          "content": "Define inline code rendering with appropriate styling."
+        },
+        {
+          "order": 6,
+          "content": "Configure table and blockquote components with appropriate styling."
+        },
+        {
+          "order": 7,
+          "content": "Set up annotation and collapsible components for extended Markdown features."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_292750ff",
+      "name": "diffSegments",
+      "enclosing_class": "MarkdownPreview",
+      "normalized_params": "(): Array<{ type: 'unchanged' | 'added' | 'removed'; content: string }> | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF diff data is provided, compute the line-by-line diff."
+        },
+        {
+          "order": 2,
+          "content": "IF diff computation fails, log the error and return null."
+        },
+        {
+          "order": 3,
+          "content": "Return the computed diff segments or null if no diff is provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

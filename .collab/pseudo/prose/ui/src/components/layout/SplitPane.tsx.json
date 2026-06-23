@@ -1,0 +1,134 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/SplitPane.tsx",
+  "title": "Resizable split pane component with collapse functionality",
+  "purpose": "Provides resizable panel layouts that can be split horizontally or vertically with customizable sizes, collapsibility, and persistent storage of split positions.",
+  "module_context": "Exports two split pane components: SplitPane for two-panel layouts and ThreeWaySplitPane for three-panel layouts. Both integrate with react-resizable-panels and use UI store for persistent layout saving.",
+  "methods": [
+    {
+      "id": "m_4300f4b0",
+      "name": "SplitPane",
+      "enclosing_class": null,
+      "normalized_params": "(props: SplitPaneProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize references for primary panel and previous collapse state."
+        },
+        {
+          "order": 2,
+          "content": "Set up layout change handler to track size changes and detect collapse/expand events."
+        },
+        {
+          "order": 3,
+          "content": "Define functions to collapse and expand the primary panel."
+        },
+        {
+          "order": 4,
+          "content": "Render the panel group with primary and secondary panels and a resize handle."
+        },
+        {
+          "order": 5,
+          "content": "Apply appropriate styling and data attributes for testing and layout."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b0ab372d",
+      "name": "handleLayout",
+      "enclosing_class": "SplitPane",
+      "normalized_params": "(sizes: Array<{ sizePercentage: number; sizePixels: number }>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the primary panel size percentage from the layout data."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the size change callback with the primary panel size."
+        },
+        {
+          "order": 3,
+          "content": "Determine if the primary panel is currently collapsed."
+        },
+        {
+          "order": 4,
+          "content": "IF the collapse state has changed, invoke the appropriate collapse or expand callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8268ce4e",
+      "name": "collapsePrimary",
+      "enclosing_class": "SplitPane",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Collapse the primary panel using its imperative handle reference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9231419e",
+      "name": "expandPrimary",
+      "enclosing_class": "SplitPane",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Expand the primary panel using its imperative handle reference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e126da04",
+      "name": "ThreeWaySplitPane",
+      "enclosing_class": null,
+      "normalized_params": "(props: ThreeWaySplitPaneProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a panel group with three panels and two resize handles."
+        },
+        {
+          "order": 2,
+          "content": "Configure default sizes and minimum sizes for each panel."
+        },
+        {
+          "order": 3,
+          "content": "Apply appropriate styling and data attributes for testing and layout."
+        },
+        {
+          "order": 4,
+          "content": "Set up collapsibility and collapsed size for left and right panels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

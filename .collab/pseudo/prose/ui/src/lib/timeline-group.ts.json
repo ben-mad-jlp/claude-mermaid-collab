@@ -1,0 +1,223 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/timeline-group.ts",
+  "title": "Timeline item grouping utility for read and grep operations",
+  "purpose": "Groups consecutive read and grep tool calls into timeline groups when they share common directory prefixes, improving visualization of related file operations.",
+  "module_context": "Exports TimelineGroup and GroupedTimelineItem types, and a groupTimeline function that processes agent timeline items into grouped structures.",
+  "methods": [
+    {
+      "id": "m_f6f6a25b",
+      "name": "commonDirPrefix",
+      "enclosing_class": null,
+      "normalized_params": "(paths: string[]): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Handle empty input by returning null."
+        },
+        {
+          "order": 2,
+          "content": "Split each path into segments using forward slashes."
+        },
+        {
+          "order": 3,
+          "content": "Compare segments across all paths to find the longest common prefix."
+        },
+        {
+          "order": 4,
+          "content": "Drop the last segment of the prefix to ensure only directory components are included."
+        },
+        {
+          "order": 5,
+          "content": "Return null if the resulting prefix is empty or just the root directory."
+        },
+        {
+          "order": 6,
+          "content": "Return the joined prefix string if it contains meaningful directory components."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d7a31abf",
+      "name": "isReadToolCall",
+      "enclosing_class": null,
+      "normalized_params": "(item: AgentTimelineItem): item is AgentToolCallItem",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify the item is a tool call type."
+        },
+        {
+          "order": 2,
+          "content": "Check that the tool call name is 'Read'."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the input contains a file_path property as a string."
+        },
+        {
+          "order": 4,
+          "content": "Return true if all conditions are met, otherwise false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_334cf570",
+      "name": "isGrepToolCall",
+      "enclosing_class": null,
+      "normalized_params": "(item: AgentTimelineItem): item is AgentToolCallItem",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify the item is a tool call type."
+        },
+        {
+          "order": 2,
+          "content": "Check that the tool call name is 'Grep'."
+        },
+        {
+          "order": 3,
+          "content": "Return true if the name matches, otherwise false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4a0b3be0",
+      "name": "readPaths",
+      "enclosing_class": null,
+      "normalized_params": "(items: AgentToolCallItem[]): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map each item to extract its file path from the input."
+        },
+        {
+          "order": 2,
+          "content": "Filter out any empty paths from the results."
+        },
+        {
+          "order": 3,
+          "content": "Return the array of valid file paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2017d8d5",
+      "name": "groupTimeline",
+      "enclosing_class": null,
+      "normalized_params": "(items: AgentTimelineItem[]): GroupedTimelineItem[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an output array and a running buffer for grouping."
+        },
+        {
+          "order": 2,
+          "content": "Define a flush function to handle ending a group and adding it to the output."
+        },
+        {
+          "order": 3,
+          "content": "Process each item in the input timeline."
+        },
+        {
+          "order": 4,
+          "content": "For read tool calls, determine if they can be grouped with the current run."
+        },
+        {
+          "order": 5,
+          "content": "If a group can be formed, add the item to the current run buffer."
+        },
+        {
+          "order": 6,
+          "content": "If grouping is not possible, flush the current run and start a new one."
+        },
+        {
+          "order": 7,
+          "content": "For grep tool calls, check if they can be grouped with the current run."
+        },
+        {
+          "order": 8,
+          "content": "If grouping is possible, add the item to the current run buffer."
+        },
+        {
+          "order": 9,
+          "content": "If grouping is not possible, flush the current run and start a new one."
+        },
+        {
+          "order": 10,
+          "content": "For non-tool call items, flush the current run and add the item directly to output."
+        },
+        {
+          "order": 11,
+          "content": "Flush any remaining items in the current run after processing all input."
+        },
+        {
+          "order": 12,
+          "content": "Return the final grouped timeline items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5f89cdc2",
+      "name": "flush",
+      "enclosing_class": "groupTimeline",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there is an active run to flush."
+        },
+        {
+          "order": 2,
+          "content": "If the run buffer contains three or more items, create a group."
+        },
+        {
+          "order": 3,
+          "content": "For read groups, compute and attach the common directory prefix."
+        },
+        {
+          "order": 4,
+          "content": "Add the group to the output array."
+        },
+        {
+          "order": 5,
+          "content": "If the run buffer contains fewer than three items, add each item individually to the output."
+        },
+        {
+          "order": 6,
+          "content": "Reset the current run to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/BottomTabBar.tsx",
+  "title": "Mobile bottom navigation bar with preview and chat tabs",
+  "purpose": "Provides a fixed bottom navigation bar for mobile layouts with touch-friendly tabs for preview and chat functionality, handling safe area padding for iOS devices.",
+  "module_context": "Exports a TypeScript React component named BottomTabBar that accepts active tab state and change handler props, defines two mobile tabs (preview and chat) with SVG icons, and applies responsive styling with safe area padding.",
+  "methods": [
+    {
+      "id": "m_5ba881aa",
+      "name": "BottomTabBar",
+      "enclosing_class": null,
+      "normalized_params": "(props: BottomTabBarProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a fixed positioned bottom navigation bar with background and border styling."
+        },
+        {
+          "order": 2,
+          "content": "Apply safe area padding to the bottom of the navigation bar for iOS devices."
+        },
+        {
+          "order": 3,
+          "content": "Map over the predefined tab configuration to render each tab button."
+        },
+        {
+          "order": 4,
+          "content": "Set active tab styling with blue text and font weight for the currently selected tab."
+        },
+        {
+          "order": 5,
+          "content": "Apply hover and focus text color changes for inactive tabs."
+        },
+        {
+          "order": 6,
+          "content": "Include tab icon and label within each button with appropriate sizing and spacing."
+        },
+        {
+          "order": 7,
+          "content": "Attach click handler to each tab button to trigger the tab change callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

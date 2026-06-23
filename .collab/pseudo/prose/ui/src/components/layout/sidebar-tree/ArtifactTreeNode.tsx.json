@@ -1,0 +1,100 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/ArtifactTreeNode.tsx",
+  "title": "Artifact tree node component with pinning and timestamp formatting",
+  "purpose": "Renders individual nodes in a tree view for artifacts, showing name, last modified time, and pinning functionality.",
+  "module_context": "Exports a memoized React component named ArtifactTreeNode that renders tree items with visual styling, timestamp formatting, and pinning controls.",
+  "methods": [
+    {
+      "id": "m_d1c30ece",
+      "name": "iconFor",
+      "enclosing_class": null,
+      "normalized_params": "(_node: TreeNode): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a fixed SVG icon element for all nodes."
+        },
+        {
+          "order": 2,
+          "content": "The icon is a small circle with specific styling for visual consistency."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e29eaec7",
+      "name": "formatAgo",
+      "enclosing_class": null,
+      "normalized_params": "(ts: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the time difference between now and the provided timestamp."
+        },
+        {
+          "order": 2,
+          "content": "IF the difference is negative, return 'now' as the time indicator."
+        },
+        {
+          "order": 3,
+          "content": "Convert the difference into seconds and determine the appropriate time unit."
+        },
+        {
+          "order": 4,
+          "content": "Format and return the time ago string using the determined unit and value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_86d60295",
+      "name": "ArtifactTreeNodeImpl",
+      "enclosing_class": null,
+      "normalized_params": "({ node, selected, onClick, onDoubleClick, onContextMenu, onKeyDown, onTogglePin }: ArtifactTreeNodeProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the CSS class name for the node based on selection state and deprecated status."
+        },
+        {
+          "order": 2,
+          "content": "Render a div element with appropriate accessibility attributes and event handlers."
+        },
+        {
+          "order": 3,
+          "content": "Display the node's icon using the iconFor function."
+        },
+        {
+          "order": 4,
+          "content": "Show the node's name with truncation to fit available space."
+        },
+        {
+          "order": 5,
+          "content": "IF the node has a last modified timestamp, display the formatted time ago string."
+        },
+        {
+          "order": 6,
+          "content": "IF the node is pinned or a toggle pin handler is provided, render a pin button."
+        },
+        {
+          "order": 7,
+          "content": "Attach event handlers to the pin button to prevent event propagation and call the toggle pin handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

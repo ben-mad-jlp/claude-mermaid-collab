@@ -1,0 +1,60 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/layout/index.ts",
+  "title": "Layout components central export",
+  "purpose": "Provides a single entry point for all layout components including Layout, Sidebar, and Header with their respective props types.",
+  "module_context": "Exports Layout, Sidebar, and Header components along with their TypeScript props types from the same directory.",
+  "methods": [
+    {
+      "id": "m_1dd0a46d",
+      "name": "Layout",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Layout component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8388ad90",
+      "name": "Sidebar",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Sidebar component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_940011f4",
+      "name": "Header",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Header component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

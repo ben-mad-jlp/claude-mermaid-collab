@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useSession.ts",
+  "title": "Session state management hook with React integration",
+  "purpose": "Provides React components with access to session state and actions for managing diagrams, documents, designs, and collaboration state while preventing unnecessary re-renders.",
+  "module_context": "Exports a useSession hook that integrates with Zustand store for session management and uses shallow comparison for optimized state selection.",
+  "methods": [
+    {
+      "id": "m_26e10219",
+      "name": "useSession",
+      "enclosing_class": null,
+      "normalized_params": "(): UseSessionReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the session store state using shallow comparison to prevent unnecessary re-renders."
+        },
+        {
+          "order": 2,
+          "content": "Memoize the selected diagram getter to avoid recomputation on every render."
+        },
+        {
+          "order": 3,
+          "content": "Memoize the selected document getter to avoid recomputation on every render."
+        },
+        {
+          "order": 4,
+          "content": "Memoize the selected design getter to avoid recomputation on every render."
+        },
+        {
+          "order": 5,
+          "content": "Return the combined session state and action methods for component consumption."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

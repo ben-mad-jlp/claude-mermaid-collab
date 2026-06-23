@@ -1,0 +1,200 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dashboard/Dashboard.tsx",
+  "title": "Dashboard component with session and item management",
+  "purpose": "Provides a split-pane interface for browsing sessions and items with real-time updates and search capabilities.",
+  "module_context": "Exports a Dashboard component that integrates session state management, data loading, and UI layout with SplitPane for resizable panels.",
+  "methods": [
+    {
+      "id": "m_44f35d58",
+      "name": "Dashboard",
+      "enclosing_class": null,
+      "normalized_params": "(props: DashboardProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize session state and UI store values."
+        },
+        {
+          "order": 2,
+          "content": "Set up state for search query and refresh indicator."
+        },
+        {
+          "order": 3,
+          "content": "Load session items when the current session changes."
+        },
+        {
+          "order": 4,
+          "content": "Combine and sort diagrams, documents, and designs into a unified items list."
+        },
+        {
+          "order": 5,
+          "content": "Filter items based on the current search query."
+        },
+        {
+          "order": 6,
+          "content": "Handle session selection by updating the current session and notifying parent."
+        },
+        {
+          "order": 7,
+          "content": "Handle item clicks by selecting the appropriate item type and notifying parent."
+        },
+        {
+          "order": 8,
+          "content": "Manage panel resizing by updating the session panel split position."
+        },
+        {
+          "order": 9,
+          "content": "Refresh session items by loading them from the data loader."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2fc235e6",
+      "name": "handleSessionClick",
+      "enclosing_class": "Dashboard",
+      "normalized_params": "(session: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the current session in session state."
+        },
+        {
+          "order": 2,
+          "content": "Notify parent component of the session selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aab1987d",
+      "name": "handleItemClick",
+      "enclosing_class": "Dashboard",
+      "normalized_params": "(item: GridItem): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the appropriate item type based on item type."
+        },
+        {
+          "order": 2,
+          "content": "Notify parent component of the item click."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7efd6e4e",
+      "name": "handlePanelResize",
+      "enclosing_class": "Dashboard",
+      "normalized_params": "(newSize: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the session panel split position in UI store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a8209b90",
+      "name": "handleRefresh",
+      "enclosing_class": "Dashboard",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no current session exists, return early."
+        },
+        {
+          "order": 2,
+          "content": "Set the refresh indicator to true."
+        },
+        {
+          "order": 3,
+          "content": "Load session items from the data loader."
+        },
+        {
+          "order": 4,
+          "content": "IF the load fails, log the error."
+        },
+        {
+          "order": 5,
+          "content": "Reset the refresh indicator to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6afe345",
+      "name": "loadSessionItems",
+      "enclosing_class": "Dashboard",
+      "normalized_params": "(project: string, sessionName: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch session items for the specified project and session name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c8df0787",
+      "name": "items",
+      "enclosing_class": "Dashboard",
+      "normalized_params": "(): GridItem[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map diagrams to grid items with diagram type."
+        },
+        {
+          "order": 2,
+          "content": "Map documents to grid items with document type."
+        },
+        {
+          "order": 3,
+          "content": "Map designs to grid items with design type."
+        },
+        {
+          "order": 4,
+          "content": "Sort all items by last modified timestamp in descending order."
+        },
+        {
+          "order": 5,
+          "content": "Filter items based on the search query."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

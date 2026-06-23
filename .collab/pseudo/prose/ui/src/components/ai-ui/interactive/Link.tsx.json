@@ -1,0 +1,63 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/interactive/Link.tsx",
+  "title": "Reusable link component with variant styling and external icon",
+  "purpose": "Provides a customizable link component that supports different visual variants, external link indicators, and disabled states.",
+  "module_context": "Exports a Link component with predefined variant classes and a display name for React debugging.",
+  "methods": [
+    {
+      "id": "m_d8c7acf6",
+      "name": "Link",
+      "enclosing_class": null,
+      "normalized_params": "(props: LinkProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept props including href, label, onClick, variant, disabled, external, and className."
+        },
+        {
+          "order": 2,
+          "content": "Define a click handler that prevents default behavior when disabled or when onClick is provided."
+        },
+        {
+          "order": 3,
+          "content": "Render an anchor element with appropriate href, target, and rel attributes based on external flag."
+        },
+        {
+          "order": 4,
+          "content": "Apply variant-specific styling classes and additional className prop."
+        },
+        {
+          "order": 5,
+          "content": "Include an external link icon when the external prop is true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_64108fb1",
+      "name": "handleClick",
+      "enclosing_class": "Link",
+      "normalized_params": "(e: React.MouseEvent<HTMLAnchorElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the link is disabled, prevent the default click behavior and return early."
+        },
+        {
+          "order": 2,
+          "content": "ELSE IF an onClick handler is provided, prevent the default behavior and call the onClick handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

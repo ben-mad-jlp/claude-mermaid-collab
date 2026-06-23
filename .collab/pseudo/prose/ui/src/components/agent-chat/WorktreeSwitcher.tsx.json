@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/WorktreeSwitcher.tsx",
+  "title": "Worktree switcher dropdown component with click-outside detection",
+  "purpose": "Provides a UI component for switching between active worktrees in a chat interface, with a dropdown list that closes when clicking outside.",
+  "module_context": "Exports a React functional component WorktreeSwitcher that accepts worktrees, active session ID, and a switch handler as props. Also exports the WorktreeEntry and WorktreeSwitcherProps interfaces.",
+  "methods": [
+    {
+      "id": "m_514a7455",
+      "name": "WorktreeSwitcher",
+      "enclosing_class": null,
+      "normalized_params": "(props: WorktreeSwitcherProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the open state to false and create a ref for the container element."
+        },
+        {
+          "order": 2,
+          "content": "Set up a side effect to add and remove a click handler for detecting clicks outside the component."
+        },
+        {
+          "order": 3,
+          "content": "Determine the active worktree based on the session ID or fall back to the first worktree."
+        },
+        {
+          "order": 4,
+          "content": "Generate the label text for the active worktree using branch or path."
+        },
+        {
+          "order": 5,
+          "content": "Define a handler for when a worktree is selected, which closes the dropdown and calls the switch handler."
+        },
+        {
+          "order": 6,
+          "content": "Render the button showing the current worktree label and dropdown arrow."
+        },
+        {
+          "order": 7,
+          "content": "IF the dropdown is open, render the list of worktrees with styling for active selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cdb2b990",
+      "name": "handleClickOutside",
+      "enclosing_class": "WorktreeSwitcher",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is outside the component container."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, close the dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_68ae1f31",
+      "name": "handlePick",
+      "enclosing_class": "WorktreeSwitcher",
+      "normalized_params": "(sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the dropdown menu."
+        },
+        {
+          "order": 2,
+          "content": "Trigger the switch handler with the selected session ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

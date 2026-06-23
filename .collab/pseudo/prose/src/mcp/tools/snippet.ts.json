@@ -1,0 +1,314 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/snippet.ts",
+  "title": "MCP Snippet Tools for CRUD operations on code snippets",
+  "purpose": "Provides tools for creating, reading, updating, deleting, and exporting code snippets stored as .snippet files in session folders.",
+  "module_context": "Exports interfaces for snippet operations, schemas for input validation, and helper functions for anchor-based extraction and language detection. Defines URL building logic for API calls.",
+  "methods": [
+    {
+      "id": "m_0761ae8e",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string, session: string, extraParams?: Record<string, string>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL using the base API endpoint, provided path, and project/session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Append project and session as URL search parameters."
+        },
+        {
+          "order": 3,
+          "content": "If extra parameters are provided, add them as additional URL search parameters."
+        },
+        {
+          "order": 4,
+          "content": "Return the fully constructed URL string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_148bb9bd",
+      "name": "findAnchorLine",
+      "enclosing_class": null,
+      "normalized_params": "(lines: string[], anchor: string, label: string, filePath: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the anchor string for consistent matching."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each line to find matches of the trimmed anchor string."
+        },
+        {
+          "order": 3,
+          "content": "If no matches are found, throw an error indicating the anchor was not found in the file."
+        },
+        {
+          "order": 4,
+          "content": "If multiple matches are found, throw an error showing all matching lines and their context."
+        },
+        {
+          "order": 5,
+          "content": "Return the index of the single matching line."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4718806d",
+      "name": "extractWithAnchors",
+      "enclosing_class": null,
+      "normalized_params": "(fileContent: string, filePath: string, startAt?: string, endAt?: string, maxLines?: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that filePath and fileContent are provided."
+        },
+        {
+          "order": 2,
+          "content": "Normalize line endings to Unix-style."
+        },
+        {
+          "order": 3,
+          "content": "Split the content into lines."
+        },
+        {
+          "order": 4,
+          "content": "If the file appears minified (single line) and anchors are specified, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Determine the start and end indices based on anchor strings or default to full file."
+        },
+        {
+          "order": 6,
+          "content": "If the end index is before the start index, throw an error about incorrect anchor order."
+        },
+        {
+          "order": 7,
+          "content": "If the extracted range exceeds the maximum lines limit, throw an error."
+        },
+        {
+          "order": 8,
+          "content": "Return the extracted lines joined back into a string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cbe7df0d",
+      "name": "handleCreateSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name?: string, content?: string, sourcePath?: string, startLine?: number, endLine?: number, groupId?: string, groupName?: string, startAt?: string, endAt?: string, maxLines?: number): Promise<CreateSnippetResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If sourcePath is provided, read the file content and detect the language from the file extension."
+        },
+        {
+          "order": 2,
+          "content": "If anchor-based extraction is specified, extract content using the anchor helper function."
+        },
+        {
+          "order": 3,
+          "content": "If legacy line-based extraction is used, slice the content based on start and end lines."
+        },
+        {
+          "order": 4,
+          "content": "If groupId or groupName is provided, inject them into the JSON content."
+        },
+        {
+          "order": 5,
+          "content": "If content is raw code, wrap it in a JSON envelope with language detection."
+        },
+        {
+          "order": 6,
+          "content": "Make a POST request to the API endpoint to create the snippet with the final name and content."
+        },
+        {
+          "order": 7,
+          "content": "If the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 8,
+          "content": "Return the success status and ID from the API response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_260b4d4e",
+      "name": "handleUpdateSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<UpdateSnippetResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the incoming content as JSON."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the existing snippet data from the API."
+        },
+        {
+          "order": 3,
+          "content": "If the existing snippet is JSON, merge the incoming content with the existing envelope."
+        },
+        {
+          "order": 4,
+          "content": "If the existing snippet is not JSON, wrap the incoming content in a new envelope."
+        },
+        {
+          "order": 5,
+          "content": "Make a POST request to the API endpoint to update the snippet with the merged content."
+        },
+        {
+          "order": 6,
+          "content": "If the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 7,
+          "content": "Return the success status and ID from the API response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b540557f",
+      "name": "handleGetSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<GetSnippetResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to the API endpoint to fetch the snippet by ID."
+        },
+        {
+          "order": 2,
+          "content": "If the API request fails, throw an error indicating the snippet was not found."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON envelope from the snippet content to extract code and metadata."
+        },
+        {
+          "order": 4,
+          "content": "If annotations are present, inject them as comment lines above their annotated ranges."
+        },
+        {
+          "order": 5,
+          "content": "Return the snippet data with parsed code, language, file path, and last modified timestamp."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42d3fe53",
+      "name": "handleListSnippets",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<ListSnippetsResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a GET request to the API endpoint to list all snippets for the project and session."
+        },
+        {
+          "order": 2,
+          "content": "If the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 3,
+          "content": "Return the list of snippets from the API response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c4ea5f77",
+      "name": "handleDeleteSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<DeleteSnippetResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Make a DELETE request to the API endpoint to remove the snippet by ID."
+        },
+        {
+          "order": 2,
+          "content": "If the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 3,
+          "content": "Return the success status from the API response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_46ed18f4",
+      "name": "handleExportSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, format?: string): Promise<ExportSnippetResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch the snippet data using the get snippet handler."
+        },
+        {
+          "order": 2,
+          "content": "If the export format is JSON, serialize the snippet data into a JSON string."
+        },
+        {
+          "order": 3,
+          "content": "If the export format is text, return the snippet content directly."
+        },
+        {
+          "order": 4,
+          "content": "Return the success status, content, and format from the export operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

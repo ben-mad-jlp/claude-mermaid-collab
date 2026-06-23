@@ -1,0 +1,95 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/chat-drawer/ChatDrawer.tsx",
+  "title": "Chat drawer component with auto-scrolling messages and AI UI rendering",
+  "purpose": "Displays a left-side drawer for chat interactions with AI-generated UI components, supporting auto-scrolling to new messages and handling user actions.",
+  "module_context": "Exports a ChatDrawer React component that manages chat message display, auto-scrolling behavior, and interaction with AI UI components through the chat store.",
+  "methods": [
+    {
+      "id": "m_a95232f3",
+      "name": "ChatDrawer",
+      "enclosing_class": null,
+      "normalized_params": "(props: ChatDrawerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the chat drawer with open state and close handler."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to chat messages from the global store."
+        },
+        {
+          "order": 3,
+          "content": "Set up auto-scrolling to latest messages using a ref and effect hook."
+        },
+        {
+          "order": 4,
+          "content": "Define action handler for AI UI component interactions."
+        },
+        {
+          "order": 5,
+          "content": "Render overlay when drawer is open."
+        },
+        {
+          "order": 6,
+          "content": "Render drawer container with smooth slide animation."
+        },
+        {
+          "order": 7,
+          "content": "Display header with close button and Claude title."
+        },
+        {
+          "order": 8,
+          "content": "Render messages container with scroll behavior and empty state."
+        },
+        {
+          "order": 9,
+          "content": "Map each message to its display component with appropriate styling."
+        },
+        {
+          "order": 10,
+          "content": "Render AI UI components using the AIUIRenderer when message type is ui_render."
+        },
+        {
+          "order": 11,
+          "content": "Display plain text messages for non-UI message types."
+        },
+        {
+          "order": 12,
+          "content": "Show message metadata including type, blocking status, and responded status."
+        },
+        {
+          "order": 13,
+          "content": "Render footer with message count and responded status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66fe5891",
+      "name": "handleAction",
+      "enclosing_class": "ChatDrawer",
+      "normalized_params": "(actionId: string, payload?: any): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process the action triggered by an AI UI component."
+        },
+        {
+          "order": 2,
+          "content": "Send the action ID and payload to the chat store for response handling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/document.ts",
+  "title": "Document interface definition for core document operations",
+  "purpose": "Defines the structure and properties of document objects used throughout the application for storage, retrieval, and manipulation of document data.",
+  "module_context": "Exports a single interface named Document that describes the shape of document objects with mandatory and optional fields including id, name, content, lastModified timestamp, and various optional metadata flags.",
+  "methods": [
+    {
+      "id": "m_5a6c5d0d",
+      "name": "Document",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for document objects with required fields id, name, content, and lastModified."
+        },
+        {
+          "order": 2,
+          "content": "Include optional fields folder, locked, deprecated, pinned, and blueprint to support document metadata and status flags."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/history.ts",
+  "title": "History UI types for documents, diagrams, and designs",
+  "purpose": "Defines TypeScript interfaces for history tracking and UI components related to document, diagram, and design versioning.",
+  "module_context": "Exports multiple interfaces for history data structures, component props, and hook return types for different history-related features.",
+  "methods": [
+    {
+      "id": "m_1a37b0b3",
+      "name": "DocumentHistory",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for document history data."
+        },
+        {
+          "order": 2,
+          "content": "Include original document content and array of chronological changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5b2a810",
+      "name": "DiagramHistory",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the type alias for diagram history data."
+        },
+        {
+          "order": 2,
+          "content": "Use the same structure as DocumentHistory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d18dbd0e",
+      "name": "DesignHistory",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the type alias for design history data."
+        },
+        {
+          "order": 2,
+          "content": "Use the same structure as DocumentHistory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

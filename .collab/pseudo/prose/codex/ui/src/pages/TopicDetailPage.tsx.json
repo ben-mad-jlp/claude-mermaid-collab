@@ -1,0 +1,117 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/pages/TopicDetailPage.tsx",
+  "title": "Topic detail page component with navigation and actions",
+  "purpose": "Displays a full topic detail view with document viewer and provides navigation and action handlers for back, edit, and delete operations.",
+  "module_context": "Exports a React functional component TopicDetailPage that accepts topic name and action callbacks as props, and renders a layout with header and topic detail component.",
+  "methods": [
+    {
+      "id": "m_e421297f",
+      "name": "TopicDetailPage",
+      "enclosing_class": null,
+      "normalized_params": "(props: TopicDetailPageProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept topic name and action callbacks as props."
+        },
+        {
+          "order": 2,
+          "content": "Define handler for back navigation that uses provided callback or defaults to dashboard."
+        },
+        {
+          "order": 3,
+          "content": "Define handler for edit action that uses provided callback or defaults to edit page."
+        },
+        {
+          "order": 4,
+          "content": "Define handler for delete action that uses provided callback or shows confirmation and logs deletion."
+        },
+        {
+          "order": 5,
+          "content": "Render layout with header and topic detail component."
+        },
+        {
+          "order": 6,
+          "content": "Pass all handlers and topic name to the topic detail component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_39d1a747",
+      "name": "handleBack",
+      "enclosing_class": "TopicDetailPage",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a back callback is provided, invoke it."
+        },
+        {
+          "order": 2,
+          "content": "ELSE navigate to the topics list page."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ab8ff41",
+      "name": "handleEdit",
+      "enclosing_class": "TopicDetailPage",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF an edit callback is provided, invoke it with the topic name."
+        },
+        {
+          "order": 2,
+          "content": "ELSE navigate to the topic edit page."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_72a9a910",
+      "name": "handleDelete",
+      "enclosing_class": "TopicDetailPage",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a delete callback is provided, invoke it with the topic name."
+        },
+        {
+          "order": 2,
+          "content": "ELSE show a confirmation dialog for deletion."
+        },
+        {
+          "order": 3,
+          "content": "IF deletion is confirmed, log the deletion action."
+        },
+        {
+          "order": 4,
+          "content": "Navigate back to the topics list after deletion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/diagram/PropertiesPane.tsx",
+  "title": "SMACH Diagram Properties Pane Component",
+  "purpose": "Displays a right-side panel for managing diagram states and transitions, including adding new states, adding transitions from selected states, and editing state properties.",
+  "module_context": "Exports a React functional component PropertiesPane that accepts props for selected node ID and various callback functions for state management operations.",
+  "methods": [
+    {
+      "id": "m_dd3101f6",
+      "name": "PropertiesPane",
+      "enclosing_class": null,
+      "normalized_params": "(props: PropertiesPaneProps): React.FC<PropertiesPaneProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize local state for property editing with empty name and description fields."
+        },
+        {
+          "order": 2,
+          "content": "Reset property form fields when the selected node ID changes."
+        },
+        {
+          "order": 3,
+          "content": "Handle property field changes and update both local state and call the edit properties callback."
+        },
+        {
+          "order": 4,
+          "content": "Render the properties pane UI with add state button, node information section, add transition button, and property editor fields."
+        },
+        {
+          "order": 5,
+          "content": "Display appropriate content based on whether a node is selected or not."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ecb5a7e2",
+      "name": "handlePropertyChange",
+      "enclosing_class": "PropertiesPane",
+      "normalized_params": "(key: string, value: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the local properties state with the new value for the specified key."
+        },
+        {
+          "order": 2,
+          "content": "IF a node is selected, call the edit properties callback with the updated properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

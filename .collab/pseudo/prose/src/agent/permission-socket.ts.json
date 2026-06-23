@@ -1,0 +1,150 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/permission-socket.ts",
+  "title": "Unix domain socket server for handling permission requests",
+  "purpose": "Provides a secure communication channel for tools to request permission before execution, using Unix domain sockets for IPC.",
+  "module_context": "Exports interfaces for permission requests and responses, a handler type, and a server factory function. Defines constants for default socket options and helper functions for constructing denial responses.",
+  "methods": [
+    {
+      "id": "m_083d495b",
+      "name": "denyEnvelope",
+      "enclosing_class": null,
+      "normalized_params": "(reason: string): PermissionResponse",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return a permission response indicating denial."
+        },
+        {
+          "order": 2,
+          "content": "Set the decision to deny in the response."
+        },
+        {
+          "order": 3,
+          "content": "Include the provided reason for the denial in the response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4b6aa90",
+      "name": "handleConnection",
+      "enclosing_class": null,
+      "normalized_params": "(socket: Socket, handler: PermissionHandler, opts: StartOpts | undefined, emitter: EventEmitter): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Configure socket encoding and timeout based on provided options or defaults."
+        },
+        {
+          "order": 2,
+          "content": "Initialize buffer for accumulating incoming data and tracking byte length."
+        },
+        {
+          "order": 3,
+          "content": "Set up handlers for socket timeout, error, and data events."
+        },
+        {
+          "order": 4,
+          "content": "Process incoming data chunks and accumulate them until a newline delimiter is found."
+        },
+        {
+          "order": 5,
+          "content": "Validate the accumulated data for size limits and JSON parsing."
+        },
+        {
+          "order": 6,
+          "content": "If data is valid, pass it to the permission handler and await the response."
+        },
+        {
+          "order": 7,
+          "content": "Send the handler's response back to the client or handle errors by sending a denial."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f16f134b",
+      "name": "start",
+      "enclosing_class": null,
+      "normalized_params": "(socketPath: string, handler: PermissionHandler, opts?: StartOpts): Promise<PermissionSocketServer>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove any existing socket file at the specified path."
+        },
+        {
+          "order": 2,
+          "content": "Create a new server instance and set up connection handling."
+        },
+        {
+          "order": 3,
+          "content": "Configure server error handling to emit errors through the event emitter."
+        },
+        {
+          "order": 4,
+          "content": "Listen on the specified socket path and wait for the server to start listening."
+        },
+        {
+          "order": 5,
+          "content": "Return a wrapper object that provides access to the socket path, close method, and event subscription."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ee1ae38",
+      "name": "close",
+      "enclosing_class": "start",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the underlying server instance."
+        },
+        {
+          "order": 2,
+          "content": "Remove the socket file from the filesystem after closing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_25f2e2d1",
+      "name": "on",
+      "enclosing_class": "start",
+      "normalized_params": "(event: string, listener: (err: { where: string; message: string; recoverable: boolean }) => void): PermissionSocketServer",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to events emitted by the internal event emitter."
+        },
+        {
+          "order": 2,
+          "content": "Return the wrapper object to allow for method chaining."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

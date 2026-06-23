@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/tabs/Tab.tsx",
+  "title": "Tab component with dynamic icon rendering and interactive controls",
+  "purpose": "Renders individual tabs with appropriate icons, hover effects, and interactive controls like pinning, promoting, and closing. Used within a tab navigation system.",
+  "module_context": "Exports a React functional component named Tab that accepts tab descriptors and various callback handlers for user interactions. Includes a helper function getItemIcon that maps tab types to SVG icons.",
+  "methods": [
+    {
+      "id": "m_68bde92e",
+      "name": "getItemIcon",
+      "enclosing_class": null,
+      "normalized_params": "(type: string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the tab type to a corresponding SVG icon component."
+        },
+        {
+          "order": 2,
+          "content": "Return a specific SVG icon for each supported tab type including diagram, design, spreadsheet, snippet, embed, image, blueprint, code-file, task-graph, and task-details."
+        },
+        {
+          "order": 3,
+          "content": "Return a default document icon for all other tab types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_efa4b3ff",
+      "name": "Tab",
+      "enclosing_class": null,
+      "normalized_params": "(props: TabProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the icon type based on whether the tab is an artifact or not."
+        },
+        {
+          "order": 2,
+          "content": "Construct base CSS classes for the tab element including spacing, alignment, and border styling."
+        },
+        {
+          "order": 3,
+          "content": "Apply active state CSS classes if the tab is currently selected."
+        },
+        {
+          "order": 4,
+          "content": "Render the tab element with icon, name, and interactive controls."
+        },
+        {
+          "order": 5,
+          "content": "Display a promote button for preview tabs with a hover opacity effect."
+        },
+        {
+          "order": 6,
+          "content": "Display a pin button for regular tabs with conditional opacity and hover effects."
+        },
+        {
+          "order": 7,
+          "content": "Display a close button with hover opacity effect when not hidden."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

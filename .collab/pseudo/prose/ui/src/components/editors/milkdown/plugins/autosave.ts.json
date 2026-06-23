@@ -1,0 +1,170 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/autosave.ts",
+  "title": "Milkdown autosave plugin with debounced persistence",
+  "purpose": "Provides a Milkdown plugin that automatically saves document changes with debouncing and supports external flush handlers.",
+  "module_context": "Exports a default function 'autosavePlugin' that creates a plugin with debounced persistence logic, along with helper types and a debounced function creator.",
+  "methods": [
+    {
+      "id": "m_474e225d",
+      "name": "createDebounced",
+      "enclosing_class": null,
+      "normalized_params": "<Args extends unknown[]>(fn: (...args: Args) => void, delay: number): DebouncedFn<Args>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize internal timer and argument storage."
+        },
+        {
+          "order": 2,
+          "content": "Return a debounced function that delays execution of the provided function."
+        },
+        {
+          "order": 3,
+          "content": "IF the debounced function is called again before delay, clear the previous timeout."
+        },
+        {
+          "order": 4,
+          "content": "IF the delay expires, execute the function with the latest arguments."
+        },
+        {
+          "order": 5,
+          "content": "Provide a flush method to immediately execute the function with latest arguments."
+        },
+        {
+          "order": 6,
+          "content": "Provide a cancel method to clear any pending execution."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2f543380",
+      "name": "autosavePlugin",
+      "enclosing_class": null,
+      "normalized_params": "(opts: AutosavePluginOptions): MilkdownPlugin[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract plugin options including change and persistence callbacks."
+        },
+        {
+          "order": 2,
+          "content": "Generate a unique instance identifier for tracking."
+        },
+        {
+          "order": 3,
+          "content": "Set up internal references for change and persistence callbacks."
+        },
+        {
+          "order": 4,
+          "content": "Create a debounced persistence function using the provided delay."
+        },
+        {
+          "order": 5,
+          "content": "IF a flush reference is provided, assign a flush function to it."
+        },
+        {
+          "order": 6,
+          "content": "Configure the Milkdown plugin to listen for markdown updates."
+        },
+        {
+          "order": 7,
+          "content": "On markdown update, invoke the change callback and schedule persistence."
+        },
+        {
+          "order": 8,
+          "content": "Return the configured plugin and listener plugin."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_48de335c",
+      "name": "configurePlugin",
+      "enclosing_class": "autosavePlugin",
+      "normalized_params": "(ctx: unknown): () => void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the listener context from the Milkdown plugin context."
+        },
+        {
+          "order": 2,
+          "content": "Register a markdown update listener to track changes."
+        },
+        {
+          "order": 3,
+          "content": "IF the markdown has changed, invoke the external change callback."
+        },
+        {
+          "order": 4,
+          "content": "Schedule a debounced persistence of the new markdown content."
+        },
+        {
+          "order": 5,
+          "content": "Return a cleanup function to cancel pending persistence and reset flush reference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc73b3d8",
+      "name": "flush",
+      "enclosing_class": "createDebounced",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear any pending timeout."
+        },
+        {
+          "order": 2,
+          "content": "IF there are pending arguments, execute the function with those arguments."
+        },
+        {
+          "order": 3,
+          "content": "Clear the stored arguments after execution."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_170b2407",
+      "name": "cancel",
+      "enclosing_class": "createDebounced",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear any pending timeout."
+        },
+        {
+          "order": 2,
+          "content": "Clear the stored arguments."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

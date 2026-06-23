@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/McpGenericView.tsx",
+  "title": "MCP tool call view component with server-specific styling",
+  "purpose": "Displays MCP tool call information with server and tool badges, input JSON, and output panel using server-specific color themes.",
+  "module_context": "Exports parseMcpToolName function to extract server and tool from MCP names, ACCENTS record mapping server names to color themes, and DEFAULT_ACCENT for unknown servers. Also exports accentFor function to resolve color themes for servers.",
+  "methods": [
+    {
+      "id": "m_f4f12a31",
+      "name": "parseMcpToolName",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): ParsedMcpName | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the name starts with the expected 'mcp__' prefix."
+        },
+        {
+          "order": 2,
+          "content": "IF the prefix is missing, return null."
+        },
+        {
+          "order": 3,
+          "content": "Extract the portion of the name after the 'mcp__' prefix."
+        },
+        {
+          "order": 4,
+          "content": "Find the first occurrence of the '__' delimiter."
+        },
+        {
+          "order": 5,
+          "content": "IF no delimiter is found, return null."
+        },
+        {
+          "order": 6,
+          "content": "Split the rest into server and tool components using the delimiter."
+        },
+        {
+          "order": 7,
+          "content": "IF either server or tool is empty, return null."
+        },
+        {
+          "order": 8,
+          "content": "Return an object containing the server, tool, and original name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e31700c2",
+      "name": "accentFor",
+      "enclosing_class": null,
+      "normalized_params": "(server: string): AccentTheme",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the server in the ACCENTS mapping."
+        },
+        {
+          "order": 2,
+          "content": "IF a matching theme is found, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the DEFAULT_ACCENT theme."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_883484f4",
+      "name": "McpGenericView",
+      "enclosing_class": null,
+      "normalized_params": "(props: McpGenericViewProps): React.FC<McpGenericViewProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the tool name to extract server and tool components."
+        },
+        {
+          "order": 2,
+          "content": "Determine the server name, falling back to 'mcp' if parsing fails."
+        },
+        {
+          "order": 3,
+          "content": "Determine the tool name, falling back to the full name if parsing fails."
+        },
+        {
+          "order": 4,
+          "content": "Resolve the color theme for the server."
+        },
+        {
+          "order": 5,
+          "content": "Format the tool input as a JSON string with indentation."
+        },
+        {
+          "order": 6,
+          "content": "IF JSON formatting fails, convert the input to a string representation."
+        },
+        {
+          "order": 7,
+          "content": "Render the server and tool badges with appropriate styling."
+        },
+        {
+          "order": 8,
+          "content": "IF input exists and is not empty, display it in a formatted code block."
+        },
+        {
+          "order": 9,
+          "content": "Render the output panel with tool use ID, status, output, and error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

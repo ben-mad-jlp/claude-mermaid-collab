@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "src/types/terminal.ts",
+  "title": "Terminal session type definitions for backend/frontend sharing",
+  "purpose": "Defines shared TypeScript interfaces for terminal sessions and MCP tool response types used across the application.",
+  "module_context": "Exports multiple interfaces including TerminalSession, TerminalSessionsState, and various MCP tool result types for session management.",
+  "methods": [
+    {
+      "id": "m_ebf1bde6",
+      "name": "TerminalSession",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a terminal session with unique identifier, display name, tmux session name, creation timestamp, and UI tab order."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c13b2ad3",
+      "name": "TerminalSessionsState",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for terminal sessions state containing an array of sessions and a timestamp of last modification."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1ba3c938",
+      "name": "CreateSessionResult",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for the result of creating a new terminal session with session identifier, tmux session name, and WebSocket URL."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03592d35",
+      "name": "ListSessionsResult",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for the result of listing terminal sessions containing an array of session objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42111ab3",
+      "name": "KillSessionResult",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for the result of killing a terminal session with a success boolean flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_97b15bee",
+      "name": "RenameSessionResult",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for the result of renaming a terminal session with a success boolean flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9623cf03",
+      "name": "ReorderSessionsResult",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for the result of reordering terminal sessions with a success boolean flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

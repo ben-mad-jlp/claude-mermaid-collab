@@ -1,0 +1,77 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/notifications/index.ts",
+  "title": "Notification components and store export module",
+  "purpose": "Exports toast notification components and the notification store for managing notifications in the UI.",
+  "module_context": "This module serves as a barrel file that re-exports toast components and the notification store for convenient access throughout the application.",
+  "methods": [
+    {
+      "id": "m_8ec52e57",
+      "name": "Toast",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Toast component for displaying individual notifications."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_90900298",
+      "name": "ToastProps",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the type definition for Toast component props."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_512f4bfd",
+      "name": "ToastContainer",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ToastContainer component for managing notification positioning and display."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b5b84c4e",
+      "name": "useNotificationStore",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the notification store hook for managing notification state and actions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

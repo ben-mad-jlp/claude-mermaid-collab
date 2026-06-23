@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/TurnRail.tsx",
+  "title": "Vertical turn navigation rail component with active state indicators",
+  "purpose": "Provides a sticky left rail with clickable dots that allow users to jump to specific turns in a conversation, with visual indication of the currently active turn.",
+  "module_context": "Exports a React functional component TurnRail that accepts turns array, active turn ID, and jump handler as props. Also exports the TurnRailTurn and TurnRailProps interfaces for type safety.",
+  "methods": [
+    {
+      "id": "m_1937cf1f",
+      "name": "TurnRail",
+      "enclosing_class": null,
+      "normalized_params": "(props: TurnRailProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a navigation container with sticky positioning and centered alignment."
+        },
+        {
+          "order": 2,
+          "content": "Map over the provided turns array to generate individual turn buttons."
+        },
+        {
+          "order": 3,
+          "content": "For each turn, determine if it matches the active turn ID."
+        },
+        {
+          "order": 4,
+          "content": "Create a button element for each turn with appropriate styling based on active state."
+        },
+        {
+          "order": 5,
+          "content": "Attach click handler to jump to the corresponding turn when clicked."
+        },
+        {
+          "order": 6,
+          "content": "Set accessibility attributes including label and current state indicator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

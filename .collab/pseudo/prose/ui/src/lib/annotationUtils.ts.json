@@ -1,0 +1,120 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/annotationUtils.ts",
+  "title": "Utility functions for stripping, counting, and downloading annotation markers from markdown content",
+  "purpose": "Provides functions to remove annotation markers from markdown, count different types of annotations, and download cleaned content as a file.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_4ffdc6dd",
+      "name": "stripAnnotationMarkers",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the result with the input content."
+        },
+        {
+          "order": 2,
+          "content": "For each annotation pattern, remove all matches from the result."
+        },
+        {
+          "order": 3,
+          "content": "Collapse sequences of three or more blank lines into double line breaks."
+        },
+        {
+          "order": 4,
+          "content": "Trim leading and trailing whitespace from the final result."
+        },
+        {
+          "order": 5,
+          "content": "Return the cleaned markdown content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0dcce856",
+      "name": "countAnnotations",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): { comment: number; propose: number; approve: number; reject: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize counts for each annotation type to zero."
+        },
+        {
+          "order": 2,
+          "content": "Count comment-related markers in the content."
+        },
+        {
+          "order": 3,
+          "content": "Count propose-related markers in the content."
+        },
+        {
+          "order": 4,
+          "content": "Count approve-related markers in the content."
+        },
+        {
+          "order": 5,
+          "content": "Count reject-related markers in the content."
+        },
+        {
+          "order": 6,
+          "content": "Return the object containing all annotation counts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8101e027",
+      "name": "downloadCleanMarkdown",
+      "enclosing_class": null,
+      "normalized_params": "(filename: string, content: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Strip all annotation markers from the input content."
+        },
+        {
+          "order": 2,
+          "content": "Create a blob from the cleaned content with markdown MIME type."
+        },
+        {
+          "order": 3,
+          "content": "Generate a URL for the blob."
+        },
+        {
+          "order": 4,
+          "content": "Create a temporary download link element."
+        },
+        {
+          "order": 5,
+          "content": "Set the link's href to the blob URL and download filename."
+        },
+        {
+          "order": 6,
+          "content": "Trigger the download by clicking the link."
+        },
+        {
+          "order": 7,
+          "content": "Revoke the blob URL to free memory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

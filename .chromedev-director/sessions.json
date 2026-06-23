@@ -1,0 +1,64 @@
+{
+  "sessions": {
+    "milkdown-debug": {
+      "targetId": "0F3920163A155276BB298055D809A0A1",
+      "createdAt": "2026-04-18T18:34:14.217Z",
+      "lastUsed": "2026-04-18T18:46:15.001Z"
+    },
+    "tab-switch-debug": {
+      "targetId": "5EC02544A9C29C07207C9195FEC63B4A",
+      "createdAt": "2026-04-18T22:12:41.422Z",
+      "lastUsed": "2026-04-20T13:28:20.435Z"
+    },
+    "tab-switch-debug-2": {
+      "targetId": "8F382DC23AF52FE13B19565A6962E12D",
+      "createdAt": "2026-04-18T22:15:15.054Z",
+      "lastUsed": "2026-04-18T22:15:32.971Z"
+    },
+    "multiselect-test": {
+      "targetId": "0005C58AD753D1A4C7F7E5CC29F5A832",
+      "createdAt": "2026-04-20T17:54:35.784Z",
+      "lastUsed": "2026-04-20T18:32:00.670Z"
+    },
+    "doc-edit-test": {
+      "targetId": "C18E08A542D5AF1E9DFE2343E4FC09B5",
+      "createdAt": "2026-04-23T20:07:56.790Z",
+      "lastUsed": "2026-04-23T20:09:13.654Z"
+    },
+    "open-collab-check": {
+      "targetId": "45F32519AC7E9C0188C82FA1BC6B8FBF",
+      "createdAt": "2026-04-25T19:38:31.727Z",
+      "lastUsed": "2026-04-25T19:41:49.968Z"
+    },
+    "collab-check": {
+      "targetId": "823F1E0EA7E1EC36EDB6345C95333DE5",
+      "createdAt": "2026-04-25T19:44:00.015Z",
+      "lastUsed": "2026-04-25T19:54:03.311Z"
+    },
+    "collab-integration-test": {
+      "targetId": "5E1C4B85EE026801A9CFAEA9319A70F4",
+      "createdAt": "2026-04-27T01:34:05.992Z",
+      "lastUsed": "2026-04-27T03:04:18.458Z"
+    },
+    "collab-panel-debug": {
+      "targetId": "4B6BACFB73C9336A8800869A5FF5BA6C",
+      "createdAt": "2026-04-27T14:01:44.940Z",
+      "lastUsed": "2026-04-27T14:07:31.488Z"
+    },
+    "collab-ui-debug": {
+      "targetId": "AFB78755C96B1DE56849041150689556",
+      "createdAt": "2026-04-29T14:46:51.425Z",
+      "lastUsed": "2026-04-29T14:46:51.426Z"
+    },
+    "vscode-session": {
+      "targetId": "4097B8B27DCCCE4B39B9EBF46D6E495A",
+      "createdAt": "2026-05-01T21:21:26.799Z",
+      "lastUsed": "2026-05-01T21:21:26.799Z"
+    },
+    "vscode-test": {
+      "targetId": "C907DA2BEB228E14D3336054C63580A0",
+      "createdAt": "2026-05-02T02:15:18.695Z",
+      "lastUsed": "2026-05-02T02:22:25.625Z"
+    }
+  }
+}

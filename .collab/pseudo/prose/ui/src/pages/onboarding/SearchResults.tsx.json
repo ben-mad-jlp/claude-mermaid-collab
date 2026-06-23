@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/SearchResults.tsx",
+  "title": "Search results component with snippet highlighting for onboarding",
+  "purpose": "Displays search results from the onboarding API with highlighted snippets and navigation to topic pages.",
+  "module_context": "Exports a React component named SearchResults that uses React hooks and the onboarding API to fetch and display search results.",
+  "methods": [
+    {
+      "id": "m_e4dd605d",
+      "name": "SearchResults",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the current project from onboarding context."
+        },
+        {
+          "order": 2,
+          "content": "Extract the search query parameter from the URL."
+        },
+        {
+          "order": 3,
+          "content": "Initialize state for search results, loading status, and error messages."
+        },
+        {
+          "order": 4,
+          "content": "Perform a search when project or query changes, updating results and handling loading/error states."
+        },
+        {
+          "order": 5,
+          "content": "Render the search header with query and result count."
+        },
+        {
+          "order": 6,
+          "content": "Display error message if search fails."
+        },
+        {
+          "order": 7,
+          "content": "Render each search result as a clickable link with file path and section label."
+        },
+        {
+          "order": 8,
+          "content": "Show no results message when query is empty or no matches found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

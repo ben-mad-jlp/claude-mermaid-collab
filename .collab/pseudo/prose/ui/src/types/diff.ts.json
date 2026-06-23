@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/diff.ts",
+  "title": "Diff-related type definitions for document tracking and comparison",
+  "purpose": "Defines TypeScript interfaces for managing document diff states, history tracking, and patch notifications in the UI.",
+  "module_context": "Exports three interfaces: DiffState for tracking diff visibility and content, DocumentHistory for managing document revision history, and PatchNotification for communicating patch application details.",
+  "methods": [
+    {
+      "id": "m_c6c4bc5b",
+      "name": "DiffState",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define structure for tracking whether a diff is shown."
+        },
+        {
+          "order": 2,
+          "content": "Specify the old content that is being compared."
+        },
+        {
+          "order": 3,
+          "content": "Specify the new content that is being compared."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4dd24379",
+      "name": "DocumentHistory",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define structure for tracking previous document content."
+        },
+        {
+          "order": 2,
+          "content": "Specify the current document content."
+        },
+        {
+          "order": 3,
+          "content": "Indicate whether there is a difference between previous and current content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_be3a95dc",
+      "name": "PatchNotification",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define structure for patch notification type identifier."
+        },
+        {
+          "order": 2,
+          "content": "Specify the document identifier for which the patch applies."
+        },
+        {
+          "order": 3,
+          "content": "Record the old content before patch application."
+        },
+        {
+          "order": 4,
+          "content": "Record the new content after patch application."
+        },
+        {
+          "order": 5,
+          "content": "Include detailed patch information showing old and new strings."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

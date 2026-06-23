@@ -1,0 +1,121 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useScrollAnchor.ts",
+  "title": "Scroll anchor hook that maintains bottom alignment when near bottom",
+  "purpose": "Manages scroll position in a container to automatically anchor to the bottom when the user is near the bottom, while allowing manual scrolling up.",
+  "module_context": "Exports a hook function 'useScrollAnchor' with options for threshold and scroll behavior, and a default export of the same hook.",
+  "methods": [
+    {
+      "id": "m_e8acb240",
+      "name": "useScrollAnchor",
+      "enclosing_class": null,
+      "normalized_params": "<T extends HTMLElement = HTMLDivElement>(options?: UseScrollAnchorOptions): UseScrollAnchorResult<T>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize threshold and behavior from options or use defaults."
+        },
+        {
+          "order": 2,
+          "content": "Set up state for the scroll container element and near-bottom tracking."
+        },
+        {
+          "order": 3,
+          "content": "Update the near-bottom reference whenever the state changes."
+        },
+        {
+          "order": 4,
+          "content": "Create a ref object for the scroll container with getter and setter."
+        },
+        {
+          "order": 5,
+          "content": "Set up scroll listener to track user's proximity to the bottom."
+        },
+        {
+          "order": 6,
+          "content": "Set up ResizeObserver to auto-scroll when content grows and user is near bottom."
+        },
+        {
+          "order": 7,
+          "content": "Create and return an imperative scrollToBottom function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_75703c6a",
+      "name": "recompute",
+      "enclosing_class": "useScrollAnchor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the distance from the bottom of the scroll container."
+        },
+        {
+          "order": 2,
+          "content": "Update the near-bottom state based on whether the distance is within the threshold."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f86093ae",
+      "name": "ro",
+      "enclosing_class": "useScrollAnchor",
+      "normalized_params": "(entries: ResizeObserverEntry[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compare the previous and current scroll heights."
+        },
+        {
+          "order": 2,
+          "content": "IF content has grown and user is near bottom, scroll to the new bottom."
+        },
+        {
+          "order": 3,
+          "content": "Update the previous scroll height reference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8e240bcf",
+      "name": "scrollToBottom",
+      "enclosing_class": "useScrollAnchor",
+      "normalized_params": "(opts?: { behavior?: ScrollBehavior }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Scroll the container to the bottom using the specified behavior."
+        },
+        {
+          "order": 2,
+          "content": "IF scrolling fails, fall back to setting scrollTop directly."
+        },
+        {
+          "order": 3,
+          "content": "Update the near-bottom state to true after scrolling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

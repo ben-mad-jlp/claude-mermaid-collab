@@ -1,0 +1,120 @@
+{
+  "schema_version": 3,
+  "file": "bin/permission-hook.ts",
+  "title": "Unix socket permission hook for collaborative sessions",
+  "purpose": "Reads input from stdin, forwards it to a Unix socket for permission validation, and outputs the response.",
+  "module_context": "Sets up a Bun script that acts as a Unix socket client for permission checking in collaborative environments.",
+  "methods": [
+    {
+      "id": "m_57b752db",
+      "name": "readAllStdin",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a promise to collect all stdin data."
+        },
+        {
+          "order": 2,
+          "content": "Accumulate incoming data chunks into a buffer."
+        },
+        {
+          "order": 3,
+          "content": "Resolve the promise with the complete concatenated string once all data is received."
+        },
+        {
+          "order": 4,
+          "content": "Reject the promise if an error occurs during data collection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e15dd1af",
+      "name": "roundTrip",
+      "enclosing_class": null,
+      "normalized_params": "(sockPath: string, payload: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Establish a connection to the specified Unix socket."
+        },
+        {
+          "order": 2,
+          "content": "Write the payload followed by a newline to the socket."
+        },
+        {
+          "order": 3,
+          "content": "Accumulate incoming data chunks until a newline delimiter is found."
+        },
+        {
+          "order": 4,
+          "content": "Resolve the promise with the response up to the first newline."
+        },
+        {
+          "order": 5,
+          "content": "Close the socket connection after receiving the response."
+        },
+        {
+          "order": 6,
+          "content": "Reject the promise if an error occurs during the socket operation."
+        },
+        {
+          "order": 7,
+          "content": "Reject the promise if the socket closes before a response is received."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cd644a98",
+      "name": "main",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the socket path from the environment variable."
+        },
+        {
+          "order": 2,
+          "content": "IF the socket path is not set, write an error message and exit with code 2."
+        },
+        {
+          "order": 3,
+          "content": "Read all input from stdin."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the input is valid JSON."
+        },
+        {
+          "order": 5,
+          "content": "Send the input to the socket and await the response."
+        },
+        {
+          "order": 6,
+          "content": "Write the response to stdout followed by a newline."
+        },
+        {
+          "order": 7,
+          "content": "Exit the process with code 0."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

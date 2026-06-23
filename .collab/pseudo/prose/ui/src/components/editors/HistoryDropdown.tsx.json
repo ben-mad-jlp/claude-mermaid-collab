@@ -1,0 +1,149 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/HistoryDropdown.tsx",
+  "title": "Document history dropdown with version selection",
+  "purpose": "Provides a dropdown interface to view and select historical versions of a document, showing relative timestamps and loading states.",
+  "module_context": "Exports a React functional component named HistoryDropdown that accepts document ID, current content, and version selection handler as props. Uses a custom hook to fetch document history and version content.",
+  "methods": [
+    {
+      "id": "m_e2ee5bf1",
+      "name": "formatTimestamp",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input timestamp into a date object."
+        },
+        {
+          "order": 2,
+          "content": "Compare the date to today and yesterday to determine relative time formatting."
+        },
+        {
+          "order": 3,
+          "content": "Format the time portion using 12-hour clock with hours, minutes, and seconds."
+        },
+        {
+          "order": 4,
+          "content": "IF the date is today, return just the formatted time."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the date is yesterday, prepend 'Yesterday' to the formatted time."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the date is within the last 7 days, prepend the day name to the formatted time."
+        },
+        {
+          "order": 7,
+          "content": "ELSE format the date with month, day, hours, and minutes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d1fb489",
+      "name": "HistoryDropdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: HistoryDropdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for dropdown open status and loading timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Create a ref for the dropdown element to handle click outside detection."
+        },
+        {
+          "order": 3,
+          "content": "Fetch document history and version loading function using a custom hook."
+        },
+        {
+          "order": 4,
+          "content": "Determine if history is available by checking for changes."
+        },
+        {
+          "order": 5,
+          "content": "Set up event listener for click outside to close the dropdown."
+        },
+        {
+          "order": 6,
+          "content": "Handle item click by loading version content and notifying parent of selection."
+        },
+        {
+          "order": 7,
+          "content": "Render the dropdown button with appropriate disabled state and title."
+        },
+        {
+          "order": 8,
+          "content": "IF dropdown is open and history exists, render the version list in reverse chronological order."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_082937a6",
+      "name": "handleClickOutside",
+      "enclosing_class": "HistoryDropdown",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is outside the dropdown element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, close the dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_80f1219c",
+      "name": "handleItemClick",
+      "enclosing_class": "HistoryDropdown",
+      "normalized_params": "(timestamp: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading timestamp to indicate content is being fetched."
+        },
+        {
+          "order": 2,
+          "content": "Load the version content for the selected timestamp."
+        },
+        {
+          "order": 3,
+          "content": "Clear the loading timestamp after content is fetched."
+        },
+        {
+          "order": 4,
+          "content": "IF content is successfully loaded, notify parent component of version selection."
+        },
+        {
+          "order": 5,
+          "content": "Close the dropdown after version selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/headingCollapse.ts",
+  "title": "Milkdown plugin for heading-based collapsible sections with React bridge",
+  "purpose": "Provides collapsible heading sections in a Milkdown editor by integrating React context with ProseMirror decorations and handling state synchronization between the two.",
+  "module_context": "Exports a plugin key, a factory for the ProseMirror plugin, a NodeView component, and a React hook for bridging the React context with the editor state. Includes helper functions for section ID generation and test utilities.",
+  "methods": [
+    {
+      "id": "m_e41aa56a",
+      "name": "getHeadingSectionId",
+      "enclosing_class": null,
+      "normalized_params": "(pos: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a stable section identifier from the document position of a heading."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_be4b7290",
+      "name": "buildDecorations",
+      "enclosing_class": null,
+      "normalized_params": "(doc: ProseMirrorNode): DecorationSet",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Traverse the document to identify all heading nodes and their positions."
+        },
+        {
+          "order": 2,
+          "content": "For each collapsed heading, determine the range of following sibling blocks to mark as collapsed."
+        },
+        {
+          "order": 3,
+          "content": "Create decoration nodes for each block in the range and collect them into a decoration set."
+        },
+        {
+          "order": 4,
+          "content": "Update the shared state reference with all seen section IDs for expand/collapse all functionality."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a9bf8117",
+      "name": "createHeadingCollapsePlugin",
+      "enclosing_class": null,
+      "normalized_params": "(): Plugin",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ProseMirror plugin with a key for tracking decorations."
+        },
+        {
+          "order": 2,
+          "content": "Set up the plugin's state initialization to build initial decorations for the document."
+        },
+        {
+          "order": 3,
+          "content": "Configure the plugin's apply function to rebuild decorations when document changes or a bump meta is present."
+        },
+        {
+          "order": 4,
+          "content": "Define the plugin's props to return the current decorations from the plugin state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f84e3c14",
+      "name": "headingCollapsePlugin",
+      "enclosing_class": null,
+      "normalized_params": "(): MilkdownPlugin[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Wrap the ProseMirror plugin factory in a Milkdown plugin context."
+        },
+        {
+          "order": 2,
+          "content": "Return the plugin as part of a flat array of Milkdown plugins."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d4c5e3e8",
+      "name": "HeadingCollapseView",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the node and position information from the NodeView context."
+        },
+        {
+          "order": 2,
+          "content": "Determine the section ID for the current heading."
+        },
+        {
+          "order": 3,
+          "content": "Register the section with the collapsible sections context on mount."
+        },
+        {
+          "order": 4,
+          "content": "Render a chevron button that toggles the section's expanded state."
+        },
+        {
+          "order": 5,
+          "content": "Render the heading content within a container with appropriate classes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d51de8d6",
+      "name": "headingCollapseNodeView",
+      "enclosing_class": null,
+      "normalized_params": "(nodeViewFactory: NodeViewFactory): $view",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a NodeView factory for heading nodes using the provided factory."
+        },
+        {
+          "order": 2,
+          "content": "Assign the HeadingCollapseView component as the view for heading nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7771c972",
+      "name": "useHeadingCollapseBridge",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to the collapsible sections context to track expanded state changes."
+        },
+        {
+          "order": 2,
+          "content": "Update the module-level state reference with the current expanded sections."
+        },
+        {
+          "order": 3,
+          "content": "Increment the version counter in the state reference to trigger recomputation."
+        },
+        {
+          "order": 4,
+          "content": "Dispatch a meta transaction to the editor view to notify the plugin of state changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9b5e559c",
+      "name": "__resetHeadingCollapseStateForTests",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the module-level collapse state to initial values for testing purposes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f88afb66",
+      "name": "__setHeadingCollapseExpandedForTests",
+      "enclosing_class": null,
+      "normalized_params": "(ids: Iterable<string>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Directly set the expanded sections in the module-level state reference."
+        },
+        {
+          "order": 2,
+          "content": "Increment the version counter to trigger recomputation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

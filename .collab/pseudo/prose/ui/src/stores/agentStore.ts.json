@@ -1,0 +1,453 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/agentStore.ts",
+  "title": "Agent state management store with timeline and session handling",
+  "purpose": "Manages the agent's state including timeline events, session data, permissions, and user interactions using Zustand for React state management.",
+  "module_context": "Exports a Zustand store with initial state and actions for handling agent events, sending messages, managing permissions, and tracking session data.",
+  "methods": [
+    {
+      "id": "m_b8cb479c",
+      "name": "applyEvent",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(event: AgentEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process different types of agent events to update the store state accordingly."
+        },
+        {
+          "order": 2,
+          "content": "Handle session start events by setting ready flag, session ID, working directory, and resumed status."
+        },
+        {
+          "order": 3,
+          "content": "Handle user messages by adding them to the timeline if they don't already exist."
+        },
+        {
+          "order": 4,
+          "content": "Handle turn start events by updating the current turn ID and clearing streaming message ID."
+        },
+        {
+          "order": 5,
+          "content": "Handle assistant delta events by buffering and appending text chunks to messages."
+        },
+        {
+          "order": 6,
+          "content": "Handle assistant message completion by updating message text and removing delta buffers."
+        },
+        {
+          "order": 7,
+          "content": "Handle turn end events by resetting streaming message ID and updating usage statistics."
+        },
+        {
+          "order": 8,
+          "content": "Handle session ended events by updating ready status and last error based on the reason."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e198eedd",
+      "name": "send",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(text: string, id?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique message ID if one is not provided."
+        },
+        {
+          "order": 2,
+          "content": "Check if a message with the same ID already exists in the timeline."
+        },
+        {
+          "order": 3,
+          "content": "Add the new user message to the timeline."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dcf60cf1",
+      "name": "cancel",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stub implementation for canceling agent operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_00126728",
+      "name": "resume",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stub implementation for resuming agent sessions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_67bd1ab9",
+      "name": "resolvePermission",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string, promptId: string, decision: PermissionDecision): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stub implementation for resolving permission requests."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bfcf300d",
+      "name": "setPermissionMode",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string, mode: PermissionMode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the permission mode in the store optimistically."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9a9b4f2a",
+      "name": "appendThinking",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(turnId: string, chunk: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Append a thinking chunk to the existing thinking block for the specified turn."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eb1059eb",
+      "name": "setThinking",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(turnId: string, text: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace the thinking text for the specified turn with the new text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9053253e",
+      "name": "addNested",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(parentTurnId: string, childTurnId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add a child turn ID to the list of nested timelines for the parent turn."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_92e7276a",
+      "name": "setTrustedTools",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(list: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of trusted tools in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_65fe205f",
+      "name": "revokeTrusted",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove a tool from the trusted tools list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_37853c06",
+      "name": "addSession",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string, name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add a new session to the multi-session tracking if it doesn't already exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a8f0b1ce",
+      "name": "setActive",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the currently active session ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_896bab8c",
+      "name": "markRead",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Mark a session as read by resetting its unread count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d48c7b07",
+      "name": "removeSession",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove a session from the multi-session tracking."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f5ef8ef3",
+      "name": "pushUserMessage",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(text: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add a user message to the history, maintaining a maximum of 50 messages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b594c0bd",
+      "name": "recallUserMessage",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(index: number): string | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve a user message from the history by index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_13360588",
+      "name": "setPRStatus",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string, status: { number: number; url: string; checks?: string; reviews?: string }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the pull request status for a specific session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1eea0d39",
+      "name": "clearPRStatus",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the pull request status for a specific session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3789820f",
+      "name": "addAttachment",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string, attachment: { attachmentId: string; mimeType: string; url: string; sizeBytes: number }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add an attachment to a specific session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ffc5b701",
+      "name": "removeAttachment",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(sessionId: string, attachmentId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove an attachment from a specific session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2e3c4a2",
+      "name": "reset",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the store to its initial state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4373147f",
+      "name": "messages",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(): AgentMessage[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter and return only message items from the timeline."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82b05393",
+      "name": "isStreaming",
+      "enclosing_class": "useAgentStore",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there is an ongoing streaming message or running tool call."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

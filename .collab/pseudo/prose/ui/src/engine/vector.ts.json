@@ -1,0 +1,240 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/vector.ts",
+  "title": "Vector network binary format decoder, encoder, and rendering utilities",
+  "purpose": "Provides functions to decode binary vector network data, encode network data back to binary format, and convert vector networks into CanvasKit paths for rendering.",
+  "module_context": "Exports functions to handle vector network binary data including decoding, encoding, path conversion, and bounding box computation. Defines interfaces for vector network components and style overrides.",
+  "methods": [
+    {
+      "id": "m_e8686742",
+      "name": "decodeVectorNetworkBlob",
+      "enclosing_class": null,
+      "normalized_params": "(data: Uint8Array, styleOverrideTable?: StyleOverride[]): VectorNetwork",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the header to determine the number of vertices, segments, and regions."
+        },
+        {
+          "order": 2,
+          "content": "Build a mapping from style indices to override entries if a style override table is provided."
+        },
+        {
+          "order": 3,
+          "content": "Parse each vertex entry and construct a vector vertex with position and handle mirroring."
+        },
+        {
+          "order": 4,
+          "content": "Parse each segment entry and construct a vector segment with start/end indices and tangent vectors."
+        },
+        {
+          "order": 5,
+          "content": "Parse each region entry including winding rule and loop structure to build vector regions."
+        },
+        {
+          "order": 6,
+          "content": "Return the fully constructed vector network object containing vertices, segments, and regions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_078f2bd7",
+      "name": "encodeVectorNetworkBlob",
+      "enclosing_class": null,
+      "normalized_params": "(network: VectorNetwork): Uint8Array",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the total byte size required for the binary output."
+        },
+        {
+          "order": 2,
+          "content": "Initialize a buffer with the calculated size and a data view for writing."
+        },
+        {
+          "order": 3,
+          "content": "Write the header containing counts of vertices, segments, and regions."
+        },
+        {
+          "order": 4,
+          "content": "Write each vertex entry with position data and placeholder style override index."
+        },
+        {
+          "order": 5,
+          "content": "Write each segment entry with start/end indices and tangent vectors."
+        },
+        {
+          "order": 6,
+          "content": "Write each region entry with winding rule and loop structure."
+        },
+        {
+          "order": 7,
+          "content": "Return the completed binary buffer as a Uint8Array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf31583e",
+      "name": "vectorNetworkToPath",
+      "enclosing_class": null,
+      "normalized_params": "(ck: CanvasKit, network: VectorNetwork): Path",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a new CanvasKit path object for building the geometry."
+        },
+        {
+          "order": 2,
+          "content": "IF regions are present in the network, process each region's loops to build closed paths."
+        },
+        {
+          "order": 3,
+          "content": "ELSE process segments as open paths by building chains from connected segments."
+        },
+        {
+          "order": 4,
+          "content": "For each chain, move to the starting point and add segments to the path."
+        },
+        {
+          "order": 5,
+          "content": "Handle any remaining disconnected segments by adding them as individual paths."
+        },
+        {
+          "order": 6,
+          "content": "Return the constructed path object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4a39e6e",
+      "name": "addLoopToPath",
+      "enclosing_class": "vectorNetworkToPath",
+      "normalized_params": "(path: Path, loop: number[], segments: VectorSegment[], vertices: VectorVertex[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Move to the starting point of the loop."
+        },
+        {
+          "order": 2,
+          "content": "Add each segment in the loop to the path."
+        },
+        {
+          "order": 3,
+          "content": "IF the loop is closed, close the path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4aab39be",
+      "name": "addSegmentToPath",
+      "enclosing_class": "vectorNetworkToPath",
+      "normalized_params": "(path: Path, seg: VectorSegment, vertices: VectorVertex[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the segment is a straight line based on tangent vectors."
+        },
+        {
+          "order": 2,
+          "content": "IF the segment is a line, add a line to the end point."
+        },
+        {
+          "order": 3,
+          "content": "ELSE add a cubic bezier curve using the start point, tangent vectors, and end point."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bda5fee1",
+      "name": "buildChains",
+      "enclosing_class": "vectorNetworkToPath",
+      "normalized_params": "(segments: VectorSegment[], _vertexCount: number): number[][]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build an adjacency map of vertices to connecting segments."
+        },
+        {
+          "order": 2,
+          "content": "Initialize tracking for visited segments and result chains."
+        },
+        {
+          "order": 3,
+          "content": "Identify degree-1 vertices as starting points for chain building."
+        },
+        {
+          "order": 4,
+          "content": "For each starting vertex, traverse connected segments to form chains."
+        },
+        {
+          "order": 5,
+          "content": "Return the list of segment chains."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a8eef7ac",
+      "name": "computeVectorBounds",
+      "enclosing_class": null,
+      "normalized_params": "(network: VectorNetwork): { x: number; y: number; width: number; height: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no vertices exist, return default zero bounds."
+        },
+        {
+          "order": 2,
+          "content": "Initialize bounds with extreme values for min/max coordinates."
+        },
+        {
+          "order": 3,
+          "content": "Update bounds based on vertex positions."
+        },
+        {
+          "order": 4,
+          "content": "Update bounds to include control points of bezier curves."
+        },
+        {
+          "order": 5,
+          "content": "Calculate and return the final bounding box dimensions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

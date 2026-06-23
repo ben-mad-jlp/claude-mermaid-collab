@@ -1,0 +1,44 @@
+{
+  "id": "milkdown-chevron-top",
+  "name": "milkdown-chevron-top",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1000
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "(()=>{const btn=document.querySelector('[data-testid=collapse-all-btn]'); if(btn){btn.click(); return 'clicked';} return 'no button';})()",
+        "as": "collapseAll"
+      },
+      {
+        "wait": 500
+      },
+      {
+        "eval": "({collapsedCount: document.querySelectorAll('.section-collapsed').length, totalBlocks: document.querySelectorAll('.ProseMirror > *').length, firstChevronExp: document.querySelector('[data-testid^=heading-collapse-chevron]')?.getAttribute('aria-expanded')})",
+        "as": "afterCollapseAll"
+      },
+      {
+        "click": {
+          "selector": "[data-testid=expand-all-btn]"
+        }
+      },
+      {
+        "wait": 500
+      },
+      {
+        "eval": "({collapsedAfter: document.querySelectorAll('.section-collapsed').length, firstChevronExp: document.querySelector('[data-testid^=heading-collapse-chevron]')?.getAttribute('aria-expanded')})",
+        "as": "afterExpandAll"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:44:56.984Z",
+  "updatedAt": "2026-04-18T18:44:56.984Z"
+}

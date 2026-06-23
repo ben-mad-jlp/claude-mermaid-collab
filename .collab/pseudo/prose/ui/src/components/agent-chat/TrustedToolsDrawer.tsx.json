@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/TrustedToolsDrawer.tsx",
+  "title": "Trusted tools drawer component for agent chat interface",
+  "purpose": "Displays a sidebar drawer showing trusted tools for the current session and allows revoking them. Used in the agent chat UI to manage tool permissions.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_1141b279",
+      "name": "TrustedToolsDrawer",
+      "enclosing_class": null,
+      "normalized_params": "({ open, onClose, onRevoke }: TrustedToolsDrawerProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the list of trusted tools from the agent store."
+        },
+        {
+          "order": 2,
+          "content": "IF the drawer is not open, return null to render nothing."
+        },
+        {
+          "order": 3,
+          "content": "Render the drawer UI with header, close button, and tool list."
+        },
+        {
+          "order": 4,
+          "content": "IF no trusted tools exist, display a message indicating empty state."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render each trusted tool as a list item with revoke button."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

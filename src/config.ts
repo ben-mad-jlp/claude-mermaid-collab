@@ -148,7 +148,8 @@ export const STEWARD_SESSION = process.env.MERMAID_STEWARD_SESSION ?? 'steward';
  * CDP (Chrome DevTools Protocol) port the browser tools connect to.
  * Defaults to 9333. Settable via the CDP_PORT env var so the Electron-spawned
  * sidecar can point at the app's own --remote-debugging-port. Falls back to
- * 9333 if the env value is not a valid number.
+ * 9333 if the env value is not a valid number. The server-owned Chrome
+ * (streamed-panel / owned-chrome) is spawned with this same --remote-debugging-port.
  */
 export const CDP_PORT = (() => {
   const v = Number(process.env.CDP_PORT ?? '9333');
@@ -165,13 +166,12 @@ export const MERMAID_AUTH_TOKEN = process.env.MERMAID_AUTH_TOKEN ?? '';
 
 /**
  * How the browser_* tools obtain a Chrome:
- * - 'electron-view'   — drive the Electron app's embedded WebContentsView (set by the app supervisor)
- * - 'owned-chrome'    — the server spawns + owns a Chrome on this machine (remote/headless boxes)
- * - 'streamed-panel'  — like 'owned-chrome' (server spawns+owns Chrome on CDP_PORT),
- *   plus a ScreencastService that streams JPEG frames per session (WS wiring lands in L2)
- * - '' (default)      — expect an external Chrome already listening on CDP_PORT (SSH tunnel / VSCodium)
+ * - 'streamed-panel' (default) — the server spawns + owns a headless Chrome on
+ *   CDP_PORT and a ScreencastService streams JPEG frames per session to the UI.
+ * - 'owned-chrome'  — the server spawns + owns a Chrome on this machine, no streaming.
+ * - 'electron-view' — drive the Electron app's embedded WebContentsView (set by the app supervisor).
  */
-export const MC_BROWSER_TARGET = process.env.MC_BROWSER_TARGET ?? '';
+export const MC_BROWSER_TARGET = process.env.MC_BROWSER_TARGET || 'streamed-panel';
 
 /** Explicit Chrome/Chromium binary path (overrides auto-discovery; needed on headless boxes). */
 export const MERMAID_CHROME_PATH = process.env.MERMAID_CHROME_PATH ?? '';

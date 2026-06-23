@@ -1,0 +1,150 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/lessons.ts",
+  "title": "Session lessons tools for recording and listing lessons learned during collab sessions",
+  "purpose": "Provides tools to add lessons to and list lessons from markdown files within session document folders, supporting structured learning capture during collaborative work.",
+  "module_context": "Exports lesson category and interface types, schema definitions for lesson operations, helper functions for file path resolution and existence checks, and tool functions for adding and listing lessons.",
+  "methods": [
+    {
+      "id": "m_5b7f0d70",
+      "name": "getLessonsPath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the absolute file path to the LESSONS.md file for the given project and session."
+        },
+        {
+          "order": 2,
+          "content": "Use the project root, session name, and standard collab directory structure to determine the path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2753a893",
+      "name": "fileExists",
+      "enclosing_class": null,
+      "normalized_params": "(path: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to access the specified file path."
+        },
+        {
+          "order": 2,
+          "content": "IF the access operation succeeds, return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_21ed7885",
+      "name": "formatTimestamp",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the current date and time in ISO format."
+        },
+        {
+          "order": 2,
+          "content": "Convert the ISO string to a readable format with space instead of 'T' and truncate to include only date and time."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5f52d026",
+      "name": "addLesson",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, lesson: string, category: LessonCategory): Promise<AddLessonResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the file path for the lessons markdown file."
+        },
+        {
+          "order": 2,
+          "content": "Ensure the documents directory for the session exists."
+        },
+        {
+          "order": 3,
+          "content": "IF the lessons file does not exist, create it with a header."
+        },
+        {
+          "order": 4,
+          "content": "Append a new lesson entry with timestamp and category to the file."
+        },
+        {
+          "order": 5,
+          "content": "Read the updated file content to count the number of lessons."
+        },
+        {
+          "order": 6,
+          "content": "Return a result object indicating success, lesson count, and a message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9147a715",
+      "name": "listLessons",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<ListLessonsResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the file path for the lessons markdown file."
+        },
+        {
+          "order": 2,
+          "content": "IF the lessons file does not exist, return an empty lessons list and zero count."
+        },
+        {
+          "order": 3,
+          "content": "Read the content of the lessons file."
+        },
+        {
+          "order": 4,
+          "content": "Parse the content using a regular expression to extract lesson entries."
+        },
+        {
+          "order": 5,
+          "content": "Construct lesson objects with timestamp, category, and content from the parsed matches."
+        },
+        {
+          "order": 6,
+          "content": "Return a result object containing the lessons and their count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

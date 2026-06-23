@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/TypingIndicator.tsx",
+  "title": "Typing indicator component with multiple states",
+  "purpose": "Displays different UI indicators based on the agent's current state during chat interactions.",
+  "module_context": "Exports a TypingIndicatorState type and TypingIndicatorProps interface, along with the main TypingIndicator component function.",
+  "methods": [
+    {
+      "id": "m_8957db71",
+      "name": "TypingIndicator",
+      "enclosing_class": null,
+      "normalized_params": "(props: TypingIndicatorProps): React.JSX.Element | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the state is idle, return null to show no indicator."
+        },
+        {
+          "order": 2,
+          "content": "IF the state is thinking, render a pulsing dot and 'Thinking…' text."
+        },
+        {
+          "order": 3,
+          "content": "IF the state is streaming, render 'Streaming…' text with bouncing dots."
+        },
+        {
+          "order": 4,
+          "content": "ELSE if the state is running_tools, render a spinning loader and 'Running tools…' text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

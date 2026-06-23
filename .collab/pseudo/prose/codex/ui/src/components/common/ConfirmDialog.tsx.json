@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/common/ConfirmDialog.tsx",
+  "title": "Confirm dialog component with optional reason input",
+  "purpose": "Provides a reusable modal dialog for user confirmations that can optionally collect a reason for the action.",
+  "module_context": "Exports a React functional component named ConfirmDialog that accepts various props for customization and handles keyboard and click events for accessibility and user interaction.",
+  "methods": [
+    {
+      "id": "m_536c43c9",
+      "name": "ConfirmDialog",
+      "enclosing_class": null,
+      "normalized_params": "(props: ConfirmDialogProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize refs for the dialog and confirm button elements."
+        },
+        {
+          "order": 2,
+          "content": "Set focus to the confirm button when the dialog opens."
+        },
+        {
+          "order": 3,
+          "content": "Add keyboard event listener to handle escape key press for closing the dialog."
+        },
+        {
+          "order": 4,
+          "content": "Remove keyboard event listener when the component unmounts."
+        },
+        {
+          "order": 5,
+          "content": "Render the dialog backdrop and container with appropriate styling."
+        },
+        {
+          "order": 6,
+          "content": "Display the dialog title and message in the header section."
+        },
+        {
+          "order": 7,
+          "content": "IF the reason input is enabled, render a textarea for entering a reason."
+        },
+        {
+          "order": 8,
+          "content": "Render cancel and confirm buttons with appropriate styling and event handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9c9e3fea",
+      "name": "handleBackdropClick",
+      "enclosing_class": "ConfirmDialog",
+      "normalized_params": "(e: React.MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is the backdrop element itself."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is on the backdrop, call the cancel handler to close the dialog."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

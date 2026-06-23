@@ -1,0 +1,223 @@
+{
+  "schema_version": 3,
+  "file": "src/services/project-registry.ts",
+  "title": "Project registry service with file system persistence",
+  "purpose": "Manages a persistent registry of project paths with metadata including access timestamps, supporting operations to register, list, unregister, and touch projects.",
+  "module_context": "Exports a ProjectRegistry class and a singleton instance for managing project metadata in a JSON file stored in the user's home directory.",
+  "methods": [
+    {
+      "id": "m_b0122b3d",
+      "name": "load",
+      "enclosing_class": "ProjectRegistry",
+      "normalized_params": "(): Promise<ProjectRegistryData>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the registry file exists at the configured path."
+        },
+        {
+          "order": 2,
+          "content": "IF the file does not exist, return an empty projects array."
+        },
+        {
+          "order": 3,
+          "content": "Read the file contents as UTF-8 text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON content into an object."
+        },
+        {
+          "order": 5,
+          "content": "IF the parsed data does not contain a valid projects array, log a warning and return an empty projects array."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed projects data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_71125577",
+      "name": "save",
+      "enclosing_class": "ProjectRegistry",
+      "normalized_params": "(registry: ProjectRegistryData): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create the parent directory for the registry file if it does not exist."
+        },
+        {
+          "order": 2,
+          "content": "Write the registry data to the file as formatted JSON with two-space indentation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a39dc435",
+      "name": "register",
+      "enclosing_class": "ProjectRegistry",
+      "normalized_params": "(path: string): Promise<{ created: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the provided path is absolute."
+        },
+        {
+          "order": 2,
+          "content": "IF the path is not absolute, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the path exists on the filesystem."
+        },
+        {
+          "order": 4,
+          "content": "IF the path does not exist, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Load the existing registry data."
+        },
+        {
+          "order": 6,
+          "content": "Generate a current timestamp for the last access time."
+        },
+        {
+          "order": 7,
+          "content": "Check if a project with the same path already exists in the registry."
+        },
+        {
+          "order": 8,
+          "content": "IF the project exists, update its last access time and save the registry."
+        },
+        {
+          "order": 9,
+          "content": "IF the project does not exist, add it to the registry with a name and last access time, then save the registry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5cbbcb7b",
+      "name": "list",
+      "enclosing_class": "ProjectRegistry",
+      "normalized_params": "(): Promise<Project[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the existing registry data."
+        },
+        {
+          "order": 2,
+          "content": "Initialize arrays to hold valid and stale projects."
+        },
+        {
+          "order": 3,
+          "content": "For each project in the registry, check if its path exists on the filesystem."
+        },
+        {
+          "order": 4,
+          "content": "IF the path exists, add the project to the valid projects list."
+        },
+        {
+          "order": 5,
+          "content": "IF the path does not exist, add the project to the stale projects list."
+        },
+        {
+          "order": 6,
+          "content": "IF stale projects were found, remove them from the registry and save the updated registry."
+        },
+        {
+          "order": 7,
+          "content": "Sort the valid projects by last access time in descending order."
+        },
+        {
+          "order": 8,
+          "content": "Return the sorted list of valid projects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_476b7913",
+      "name": "unregister",
+      "enclosing_class": "ProjectRegistry",
+      "normalized_params": "(path: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the existing registry data."
+        },
+        {
+          "order": 2,
+          "content": "Store the initial number of projects in the registry."
+        },
+        {
+          "order": 3,
+          "content": "Filter out any project that matches the provided path."
+        },
+        {
+          "order": 4,
+          "content": "IF the number of projects decreased after filtering, save the updated registry."
+        },
+        {
+          "order": 5,
+          "content": "Return true if a project was removed, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_15399ed4",
+      "name": "touch",
+      "enclosing_class": "ProjectRegistry",
+      "normalized_params": "(path: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the existing registry data."
+        },
+        {
+          "order": 2,
+          "content": "Find the project in the registry that matches the provided path."
+        },
+        {
+          "order": 3,
+          "content": "IF the project is found, update its last access time to the current timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Save the updated registry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

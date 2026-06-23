@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/layout/Header.tsx",
+  "title": "Header component with breadcrumbs and action buttons",
+  "purpose": "Displays a page header with title, optional breadcrumbs, and action buttons for the Codex dashboard.",
+  "module_context": "Exports a Header component that accepts title, subtitle, breadcrumbs, actions, and className props. Defines BreadcrumbItem and HeaderProps interfaces for type safety.",
+  "methods": [
+    {
+      "id": "m_99934c64",
+      "name": "Header",
+      "enclosing_class": null,
+      "normalized_params": "(props: HeaderProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render the header element with default styling and optional custom class name."
+        },
+        {
+          "order": 2,
+          "content": "IF breadcrumbs are provided and not empty, render the breadcrumb navigation."
+        },
+        {
+          "order": 3,
+          "content": "For each breadcrumb item, render a navigation link or static text based on its position and href property."
+        },
+        {
+          "order": 4,
+          "content": "Render the page title within a heading element."
+        },
+        {
+          "order": 5,
+          "content": "IF a subtitle is provided, render it below the title."
+        },
+        {
+          "order": 6,
+          "content": "IF action buttons are provided, render them in a flex container."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

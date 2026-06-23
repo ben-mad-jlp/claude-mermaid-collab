@@ -1,0 +1,196 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/TopicGraph.tsx",
+  "title": "Interactive topic graph visualization with directory filtering",
+  "purpose": "Displays an interactive graph of topics and their relationships, allowing users to explore files and filter by directory categories.",
+  "module_context": "Exports a TopicGraph component that uses React Flow for visualization, implements force-directed layout for node positioning, and includes directory filtering functionality.",
+  "methods": [
+    {
+      "id": "m_641263d2",
+      "name": "TopicNode",
+      "enclosing_class": null,
+      "normalized_params": "(props: NodeProps<Node<TopicNodeData>>): React.FC<NodeProps<Node<TopicNodeData>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a circular node with color based on its category."
+        },
+        {
+          "order": 2,
+          "content": "Display a tooltip with the node label on hover."
+        },
+        {
+          "order": 3,
+          "content": "Show a hollow circle for unexplored nodes in onboard mode."
+        },
+        {
+          "order": 4,
+          "content": "Include handles for connecting edges to and from the node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_711ea2b2",
+      "name": "forceLayout",
+      "enclosing_class": null,
+      "normalized_params": "(apiNodes: ApiGraphNode[], apiEdges: ApiGraphEdge[], colorMap: Map<string, string>, exploredSet: Set<string>, onboardMode: boolean): { nodes: Node<TopicNodeData>[]; edges: Edge[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize node positions with random coordinates."
+        },
+        {
+          "order": 2,
+          "content": "Apply repulsion forces between all node pairs to prevent overlap."
+        },
+        {
+          "order": 3,
+          "content": "Apply attraction forces along edges to maintain graph structure."
+        },
+        {
+          "order": 4,
+          "content": "Apply center gravity to keep nodes within bounds."
+        },
+        {
+          "order": 5,
+          "content": "Integrate velocities and update positions over multiple iterations."
+        },
+        {
+          "order": 6,
+          "content": "Convert simulated nodes and edges to React Flow format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cae30d14",
+      "name": "TopicGraph",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load project data, directories, and user progress on component mount."
+        },
+        {
+          "order": 2,
+          "content": "Initialize node and edge state for the graph visualization."
+        },
+        {
+          "order": 3,
+          "content": "Generate color mapping for directory categories."
+        },
+        {
+          "order": 4,
+          "content": "Calculate explored set from progress data."
+        },
+        {
+          "order": 5,
+          "content": "Run force layout algorithm to position nodes in the graph."
+        },
+        {
+          "order": 6,
+          "content": "Set the computed nodes and edges in the React Flow state."
+        },
+        {
+          "order": 7,
+          "content": "Handle node click events to navigate to topic details."
+        },
+        {
+          "order": 8,
+          "content": "Implement directory filter toggling and visibility logic."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dd85f3ec",
+      "name": "onNodeClick",
+      "enclosing_class": "TopicGraph",
+      "normalized_params": "(_: React.MouseEvent, node: Node): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Navigate to the topic detail page for the clicked node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b2f4a554",
+      "name": "toggleDirectory",
+      "enclosing_class": "TopicGraph",
+      "normalized_params": "(dir: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the visibility state of a directory filter."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_caa91978",
+      "name": "visibleNodes",
+      "enclosing_class": "TopicGraph",
+      "normalized_params": "(): Node<TopicNodeData>[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter nodes based on selected directory filters."
+        },
+        {
+          "order": 2,
+          "content": "Mark nodes as hidden when their directory is not selected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3dd8407f",
+      "name": "visibleEdges",
+      "enclosing_class": "TopicGraph",
+      "normalized_params": "(): Edge[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter edges based on selected directory filters."
+        },
+        {
+          "order": 2,
+          "content": "Mark edges as hidden when either connected node is not visible."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

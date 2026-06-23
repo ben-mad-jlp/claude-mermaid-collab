@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useSessionPolling.ts",
+  "title": "Session polling hook with fallback mechanism",
+  "purpose": "Polls session state at regular intervals as a fallback when WebSocket updates may be missed, working alongside WebSocket handlers for dual-channel status synchronization.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_9b43d30d",
+      "name": "useSessionPolling",
+      "enclosing_class": null,
+      "normalized_params": "(project: string | null, session: string | null, intervalMs?: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize session store state and setter functions."
+        },
+        {
+          "order": 2,
+          "content": "Create a ref to track the last activity timestamp for comparison."
+        },
+        {
+          "order": 3,
+          "content": "Update the ref with the latest activity timestamp when state changes."
+        },
+        {
+          "order": 4,
+          "content": "Set up an interval to poll session state at specified intervals."
+        },
+        {
+          "order": 5,
+          "content": "Skip polling if project or session parameters are not provided."
+        },
+        {
+          "order": 6,
+          "content": "Perform initial fetch of session state on mount."
+        },
+        {
+          "order": 7,
+          "content": "Set up periodic polling with cleanup on unmount or dependency change."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5e5892f1",
+      "name": "poll",
+      "enclosing_class": "useSessionPolling",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the API endpoint URL with project and session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the session state from the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, silently ignore the error and return."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response to get the new session state."
+        },
+        {
+          "order": 5,
+          "content": "Compare the new last activity timestamp with the tracked reference."
+        },
+        {
+          "order": 6,
+          "content": "IF the timestamps differ, update the session store with the new state."
+        },
+        {
+          "order": 7,
+          "content": "IF network errors occur, silently ignore them and continue polling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

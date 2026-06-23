@@ -1,0 +1,166 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useEditorHistory.ts",
+  "title": "CodeMirror editor history management hook",
+  "purpose": "Manages undo/redo functionality for a CodeMirror editor by tracking history state and providing undo/redo operations.",
+  "module_context": "Exports a hook function that manages editor history state and provides methods to interact with the editor's undo/redo stack.",
+  "methods": [
+    {
+      "id": "m_f3d4f2e4",
+      "name": "useEditorHistory",
+      "enclosing_class": null,
+      "normalized_params": "(): UseEditorHistoryReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref to hold the editor view instance."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state variables to track whether undo and redo operations are available."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback to update the undo/redo state based on the current editor state."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback to set the editor view and configure history tracking."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to perform an undo operation if available."
+        },
+        {
+          "order": 6,
+          "content": "Define a callback to perform a redo operation if available."
+        },
+        {
+          "order": 7,
+          "content": "Return the editor ref, setter, undo function, redo function, and history state flags."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0e0487fc",
+      "name": "updateHistoryState",
+      "enclosing_class": "useEditorHistory",
+      "normalized_params": "(view: EditorView): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compute the undo depth of the current editor state."
+        },
+        {
+          "order": 2,
+          "content": "IF the undo depth is greater than zero, set the undo state to true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE set the undo state to false."
+        },
+        {
+          "order": 4,
+          "content": "Compute the redo depth of the current editor state."
+        },
+        {
+          "order": 5,
+          "content": "IF the redo depth is greater than zero, set the redo state to true."
+        },
+        {
+          "order": 6,
+          "content": "ELSE set the redo state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e27fc075",
+      "name": "setEditor",
+      "enclosing_class": "useEditorHistory",
+      "normalized_params": "(view: EditorView | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the new editor view in the ref."
+        },
+        {
+          "order": 2,
+          "content": "IF the editor view is null, clear the undo and redo state flags."
+        },
+        {
+          "order": 3,
+          "content": "ELSE set up an update listener to track document changes."
+        },
+        {
+          "order": 4,
+          "content": "IF document changes or transactions occur, update the history state."
+        },
+        {
+          "order": 5,
+          "content": "Add the update listener to the editor configuration."
+        },
+        {
+          "order": 6,
+          "content": "Set the initial history state based on the current editor state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5439e94f",
+      "name": "undo",
+      "enclosing_class": "useEditorHistory",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF an editor exists and undo is available, perform the undo operation."
+        },
+        {
+          "order": 2,
+          "content": "IF the undo operation fails, silently ignore the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69ee46d8",
+      "name": "redo",
+      "enclosing_class": "useEditorHistory",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF an editor exists and redo is available, perform the redo operation."
+        },
+        {
+          "order": 2,
+          "content": "IF the redo operation fails, silently ignore the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/canvaskit.ts",
+  "title": "CanvasKit WASM initialization and caching utility",
+  "purpose": "Provides a singleton instance of CanvasKit WASM library with configurable file location resolution.",
+  "module_context": "Exports a singleton instance variable and an options interface for CanvasKit configuration.",
+  "methods": [
+    {
+      "id": "m_a4667445",
+      "name": "getCanvasKit",
+      "enclosing_class": null,
+      "normalized_params": "(options?: CanvasKitOptions): Promise<CanvasKit>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a CanvasKit instance has already been initialized."
+        },
+        {
+          "order": 2,
+          "content": "IF an instance exists, return it immediately."
+        },
+        {
+          "order": 3,
+          "content": "ELSE initialize a new CanvasKit instance with the provided options."
+        },
+        {
+          "order": 4,
+          "content": "IF no locateFile function is provided, use a default resolver that prepends '/' in browser environments."
+        },
+        {
+          "order": 5,
+          "content": "Store the initialized instance in the module-level variable."
+        },
+        {
+          "order": 6,
+          "content": "Return the newly initialized CanvasKit instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

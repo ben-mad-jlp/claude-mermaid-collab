@@ -1,0 +1,198 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/design-components.ts",
+  "title": "Component library file I/O utilities for saving, loading, and listing design components",
+  "purpose": "Provides functions to persist and retrieve design component subtrees to/from the file system, enabling users to save and reuse component configurations across sessions.",
+  "module_context": "Exports three main functions for managing component files: saving components to disk, loading them back, and listing all available components in the library.",
+  "methods": [
+    {
+      "id": "m_d1a8bf54",
+      "name": "getComponentsDir",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the file system path to the components directory for a given project and session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11e612ba",
+      "name": "sanitizeFilename",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace any characters in the filename that are not alphanumeric, hyphens, or underscores with underscores."
+        },
+        {
+          "order": 2,
+          "content": "Convert the sanitized filename to lowercase."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_599538ad",
+      "name": "saveComponentToLibrary",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name: string, nodes: any[]): Promise<{ success: boolean; path: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the components directory for the given project and session."
+        },
+        {
+          "order": 2,
+          "content": "Create the components directory if it does not already exist."
+        },
+        {
+          "order": 3,
+          "content": "Generate a sanitized filename for the component based on its name."
+        },
+        {
+          "order": 4,
+          "content": "Construct the full file path for the component."
+        },
+        {
+          "order": 5,
+          "content": "Prepare the component data including name, timestamp, and nodes."
+        },
+        {
+          "order": 6,
+          "content": "Write the component data to the file in JSON format with indentation."
+        },
+        {
+          "order": 7,
+          "content": "Return a success status and the path to the saved file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_10c2e69d",
+      "name": "loadComponentFromLibrary",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name: string): Promise<{ name: string; nodes: any[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the components directory for the given project and session."
+        },
+        {
+          "order": 2,
+          "content": "Generate a sanitized filename for the component based on its name."
+        },
+        {
+          "order": 3,
+          "content": "Construct the full file path for the component."
+        },
+        {
+          "order": 4,
+          "content": "Attempt to read the component file from disk."
+        },
+        {
+          "order": 5,
+          "content": "IF the file does not exist, throw an error indicating the component is not found."
+        },
+        {
+          "order": 6,
+          "content": "IF the file exists but cannot be read, re-throw the error."
+        },
+        {
+          "order": 7,
+          "content": "Parse the file contents as JSON."
+        },
+        {
+          "order": 8,
+          "content": "IF the parsed data is invalid, throw an error indicating corrupted data."
+        },
+        {
+          "order": 9,
+          "content": "Validate that the parsed data contains a valid nodes array."
+        },
+        {
+          "order": 10,
+          "content": "IF the nodes array is missing or invalid, throw an error indicating invalid format."
+        },
+        {
+          "order": 11,
+          "content": "Return the component name and its nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e56bce66",
+      "name": "listLibraryComponents",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<Array<{ name: string; filename: string; savedAt: string }>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the components directory for the given project and session."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to read the list of files in the components directory."
+        },
+        {
+          "order": 3,
+          "content": "IF the directory does not exist, return an empty list of components."
+        },
+        {
+          "order": 4,
+          "content": "For each file in the directory, check if it has the component file extension."
+        },
+        {
+          "order": 5,
+          "content": "IF the file is not a component file, skip to the next file."
+        },
+        {
+          "order": 6,
+          "content": "Attempt to read and parse the component file."
+        },
+        {
+          "order": 7,
+          "content": "IF the file cannot be parsed, skip to the next file."
+        },
+        {
+          "order": 8,
+          "content": "Extract the component name, filename, and save timestamp from the parsed data."
+        },
+        {
+          "order": 9,
+          "content": "Add the component information to the list of components."
+        },
+        {
+          "order": 10,
+          "content": "Return the list of all valid components in the library."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

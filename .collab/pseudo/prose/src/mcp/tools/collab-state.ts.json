@@ -1,0 +1,318 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/collab-state.ts",
+  "title": "Collaborative session state management and archiving tools",
+  "purpose": "Provides tools for managing collaborative session state including tracking task progress, snippet changes, and archiving session data to persistent storage.",
+  "module_context": "Exports interfaces for session state and update parameters, helper functions for file operations and path construction, and functions for reading, updating, and archiving session state.",
+  "methods": [
+    {
+      "id": "m_9ac0aed6",
+      "name": "getStatePath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the file path for the session state file within the project directory."
+        },
+        {
+          "order": 2,
+          "content": "Return the full path to the collab-state.json file for the specified session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f36dd2bc",
+      "name": "fileExists",
+      "enclosing_class": null,
+      "normalized_params": "(path: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to access the specified file path."
+        },
+        {
+          "order": 2,
+          "content": "IF the access operation succeeds, return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c64376c5",
+      "name": "getSessionState",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<CollabState>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the file path for the session state file."
+        },
+        {
+          "order": 2,
+          "content": "IF the session file does not exist, throw an error indicating the session was not found."
+        },
+        {
+          "order": 3,
+          "content": "Read and parse the session state file content."
+        },
+        {
+          "order": 4,
+          "content": "Compute a human-readable display name from the state field if not already present."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed session state with computed display name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f7465779",
+      "name": "updateSessionState",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, updates: StateUpdateParams, wsHandler?: WebSocketHandler): Promise<{ success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the file path for the session state file."
+        },
+        {
+          "order": 2,
+          "content": "Read the current session state or initialize an empty object if the file does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Merge the provided updates with the current state to form the new state."
+        },
+        {
+          "order": 4,
+          "content": "Ensure the directory for the session state file exists."
+        },
+        {
+          "order": 5,
+          "content": "Write the new session state to the file in JSON format."
+        },
+        {
+          "order": 6,
+          "content": "IF a WebSocket handler is provided, broadcast the session state update to connected clients."
+        },
+        {
+          "order": 7,
+          "content": "Return a success indicator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d4ec0296",
+      "name": "recordSnippetCreated",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, snippetId: string, wsHandler?: WebSocketHandler): Promise<{ success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current session state."
+        },
+        {
+          "order": 2,
+          "content": "Create a copy of the existing created snippets array."
+        },
+        {
+          "order": 3,
+          "content": "Add the new snippet ID to the created snippets array if it is not already present."
+        },
+        {
+          "order": 4,
+          "content": "Update the session state with the new created snippets array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b89945c",
+      "name": "recordSnippetUpdated",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, snippetId: string, wsHandler?: WebSocketHandler): Promise<{ success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current session state."
+        },
+        {
+          "order": 2,
+          "content": "Create a copy of the existing updated snippets array."
+        },
+        {
+          "order": 3,
+          "content": "Add the new snippet ID to the updated snippets array if it is not already present."
+        },
+        {
+          "order": 4,
+          "content": "Update the session state with the new updated snippets array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f9ffc603",
+      "name": "recordSnippetDeleted",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, snippetId: string, wsHandler?: WebSocketHandler): Promise<{ success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current session state."
+        },
+        {
+          "order": 2,
+          "content": "Create a copy of the existing deleted snippets array."
+        },
+        {
+          "order": 3,
+          "content": "Add the new snippet ID to the deleted snippets array if it is not already present."
+        },
+        {
+          "order": 4,
+          "content": "Filter out the deleted snippet ID from the created snippets array."
+        },
+        {
+          "order": 5,
+          "content": "Filter out the deleted snippet ID from the updated snippets array."
+        },
+        {
+          "order": 6,
+          "content": "Update the session state with the new deleted snippets array and filtered created/updated arrays."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0cf2d281",
+      "name": "getSnippetStateSummary",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<{ created: number; updated: number; deleted: number; snippets: string[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current session state."
+        },
+        {
+          "order": 2,
+          "content": "Extract the created, updated, and deleted snippets arrays from the session state."
+        },
+        {
+          "order": 3,
+          "content": "Combine all snippet IDs into a single deduplicated array."
+        },
+        {
+          "order": 4,
+          "content": "Return a summary object with counts and the combined snippet IDs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2804b358",
+      "name": "archiveSession",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, options: ArchiveOptions): Promise<ArchiveResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the delete session and timestamp options from the provided options."
+        },
+        {
+          "order": 2,
+          "content": "Construct the paths for the session directory and its subdirectories."
+        },
+        {
+          "order": 3,
+          "content": "Generate the archive folder name with optional timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Verify that the session directory exists."
+        },
+        {
+          "order": 5,
+          "content": "Verify that the archive directory does not already exist."
+        },
+        {
+          "order": 6,
+          "content": "Create the archive directory."
+        },
+        {
+          "order": 7,
+          "content": "Copy documents from the session directory to the archive directory."
+        },
+        {
+          "order": 8,
+          "content": "Copy diagrams from the session directory to the archive directory."
+        },
+        {
+          "order": 9,
+          "content": "Copy designs from the session directory to the archive directory."
+        },
+        {
+          "order": 10,
+          "content": "Copy spreadsheets from the session directory to the archive directory."
+        },
+        {
+          "order": 11,
+          "content": "Copy snippets from the session directory to the archive directory, skipping hidden files."
+        },
+        {
+          "order": 12,
+          "content": "Delete the session directory if the delete option is enabled."
+        },
+        {
+          "order": 13,
+          "content": "Return the archive result including the archive path and list of archived files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

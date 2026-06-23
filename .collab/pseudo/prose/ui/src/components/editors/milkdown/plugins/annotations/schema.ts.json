@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/annotations/schema.ts",
+  "title": "Annotation schema types and helpers for document metadata",
+  "purpose": "Defines the structure and validation logic for annotations stored in document metadata, including ID generation and type checking utilities.",
+  "module_context": "Exports annotation type definitions, metadata structure, schema version constant, and utility functions for creating IDs and validating annotation objects.",
+  "methods": [
+    {
+      "id": "m_063a9f45",
+      "name": "createAnnotationId",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to generate a random UUID using the browser's crypto API."
+        },
+        {
+          "order": 2,
+          "content": "IF UUID generation fails or is not available, fall back to generating a random string using Math.random."
+        },
+        {
+          "order": 3,
+          "content": "Return the generated identifier string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a4711e6c",
+      "name": "isAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "(x: unknown): x is Annotation",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the input is an object and not null."
+        },
+        {
+          "order": 2,
+          "content": "Check that the object has a valid string ID property."
+        },
+        {
+          "order": 3,
+          "content": "Verify that the kind property is one of the allowed annotation types."
+        },
+        {
+          "order": 4,
+          "content": "Confirm that the anchor property exists and is an object with required numeric from/to properties and string text/checksum properties."
+        },
+        {
+          "order": 5,
+          "content": "Ensure the body property is a string."
+        },
+        {
+          "order": 6,
+          "content": "Validate that the createdAt property is a number."
+        },
+        {
+          "order": 7,
+          "content": "Return true if all validation checks pass, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DiagramHistoryDropdown.tsx",
+  "title": "Diagram history dropdown component with version preview",
+  "purpose": "Provides a dropdown interface to view and select historical versions of a diagram, showing relative timestamps and loading states.",
+  "module_context": "Exports a React functional component DiagramHistoryDropdown that accepts diagram ID, version selection callback, and optional CSS classes. Uses a custom hook to fetch diagram history and manages dropdown open/close state with click-outside detection.",
+  "methods": [
+    {
+      "id": "m_1fd24e43",
+      "name": "formatTimestamp",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input timestamp into a date object."
+        },
+        {
+          "order": 2,
+          "content": "Compare the date to today's date to determine if it's today."
+        },
+        {
+          "order": 3,
+          "content": "IF the date is today, format and return just the time portion."
+        },
+        {
+          "order": 4,
+          "content": "ELSE check if the date is yesterday and format accordingly."
+        },
+        {
+          "order": 5,
+          "content": "ELSE calculate the difference in days from today and check if it's within the last 7 days."
+        },
+        {
+          "order": 6,
+          "content": "IF within 7 days, format with day name and time."
+        },
+        {
+          "order": 7,
+          "content": "ELSE format with month, day, and time for older dates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_197bdb83",
+      "name": "DiagramHistoryDropdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiagramHistoryDropdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for dropdown open status and loading timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Create a ref for the dropdown element to detect outside clicks."
+        },
+        {
+          "order": 3,
+          "content": "Fetch diagram history and version loading function using a custom hook."
+        },
+        {
+          "order": 4,
+          "content": "Determine if history exists and calculate version count."
+        },
+        {
+          "order": 5,
+          "content": "Set up click outside detection to close the dropdown when clicking elsewhere."
+        },
+        {
+          "order": 6,
+          "content": "Handle item click by loading version content and calling selection callback."
+        },
+        {
+          "order": 7,
+          "content": "Render the dropdown button with appropriate styling and disabled states."
+        },
+        {
+          "order": 8,
+          "content": "IF dropdown is open and history exists, render the version list with loading indicators."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16cdb13f",
+      "name": "handleItemClick",
+      "enclosing_class": "DiagramHistoryDropdown",
+      "normalized_params": "(timestamp: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading timestamp to indicate which version is being loaded."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the content for the specified timestamp using the version loading function."
+        },
+        {
+          "order": 3,
+          "content": "Clear the loading timestamp after content is retrieved."
+        },
+        {
+          "order": 4,
+          "content": "IF content is successfully retrieved, call the version selection callback with timestamp and content."
+        },
+        {
+          "order": 5,
+          "content": "Close the dropdown after successful version selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e50a5faf",
+      "name": "handleClickOutside",
+      "enclosing_class": "DiagramHistoryDropdown",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked target is outside the dropdown element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, close the dropdown by setting open state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

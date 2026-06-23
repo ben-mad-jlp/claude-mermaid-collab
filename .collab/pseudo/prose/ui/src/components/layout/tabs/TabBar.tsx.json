@@ -1,0 +1,137 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/tabs/TabBar.tsx",
+  "title": "Tab bar component with drag-and-drop reordering and tab management",
+  "purpose": "Provides a tab bar interface with draggable tabs, tab activation, closing, pinning, and promotion functionality for managing session tabs.",
+  "module_context": "Exports TabBar component and SortableTab helper component. Uses DnD Kit for drag-and-drop functionality and integrates with tabs and session stores.",
+  "methods": [
+    {
+      "id": "m_b7d7f2f3",
+      "name": "SortableTab",
+      "enclosing_class": null,
+      "normalized_params": "(props: SortableTabProps): React.FC<SortableTabProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize sortable behavior for the tab using DnD Kit."
+        },
+        {
+          "order": 2,
+          "content": "Apply computed transform and transition styles from sortable context."
+        },
+        {
+          "order": 3,
+          "content": "Render the tab component with all provided props and sortable attributes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_082c24c0",
+      "name": "activateTab",
+      "enclosing_class": "TabBar",
+      "normalized_params": "(tab: TabDescriptor): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the active tab ID in the tabs store."
+        },
+        {
+          "order": 2,
+          "content": "Get the current session store state."
+        },
+        {
+          "order": 3,
+          "content": "IF the tab is an embed kind, select the corresponding embed artifact."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the tab is a code-file kind, select the corresponding pseudo path."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the tab is an artifact kind with a type, route to the appropriate artifact selection based on type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b675ad29",
+      "name": "handleDragEnd",
+      "enclosing_class": "TabBar",
+      "normalized_params": "(e: DragEndEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the active and over drag items from the event."
+        },
+        {
+          "order": 2,
+          "content": "IF the active and over items are different, calculate their indices in the tab list."
+        },
+        {
+          "order": 3,
+          "content": "IF either index is invalid, exit early."
+        },
+        {
+          "order": 4,
+          "content": "Reorder the tab IDs using arrayMove based on the calculated indices."
+        },
+        {
+          "order": 5,
+          "content": "Update the tab order in the tabs store with the new tab IDs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d90beebe",
+      "name": "TabBar",
+      "enclosing_class": null,
+      "normalized_params": "(props: TabBarProps): React.FC<TabBarProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the current tabs and active tab ID from the session tabs store."
+        },
+        {
+          "order": 2,
+          "content": "Extract tab management functions from the tabs store."
+        },
+        {
+          "order": 3,
+          "content": "Filter and sort tabs into permanent and preview categories."
+        },
+        {
+          "order": 4,
+          "content": "Initialize drag-and-drop sensors with pointer activation constraint."
+        },
+        {
+          "order": 5,
+          "content": "Render the tab bar container with DnD context and sortable tabs."
+        },
+        {
+          "order": 6,
+          "content": "Display permanent tabs first, followed by a spacer, then preview tabs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

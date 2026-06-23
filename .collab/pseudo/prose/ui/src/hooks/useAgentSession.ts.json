@@ -1,0 +1,168 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useAgentSession.ts",
+  "title": "React hook for managing agent session communication via WebSocket",
+  "purpose": "Provides a set of functions to interact with an agent session through WebSocket communication, including sending messages, canceling turns, resolving permissions, and committing changes.",
+  "module_context": "Exports a React hook 'useAgentSession' that manages WebSocket connections and agent session state, along with related types and interfaces for agent communication.",
+  "methods": [
+    {
+      "id": "m_2b18c9c4",
+      "name": "useAgentSession",
+      "enclosing_class": null,
+      "normalized_params": "(sessionId: string | null): UseAgentSessionReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize WebSocket client reference and pending command queue."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to agent session events when session ID and chat visibility are active."
+        },
+        {
+          "order": 3,
+          "content": "Set up message and connection handlers for WebSocket communication."
+        },
+        {
+          "order": 4,
+          "content": "Return functions for sending messages, canceling turns, resolving permissions, setting permission mode, and committing changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a969c1c",
+      "name": "enqueueOrSend",
+      "enclosing_class": "useAgentSession",
+      "normalized_params": "(cmd: AgentCommand): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the WebSocket client is connected."
+        },
+        {
+          "order": 2,
+          "content": "IF the client is connected, send the command immediately."
+        },
+        {
+          "order": 3,
+          "content": "ELSE add the command to the pending queue for later transmission."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4938119f",
+      "name": "send",
+      "enclosing_class": "useAgentSession",
+      "normalized_params": "(text: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique message ID if crypto API is available."
+        },
+        {
+          "order": 2,
+          "content": "Send the user message to the agent store for local state update."
+        },
+        {
+          "order": 3,
+          "content": "Queue or send the agent command to the WebSocket client."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9e8ea73d",
+      "name": "cancel",
+      "enclosing_class": "useAgentSession",
+      "normalized_params": "(turnId?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Queue or send the cancellation command to the WebSocket client."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_98673ad7",
+      "name": "resolvePermission",
+      "enclosing_class": "useAgentSession",
+      "normalized_params": "(promptId: string, decision: PermissionDecision): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the agent store with the permission resolution."
+        },
+        {
+          "order": 2,
+          "content": "Queue or send the permission resolution command to the WebSocket client."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82eb99a0",
+      "name": "setPermissionMode",
+      "enclosing_class": "useAgentSession",
+      "normalized_params": "(mode: PermissionMode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the agent store with the new permission mode."
+        },
+        {
+          "order": 2,
+          "content": "Queue or send the permission mode change command to the WebSocket client."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8c811e07",
+      "name": "commitPushPR",
+      "enclosing_class": "useAgentSession",
+      "normalized_params": "(input: CommitPushPRInput): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Mark commit as in-flight in the agent store."
+        },
+        {
+          "order": 2,
+          "content": "Queue or send the commit and push PR command to the WebSocket client."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

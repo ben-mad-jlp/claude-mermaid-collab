@@ -1,0 +1,269 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/TodosTreeSection.tsx",
+  "title": "Session todos tree section with add/edit/delete functionality",
+  "purpose": "Provides a collapsible tree section for managing session todos with UI for adding, editing, deleting, and toggling completion status.",
+  "module_context": "Exports a forward-ref component that manages session todos, handles user interactions, and integrates with a global session store and API for persistence.",
+  "methods": [
+    {
+      "id": "m_258ced1c",
+      "name": "TodoRow",
+      "enclosing_class": null,
+      "normalized_params": "(props: TodoRowProps): React.JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for editing and draft text based on the todo item."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback to toggle the completion status of the todo item."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback to commit edits to the todo text."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback to delete the todo item."
+        },
+        {
+          "order": 5,
+          "content": "Render the todo item with checkbox, text display/editing, and delete button."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2019b20c",
+      "name": "handleToggle",
+      "enclosing_class": "TodoRow",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare the next state for the todo item with toggled completion."
+        },
+        {
+          "order": 2,
+          "content": "Update the local store with the optimistic next state."
+        },
+        {
+          "order": 3,
+          "content": "Send a patch request to the API to update the todo completion status."
+        },
+        {
+          "order": 4,
+          "content": "IF the API request fails, revert the local store to the original state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c555cee5",
+      "name": "commitEdit",
+      "enclosing_class": "TodoRow",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the draft text and exit editing mode."
+        },
+        {
+          "order": 2,
+          "content": "IF the trimmed text is empty or unchanged, reset the draft text and return."
+        },
+        {
+          "order": 3,
+          "content": "Prepare an optimistic update with the new text."
+        },
+        {
+          "order": 4,
+          "content": "Update the local store with the optimistic text."
+        },
+        {
+          "order": 5,
+          "content": "Send a patch request to the API to update the todo text."
+        },
+        {
+          "order": 6,
+          "content": "IF the API request fails, revert the local store and draft text to the original state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a63f6bb4",
+      "name": "handleDelete",
+      "enclosing_class": "TodoRow",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Capture a snapshot of the current session todos."
+        },
+        {
+          "order": 2,
+          "content": "Remove the todo item from the local store."
+        },
+        {
+          "order": 3,
+          "content": "Send a delete request to the API to remove the todo item."
+        },
+        {
+          "order": 4,
+          "content": "IF the API request fails, restore the session todos from the snapshot."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11b393ce",
+      "name": "TodosTreeSection",
+      "enclosing_class": null,
+      "normalized_params": "(props: SessionTodosSectionProps, ref: React.Ref<SessionTodosSectionHandle>): React.JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract session-related state and actions from the global store."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state for collapse, new todo text, and add input visibility."
+        },
+        {
+          "order": 3,
+          "content": "Set up imperative handle to reveal the add input field."
+        },
+        {
+          "order": 4,
+          "content": "Sort todos by order and filter based on visibility settings."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to add a new todo item."
+        },
+        {
+          "order": 6,
+          "content": "Define a callback to clear completed todos."
+        },
+        {
+          "order": 7,
+          "content": "Render the section header with toggle and count."
+        },
+        {
+          "order": 8,
+          "content": "IF the section is not collapsed, render the show completed toggle, clear button, add input, and todo list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dabb0c13",
+      "name": "handleAddTodo",
+      "enclosing_class": "TodosTreeSection",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF there is no current session, return early."
+        },
+        {
+          "order": 2,
+          "content": "Trim the new todo text and return if empty."
+        },
+        {
+          "order": 3,
+          "content": "Clear the input field."
+        },
+        {
+          "order": 4,
+          "content": "Send a request to the API to create a new todo item."
+        },
+        {
+          "order": 5,
+          "content": "IF the API request fails, restore the input field with the original text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cb6c8088",
+      "name": "handleClearCompleted",
+      "enclosing_class": "TodosTreeSection",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF there is no current session, return early."
+        },
+        {
+          "order": 2,
+          "content": "Close the confirmation dialog."
+        },
+        {
+          "order": 3,
+          "content": "Filter out completed todos and update the local store."
+        },
+        {
+          "order": 4,
+          "content": "Send a request to the API to clear completed todos."
+        },
+        {
+          "order": 5,
+          "content": "IF the API request fails, restore the session todos from the snapshot."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b30dd667",
+      "name": "revealAddInput",
+      "enclosing_class": "TodosTreeSection",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the add input visibility to true."
+        },
+        {
+          "order": 2,
+          "content": "Focus the add input field after a brief delay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

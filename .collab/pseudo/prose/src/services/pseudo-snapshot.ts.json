@@ -1,0 +1,180 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-snapshot.ts",
+  "title": "SQLite snapshot management for pseudo cache with validation",
+  "purpose": "Manages writing, validating, and loading SQLite database snapshots of pseudo cache data, ensuring data integrity and schema compatibility.",
+  "module_context": "Exports functions for writing snapshots to disk, validating existing snapshots against current project state, and loading snapshots into a database. Defines constants for snapshot tables, file count tolerance, sample size, TTL, and snapshot paths.",
+  "methods": [
+    {
+      "id": "m_47e29226",
+      "name": "writeSnapshot",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, project: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the snapshot file path within the project directory."
+        },
+        {
+          "order": 2,
+          "content": "Ensure the snapshot directory exists, creating it if necessary."
+        },
+        {
+          "order": 3,
+          "content": "Remove any existing snapshot file at the determined path."
+        },
+        {
+          "order": 4,
+          "content": "Perform one-time cleanup of legacy snapshot file if not already done."
+        },
+        {
+          "order": 5,
+          "content": "Attach the snapshot database file to the provided database connection."
+        },
+        {
+          "order": 6,
+          "content": "Begin a transaction to ensure atomicity of the snapshot operation."
+        },
+        {
+          "order": 7,
+          "content": "Drop and recreate each snapshot table in the attached database from the main database."
+        },
+        {
+          "order": 8,
+          "content": "Insert or update the schema version in the snapshot metadata."
+        },
+        {
+          "order": 9,
+          "content": "Insert or update the generation timestamp in the snapshot metadata."
+        },
+        {
+          "order": 10,
+          "content": "Commit the transaction to finalize the snapshot write."
+        },
+        {
+          "order": 11,
+          "content": "IF the write fails, rollback the transaction and detach the database."
+        },
+        {
+          "order": 12,
+          "content": "Always detach the database connection in the finally block."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7462e19c",
+      "name": "validateSnapshot",
+      "enclosing_class": null,
+      "normalized_params": "(snapPath: string, gitFileCount: number, sampleFiles: Map<string, string>): Promise<SnapshotValidation>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the snapshot file exists at the specified path."
+        },
+        {
+          "order": 2,
+          "content": "IF the file does not exist, return validation result indicating missing snapshot."
+        },
+        {
+          "order": 3,
+          "content": "Open the snapshot database in read-only mode for validation."
+        },
+        {
+          "order": 4,
+          "content": "Perform an integrity check on the snapshot database."
+        },
+        {
+          "order": 5,
+          "content": "IF the integrity check fails, return validation result indicating integrity issue."
+        },
+        {
+          "order": 6,
+          "content": "Verify that the schema version in the snapshot matches the expected version."
+        },
+        {
+          "order": 7,
+          "content": "IF the schema version does not match, return validation result indicating schema mismatch."
+        },
+        {
+          "order": 8,
+          "content": "Count the number of files in the snapshot and compare it to the expected file count within tolerance."
+        },
+        {
+          "order": 9,
+          "content": "IF the file count is outside the tolerance range, return validation result indicating file count mismatch."
+        },
+        {
+          "order": 10,
+          "content": "Check the generation timestamp in the snapshot metadata."
+        },
+        {
+          "order": 11,
+          "content": "IF the timestamp is missing or the snapshot is older than the TTL, return validation result indicating snapshot is too old."
+        },
+        {
+          "order": 12,
+          "content": "Select a random sample of files from the provided sample files."
+        },
+        {
+          "order": 13,
+          "content": "For each file in the sample, verify that the hash matches the one stored in the snapshot."
+        },
+        {
+          "order": 14,
+          "content": "IF any hash does not match, return validation result indicating sample hash mismatch."
+        },
+        {
+          "order": 15,
+          "content": "IF all validations pass, return validation result indicating the snapshot is valid."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a5e85c33",
+      "name": "loadSnapshot",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, snapPath: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attach the snapshot database file to the provided database connection."
+        },
+        {
+          "order": 2,
+          "content": "Begin a transaction to ensure atomicity of the load operation."
+        },
+        {
+          "order": 3,
+          "content": "For each snapshot table, insert all rows from the attached snapshot database into the main database."
+        },
+        {
+          "order": 4,
+          "content": "Commit the transaction to finalize the snapshot load."
+        },
+        {
+          "order": 5,
+          "content": "IF the load fails, rollback the transaction and detach the database."
+        },
+        {
+          "order": 6,
+          "content": "Always detach the database connection in the finally block."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

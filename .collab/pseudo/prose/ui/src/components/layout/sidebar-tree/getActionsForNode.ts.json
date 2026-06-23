@@ -1,0 +1,62 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/getActionsForNode.ts",
+  "title": "Maps tree nodes to context-menu actions with kind-specific logic",
+  "purpose": "Provides a pure function that returns context menu actions for a given tree node based on its kind and properties.",
+  "module_context": "Defines types for TreeNode kinds and artifact types, and exports the getActionsForNode function that maps nodes to their context-menu actions.",
+  "methods": [
+    {
+      "id": "m_02624b46",
+      "name": "getActionsForNode",
+      "enclosing_class": null,
+      "normalized_params": "(node: TreeNode, _ctx?: NodeActionsCtx): MenuAction[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Evaluate the kind of the input node."
+        },
+        {
+          "order": 2,
+          "content": "IF the node is an artifact, check its artifact type and return corresponding actions."
+        },
+        {
+          "order": 3,
+          "content": "IF the artifact type is image, return actions specific to image artifacts."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return actions for non-image artifacts."
+        },
+        {
+          "order": 5,
+          "content": "IF the node is a blueprint, return deprecation actions."
+        },
+        {
+          "order": 6,
+          "content": "IF the node is an embed, return rename and delete actions."
+        },
+        {
+          "order": 7,
+          "content": "IF the node is a code-file, return file browser and sync actions."
+        },
+        {
+          "order": 8,
+          "content": "IF the node is a task-graph or task-details, return an empty action list."
+        },
+        {
+          "order": 9,
+          "content": "IF the node is a todo, return edit, completion, and delete actions."
+        },
+        {
+          "order": 10,
+          "content": "IF the node kind does not match any case, return an empty action list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

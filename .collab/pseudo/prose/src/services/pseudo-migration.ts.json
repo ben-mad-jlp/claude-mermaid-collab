@@ -1,0 +1,270 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-migration.ts",
+  "title": "SQLite to prose-files migration tool for v1 to v6 transition",
+  "purpose": "Migrates legacy SQLite database entries into structured prose files, handling both initial migration and relative path conversion for cross-platform compatibility.",
+  "module_context": "Exports two main migration functions: runMigrationFromV1 for v1 to v6 migration and migrateProseFilesToRelative for relative path conversion. Includes helper functions for path resolution and database access.",
+  "methods": [
+    {
+      "id": "m_9e3b62dc",
+      "name": "pseudoDir",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the .collab/pseudo directory within the project."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6b30ad1",
+      "name": "legacyDbPath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the legacy pseudo.db file within the pseudo directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7693eed4",
+      "name": "proseDir",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the prose subdirectory under the pseudo directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3eaad510",
+      "name": "migrationFlagPath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the .migrated flag file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d349b738",
+      "name": "relMigrationFlagPath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the .migrated-rel flag file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d49f188c",
+      "name": "orphanDir",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the _orphan subdirectory under the prose directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8aab3ad7",
+      "name": "runMigrationFromV1",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<MigrationReport>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the migration report with zero counts."
+        },
+        {
+          "order": 2,
+          "content": "IF the migration flag exists, return the empty report."
+        },
+        {
+          "order": 3,
+          "content": "IF the legacy database file does not exist, return the empty report."
+        },
+        {
+          "order": 4,
+          "content": "Open the legacy database in read-only mode."
+        },
+        {
+          "order": 5,
+          "content": "IF the database does not contain the required tables, return the empty report."
+        },
+        {
+          "order": 6,
+          "content": "Load all files that have prose from the database."
+        },
+        {
+          "order": 7,
+          "content": "For each file, load its methods and steps from the database."
+        },
+        {
+          "order": 8,
+          "content": "IF a method has no steps, skip processing it."
+        },
+        {
+          "order": 9,
+          "content": "Compute the normalized parameters and body fingerprint for each method."
+        },
+        {
+          "order": 10,
+          "content": "Construct the prose method object with computed values."
+        },
+        {
+          "order": 11,
+          "content": "IF no methods or file-level prose exist, skip the file."
+        },
+        {
+          "order": 12,
+          "content": "Convert the file path to a relative POSIX path."
+        },
+        {
+          "order": 13,
+          "content": "Write the constructed prose file to the output directory."
+        },
+        {
+          "order": 14,
+          "content": "Mark the migration as complete by writing the flag file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9a08bc4",
+      "name": "recoverRelPathBySuffix",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, input: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the input path into segments."
+        },
+        {
+          "order": 2,
+          "content": "Try each suffix of the path segments to find a matching file in the project."
+        },
+        {
+          "order": 3,
+          "content": "Return the first matching suffix or null if none found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_192a0070",
+      "name": "migrateProseFilesToRelative",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<RelMigrationReport>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the relative migration report with zero counts."
+        },
+        {
+          "order": 2,
+          "content": "IF the relative migration flag exists, return the empty report."
+        },
+        {
+          "order": 3,
+          "content": "IF the prose directory does not exist, create it and write a minimal flag."
+        },
+        {
+          "order": 4,
+          "content": "Walk the prose directory to collect all JSON files."
+        },
+        {
+          "order": 5,
+          "content": "For each JSON file, read and validate the prose file content."
+        },
+        {
+          "order": 6,
+          "content": "IF the file is not schema version 3, skip it."
+        },
+        {
+          "order": 7,
+          "content": "IF the file path is already relative, skip it."
+        },
+        {
+          "order": 8,
+          "content": "Convert the absolute file path to a relative POSIX path."
+        },
+        {
+          "order": 9,
+          "content": "IF conversion fails, attempt to recover the path using suffix matching."
+        },
+        {
+          "order": 10,
+          "content": "IF recovery fails, move the file to the orphan directory."
+        },
+        {
+          "order": 11,
+          "content": "Write the updated prose file with the relative path."
+        },
+        {
+          "order": 12,
+          "content": "IF the file was rewritten, remove the old file."
+        },
+        {
+          "order": 13,
+          "content": "Mark the migration as complete by writing the relative flag file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

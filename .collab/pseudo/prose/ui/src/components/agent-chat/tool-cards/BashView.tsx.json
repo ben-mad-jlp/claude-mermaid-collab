@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/BashView.tsx",
+  "title": "Bash command execution view component with output display",
+  "purpose": "Displays the command, description, and output of a bash tool execution in the agent chat interface.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_06bd8633",
+      "name": "BashView",
+      "enclosing_class": null,
+      "normalized_params": "(props: BashViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the command and description from the tool input."
+        },
+        {
+          "order": 2,
+          "content": "Collect stdout and stderr output chunks from the tool progress."
+        },
+        {
+          "order": 3,
+          "content": "Determine if the tool execution has completed."
+        },
+        {
+          "order": 4,
+          "content": "Construct the final stdout text from either the tool output or collected chunks."
+        },
+        {
+          "order": 5,
+          "content": "Render the command prompt, description, output panel, and any error messages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/types.ts",
+  "title": "UI engine data type definitions for graphics and identifiers",
+  "purpose": "Defines core data structures used throughout the UI engine for representing graphics primitives, identifiers, and geometric data.",
+  "module_context": "Exports multiple interface definitions for GUID, Color, Vector, Matrix, and Rect types used in UI rendering and graphics operations.",
+  "methods": [
+    {
+      "id": "m_d6da644b",
+      "name": "GUID",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a globally unique identifier with session and local components."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_377fbc52",
+      "name": "Color",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a color with red, green, blue, and alpha components."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a2ce6469",
+      "name": "Vector",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a 2D vector with x and y coordinates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad9b370a",
+      "name": "Matrix",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a 2x3 transformation matrix with six components."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_504b4c27",
+      "name": "Rect",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a rectangle with position and dimensions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

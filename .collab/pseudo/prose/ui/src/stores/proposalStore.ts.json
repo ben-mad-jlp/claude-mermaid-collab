@@ -1,0 +1,201 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/proposalStore.ts",
+  "title": "Zustand store for managing collaborative review proposals and comments",
+  "purpose": "Provides a centralized store for handling proposal data including adding, updating, removing, and approving/rejecting proposals per document item.",
+  "module_context": "Exports a Zustand store named useProposalStore that manages proposal state with methods for CRUD operations and status updates. Includes a helper function generateId for creating unique identifiers.",
+  "methods": [
+    {
+      "id": "m_98cab751",
+      "name": "generateId",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a timestamp string using base 36 encoding."
+        },
+        {
+          "order": 2,
+          "content": "Generate a random string using base 36 encoding."
+        },
+        {
+          "order": 3,
+          "content": "Combine the timestamp and random string with a hyphen separator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b69339a0",
+      "name": "addProposal",
+      "enclosing_class": "useProposalStore",
+      "normalized_params": "(itemId: string, proposal: Omit<Proposal, 'id' | 'timestamp'>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique identifier for the new proposal."
+        },
+        {
+          "order": 2,
+          "content": "Record the current timestamp for the proposal."
+        },
+        {
+          "order": 3,
+          "content": "Construct a complete proposal object with generated ID and timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Update the store by adding the new proposal to the specified item's proposal list."
+        },
+        {
+          "order": 5,
+          "content": "Return the generated unique identifier for the new proposal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a623d4fd",
+      "name": "updateProposal",
+      "enclosing_class": "useProposalStore",
+      "normalized_params": "(itemId: string, proposalId: string, updates: Partial<Proposal>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the list of proposals for the specified item."
+        },
+        {
+          "order": 2,
+          "content": "Check if the proposal with the given ID exists in the list."
+        },
+        {
+          "order": 3,
+          "content": "IF the proposal does not exist, silently return without modifying state."
+        },
+        {
+          "order": 4,
+          "content": "ELSE update the matching proposal with the provided partial updates."
+        },
+        {
+          "order": 5,
+          "content": "Update the store with the modified proposal list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b3566be1",
+      "name": "removeProposal",
+      "enclosing_class": "useProposalStore",
+      "normalized_params": "(itemId: string, proposalId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the list of proposals for the specified item."
+        },
+        {
+          "order": 2,
+          "content": "Filter out the proposal with the given ID from the list."
+        },
+        {
+          "order": 3,
+          "content": "Update the store with the filtered proposal list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5e055cc1",
+      "name": "approveProposal",
+      "enclosing_class": "useProposalStore",
+      "normalized_params": "(itemId: string, proposalId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the proposal type to 'approved' using the internal update mechanism."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f2ac41b8",
+      "name": "rejectProposal",
+      "enclosing_class": "useProposalStore",
+      "normalized_params": "(itemId: string, proposalId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the proposal type to 'rejected' using the internal update mechanism."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3eedd61c",
+      "name": "clearProposals",
+      "enclosing_class": "useProposalStore",
+      "normalized_params": "(itemId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the store to set the proposal list for the specified item to an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_67370245",
+      "name": "getProposalsForItem",
+      "enclosing_class": "useProposalStore",
+      "normalized_params": "(itemId: string): Proposal[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the list of proposals for the specified item from the store."
+        },
+        {
+          "order": 2,
+          "content": "IF no proposals exist for the item, return an empty array."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the list of proposals for the item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

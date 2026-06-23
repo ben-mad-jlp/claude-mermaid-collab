@@ -1,0 +1,24 @@
+{
+  "id": "collab-route-check",
+  "name": "collab-route-check",
+  "definition": {
+    "url": "http://localhost:3003/collab",
+    "steps": [
+      {
+        "wait": 2500
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "assert": "document.querySelector('[data-testid=\"dashboard\"]') !== null",
+        "message": "Dashboard must render"
+      },
+      {
+        "eval": "document.querySelector('[class*=\"sidebar\"]') ? 'opencode-sidebar-present' : 'no-opencode-sidebar'"
+      }
+    ]
+  },
+  "createdAt": "2026-04-27T01:48:29.131Z",
+  "updatedAt": "2026-04-27T01:48:29.131Z"
+}

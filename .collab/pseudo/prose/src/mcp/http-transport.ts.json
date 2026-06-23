@@ -1,0 +1,179 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/http-transport.ts",
+  "title": "HTTP transport implementation for MCP protocol with streaming support",
+  "purpose": "Provides a streamable HTTP transport for Model Context Protocol that handles both client-to-server POST requests and server-to-client GET streaming responses.",
+  "module_context": "Exports a StreamableHttpTransport class that implements the Transport interface for MCP protocol version 2025-03-26, supporting session management, message parsing, response handling, and SSE streaming for server notifications.",
+  "methods": [
+    {
+      "id": "m_0ab57d9c",
+      "name": "handlePost",
+      "enclosing_class": "StreamableHttpTransport",
+      "normalized_params": "(req: Request, options?: HandlePostOptions): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the transport session is closed and return an error response if so."
+        },
+        {
+          "order": 2,
+          "content": "Parse the request body as text and then as JSON."
+        },
+        {
+          "order": 3,
+          "content": "Validate the parsed messages against the JSON-RPC schema and ensure they are valid."
+        },
+        {
+          "order": 4,
+          "content": "If the messages contain only notifications or responses, deliver them and return a 202 status."
+        },
+        {
+          "order": 5,
+          "content": "If the messages contain requests, set up a promise to wait for responses with configurable timeout."
+        },
+        {
+          "order": 6,
+          "content": "Deliver all parsed messages to the MCP server via the onmessage handler."
+        },
+        {
+          "order": 7,
+          "content": "Await the response from the server and format it as a JSON-RPC response."
+        },
+        {
+          "order": 8,
+          "content": "Return the formatted response with appropriate headers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc5420a9",
+      "name": "handleGet",
+      "enclosing_class": "StreamableHttpTransport",
+      "normalized_params": "(): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the transport session is closed and return an error response if so."
+        },
+        {
+          "order": 2,
+          "content": "Create a new ReadableStream with a controller to manage server-side events."
+        },
+        {
+          "order": 3,
+          "content": "Store the stream controller for later use in sending messages."
+        },
+        {
+          "order": 4,
+          "content": "Return a Response with the stream and appropriate headers for SSE."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6accd7f6",
+      "name": "handleDelete",
+      "enclosing_class": "StreamableHttpTransport",
+      "normalized_params": "(): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the transport session."
+        },
+        {
+          "order": 2,
+          "content": "Return a 204 No Content response indicating successful termination."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4cdf0325",
+      "name": "send",
+      "enclosing_class": "StreamableHttpTransport",
+      "normalized_params": "(message: JSONRPCMessage): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the transport session is closed and throw an error if so."
+        },
+        {
+          "order": 2,
+          "content": "If there is a pending response, add the message to it."
+        },
+        {
+          "order": 3,
+          "content": "IF the message is a response (has result or error), resolve the pending response."
+        },
+        {
+          "order": 4,
+          "content": "ELSE if there is no pending response, send the message via the SSE stream if available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_55c1bb08",
+      "name": "start",
+      "enclosing_class": "StreamableHttpTransport",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Perform no operation as HTTP transport does not require explicit start."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_089184b4",
+      "name": "close",
+      "enclosing_class": "StreamableHttpTransport",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Mark the transport session as closed if it isn't already."
+        },
+        {
+          "order": 2,
+          "content": "Resolve any pending response with the messages collected so far."
+        },
+        {
+          "order": 3,
+          "content": "Close the SSE stream controller if one exists."
+        },
+        {
+          "order": 4,
+          "content": "Trigger the onclose handler to notify listeners of the session termination."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

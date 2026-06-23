@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useSyncScroll.ts",
+  "title": "Synchronized scrolling hook for editor and preview panes",
+  "purpose": "Provides synchronized scrolling between editor and preview panes using proportional scroll positions while preventing feedback loops through debouncing and source tracking.",
+  "module_context": "Exports a hook function useSyncScroll and a debounce utility function. The hook manages scroll synchronization state and event listeners for two DOM elements.",
+  "methods": [
+    {
+      "id": "m_fdef2298",
+      "name": "debounce",
+      "enclosing_class": null,
+      "normalized_params": "<T extends (...args: unknown[]) => void>(fn: T, delay: number): T",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a debounced version of the provided function that delays execution by the specified time."
+        },
+        {
+          "order": 2,
+          "content": "Cancel any pending execution when the debounced function is called again before delay expires."
+        },
+        {
+          "order": 3,
+          "content": "Execute the original function after the delay has passed."
+        },
+        {
+          "order": 4,
+          "content": "Reset the timeout reference after execution completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_81e164be",
+      "name": "useSyncScroll",
+      "enclosing_class": null,
+      "normalized_params": "(options: SyncScrollOptions): SyncScrollReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the sync state based on the enabled option."
+        },
+        {
+          "order": 2,
+          "content": "Track the source of scroll events to prevent infinite loops."
+        },
+        {
+          "order": 3,
+          "content": "Define callback functions to toggle, enable, or disable synchronization."
+        },
+        {
+          "order": 4,
+          "content": "Set up scroll event listeners on both editor and preview containers when sync is enabled."
+        },
+        {
+          "order": 5,
+          "content": "Calculate proportional scroll position for the editor and apply it to the preview."
+        },
+        {
+          "order": 6,
+          "content": "Calculate proportional scroll position for the preview and apply it to the editor."
+        },
+        {
+          "order": 7,
+          "content": "Clean up event listeners when the component unmounts or sync is disabled."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03b002ad",
+      "name": "handleEditorScroll",
+      "enclosing_class": "useSyncScroll",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Skip execution if the scroll originated from the preview pane."
+        },
+        {
+          "order": 2,
+          "content": "Mark the editor as the source of the scroll event."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the proportional scroll position of the editor."
+        },
+        {
+          "order": 4,
+          "content": "Apply the proportional scroll position to the preview pane."
+        },
+        {
+          "order": 5,
+          "content": "Reset the scroll source tracking after the debounce delay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_840fe7b3",
+      "name": "handlePreviewScroll",
+      "enclosing_class": "useSyncScroll",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Skip execution if the scroll originated from the editor pane."
+        },
+        {
+          "order": 2,
+          "content": "Mark the preview as the source of the scroll event."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the proportional scroll position of the preview."
+        },
+        {
+          "order": 4,
+          "content": "Apply the proportional scroll position to the editor pane."
+        },
+        {
+          "order": 5,
+          "content": "Reset the scroll source tracking after the debounce delay."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

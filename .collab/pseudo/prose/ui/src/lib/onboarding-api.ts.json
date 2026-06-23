@@ -1,0 +1,496 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/onboarding-api.ts",
+  "title": "Onboarding API client with typed fetch wrappers for project onboarding endpoints",
+  "purpose": "Provides a typed API client for interacting with onboarding endpoints, handling HTTP requests, response parsing, and error management for project onboarding features.",
+  "module_context": "Exports a singleton onboardingApi object containing methods for fetching configuration, directories, graph data, files, search results, user management, progress tracking, notes, and team information. Includes helper functions for URL building and response handling.",
+  "methods": [
+    {
+      "id": "m_af583b47",
+      "name": "handleResponse",
+      "enclosing_class": null,
+      "normalized_params": "(response: Response): Promise<T>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the HTTP response indicates success."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, parse the error message from the response body."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the parsed message or a default status text."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is successful, parse and return the JSON body."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c5faa6d9",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a base URL for the onboarding API endpoint with the provided path."
+        },
+        {
+          "order": 2,
+          "content": "Append the project identifier as a query parameter to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Return the complete URL with project parameter."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6f774144",
+      "name": "getConfig",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string): Promise<OnboardingConfig>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching configuration data."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as configuration data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_081c2aa4",
+      "name": "getDirectories",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string): Promise<Category[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching directory data."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as category data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b7d8d88",
+      "name": "getGraph",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching graph data."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as graph node and edge data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4f50d7dc",
+      "name": "getFiles",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string): Promise<TopicSummary[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching file summaries."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as topic summaries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6456ba06",
+      "name": "getFile",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, filePath: string): Promise<TopicDetail>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching a specific file detail."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as file detail data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a85aadda",
+      "name": "search",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, q: string, scope?: string): Promise<SearchHit[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for search functionality."
+        },
+        {
+          "order": 2,
+          "content": "Append the search query as a parameter to the URL."
+        },
+        {
+          "order": 3,
+          "content": "IF a scope parameter is provided, append it to the URL."
+        },
+        {
+          "order": 4,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 5,
+          "content": "Parse and return the JSON response as search hits."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_922ae243",
+      "name": "createUser",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, name: string): Promise<User>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for creating a new user."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request with user name in the request body."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as user data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2ac46b88",
+      "name": "listUsers",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string): Promise<User[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for listing users."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as user data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6210d05e",
+      "name": "getUser",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, id: number): Promise<User>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching a specific user."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as user data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_daa44a4b",
+      "name": "getProgress",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, userId: number): Promise<ProgressEntry[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching user progress."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as progress entries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_80efd43b",
+      "name": "markProgress",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, userId: number, filePath: string, status: 'explored' | 'skipped'): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for marking user progress."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request with progress data in the request body."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error indicating failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_586c07c5",
+      "name": "deleteProgress",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, userId: number, filePath: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for deleting user progress."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error indicating failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_163ae70b",
+      "name": "getNotes",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, userId: number, filePath: string): Promise<Note[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching user notes."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as note data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0553226f",
+      "name": "addNote",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, userId: number, filePath: string, content: string): Promise<Note>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for adding a new note."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request with note data in the request body."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as note data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_73e9367b",
+      "name": "editNote",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, noteId: number, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for editing an existing note."
+        },
+        {
+          "order": 2,
+          "content": "Send a PUT request with updated note content in the request body."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error indicating failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ee275aa7",
+      "name": "deleteNote",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string, noteId: number): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for deleting a note."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error indicating failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_39a39107",
+      "name": "getTeam",
+      "enclosing_class": "onboardingApi",
+      "normalized_params": "(project: string): Promise<TeamMember[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build the API endpoint URL for fetching team member data."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Parse and return the JSON response as team member data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

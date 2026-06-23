@@ -1,0 +1,124 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DesignHistoryDropdown.tsx",
+  "title": "Design history dropdown component with version preview",
+  "purpose": "Provides a dropdown interface for viewing and selecting design history versions, allowing users to preview specific historical states of a design.",
+  "module_context": "Exports a React functional component DesignHistoryDropdown that accepts design ID and version selection handler props, along with a helper function formatTimestamp for displaying time information.",
+  "methods": [
+    {
+      "id": "m_792aa09b",
+      "name": "formatTimestamp",
+      "enclosing_class": null,
+      "normalized_params": "(timestamp: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input timestamp into a date object."
+        },
+        {
+          "order": 2,
+          "content": "Compare the date with today's date to determine if it's today."
+        },
+        {
+          "order": 3,
+          "content": "IF the date is today, format and return just the time portion."
+        },
+        {
+          "order": 4,
+          "content": "ELSE check if the date is yesterday and format accordingly."
+        },
+        {
+          "order": 5,
+          "content": "ELSE calculate the number of days since the date and format based on whether it's within the last week."
+        },
+        {
+          "order": 6,
+          "content": "IF the date is more than a week old, format with full date and time information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0f94c0af",
+      "name": "DesignHistoryDropdown",
+      "enclosing_class": null,
+      "normalized_params": "(props: DesignHistoryDropdownProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for dropdown open status and loading timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Set up a ref for the dropdown element to handle outside click detection."
+        },
+        {
+          "order": 3,
+          "content": "Use the design history hook to fetch and manage version history."
+        },
+        {
+          "order": 4,
+          "content": "Determine if history exists and calculate the number of versions."
+        },
+        {
+          "order": 5,
+          "content": "Set up an event listener for clicks outside the dropdown when it's open."
+        },
+        {
+          "order": 6,
+          "content": "Handle item click by loading the version content and calling the selection handler."
+        },
+        {
+          "order": 7,
+          "content": "Render the dropdown button with appropriate styling and version count."
+        },
+        {
+          "order": 8,
+          "content": "IF the dropdown is open and history exists, render the version list with formatted timestamps."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2c73a96",
+      "name": "handleItemClick",
+      "enclosing_class": "DesignHistoryDropdown",
+      "normalized_params": "(timestamp: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading timestamp to indicate which version is being loaded."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the content for the specified timestamp from the version store."
+        },
+        {
+          "order": 3,
+          "content": "Clear the loading timestamp after content is retrieved."
+        },
+        {
+          "order": 4,
+          "content": "IF the content is successfully retrieved, call the version selection handler with timestamp and content."
+        },
+        {
+          "order": 5,
+          "content": "Close the dropdown after successful version selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

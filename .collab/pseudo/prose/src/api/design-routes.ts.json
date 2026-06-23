@@ -1,0 +1,230 @@
+{
+  "schema_version": 3,
+  "file": "src/api/design-routes.ts",
+  "title": "Design API routes for listing, creating, getting, and updating design files",
+  "purpose": "Provides RESTful API endpoints for managing design files within project sessions, including listing available designs, creating new ones, retrieving specific designs, and updating existing designs.",
+  "module_context": "Exports four HTTP handler functions for design management operations: listDesignsHandler, createDesignHandler, getDesignHandler, and updateDesignHandler. Also exports type definitions for DesignRoot, DesignFile, and DesignListItem interfaces.",
+  "methods": [
+    {
+      "id": "m_406b0725",
+      "name": "sanitizeDesignId",
+      "enclosing_class": null,
+      "normalized_params": "(id: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the input ID is a non-empty string."
+        },
+        {
+          "order": 2,
+          "content": "Remove any characters that are not alphanumeric, hyphens, underscores, dots, or spaces."
+        },
+        {
+          "order": 3,
+          "content": "Verify that the sanitized result is not empty and that it matches the original input."
+        },
+        {
+          "order": 4,
+          "content": "Ensure that the input does not contain path traversal sequences like '..' or '/' or '\\'."
+        },
+        {
+          "order": 5,
+          "content": "Return the sanitized ID if all validations pass, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b6ea318e",
+      "name": "listDesignsHandler",
+      "enclosing_class": null,
+      "normalized_params": "(req: any, res: any): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract project and session from the request query parameters."
+        },
+        {
+          "order": 2,
+          "content": "Construct the directory path for designs within the specified session."
+        },
+        {
+          "order": 3,
+          "content": "Read the contents of the designs directory."
+        },
+        {
+          "order": 4,
+          "content": "Filter the directory contents to include only files ending with '.design.json'."
+        },
+        {
+          "order": 5,
+          "content": "For each design file, extract the ID and retrieve its last modified timestamp."
+        },
+        {
+          "order": 6,
+          "content": "Return a JSON response containing the list of design items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_305207b8",
+      "name": "createDesignHandler",
+      "enclosing_class": null,
+      "normalized_params": "(req: any, res: any): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract project and session from the request query parameters."
+        },
+        {
+          "order": 2,
+          "content": "Parse the request body to get the design name and content."
+        },
+        {
+          "order": 3,
+          "content": "Sanitize the design name to ensure it's valid and safe for file system use."
+        },
+        {
+          "order": 4,
+          "content": "IF the design name is invalid, return a 400 error response."
+        },
+        {
+          "order": 5,
+          "content": "Construct the file path for the new design file."
+        },
+        {
+          "order": 6,
+          "content": "Create the necessary directories for the design file if they do not already exist."
+        },
+        {
+          "order": 7,
+          "content": "Format the design content as a JSON string for writing to the file."
+        },
+        {
+          "order": 8,
+          "content": "Write the formatted content to the design file."
+        },
+        {
+          "order": 9,
+          "content": "Return a JSON response indicating success and providing the design ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f164a1eb",
+      "name": "getDesignHandler",
+      "enclosing_class": null,
+      "normalized_params": "(req: any, res: any): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sanitize the design ID from the request query parameters."
+        },
+        {
+          "order": 2,
+          "content": "IF the design ID is invalid, return a 400 error response."
+        },
+        {
+          "order": 3,
+          "content": "Extract project and session from the request query parameters."
+        },
+        {
+          "order": 4,
+          "content": "Construct the file path for the design file."
+        },
+        {
+          "order": 5,
+          "content": "Check if the design file exists."
+        },
+        {
+          "order": 6,
+          "content": "IF the file does not exist, return a 404 error response."
+        },
+        {
+          "order": 7,
+          "content": "Read the content of the design file as a UTF-8 string."
+        },
+        {
+          "order": 8,
+          "content": "Retrieve the last modified timestamp of the design file."
+        },
+        {
+          "order": 9,
+          "content": "Return a JSON response containing the design ID, content, and last modified timestamp."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16b946af",
+      "name": "updateDesignHandler",
+      "enclosing_class": null,
+      "normalized_params": "(req: any, res: any): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sanitize the design ID from the request query parameters."
+        },
+        {
+          "order": 2,
+          "content": "IF the design ID is invalid, return a 400 error response."
+        },
+        {
+          "order": 3,
+          "content": "Extract project and session from the request query parameters."
+        },
+        {
+          "order": 4,
+          "content": "Parse the request body to get the updated design content."
+        },
+        {
+          "order": 5,
+          "content": "Construct the file path for the design file."
+        },
+        {
+          "order": 6,
+          "content": "Check if the design file exists."
+        },
+        {
+          "order": 7,
+          "content": "IF the file does not exist, return a 404 error response."
+        },
+        {
+          "order": 8,
+          "content": "Format the updated design content as a JSON string for writing to the file."
+        },
+        {
+          "order": 9,
+          "content": "Write the formatted content to the design file."
+        },
+        {
+          "order": 10,
+          "content": "Return a JSON response indicating success."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

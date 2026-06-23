@@ -1,0 +1,410 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/ArtifactTree.tsx",
+  "title": "Sidebar artifact tree component with search and drag-and-drop support",
+  "purpose": "Displays session artifacts in a searchable, collapsible tree structure with context menu actions and drag-and-drop file upload capabilities.",
+  "module_context": "Exports the ArtifactTree React component that aggregates session store data into a sectioned tree with search, show-deprecated toggle, drag-and-drop upload, and context-menu actions.",
+  "methods": [
+    {
+      "id": "m_0bbaf6e8",
+      "name": "toTabDescriptor",
+      "enclosing_class": null,
+      "normalized_params": "(node: TreeNode): { id: string; kind: \"artifact\" | \"embed\" | \"blueprint\"; artifactType?: ArtifactType; artifactId: string; name: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Transform an artifact node into a tab descriptor object based on its kind and artifact type."
+        },
+        {
+          "order": 2,
+          "content": "Return null for nodes that do not match expected kinds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a8d844da",
+      "name": "toArtifactNode",
+      "enclosing_class": null,
+      "normalized_params": "(item: { id: string; name: string; deprecated?: boolean; pinned?: boolean; lastModified?: number }, artifactType: ArtifactType): TreeNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert a session item into a tree node with artifact kind and specified type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bce5f16b",
+      "name": "ArtifactTree",
+      "enclosing_class": null,
+      "normalized_params": "({ className }: ArtifactTreeProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize session and sidebar store data."
+        },
+        {
+          "order": 2,
+          "content": "Build base node lists for pinned, recently updated, blueprint, embed, image, diagram, document, design, spreadsheet, and snippet artifacts."
+        },
+        {
+          "order": 3,
+          "content": "Apply visible filter to show deprecated and search results."
+        },
+        {
+          "order": 4,
+          "content": "Load pseudo file list when the pseudo tab becomes active."
+        },
+        {
+          "order": 5,
+          "content": "Render the sidebar tree with search, show-deprecated toggle, and drag-and-drop upload controls."
+        },
+        {
+          "order": 6,
+          "content": "Handle drag and drop events for file imports."
+        },
+        {
+          "order": 7,
+          "content": "Process file input changes for manual uploads."
+        },
+        {
+          "order": 8,
+          "content": "Manage context menu actions for artifact operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_36779343",
+      "name": "filterNodes",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(nodes: TreeNode[]): TreeNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter nodes based on deprecated visibility and search query."
+        },
+        {
+          "order": 2,
+          "content": "Return nodes that are not deprecated and match the search query."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3fd18862",
+      "name": "handleDrop",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(e: React.DragEvent<HTMLElement>): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default drag behavior and validate session."
+        },
+        {
+          "order": 2,
+          "content": "Process each dropped file by importing it into the session."
+        },
+        {
+          "order": 3,
+          "content": "Handle errors during file import."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e1301562",
+      "name": "handleDragOver",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(e: React.DragEvent<HTMLElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default drag over behavior."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1630fa02",
+      "name": "handleUploadClick",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trigger the hidden file input click event."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad8df59d",
+      "name": "handleFileInputChange",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default drag over behavior."
+        },
+        {
+          "order": 2,
+          "content": "Process each selected file by importing it into the session."
+        },
+        {
+          "order": 3,
+          "content": "Handle errors during file import."
+        },
+        {
+          "order": 4,
+          "content": "Reset the file input value after processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_131514e2",
+      "name": "loadDocumentContent",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load document content from the API."
+        },
+        {
+          "order": 2,
+          "content": "Update the document in the session store with the loaded content."
+        },
+        {
+          "order": 3,
+          "content": "Handle errors during document loading."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_56609ea3",
+      "name": "openNode",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(node: TreeNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the appropriate session item based on node kind and artifact type."
+        },
+        {
+          "order": 2,
+          "content": "Load document content if the node is a document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_490b2655",
+      "name": "isSelected",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(node: TreeNode): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the node is currently selected in the session store."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the node matches the selected item for its kind."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a426e1c7",
+      "name": "onContextMenu",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(e: React.MouseEvent, node: TreeNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default context menu behavior."
+        },
+        {
+          "order": 2,
+          "content": "Set the context menu state with node and mouse coordinates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e892c738",
+      "name": "nodeToItem",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(node: TreeNode): Item | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert a tree node into an item object for API operations."
+        },
+        {
+          "order": 2,
+          "content": "Return null for nodes that do not match expected kinds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3ab4a88f",
+      "name": "applyDeprecatedToStore",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(node: TreeNode, deprecated: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the deprecated status of a blueprint in the document store."
+        },
+        {
+          "order": 2,
+          "content": "Update the deprecated status of an artifact in the appropriate store based on its type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_927d7ce2",
+      "name": "performDelete",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(node: TreeNode): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delete an embed artifact from the API."
+        },
+        {
+          "order": 2,
+          "content": "Delete an artifact from the API based on its type."
+        },
+        {
+          "order": 3,
+          "content": "Remove the deleted artifact from the session store."
+        },
+        {
+          "order": 4,
+          "content": "Handle errors during artifact deletion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a08452df",
+      "name": "handleMenuAction",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(actionId: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process context menu actions for pinning, deprecating, downloading, emailing, deleting, syncing, and pushing artifacts."
+        },
+        {
+          "order": 2,
+          "content": "Update store state and perform API calls for each action."
+        },
+        {
+          "order": 3,
+          "content": "Handle errors during action execution."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_274ef49d",
+      "name": "renderSection",
+      "enclosing_class": "ArtifactTree",
+      "normalized_params": "(id: string, title: string, nodes: TreeNode[]): React.ReactElement | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter and sort nodes for display in a section."
+        },
+        {
+          "order": 2,
+          "content": "Render a section header with toggle functionality."
+        },
+        {
+          "order": 3,
+          "content": "Render tree nodes for the section if it is expanded."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

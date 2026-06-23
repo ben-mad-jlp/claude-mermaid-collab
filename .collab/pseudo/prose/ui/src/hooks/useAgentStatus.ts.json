@@ -1,0 +1,87 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useAgentStatus.ts",
+  "title": "Agent status tracking hook with polling and WebSocket updates",
+  "purpose": "Provides real-time monitoring of agent status through HTTP polling and WebSocket events, managing loading states and error handling.",
+  "module_context": "Exports a React hook that manages agent status state with initial loading, polling, and WebSocket event listeners.",
+  "methods": [
+    {
+      "id": "m_9b8bb3d1",
+      "name": "useAgentStatus",
+      "enclosing_class": null,
+      "normalized_params": "(pollInterval?: number): AgentStatusState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the agent status state with default values including loading indicator."
+        },
+        {
+          "order": 2,
+          "content": "Define an asynchronous function to fetch status from the API endpoint."
+        },
+        {
+          "order": 3,
+          "content": "Set up polling interval to repeatedly fetch status at configured intervals."
+        },
+        {
+          "order": 4,
+          "content": "Add WebSocket event listener for real-time status updates from the window."
+        },
+        {
+          "order": 5,
+          "content": "Perform initial status fetch when the hook mounts."
+        },
+        {
+          "order": 6,
+          "content": "Return the current agent status state to the consuming component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_60b5ff2c",
+      "name": "fetchStatus",
+      "enclosing_class": "useAgentStatus",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send an HTTP request to the status API endpoint."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with status code."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the API."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the response contains a valid status field."
+        },
+        {
+          "order": 5,
+          "content": "IF the status is valid, update the state with new status and message."
+        },
+        {
+          "order": 6,
+          "content": "IF the status is invalid, preserve the previous state but clear loading indicator."
+        },
+        {
+          "order": 7,
+          "content": "IF an error occurs during fetch, log the error and preserve previous state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

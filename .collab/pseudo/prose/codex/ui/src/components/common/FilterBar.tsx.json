@@ -1,0 +1,121 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/common/FilterBar.tsx",
+  "title": "Filter bar component with confidence tiers, flags, stale filter, and sorting controls",
+  "purpose": "Provides a UI component for filtering and sorting topic lists with confidence tiers, flag/draft toggles, stale filter, and sorting options.",
+  "module_context": "Defines confidence tier options and sort field options as constants. Exports the FilterBar React component with props for filters, sort field, and sort order.",
+  "methods": [
+    {
+      "id": "m_ad87ac2f",
+      "name": "FilterBar",
+      "enclosing_class": null,
+      "normalized_params": "(props: FilterBarProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a container div with styling and optional class names."
+        },
+        {
+          "order": 2,
+          "content": "Display confidence tier filter checkboxes with labels."
+        },
+        {
+          "order": 3,
+          "content": "Render a divider between confidence and toggle filters."
+        },
+        {
+          "order": 4,
+          "content": "Show toggle filters for flags, drafts, and stale items."
+        },
+        {
+          "order": 5,
+          "content": "Include a flexible spacer element to push sort controls to the right."
+        },
+        {
+          "order": 6,
+          "content": "Render sort by dropdown with options for name, confidence, last verified, and access count."
+        },
+        {
+          "order": 7,
+          "content": "Display sort order toggle button with ascending and descending icons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43dcdd34",
+      "name": "handleConfidenceChange",
+      "enclosing_class": "FilterBar",
+      "normalized_params": "(tier: ConfidenceTier, checked: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current confidence filter values from the filters object."
+        },
+        {
+          "order": 2,
+          "content": "If the checkbox is checked, add the tier to the confidence array."
+        },
+        {
+          "order": 3,
+          "content": "IF the checkbox is unchecked, remove the tier from the confidence array."
+        },
+        {
+          "order": 4,
+          "content": "Update the filters with the new confidence array, removing it if empty."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d058f1c6",
+      "name": "handleToggleChange",
+      "enclosing_class": "FilterBar",
+      "normalized_params": "(key: 'hasFlags' | 'hasDraft', checked: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the filters object with the boolean value for the specified key."
+        },
+        {
+          "order": 2,
+          "content": "IF the checkbox is unchecked, set the key value to undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_75c379f5",
+      "name": "handleStaleChange",
+      "enclosing_class": "FilterBar",
+      "normalized_params": "(checked: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the filters object with the staleDays value set to 30 when checked."
+        },
+        {
+          "order": 2,
+          "content": "IF the checkbox is unchecked, set staleDays to undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

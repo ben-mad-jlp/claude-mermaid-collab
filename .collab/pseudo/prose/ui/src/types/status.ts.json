@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/status.ts",
+  "title": "Agent status type definitions",
+  "purpose": "Defines the TypeScript types for agent status states and responses used throughout the UI.",
+  "module_context": "Exports three type definitions: AgentStatus union type, StatusState interface, and StatusResponse interface.",
+  "methods": [
+    {
+      "id": "m_eea8cb82",
+      "name": "AgentStatus",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type representing possible agent statuses."
+        },
+        {
+          "order": 2,
+          "content": "Include the working status."
+        },
+        {
+          "order": 3,
+          "content": "Include the waiting status."
+        },
+        {
+          "order": 4,
+          "content": "Include the idle status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8cd1aa8b",
+      "name": "StatusState",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for the agent status state."
+        },
+        {
+          "order": 2,
+          "content": "Include the status field of type AgentStatus."
+        },
+        {
+          "order": 3,
+          "content": "Include an optional message field."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_32e09086",
+      "name": "StatusResponse",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for the agent status response."
+        },
+        {
+          "order": 2,
+          "content": "Include the status field of type AgentStatus."
+        },
+        {
+          "order": 3,
+          "content": "Include an optional message field."
+        },
+        {
+          "order": 4,
+          "content": "Include the lastActivity field as a string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

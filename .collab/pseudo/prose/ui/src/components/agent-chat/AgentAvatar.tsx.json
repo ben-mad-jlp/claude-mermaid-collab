@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/AgentAvatar.tsx",
+  "title": "Agent avatar component with configurable styling and labels",
+  "purpose": "Provides a reusable avatar component that displays different styled badges based on agent type and name, used in chat interfaces to visually distinguish different agent roles.",
+  "module_context": "Exports a type definition for agent avatar kinds and a React component that renders avatars with specific background colors and labels based on agent type and optional name.",
+  "methods": [
+    {
+      "id": "m_8973f145",
+      "name": "getConfig",
+      "enclosing_class": null,
+      "normalized_params": "(kind: AgentAvatarKind, name?: string): AvatarConfig",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the background color and label for the avatar based on the agent kind."
+        },
+        {
+          "order": 2,
+          "content": "For user agents, use the first character of the name as the label or 'U' if name is missing."
+        },
+        {
+          "order": 3,
+          "content": "For main_agent, use purple background with 'C' label."
+        },
+        {
+          "order": 4,
+          "content": "For subagent, use green background with 'S' label."
+        },
+        {
+          "order": 5,
+          "content": "For hook, use yellow background with 'H' label."
+        },
+        {
+          "order": 6,
+          "content": "For system, use gray background with centered dot label."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2a99d0e7",
+      "name": "AgentAvatar",
+      "enclosing_class": null,
+      "normalized_params": "(props: AgentAvatarProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the background color and label configuration for the specified agent kind."
+        },
+        {
+          "order": 2,
+          "content": "Set the title attribute to the agent name when the kind is subagent."
+        },
+        {
+          "order": 3,
+          "content": "Render a styled div element with the configured background color and label."
+        },
+        {
+          "order": 4,
+          "content": "Apply specific CSS styles for display, sizing, and visual appearance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

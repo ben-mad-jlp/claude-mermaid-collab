@@ -1,0 +1,305 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/MermaidPreview.tsx",
+  "title": "Mermaid diagram preview component with theme support and editing capabilities",
+  "purpose": "Renders Mermaid diagrams with theme support, error handling, zoom, pan, and edit mode functionality. Used to visualize diagram syntax in a web UI.",
+  "module_context": "Exports a React component MermaidPreview that handles diagram rendering, theme switching, zoom/pan interactions, and edit mode callbacks. Includes imperative methods for centering and fitting diagrams, and manages loading states with error handling.",
+  "methods": [
+    {
+      "id": "m_b74c9b08",
+      "name": "center",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the pan offset to center the diagram."
+        },
+        {
+          "order": 2,
+          "content": "Set the zoom level to 100%."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3694d0db",
+      "name": "fitToView",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the available space in the wrapper container."
+        },
+        {
+          "order": 2,
+          "content": "Determine the SVG dimensions of the current diagram."
+        },
+        {
+          "order": 3,
+          "content": "Compute the zoom level needed to fit the diagram within the available space."
+        },
+        {
+          "order": 4,
+          "content": "Clamp the computed zoom level to a reasonable range between 25% and 400%."
+        },
+        {
+          "order": 5,
+          "content": "Reset the pan offset and apply the calculated zoom level."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b185bc24",
+      "name": "handleWheel",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: WheelEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default scroll behavior when Ctrl or Cmd key is pressed."
+        },
+        {
+          "order": 2,
+          "content": "IF the scroll direction is up, trigger the zoom in callback."
+        },
+        {
+          "order": 3,
+          "content": "ELSE trigger the zoom out callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3f335a80",
+      "name": "handleMouseDown",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the middle mouse button is pressed or shift+left-click is detected, start panning."
+        },
+        {
+          "order": 2,
+          "content": "Store the initial mouse position and current pan offset."
+        },
+        {
+          "order": 3,
+          "content": "Set the cursor to grabbing to indicate panning is active."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2f1da792",
+      "name": "handleMouseMove",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF panning is active, calculate the new pan offset based on mouse movement."
+        },
+        {
+          "order": 2,
+          "content": "Update the pan offset state with the calculated values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_429ec3b1",
+      "name": "handleMouseUp",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF panning was active, stop panning and reset the cursor."
+        },
+        {
+          "order": 2,
+          "content": "IF the shift key is still pressed, set cursor to grab."
+        },
+        {
+          "order": 3,
+          "content": "ELSE reset cursor to default."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_142f3916",
+      "name": "handleContextMenu",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF panning is active, prevent the default context menu from appearing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_45841194",
+      "name": "handleKeyDown",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the shift key is pressed and panning is not active, set cursor to grab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2a477fe0",
+      "name": "handleKeyUp",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the shift key is released and panning is not active, reset cursor to default."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_22964abb",
+      "name": "handleDiagramClick",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Walk up the DOM tree from the clicked element to find a node or edge."
+        },
+        {
+          "order": 2,
+          "content": "IF a node element is found, trigger the node click callback with the node ID."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF an edge element is found, trigger the edge click callback with the edge ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2000e2fc",
+      "name": "handleClick",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked element is a node using diagram utility functions."
+        },
+        {
+          "order": 2,
+          "content": "IF a node is identified, trigger the node click with position callback."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if the clicked element is an edge using diagram utility functions."
+        },
+        {
+          "order": 4,
+          "content": "IF an edge is identified, trigger the edge click with position callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5ffeba8a",
+      "name": "renderDiagram",
+      "enclosing_class": "MermaidPreview",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the content is empty, set loading state to false and clear any error."
+        },
+        {
+          "order": 2,
+          "content": "Set loading state to true and clear any previous error."
+        },
+        {
+          "order": 3,
+          "content": "Generate a unique render ID to prevent caching issues."
+        },
+        {
+          "order": 4,
+          "content": "Render the Mermaid diagram using the mermaid library."
+        },
+        {
+          "order": 5,
+          "content": "IF the container ref exists, update its inner HTML with the rendered SVG."
+        },
+        {
+          "order": 6,
+          "content": "Set loading state to false and clear any error after successful render."
+        },
+        {
+          "order": 7,
+          "content": "IF rendering fails, capture the error message and update state with error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

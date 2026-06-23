@@ -1,0 +1,71 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/RadioGroup.tsx",
+  "title": "Accessible radio group component with controlled and uncontrolled state",
+  "purpose": "Provides a customizable radio group UI element that supports both controlled and uncontrolled usage patterns with proper accessibility attributes.",
+  "module_context": "Exports a React functional component named RadioGroup that accepts various props for configuration including options, value, label, and orientation. Includes TypeScript interfaces for props and options.",
+  "methods": [
+    {
+      "id": "m_ca7a79e9",
+      "name": "RadioGroup",
+      "enclosing_class": null,
+      "normalized_params": "(props: RadioGroupProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique identifier for the radio group instance."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state for managing the selected value when not controlled externally."
+        },
+        {
+          "order": 3,
+          "content": "Determine whether to use the controlled value or internal state as the current value."
+        },
+        {
+          "order": 4,
+          "content": "Define a change handler that updates internal state and notifies the parent component."
+        },
+        {
+          "order": 5,
+          "content": "Render the radio group label if provided."
+        },
+        {
+          "order": 6,
+          "content": "Render the collection of radio options with appropriate accessibility attributes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_edf61a26",
+      "name": "handleChange",
+      "enclosing_class": "RadioGroup",
+      "normalized_params": "(newValue: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Exit early if the radio group is disabled."
+        },
+        {
+          "order": 2,
+          "content": "Update the internal state with the new value."
+        },
+        {
+          "order": 3,
+          "content": "Notify the parent component of the value change if an onChange handler is provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

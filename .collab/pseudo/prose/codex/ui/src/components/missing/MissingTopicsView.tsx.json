@@ -1,0 +1,130 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/missing/MissingTopicsView.tsx",
+  "title": "Missing topics management view with loading, error, and empty states",
+  "purpose": "Displays a table of missing topic requests with options to create topics or dismiss requests, handling loading, error, and empty states.",
+  "module_context": "Exports a React functional component MissingTopicsView that uses a custom hook to fetch missing topics and manages state for dismissing topics.",
+  "methods": [
+    {
+      "id": "m_3dbf0b60",
+      "name": "MissingTopicsView",
+      "enclosing_class": null,
+      "normalized_params": "(props: MissingTopicsViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking the topic being dismissed."
+        },
+        {
+          "order": 2,
+          "content": "Load missing topics data using a custom hook."
+        },
+        {
+          "order": 3,
+          "content": "Render loading spinner while data is being fetched."
+        },
+        {
+          "order": 4,
+          "content": "Render error message with retry button if data fetch fails."
+        },
+        {
+          "order": 5,
+          "content": "Render empty state message when no topics are present."
+        },
+        {
+          "order": 6,
+          "content": "Render table of topics with action buttons for each row."
+        },
+        {
+          "order": 7,
+          "content": "Display count of topics shown in the table."
+        },
+        {
+          "order": 8,
+          "content": "Show confirmation dialog when dismissing a topic request."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8661298c",
+      "name": "handleCreate",
+      "enclosing_class": "MissingTopicsView",
+      "normalized_params": "(topicName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Forward the topic name to the parent component's create handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bba883f0",
+      "name": "handleDismissClick",
+      "enclosing_class": "MissingTopicsView",
+      "normalized_params": "(topicName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the topic name in state to indicate which topic is being dismissed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_01e64a34",
+      "name": "handleDismissConfirm",
+      "enclosing_class": "MissingTopicsView",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a topic is being dismissed, get the current user identifier."
+        },
+        {
+          "order": 2,
+          "content": "Dismiss the topic using the hook's dismiss function with the user identifier."
+        },
+        {
+          "order": 3,
+          "content": "Clear the topic name from state after dismissal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9d7092a",
+      "name": "handleDismissCancel",
+      "enclosing_class": "MissingTopicsView",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the topic name from state to cancel the dismissal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

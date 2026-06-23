@@ -1,0 +1,182 @@
+{
+  "schema_version": 3,
+  "file": "src/services/smach-transpiler.ts",
+  "title": "SMACH YAML to Mermaid flowchart transpiler",
+  "purpose": "Converts SMACH state machine YAML definitions into Mermaid flowchart syntax for visualization. Used to transform hierarchical state machine configurations into graphical representations.",
+  "module_context": "Exports two functions: transpile() for converting YAML to Mermaid, and isSmachYaml() for detecting SMACH YAML format. Defines STATE_SHAPES mapping for state type to Mermaid node shapes and helper functions for node ID generation and declaration.",
+  "methods": [
+    {
+      "id": "m_50c61bf2",
+      "name": "toNodeId",
+      "enclosing_class": null,
+      "normalized_params": "(name: string, prefix?: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sanitize the input name by replacing non-alphanumeric characters with underscores."
+        },
+        {
+          "order": 2,
+          "content": "If a prefix is provided, concatenate it with the sanitized name using an underscore."
+        },
+        {
+          "order": 3,
+          "content": "Return the resulting node ID string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7a341e54",
+      "name": "nodeDeclaration",
+      "enclosing_class": null,
+      "normalized_params": "(id: string, label: string, type: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the shape for the given state type in the STATE_SHAPES mapping."
+        },
+        {
+          "order": 2,
+          "content": "IF the shape is 'stadium', return a Mermaid stadium node declaration."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the shape is 'hexagon', return a Mermaid hexagon node declaration."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the shape is 'diamond', return a Mermaid diamond node declaration."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the shape is 'parallelogram', return a Mermaid parallelogram node declaration."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the shape is 'trapezoid', return a Mermaid trapezoid node declaration."
+        },
+        {
+          "order": 7,
+          "content": "ELSE return a Mermaid rounded rectangle node declaration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a74f3315",
+      "name": "processStates",
+      "enclosing_class": null,
+      "normalized_params": "(states: Record<string, any>, lines: string[], externalLinks: string[], prefix: string, initialState: string, indent: string, parentOutcomes: string[], parentOutcomePrefix: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each state in the input states collection."
+        },
+        {
+          "order": 2,
+          "content": "Generate a node ID for the current state using the provided prefix."
+        },
+        {
+          "order": 3,
+          "content": "Determine the state type from the configuration or default to CallbackState."
+        },
+        {
+          "order": 4,
+          "content": "IF the state type is a container type, render it as a Mermaid subgraph."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render the state as a leaf node with appropriate shape."
+        },
+        {
+          "order": 6,
+          "content": "Process transitions for the current state and add appropriate links to the lines or external links arrays."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fda9e6fb",
+      "name": "transpile",
+      "enclosing_class": null,
+      "normalized_params": "(yamlText: string): { mermaid: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input YAML text into a JavaScript object."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the parsed object contains a smach_diagram root."
+        },
+        {
+          "order": 3,
+          "content": "Extract the root StateMachine from the diagram."
+        },
+        {
+          "order": 4,
+          "content": "Initialize the Mermaid flowchart lines array with the flowchart TD header."
+        },
+        {
+          "order": 5,
+          "content": "Add a start node and connect it to the root machine's initial state."
+        },
+        {
+          "order": 6,
+          "content": "Process the root machine's states recursively to build the flowchart."
+        },
+        {
+          "order": 7,
+          "content": "Add outcome nodes for the root machine."
+        },
+        {
+          "order": 8,
+          "content": "Append external links for container outcome connections."
+        },
+        {
+          "order": 9,
+          "content": "Return the complete Mermaid flowchart as a string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1a2d40da",
+      "name": "isSmachYaml",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test if the input text matches the SMACH YAML pattern using a regular expression."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the pattern is found, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,239 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/mobile/ItemDrawer.tsx",
+  "title": "Mobile item selection drawer with search and drag dismissal",
+  "purpose": "Provides a slide-up bottom sheet interface for selecting items on mobile devices, featuring search filtering, drag-to-dismiss gesture, and item highlighting.",
+  "module_context": "Exports a React functional component ItemDrawer that renders a mobile-friendly bottom sheet with backdrop overlay, search input, and scrollable item list. Includes helper functions for sorting and filtering items.",
+  "methods": [
+    {
+      "id": "m_b1f255e0",
+      "name": "sortItems",
+      "enclosing_class": null,
+      "normalized_params": "(items: Item[]): Item[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a shallow copy of the input items array."
+        },
+        {
+          "order": 2,
+          "content": "Sort the copied array by lastModified timestamp in descending order."
+        },
+        {
+          "order": 3,
+          "content": "Return the newly sorted array with newest items first."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b99ceb6",
+      "name": "filterItems",
+      "enclosing_class": null,
+      "normalized_params": "(items: Item[], query: string): Item[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the search query is empty or only whitespace, return the original items array."
+        },
+        {
+          "order": 2,
+          "content": "Convert the search query to lowercase for case-insensitive matching."
+        },
+        {
+          "order": 3,
+          "content": "Filter the items to include only those whose name contains the search query."
+        },
+        {
+          "order": 4,
+          "content": "Return the filtered array of matching items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a45f942c",
+      "name": "ItemDrawer",
+      "enclosing_class": null,
+      "normalized_params": "(props: ItemDrawerProps): React.ReactElement | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for search query and touch tracking."
+        },
+        {
+          "order": 2,
+          "content": "Sort the input items by lastModified timestamp in descending order."
+        },
+        {
+          "order": 3,
+          "content": "Filter the sorted items based on the current search query."
+        },
+        {
+          "order": 4,
+          "content": "Render the backdrop overlay with click handler to close the drawer."
+        },
+        {
+          "order": 5,
+          "content": "Render the bottom sheet container with drag handle and search input."
+        },
+        {
+          "order": 6,
+          "content": "Render the scrollable list of filtered items with selection handling."
+        },
+        {
+          "order": 7,
+          "content": "IF the drawer is not open, return null to prevent rendering."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2aa36f45",
+      "name": "handleSearchChange",
+      "enclosing_class": "ItemDrawer",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the search query state with the new input value."
+        },
+        {
+          "order": 2,
+          "content": "Reset the scroll position of the item list to the top."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b4dcee78",
+      "name": "handleItemSelect",
+      "enclosing_class": "ItemDrawer",
+      "normalized_params": "(item: Item): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the item selection callback with the selected item."
+        },
+        {
+          "order": 2,
+          "content": "Close the drawer after item selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d8232c3",
+      "name": "handleBackdropClick",
+      "enclosing_class": "ItemDrawer",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the drawer when the backdrop overlay is clicked."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14b69516",
+      "name": "handleSheetClick",
+      "enclosing_class": "ItemDrawer",
+      "normalized_params": "(e: React.MouseEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the click event from propagating to the backdrop."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_32deb127",
+      "name": "handleTouchStart",
+      "enclosing_class": "ItemDrawer",
+      "normalized_params": "(e: React.TouchEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Record the initial touch position when dragging begins."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e2c30f76",
+      "name": "handleTouchMove",
+      "enclosing_class": "ItemDrawer",
+      "normalized_params": "(e: React.TouchEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Track touch movement for gesture recognition."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_92541d45",
+      "name": "handleTouchEnd",
+      "enclosing_class": "ItemDrawer",
+      "normalized_params": "(e: React.TouchEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the vertical drag distance from touch start to end."
+        },
+        {
+          "order": 2,
+          "content": "IF the drag distance exceeds 100 pixels, close the drawer."
+        },
+        {
+          "order": 3,
+          "content": "Reset the touch start position tracking."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

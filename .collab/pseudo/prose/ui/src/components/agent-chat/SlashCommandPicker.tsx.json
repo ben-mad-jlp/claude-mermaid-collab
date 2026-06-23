@@ -1,0 +1,169 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/SlashCommandPicker.tsx",
+  "title": "Slash command picker component with keyboard navigation",
+  "purpose": "Provides a dropdown picker for slash commands with filtering, sorting, and keyboard navigation support.",
+  "module_context": "Exports a React component that renders a command picker UI with keyboard navigation and mouse interaction. Defines types for commands and component props, and includes default commands.",
+  "methods": [
+    {
+      "id": "m_1773c042",
+      "name": "scoreCommand",
+      "enclosing_class": null,
+      "normalized_params": "(cmd: Command, query: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a baseline score of 1 when the query is empty."
+        },
+        {
+          "order": 2,
+          "content": "Convert both the command name and query to lowercase for case-insensitive matching."
+        },
+        {
+          "order": 3,
+          "content": "Assign the highest score of 1000 for exact matches between command name and query."
+        },
+        {
+          "order": 4,
+          "content": "Assign a high score of 500 minus length difference for prefix matches including the leading slash."
+        },
+        {
+          "order": 5,
+          "content": "Assign a score of 400 minus length difference for prefix matches after stripping the leading slash."
+        },
+        {
+          "order": 6,
+          "content": "Assign a score of 100 minus the index of the substring match within the command name."
+        },
+        {
+          "order": 7,
+          "content": "Assign a score of 10 for matches in the command description if no other match was found."
+        },
+        {
+          "order": 8,
+          "content": "Return zero for commands that do not match the query at all."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f626318d",
+      "name": "filterAndSort",
+      "enclosing_class": null,
+      "normalized_params": "(commands: Command[], query: string): Command[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map each command to an entry with its score using the scoring function."
+        },
+        {
+          "order": 2,
+          "content": "Filter out entries with zero scores."
+        },
+        {
+          "order": 3,
+          "content": "Sort the remaining entries in descending order by score."
+        },
+        {
+          "order": 4,
+          "content": "Extract and return only the command objects from the sorted entries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84f29675",
+      "name": "SlashCommandPicker",
+      "enclosing_class": null,
+      "normalized_params": "(props: SlashCommandPickerProps): JSX.Element | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the source commands by using provided commands or falling back to default commands."
+        },
+        {
+          "order": 2,
+          "content": "Filter and sort the commands based on the current query using a memoized calculation."
+        },
+        {
+          "order": 3,
+          "content": "Initialize the selected index state to zero."
+        },
+        {
+          "order": 4,
+          "content": "Update the selected index when the filtered list changes to maintain valid selection bounds."
+        },
+        {
+          "order": 5,
+          "content": "Set up a keyboard event listener to handle arrow keys, enter, and escape for navigation and selection."
+        },
+        {
+          "order": 6,
+          "content": "Return null if no commands match the query."
+        },
+        {
+          "order": 7,
+          "content": "Render a dropdown list of commands with appropriate styling and selection indicators."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_57089c0b",
+      "name": "handler",
+      "enclosing_class": "SlashCommandPicker",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default behavior for arrow down key to avoid scrolling."
+        },
+        {
+          "order": 2,
+          "content": "Increment the selected index and wrap around to zero when reaching the end of the list."
+        },
+        {
+          "order": 3,
+          "content": "Prevent default behavior for arrow up key to avoid scrolling."
+        },
+        {
+          "order": 4,
+          "content": "Decrement the selected index and wrap around to the end of the list when reaching the beginning."
+        },
+        {
+          "order": 5,
+          "content": "Prevent default behavior for enter key to avoid form submission."
+        },
+        {
+          "order": 6,
+          "content": "Select the currently highlighted command and call the onSelect handler."
+        },
+        {
+          "order": 7,
+          "content": "Prevent default behavior for escape key to avoid closing the window."
+        },
+        {
+          "order": 8,
+          "content": "Dismiss the picker by calling the onDismiss handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

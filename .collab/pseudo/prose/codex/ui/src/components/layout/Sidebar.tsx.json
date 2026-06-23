@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/layout/Sidebar.tsx",
+  "title": "Sidebar navigation component with active state highlighting",
+  "purpose": "Provides a responsive sidebar navigation for the Codex dashboard with active link highlighting and dark mode support.",
+  "module_context": "Exports a Sidebar component with navigation items and a NavIcon helper function. Defines NavItem type and SidebarProps interface. Includes SVG icon definitions for different navigation items.",
+  "methods": [
+    {
+      "id": "m_cfa0c3c7",
+      "name": "NavIcon",
+      "enclosing_class": null,
+      "normalized_params": "(icon: string, className?: string): React.JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the CSS class for the icon based on provided className or use default size classes."
+        },
+        {
+          "order": 2,
+          "content": "Select the appropriate SVG icon component based on the icon name."
+        },
+        {
+          "order": 3,
+          "content": "Return the selected SVG icon with the determined CSS class."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_839925a6",
+      "name": "Sidebar",
+      "enclosing_class": null,
+      "normalized_params": "(activePath?: string, className?: string): React.JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render the sidebar container with fixed width and dark mode background."
+        },
+        {
+          "order": 2,
+          "content": "Display the application logo and title in the header section."
+        },
+        {
+          "order": 3,
+          "content": "Map through the navigation items to create clickable links."
+        },
+        {
+          "order": 4,
+          "content": "For each navigation item, determine if it matches the active path."
+        },
+        {
+          "order": 5,
+          "content": "Apply active state styling to the matching navigation item."
+        },
+        {
+          "order": 6,
+          "content": "Render each navigation link with appropriate icon and text."
+        },
+        {
+          "order": 7,
+          "content": "Display the application version in the footer section."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

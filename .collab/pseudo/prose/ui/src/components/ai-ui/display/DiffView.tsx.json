@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/DiffView.tsx",
+  "title": "Diff view component with split/unified mode toggle",
+  "purpose": "Displays a side-by-side or unified diff of two text strings with mode switching and optional file metadata.",
+  "module_context": "Exports a React functional component DiffView that accepts props for before/after content, file name, display mode, and styling options. Uses react-diff-viewer-continued for rendering the actual diff.",
+  "methods": [
+    {
+      "id": "m_98f2d826",
+      "name": "DiffView",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiffViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the component state for the current display mode."
+        },
+        {
+          "order": 2,
+          "content": "Determine if the dark theme is active based on system preference."
+        },
+        {
+          "order": 3,
+          "content": "Check if there are any differences between the before and after content."
+        },
+        {
+          "order": 4,
+          "content": "IF no changes are detected, render a message indicating no changes."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render the full diff view with header, diff content, and summary."
+        },
+        {
+          "order": 6,
+          "content": "Provide controls to switch between split and unified display modes."
+        },
+        {
+          "order": 7,
+          "content": "Pass the diff content to the underlying diff viewer component with appropriate theme and configuration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/sessionTodo.ts",
+  "title": "Defines the structure for session todo items",
+  "purpose": "Provides a TypeScript interface that describes the shape of todo items within a session, including their state, metadata, and ordering information.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_f3aa4063",
+      "name": "SessionTodo",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the interface for session todo items."
+        },
+        {
+          "order": 2,
+          "content": "Specify the unique identifier field for each todo."
+        },
+        {
+          "order": 3,
+          "content": "Specify the textual content of the todo item."
+        },
+        {
+          "order": 4,
+          "content": "Specify the completion status of the todo item."
+        },
+        {
+          "order": 5,
+          "content": "Specify the ordering position of the todo item."
+        },
+        {
+          "order": 6,
+          "content": "Specify the creation timestamp of the todo item."
+        },
+        {
+          "order": 7,
+          "content": "Specify the last update timestamp of the todo item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

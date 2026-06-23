@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/emailArtifact.ts",
+  "title": "Email artifact utility that downloads and triggers email client",
+  "purpose": "Provides a function to download an artifact file and open the user's email client with pre-filled subject and body for attachment.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_6f588d0b",
+      "name": "emailArtifact",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, item: Item): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Download the artifact file for the specified project, session, and item."
+        },
+        {
+          "order": 2,
+          "content": "Construct a URL-encoded email subject including the item name."
+        },
+        {
+          "order": 3,
+          "content": "Construct a URL-encoded email body including the item name."
+        },
+        {
+          "order": 4,
+          "content": "Navigate the browser to the mailto URL to open the default email client."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

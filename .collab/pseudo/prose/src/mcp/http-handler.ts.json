@@ -1,0 +1,167 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/http-handler.ts",
+  "title": "MCP HTTP handler with session management and cleanup",
+  "purpose": "Manages MCP server instances over Streamable HTTP transport with session handling, timeout cleanup, and multi-method request routing.",
+  "module_context": "Exports session management constants, a global sessions map, and cleanup interval that removes expired sessions every minute. Provides a single entry point for all MCP HTTP requests with method-specific handlers for POST, GET, and DELETE.",
+  "methods": [
+    {
+      "id": "m_7abf6ac1",
+      "name": "handleMCPRequest",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session ID from the request headers."
+        },
+        {
+          "order": 2,
+          "content": "Route the request to the appropriate handler based on the HTTP method."
+        },
+        {
+          "order": 3,
+          "content": "Return a 405 error for unsupported HTTP methods."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_00b64c14",
+      "name": "handlePost",
+      "enclosing_class": "handleMCPRequest",
+      "normalized_params": "(req: Request, sessionId: string | null): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a session ID is provided, check if the session exists and update its activity timestamp."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, create a new session with a new transport and server."
+        },
+        {
+          "order": 3,
+          "content": "IF no session ID is provided, create a new session for a fresh connection."
+        },
+        {
+          "order": 4,
+          "content": "Inspect the request body to determine if it contains a blocking render_ui call."
+        },
+        {
+          "order": 5,
+          "content": "Process the POST request through the session's transport with appropriate timeout settings."
+        },
+        {
+          "order": 6,
+          "content": "Add the session ID to the response headers if not already present."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c36579cf",
+      "name": "handleGet",
+      "enclosing_class": "handleMCPRequest",
+      "normalized_params": "(req: Request, sessionId: string | null): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no session ID is provided, return a 400 error indicating the header is required."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, return a 404 error indicating the session was not found."
+        },
+        {
+          "order": 3,
+          "content": "Update the session's activity timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Return the SSE stream from the session's transport."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4866b995",
+      "name": "handleDelete",
+      "enclosing_class": "handleMCPRequest",
+      "normalized_params": "(req: Request, sessionId: string | null): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no session ID is provided, return a 400 error indicating the header is required."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, return a 204 status indicating success."
+        },
+        {
+          "order": 3,
+          "content": "Close the session's transport and remove it from the sessions map."
+        },
+        {
+          "order": 4,
+          "content": "Return a 204 status indicating successful termination."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aaab34f2",
+      "name": "getActiveSessionCount",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the total number of active sessions in the sessions map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d27a9d9c",
+      "name": "getSessionInfo",
+      "enclosing_class": null,
+      "normalized_params": "(): Array<{ sessionId: string; createdAt: number; lastActivity: number }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all active sessions and extract their identifying information."
+        },
+        {
+          "order": 2,
+          "content": "Return an array of session information objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

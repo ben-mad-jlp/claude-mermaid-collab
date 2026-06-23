@@ -1,0 +1,191 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/TranscriptPicker.tsx",
+  "title": "Transcript picker modal for selecting prior Claude Code sessions",
+  "purpose": "Provides a modal interface for users to select from previously recorded agent chat sessions within a project, fetching session data from an API endpoint.",
+  "module_context": "Exports a React functional component TranscriptPicker that accepts project context, onSelect callback, and onDismiss handler. Includes helper functions formatRelative and truncate for displaying session metadata.",
+  "methods": [
+    {
+      "id": "m_9fdbeb68",
+      "name": "formatRelative",
+      "enclosing_class": null,
+      "normalized_params": "(iso?: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no ISO timestamp is provided, return 'unknown'."
+        },
+        {
+          "order": 2,
+          "content": "Parse the ISO timestamp into a numeric date value."
+        },
+        {
+          "order": 3,
+          "content": "IF the parsed date is invalid, return 'unknown'."
+        },
+        {
+          "order": 4,
+          "content": "Calculate the time difference between now and the parsed timestamp."
+        },
+        {
+          "order": 5,
+          "content": "Convert the difference to seconds and determine the appropriate relative time unit."
+        },
+        {
+          "order": 6,
+          "content": "Return the formatted relative time string with the appropriate unit."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6b982036",
+      "name": "truncate",
+      "enclosing_class": null,
+      "normalized_params": "(s: string | undefined, n: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no string is provided, return an empty string."
+        },
+        {
+          "order": 2,
+          "content": "Remove extra whitespace from the input string and trim leading/trailing spaces."
+        },
+        {
+          "order": 3,
+          "content": "IF the cleaned string exceeds the maximum length, truncate it and append an ellipsis."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return the cleaned string as-is."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9918e9d5",
+      "name": "TranscriptPicker",
+      "enclosing_class": null,
+      "normalized_params": "(props: TranscriptPickerProps): React.JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for sessions, loading status, and error messages."
+        },
+        {
+          "order": 2,
+          "content": "On component mount, fetch session data from the API endpoint for the specified project."
+        },
+        {
+          "order": 3,
+          "content": "IF the fetch succeeds, update the sessions state with the received data."
+        },
+        {
+          "order": 4,
+          "content": "IF the fetch fails, set the error state with an appropriate error message."
+        },
+        {
+          "order": 5,
+          "content": "Set loading state to false after fetch completes."
+        },
+        {
+          "order": 6,
+          "content": "Add a keyboard event listener for Escape key to dismiss the modal."
+        },
+        {
+          "order": 7,
+          "content": "Render the modal UI with session list or loading/error states."
+        },
+        {
+          "order": 8,
+          "content": "Handle user selection of a session by calling the onSelect callback with the session ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a73154ed",
+      "name": "useEffect",
+      "enclosing_class": "TranscriptPicker",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set up a cleanup function to cancel pending fetch requests when component unmounts."
+        },
+        {
+          "order": 2,
+          "content": "Fetch session data from the API endpoint using the project identifier."
+        },
+        {
+          "order": 3,
+          "content": "Process the API response and update the sessions state."
+        },
+        {
+          "order": 4,
+          "content": "Handle any errors that occur during the fetch operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59fafd18",
+      "name": "onKey",
+      "enclosing_class": "TranscriptPicker",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the pressed key is the Escape key."
+        },
+        {
+          "order": 2,
+          "content": "IF the Escape key is pressed, stop event propagation and call the onDismiss handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a73154ed",
+      "name": "useEffect",
+      "enclosing_class": "TranscriptPicker",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add a keyboard event listener for the Escape key to dismiss the modal."
+        },
+        {
+          "order": 2,
+          "content": "Clean up the event listener when the component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

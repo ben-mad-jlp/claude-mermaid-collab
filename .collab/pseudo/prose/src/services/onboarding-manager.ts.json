@@ -1,0 +1,133 @@
+{
+  "schema_version": 3,
+  "file": "src/services/onboarding-manager.ts",
+  "title": "Onboarding manager with project configuration and graph visualization",
+  "purpose": "Manages project onboarding by reading configuration files, deriving categories from file paths, and building file relationship graphs for visualization.",
+  "module_context": "Exports types for onboarding configuration, learning paths, categories, and graph nodes/edges. Provides utility function to derive categories from file paths.",
+  "methods": [
+    {
+      "id": "m_afb8b21c",
+      "name": "deriveCategories",
+      "enclosing_class": null,
+      "normalized_params": "(files: PseudoFileSummary[], config?: OnboardingConfig): Category[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF explicit categories are provided in the configuration, return them directly."
+        },
+        {
+          "order": 2,
+          "content": "ELSE group files by their parent directory paths."
+        },
+        {
+          "order": 3,
+          "content": "FOR each directory group, create a category entry with the directory name and its associated file paths."
+        },
+        {
+          "order": 4,
+          "content": "RETURN the list of derived categories."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f8c97b5b",
+      "name": "getConfig",
+      "enclosing_class": "OnboardingManager",
+      "normalized_params": "(): OnboardingConfig",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the list of files from the pseudo database."
+        },
+        {
+          "order": 2,
+          "content": "Initialize configuration with the file count from the loaded files."
+        },
+        {
+          "order": 3,
+          "content": "IF a configuration file exists at the expected path, read and parse its contents."
+        },
+        {
+          "order": 4,
+          "content": "MERGE the parsed configuration with the initial configuration."
+        },
+        {
+          "order": 5,
+          "content": "UPDATE the file count in the configuration to match the current file list."
+        },
+        {
+          "order": 6,
+          "content": "RETURN the final configuration object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_50a4fd3d",
+      "name": "getCategories",
+      "enclosing_class": "OnboardingManager",
+      "normalized_params": "(): Category[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the list of files from the pseudo database."
+        },
+        {
+          "order": 2,
+          "content": "Get the onboarding configuration for the project."
+        },
+        {
+          "order": 3,
+          "content": "DERIVE categories from the loaded files using the configuration."
+        },
+        {
+          "order": 4,
+          "content": "RETURN the derived categories."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a1ec3776",
+      "name": "getGraph",
+      "enclosing_class": "OnboardingManager",
+      "normalized_params": "(): { nodes: GraphNode[]; edges: GraphEdge[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the call graph from the pseudo database."
+        },
+        {
+          "order": 2,
+          "content": "Get the list of categories for the project."
+        },
+        {
+          "order": 3,
+          "content": "MAP each node in the call graph to an onboarding graph node with category information."
+        },
+        {
+          "order": 4,
+          "content": "RETURN the constructed graph with nodes and edges."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/DocumentTabs.tsx",
+  "title": "DocumentTabs component with keyboard navigation and draft indicators",
+  "purpose": "Provides tab navigation for different document types with visual indicators for draft changes and keyboard accessibility support.",
+  "module_context": "Defines tab configurations with icons and implements a component that renders tabs with draft status indicators and keyboard navigation.",
+  "methods": [
+    {
+      "id": "m_b1ae36f9",
+      "name": "getHasDraft",
+      "enclosing_class": null,
+      "normalized_params": "(tabId: DocumentType, props: DocumentTabsProps): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the draft status for the specified tab based on the corresponding prop value."
+        },
+        {
+          "order": 2,
+          "content": "Return the draft status for conceptual tab if the tab ID matches."
+        },
+        {
+          "order": 3,
+          "content": "Return the draft status for technical tab if the tab ID matches."
+        },
+        {
+          "order": 4,
+          "content": "Return the draft status for files tab if the tab ID matches."
+        },
+        {
+          "order": 5,
+          "content": "Return the draft status for related tab if the tab ID matches."
+        },
+        {
+          "order": 6,
+          "content": "Return the draft status for diagrams tab if the tab ID matches."
+        },
+        {
+          "order": 7,
+          "content": "Return false if the tab ID does not match any known tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7ad5599b",
+      "name": "DocumentTabs",
+      "enclosing_class": null,
+      "normalized_params": "(props: DocumentTabsProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract active tab, tab change handler, and class name from the component props."
+        },
+        {
+          "order": 2,
+          "content": "Define a keyboard event handler that navigates between tabs using arrow keys."
+        },
+        {
+          "order": 3,
+          "content": "Render a container element with tablist role and appropriate styling."
+        },
+        {
+          "order": 4,
+          "content": "Map over the tab configurations to render individual tab buttons."
+        },
+        {
+          "order": 5,
+          "content": "For each tab, determine if it is the active tab and if it has a draft."
+        },
+        {
+          "order": 6,
+          "content": "Render a button for each tab with appropriate styling and accessibility attributes."
+        },
+        {
+          "order": 7,
+          "content": "Include the tab icon and label in the button content."
+        },
+        {
+          "order": 8,
+          "content": "Display a draft indicator badge when the tab has draft changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9534b11",
+      "name": "handleKeyDown",
+      "enclosing_class": "DocumentTabs",
+      "normalized_params": "(e: React.KeyboardEvent, tabId: DocumentType): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the index of the current tab in the tab configuration array."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the next tab index when the right arrow key is pressed."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the previous tab index when the left arrow key is pressed."
+        },
+        {
+          "order": 4,
+          "content": "Prevent the default behavior of the keyboard event when navigation occurs."
+        },
+        {
+          "order": 5,
+          "content": "Trigger the tab change handler with the next tab's ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

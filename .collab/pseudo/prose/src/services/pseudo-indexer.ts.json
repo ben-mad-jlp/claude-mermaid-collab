@@ -1,0 +1,846 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-indexer.ts",
+  "title": "Pseudo indexer service for two-level project indexing with FTS and prose overlay",
+  "purpose": "Provides core indexing functionality for project source files including structural scanning, prose overlay application, FTS indexing, and snapshot writing with scan run tracking and error handling.",
+  "module_context": "Exports ScanTrigger type, ScanOptions interface, ScanRun interface, and PseudoIndexer interface. Defines constants STUB_BYTE_LIMIT and STUB_LINE_LIMIT. Includes helper functions for hashing, timestamping, error detection, language detection, and file listing. Contains database statement preparation and execution functions for scan operations.",
+  "methods": [
+    {
+      "id": "m_c713c37b",
+      "name": "sha1",
+      "enclosing_class": null,
+      "normalized_params": "(content: string | Buffer): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compute the SHA1 hash of the input content."
+        },
+        {
+          "order": 2,
+          "content": "Return the hash as a hexadecimal string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_27ad24b4",
+      "name": "nowIso",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the current timestamp in ISO format."
+        },
+        {
+          "order": 2,
+          "content": "Return the timestamp string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82b5806d",
+      "name": "isAbortError",
+      "enclosing_class": null,
+      "normalized_params": "(err: unknown): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the error is an instance of Error."
+        },
+        {
+          "order": 2,
+          "content": "IF the error is an Error, check if its name is 'AbortError' or code is 'ABORT_ERR'."
+        },
+        {
+          "order": 3,
+          "content": "Return true if either condition is met, otherwise false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bfefa84b",
+      "name": "langOf",
+      "enclosing_class": null,
+      "normalized_params": "(absPath: string): 'ts' | 'js' | 'py' | 'cs' | 'cpp' | 'unknown'",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the file path to lowercase for comparison."
+        },
+        {
+          "order": 2,
+          "content": "IF the path ends with .ts or .tsx, return 'ts'."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the path ends with .js, .jsx, or .mjs, return 'js'."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the path ends with .py, return 'py'."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the path ends with .cs, return 'cs'."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return 'unknown'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a9279671",
+      "name": "listProseFiles",
+      "enclosing_class": null,
+      "normalized_params": "(proseRoot: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty output array for prose file paths."
+        },
+        {
+          "order": 2,
+          "content": "IF the prose root directory does not exist, return the empty array."
+        },
+        {
+          "order": 3,
+          "content": "Initialize a stack with the prose root directory."
+        },
+        {
+          "order": 4,
+          "content": "While the stack is not empty, pop a directory from the stack."
+        },
+        {
+          "order": 5,
+          "content": "For each entry in the directory, check if it is a file or directory."
+        },
+        {
+          "order": 6,
+          "content": "IF the entry is a directory, push it onto the stack."
+        },
+        {
+          "order": 7,
+          "content": "ELSE IF the entry is a file ending in .json and not named _path_map.json, add its full path to the output array."
+        },
+        {
+          "order": 8,
+          "content": "Return the list of prose file paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8469ff03",
+      "name": "prepareScanStmts",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): ScanStmts",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare and return a set of database statements for inserting method data."
+        },
+        {
+          "order": 2,
+          "content": "Prepare statement for inserting method steps."
+        },
+        {
+          "order": 3,
+          "content": "Prepare statement for inserting method calls."
+        },
+        {
+          "order": 4,
+          "content": "Prepare statement for inserting file imports."
+        },
+        {
+          "order": 5,
+          "content": "Prepare statement for inserting file records."
+        },
+        {
+          "order": 6,
+          "content": "Prepare statement for inserting stub file records."
+        },
+        {
+          "order": 7,
+          "content": "Prepare statement for updating file heuristic data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2518cebe",
+      "name": "recordScanError",
+      "enclosing_class": null,
+      "normalized_params": "(ctx: ScanContext, filePath: string, phase: string, err: unknown): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Increment the error count in the scan context."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to insert the error into the scan_errors table with scan run ID, file path, error message, and phase."
+        },
+        {
+          "order": 3,
+          "content": "IF the insert fails, log a warning about failing to record the scan error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1a138242",
+      "name": "deleteFileRows",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, filePath: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delete all rows from the files table matching the specified file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_26515738",
+      "name": "scanOneFile",
+      "enclosing_class": null,
+      "normalized_params": "(ctx: ScanContext, absPath: string): Promise<FileScanOutcome | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the file content as a buffer from the absolute path."
+        },
+        {
+          "order": 2,
+          "content": "IF reading fails, record the error and return null."
+        },
+        {
+          "order": 3,
+          "content": "Compute the SHA1 hash of the file content."
+        },
+        {
+          "order": 4,
+          "content": "Count the number of lines in the file."
+        },
+        {
+          "order": 5,
+          "content": "IF the file exceeds size or line limits, insert a stub file record and return a stub outcome."
+        },
+        {
+          "order": 6,
+          "content": "Decode the buffer to UTF-8 string content."
+        },
+        {
+          "order": 7,
+          "content": "IF decoding fails, record the error and return null."
+        },
+        {
+          "order": 8,
+          "content": "Perform a structural scan of the source file."
+        },
+        {
+          "order": 9,
+          "content": "IF the scan fails, record the error and return null."
+        },
+        {
+          "order": 10,
+          "content": "Insert the file record into the database."
+        },
+        {
+          "order": 11,
+          "content": "IF the insert fails, record the error and return null."
+        },
+        {
+          "order": 12,
+          "content": "Extract docstrings from the file content."
+        },
+        {
+          "order": 13,
+          "content": "IF docstring extraction fails, record the error and continue with an empty map."
+        },
+        {
+          "order": 14,
+          "content": "Process each method in the scan result."
+        },
+        {
+          "order": 15,
+          "content": "Compute the method ID and body fingerprint for each method."
+        },
+        {
+          "order": 16,
+          "content": "Insert the method record into the database."
+        },
+        {
+          "order": 17,
+          "content": "IF the insert fails, record the error and continue to the next method."
+        },
+        {
+          "order": 18,
+          "content": "IF the method has docstring steps, insert them into the database."
+        },
+        {
+          "order": 19,
+          "content": "IF inserting steps fails, record the error."
+        },
+        {
+          "order": 20,
+          "content": "IF the method has call edges, insert them into the database."
+        },
+        {
+          "order": 21,
+          "content": "IF inserting calls fails, record the error."
+        },
+        {
+          "order": 22,
+          "content": "IF the file has imports, insert them into the database."
+        },
+        {
+          "order": 23,
+          "content": "IF inserting imports fails, record the error."
+        },
+        {
+          "order": 24,
+          "content": "Extract title and purpose from the file's docstrings."
+        },
+        {
+          "order": 25,
+          "content": "IF title or purpose is found, update the file heuristic data in the database."
+        },
+        {
+          "order": 26,
+          "content": "IF updating fails, record the error."
+        },
+        {
+          "order": 27,
+          "content": "Return the scan outcome including file path, method rows, method names, step contents, title, purpose, and stub status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad944334",
+      "name": "applyOverlay",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, overlay: OverlayResult): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare database statements for updating method prose data, deleting method steps, inserting method steps, and inserting overlay matches."
+        },
+        {
+          "order": 2,
+          "content": "For each match in the overlay, update the method's prose origin, match quality, and warning."
+        },
+        {
+          "order": 3,
+          "content": "Delete existing steps for the matched method."
+        },
+        {
+          "order": 4,
+          "content": "Insert the new steps from the overlay prose."
+        },
+        {
+          "order": 5,
+          "content": "Insert an overlay match record for the method."
+        },
+        {
+          "order": 6,
+          "content": "For each orphan in the overlay, insert an orphan prose record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_75150593",
+      "name": "populateFtsFor",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, outcomes: FileScanOutcome[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the FTS map table exists in the database."
+        },
+        {
+          "order": 2,
+          "content": "For each scan outcome, skip stub files."
+        },
+        {
+          "order": 3,
+          "content": "Fetch method step contents for the file from the database."
+        },
+        {
+          "order": 4,
+          "content": "IF fetching fails, log a warning and continue."
+        },
+        {
+          "order": 5,
+          "content": "Fetch the file title and purpose from the database."
+        },
+        {
+          "order": 6,
+          "content": "IF fetching fails, continue with default values."
+        },
+        {
+          "order": 7,
+          "content": "Upsert the file FTS record with title, purpose, step content, and method names."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d116e890",
+      "name": "loadAllProseFiles",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<Map<string, ProseFileV3>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty map for prose files."
+        },
+        {
+          "order": 2,
+          "content": "Construct the prose root directory path."
+        },
+        {
+          "order": 3,
+          "content": "List all prose files in the root directory."
+        },
+        {
+          "order": 4,
+          "content": "For each prose file, attempt to read and parse it."
+        },
+        {
+          "order": 5,
+          "content": "IF reading fails, log a warning and continue."
+        },
+        {
+          "order": 6,
+          "content": "Store the parsed prose file in the map with its path as key."
+        },
+        {
+          "order": 7,
+          "content": "Return the map of prose files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_04a47d28",
+      "name": "insertScanRun",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, trigger: ScanTrigger): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Insert a new scan run record with the trigger and status 'running'."
+        },
+        {
+          "order": 2,
+          "content": "Return the ID of the newly inserted scan run."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8154d449",
+      "name": "finishScanRun",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, id: number, status: 'done' | 'failed' | 'cancelled', filesScanned: number, errors: number, errorMsg: string | null): ScanRun",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the scan run record with the final status, finish timestamp, files scanned count, error count, and error message."
+        },
+        {
+          "order": 2,
+          "content": "Fetch and return the updated scan run record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2b9c8787",
+      "name": "createPseudoIndexer",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, db: Database): PseudoIndexer",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize scan in flight flag and abort controller."
+        },
+        {
+          "order": 2,
+          "content": "Define a combined signal function that creates or reuses an abort controller."
+        },
+        {
+          "order": 3,
+          "content": "Define a check abort function that throws an error if the signal is aborted."
+        },
+        {
+          "order": 4,
+          "content": "Define the runFullScan function that performs a complete project scan."
+        },
+        {
+          "order": 5,
+          "content": "Define the runIncrementalScan function that performs an incremental scan for specified paths."
+        },
+        {
+          "order": 6,
+          "content": "Define the runIncrementalScanForFile function that wraps incremental scan for a single file."
+        },
+        {
+          "order": 7,
+          "content": "Define the runReranking function as a stub."
+        },
+        {
+          "order": 8,
+          "content": "Define the runOrphanDetection function as a stub."
+        },
+        {
+          "order": 9,
+          "content": "Define the cancel function that aborts the current scan."
+        },
+        {
+          "order": 10,
+          "content": "Return an object containing all defined functions as the pseudo indexer interface."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0265cf14",
+      "name": "runFullScan",
+      "enclosing_class": "createPseudoIndexer",
+      "normalized_params": "(opts: ScanOptions): Promise<ScanRun>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a scan is already in progress, throw an error."
+        },
+        {
+          "order": 2,
+          "content": "Set the scan in flight flag to true."
+        },
+        {
+          "order": 3,
+          "content": "Create a combined abort signal."
+        },
+        {
+          "order": 4,
+          "content": "Insert a new scan run record into the database."
+        },
+        {
+          "order": 5,
+          "content": "Initialize error count and files scanned counter."
+        },
+        {
+          "order": 6,
+          "content": "Prepare database statements for scan operations."
+        },
+        {
+          "order": 7,
+          "content": "Begin a database transaction."
+        },
+        {
+          "order": 8,
+          "content": "Delete existing overlay matches, orphan prose, file imports, method calls, method steps, methods, and files."
+        },
+        {
+          "order": 9,
+          "content": "Clear the FTS index."
+        },
+        {
+          "order": 10,
+          "content": "Walk the project and scan each file."
+        },
+        {
+          "order": 11,
+          "content": "Load all prose files from the project."
+        },
+        {
+          "order": 12,
+          "content": "Overlay prose on methods using loaded prose files."
+        },
+        {
+          "order": 13,
+          "content": "Apply the overlay results to the database."
+        },
+        {
+          "order": 14,
+          "content": "Resolve call edges in the database."
+        },
+        {
+          "order": 15,
+          "content": "Populate FTS for scanned files."
+        },
+        {
+          "order": 16,
+          "content": "Commit the database transaction."
+        },
+        {
+          "order": 17,
+          "content": "Run reranking and orphan detection."
+        },
+        {
+          "order": 18,
+          "content": "Finish the scan run with success status."
+        },
+        {
+          "order": 19,
+          "content": "Write a snapshot of the database."
+        },
+        {
+          "order": 20,
+          "content": "Return the scan run result."
+        },
+        {
+          "order": 21,
+          "content": "IF an error occurs during the scan, rollback the transaction and re-throw the error."
+        },
+        {
+          "order": 22,
+          "content": "IF an abort occurs, finish the scan run with cancelled status."
+        },
+        {
+          "order": 23,
+          "content": "Reset the scan in flight flag and abort controller."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2cd0e5a6",
+      "name": "runIncrementalScan",
+      "enclosing_class": "createPseudoIndexer",
+      "normalized_params": "(paths: string[], opts: ScanOptions): Promise<ScanRun>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a scan is already in progress, throw an error."
+        },
+        {
+          "order": 2,
+          "content": "Set the scan in flight flag to true."
+        },
+        {
+          "order": 3,
+          "content": "Create a combined abort signal."
+        },
+        {
+          "order": 4,
+          "content": "Insert a new scan run record into the database."
+        },
+        {
+          "order": 5,
+          "content": "Initialize error count and files scanned counter."
+        },
+        {
+          "order": 6,
+          "content": "Prepare database statements for scan operations."
+        },
+        {
+          "order": 7,
+          "content": "Begin a database transaction."
+        },
+        {
+          "order": 8,
+          "content": "For each path, delete existing file rows and FTS entries."
+        },
+        {
+          "order": 9,
+          "content": "Scan each file in the paths."
+        },
+        {
+          "order": 10,
+          "content": "Load relevant prose files for the target paths."
+        },
+        {
+          "order": 11,
+          "content": "Overlay prose on methods using relevant prose files."
+        },
+        {
+          "order": 12,
+          "content": "Apply the overlay results to the database."
+        },
+        {
+          "order": 13,
+          "content": "Resolve call edges for the scope files."
+        },
+        {
+          "order": 14,
+          "content": "Populate FTS for scanned files."
+        },
+        {
+          "order": 15,
+          "content": "Commit the database transaction."
+        },
+        {
+          "order": 16,
+          "content": "Finish the scan run with success status."
+        },
+        {
+          "order": 17,
+          "content": "Return the scan run result."
+        },
+        {
+          "order": 18,
+          "content": "IF an error occurs during the scan, rollback the transaction and re-throw the error."
+        },
+        {
+          "order": 19,
+          "content": "IF an abort occurs, finish the scan run with cancelled status."
+        },
+        {
+          "order": 20,
+          "content": "Reset the scan in flight flag and abort controller."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e7d7080",
+      "name": "runIncrementalScanForFile",
+      "enclosing_class": "createPseudoIndexer",
+      "normalized_params": "(path: string, opts: ScanOptions): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the runIncrementalScan function with the path wrapped in an array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2f6d1d62",
+      "name": "runReranking",
+      "enclosing_class": "createPseudoIndexer",
+      "normalized_params": "(_opts: ScanOptions): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stub implementation for pseudo-ranking wave."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3ccaa3db",
+      "name": "runOrphanDetection",
+      "enclosing_class": "createPseudoIndexer",
+      "normalized_params": "(_opts: ScanOptions): Promise<{ crossBranch: string[]; actualOrphans: string[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stub implementation for pseudo-orphan wave."
+        },
+        {
+          "order": 2,
+          "content": "Return empty arrays for crossBranch and actualOrphans."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8542b92f",
+      "name": "cancel",
+      "enclosing_class": "createPseudoIndexer",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Abort the current scan using the abort controller."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

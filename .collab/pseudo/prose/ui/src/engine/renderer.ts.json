@@ -1,0 +1,199 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/renderer.ts",
+  "title": "Understanding the CanvasKit-WASM Renderer for Figma-like UIs",
+  "purpose": "To explain how the provided code implements a Figma-like UI renderer using CanvasKit-WASM, focusing on rendering shapes, text, gradients, and effects.",
+  "module_context": "The code is a comprehensive renderer for UI elements, leveraging CanvasKit-WASM to draw shapes, text, and effects on a canvas. It handles various node types (rectangles, ellipses, text, etc.), fills (solid, gradients, images), strokes, and effects (shadows, blurs).",
+  "methods": [
+    {
+      "id": "m_8777380d",
+      "name": "renderShape",
+      "enclosing_class": "SkiaRenderer",
+      "normalized_params": "canvas, node, graph",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the node has rounded corners (independent or uniform)."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through the fills of the node."
+        },
+        {
+          "order": 3,
+          "content": "Apply each fill using `applyFill` and draw the node's fill using `drawNodeFill`."
+        },
+        {
+          "order": 4,
+          "content": "Render effects behind the node (e.g., drop shadows)."
+        },
+        {
+          "order": 5,
+          "content": "Iterate through the strokes of the node."
+        },
+        {
+          "order": 6,
+          "content": "Apply stroke properties (color, width, cap, join, dash pattern) using `resolveStrokeColor`."
+        },
+        {
+          "order": 7,
+          "content": "Draw the node's stroke using `drawNodeStroke`."
+        },
+        {
+          "order": 8,
+          "content": "Render effects in front of the node (e.g., inner shadows, blur)."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_353b5400",
+      "name": "applyFill",
+      "enclosing_class": "SkiaRenderer",
+      "normalized_params": "fill, node, graph, fillIndex",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the fill is bound to a variable and resolve it."
+        },
+        {
+          "order": 2,
+          "content": "If the fill is solid, set the color using `resolveFillColor`."
+        },
+        {
+          "order": 3,
+          "content": "If the fill is a gradient, call `applyGradientFill`."
+        },
+        {
+          "order": 4,
+          "content": "If the fill is an image, call `applyImageFill`."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_63a3127f",
+      "name": "applyGradientFill",
+      "enclosing_class": "SkiaRenderer",
+      "normalized_params": "fill, node",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract gradient stops and transform."
+        },
+        {
+          "order": 2,
+          "content": "Convert stops to CanvasKit color format."
+        },
+        {
+          "order": 3,
+          "content": "Based on gradient type (linear, radial, angular, diamond), create the appropriate CanvasKit shader."
+        },
+        {
+          "order": 4,
+          "content": "Set the shader on the fill paint."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f96b4806",
+      "name": "applyImageFill",
+      "enclosing_class": "SkiaRenderer",
+      "normalized_params": "fill, node, graph",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the image hash from the fill."
+        },
+        {
+          "order": 2,
+          "content": "Check if the image is already cached; if not, load it from the graph."
+        },
+        {
+          "order": 3,
+          "content": "Determine the scaling mode (fill, fit, etc.) and calculate source and destination rectangles."
+        },
+        {
+          "order": 4,
+          "content": "Create a shader using the image and the calculated matrix."
+        },
+        {
+          "order": 5,
+          "content": "Set the shader on the fill paint."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f3d99f16",
+      "name": "renderText",
+      "enclosing_class": "SkiaRenderer",
+      "normalized_params": "canvas, node",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if fonts are loaded and a font provider is available."
+        },
+        {
+          "order": 2,
+          "content": "If fonts are loaded, build a paragraph using `buildParagraph` and draw it."
+        },
+        {
+          "order": 3,
+          "content": "If fonts are not loaded, draw the text directly using the default font."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_24f6b19f",
+      "name": "buildParagraph",
+      "enclosing_class": "SkiaRenderer",
+      "normalized_params": "node, color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a ParagraphStyle with text alignment, font family, size, weight, slant, letter spacing, decoration, and line height."
+        },
+        {
+          "order": 2,
+          "content": "Create a ParagraphBuilder using the ParagraphStyle and font provider."
+        },
+        {
+          "order": 3,
+          "content": "Process style runs to apply different styles to parts of the text."
+        },
+        {
+          "order": 4,
+          "content": "Build the paragraph and layout it within the node's width."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

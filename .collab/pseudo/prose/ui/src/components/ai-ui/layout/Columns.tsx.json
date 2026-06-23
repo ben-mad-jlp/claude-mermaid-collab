@@ -1,0 +1,117 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/layout/Columns.tsx",
+  "title": "Responsive multi-column layout component with grid and alignment support",
+  "purpose": "Provides a flexible grid-based layout component that automatically adjusts column count and spacing based on screen size and configuration options.",
+  "module_context": "Exports a Columns component that accepts props for column count, gap, responsiveness, alignment, and styling. Includes helper functions to generate CSS classes for gap, alignment, and column layout.",
+  "methods": [
+    {
+      "id": "m_59fbf843",
+      "name": "getGapClasses",
+      "enclosing_class": null,
+      "normalized_params": "(gap?: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the gap value to a corresponding CSS gap class."
+        },
+        {
+          "order": 2,
+          "content": "Return the appropriate gap class based on the input value."
+        },
+        {
+          "order": 3,
+          "content": "Default to gap-4 when no valid gap value is provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7c579584",
+      "name": "getAlignmentClasses",
+      "enclosing_class": null,
+      "normalized_params": "(align?: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the alignment value to a corresponding CSS items alignment class."
+        },
+        {
+          "order": 2,
+          "content": "Return the appropriate alignment class based on the input value."
+        },
+        {
+          "order": 3,
+          "content": "Default to items-stretch when no valid alignment value is provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9bac2bab",
+      "name": "getColumnClasses",
+      "enclosing_class": null,
+      "normalized_params": "(columns: number, responsive: boolean): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the base grid column class based on the number of columns."
+        },
+        {
+          "order": 2,
+          "content": "IF responsive mode is enabled, apply mobile-first grid classes with tablet and desktop breakpoints."
+        },
+        {
+          "order": 3,
+          "content": "Return the appropriate responsive or static column classes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0fc5c61b",
+      "name": "Columns",
+      "enclosing_class": null,
+      "normalized_params": "(props: ColumnsComponentProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the hidden prop is true, return null immediately."
+        },
+        {
+          "order": 2,
+          "content": "Generate CSS classes for gap, alignment, and column layout."
+        },
+        {
+          "order": 3,
+          "content": "Convert the children to an array for processing."
+        },
+        {
+          "order": 4,
+          "content": "Render a grid container with the generated classes and children."
+        },
+        {
+          "order": 5,
+          "content": "Wrap each child in a flex-col div to maintain proper layout structure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/pseudo/ProseOriginBadge.tsx",
+  "title": "Prose origin badge component with origin-specific styling and tooltips",
+  "purpose": "Renders a styled badge element that displays the origin type of prose content with appropriate labels, tooltips, and CSS classes based on the origin value.",
+  "module_context": "Exports a ProseOrigin type and a ProseOriginBadge component that maps origin values to labels, tooltips, and CSS class names for display.",
+  "methods": [
+    {
+      "id": "m_99d3852d",
+      "name": "ProseOriginBadge",
+      "enclosing_class": null,
+      "normalized_params": "({ origin, showExplanation = false }: ProseOriginBadgeProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the CSS class name for the badge based on the origin value."
+        },
+        {
+          "order": 2,
+          "content": "Set the tooltip text for the badge using the origin-specific tooltip."
+        },
+        {
+          "order": 3,
+          "content": "Render a span element with the appropriate class name, tooltip, and origin data attribute."
+        },
+        {
+          "order": 4,
+          "content": "Display the origin label inside the span element."
+        },
+        {
+          "order": 5,
+          "content": "IF the showExplanation flag is true, append an explanation tooltip to the badge."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

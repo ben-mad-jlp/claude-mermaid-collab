@@ -1,0 +1,169 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/UnifiedEditor.tsx",
+  "title": "Unified editor component for all artifact types with split pane and preview",
+  "purpose": "Provides a single interface for editing different artifact types (diagrams, documents, snippets, designs, spreadsheets) with split pane view and live preview capabilities.",
+  "module_context": "Exports a UnifiedEditor component that handles multiple artifact types with conditional rendering based on item type. Includes hooks for editor history, diagram export, and proposal management. Uses SplitPane for layout with persistence via uiStore.",
+  "methods": [
+    {
+      "id": "m_efcb0e53",
+      "name": "UnifiedEditor",
+      "enclosing_class": null,
+      "normalized_params": "(props: UnifiedEditorProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize UI store for split position management."
+        },
+        {
+          "order": 2,
+          "content": "Set up editor history hooks for undo/redo functionality."
+        },
+        {
+          "order": 3,
+          "content": "Initialize diagram export hooks for SVG/PNG export."
+        },
+        {
+          "order": 4,
+          "content": "Get proposal store functions for collaborative editing."
+        },
+        {
+          "order": 5,
+          "content": "Determine if an item is selected and render placeholder if not."
+        },
+        {
+          "order": 6,
+          "content": "Handle diagram history preview mode by rendering DiagramHistoryPreview component."
+        },
+        {
+          "order": 7,
+          "content": "Render DesignEditor for design items with optional history preview."
+        },
+        {
+          "order": 8,
+          "content": "Render SpreadsheetEditor for spreadsheet items with full-width layout."
+        },
+        {
+          "order": 9,
+          "content": "Handle snippet items with linked file routing or group view rendering."
+        },
+        {
+          "order": 10,
+          "content": "Determine appropriate editor language and placeholder text based on item type."
+        },
+        {
+          "order": 11,
+          "content": "Render preview component based on item type and history diff settings."
+        },
+        {
+          "order": 12,
+          "content": "Render preview-only mode when editMode is false."
+        },
+        {
+          "order": 13,
+          "content": "Render split pane layout with CodeMirror editor and preview when editMode is true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1833ca42",
+      "name": "handleFormat",
+      "enclosing_class": "UnifiedEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current item is a diagram."
+        },
+        {
+          "order": 2,
+          "content": "IF the item is a diagram, format the Mermaid content."
+        },
+        {
+          "order": 3,
+          "content": "IF formatting succeeds, update the editor content with formatted text."
+        },
+        {
+          "order": 4,
+          "content": "IF formatting fails, silently skip without error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d5545cd",
+      "name": "getDiffContents",
+      "enclosing_class": "UnifiedEditor",
+      "normalized_params": "(): { before: string; after: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if historyDiff is available."
+        },
+        {
+          "order": 2,
+          "content": "IF compareMode is 'vs-current', return historical content as before and current content as after."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return previous content as before and historical content as after."
+        },
+        {
+          "order": 4,
+          "content": "IF historyDiff is not available, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_13d4b2f7",
+      "name": "SnippetGroupView",
+      "enclosing_class": null,
+      "normalized_params": "({ item, onSnippetSave, onContentChange, onToolbarControls }: { item: Item; onSnippetSave?: (id: string, content: string) => void; onContentChange?: (content: string) => void; onToolbarControls?: (controls: React.ReactNode) => void }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access session store for snippets and related functions."
+        },
+        {
+          "order": 2,
+          "content": "Parse the selected snippet's groupId from its content."
+        },
+        {
+          "order": 3,
+          "content": "Find all snippets in the same group based on groupId."
+        },
+        {
+          "order": 4,
+          "content": "Render a single SnippetEditor if there is only one snippet in the group."
+        },
+        {
+          "order": 5,
+          "content": "Render tabbed interface with SnippetEditor if there are multiple snippets in the group."
+        },
+        {
+          "order": 6,
+          "content": "Handle deletion of snippets and update selection when a snippet is removed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

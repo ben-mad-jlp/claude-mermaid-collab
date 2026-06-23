@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/chat-drawer/ChatPanel.tsx",
+  "title": "Right-side chat panel component with session handling",
+  "purpose": "Displays the agent chat interface in a right-side panel, showing either a session selection message or the chat interface based on current session state.",
+  "module_context": "Exports a React functional component ChatPanel that accepts className and onAutoSwitch props, uses session store to determine current session state, and conditionally renders either a session selection message or the AgentChat component.",
+  "methods": [
+    {
+      "id": "m_2e5aa891",
+      "name": "ChatPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: ChatPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the current session from the session store."
+        },
+        {
+          "order": 2,
+          "content": "Render a container div with appropriate styling and class names."
+        },
+        {
+          "order": 3,
+          "content": "Display the migration banner component at the top."
+        },
+        {
+          "order": 4,
+          "content": "IF no current session exists, show a message prompting the user to select a session."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render the AgentChat component with the current session ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

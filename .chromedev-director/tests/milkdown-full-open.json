@@ -1,0 +1,29 @@
+{
+  "id": "milkdown-full-open",
+  "name": "milkdown-full-open",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1200
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const walker=document.createTreeWalker(tree, NodeFilter.SHOW_TEXT); let n; while(n=walker.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p && p!==tree){ if((p.className||'').includes('cursor-pointer')){ p.click(); return {clicked:true}; } p=p.parentElement; } } } return {clicked:false};})()",
+        "as": "click"
+      },
+      {
+        "wait": 2000
+      },
+      {
+        "eval": "({pmCount: document.querySelectorAll('.ProseMirror').length, milkCount: document.querySelectorAll('.milkdown').length, editorCls: Array.from(document.querySelectorAll('[class*=milk],.ProseMirror,.cm-editor,textarea')).slice(0,5).map(e=>e.tagName+'.'+e.className.slice(0,60)), pmText: (document.querySelector('.ProseMirror')?.innerText||'NONE').slice(0,400), pmHTML: (document.querySelector('.ProseMirror')?.innerHTML||'').slice(0,1200)})",
+        "as": "state"
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('*')).filter(e=>(e.className||'').toString().includes('Editor')||(e.getAttribute('data-testid')||'').includes('editor')).slice(0,10).map(e=>({tag:e.tagName, cls:(e.className||'').toString().slice(0,80), testid:e.getAttribute('data-testid')}))",
+        "as": "editorEls"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:37:01.012Z",
+  "updatedAt": "2026-04-18T18:37:01.012Z"
+}

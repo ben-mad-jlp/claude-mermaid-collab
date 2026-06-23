@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/workflow/task-diagram.ts",
+  "title": "Task diagram generator for Mermaid graph visualization",
+  "purpose": "Creates Mermaid graph diagrams representing task execution states with color-coded statuses. Used to visualize task dependencies and current execution progress.",
+  "module_context": "Defines task diagram state interface and status color mappings for four task statuses: pending, in_progress, completed, and failed. Includes helper function to sanitize node IDs for Mermaid compatibility.",
+  "methods": [
+    {
+      "id": "m_96b2c529",
+      "name": "sanitizeId",
+      "enclosing_class": null,
+      "normalized_params": "(id: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace all non-alphanumeric characters in the input string with underscores."
+        },
+        {
+          "order": 2,
+          "content": "Return the sanitized string for use as a valid Mermaid node ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6b85588d",
+      "name": "buildDiagramContent",
+      "enclosing_class": null,
+      "normalized_params": "(batches: TaskBatch[]): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an array to hold the diagram lines with the graph type declaration."
+        },
+        {
+          "order": 2,
+          "content": "Define class styles for each task status using the predefined color mappings."
+        },
+        {
+          "order": 3,
+          "content": "For each task in each batch, create a node with a sanitized ID and display name."
+        },
+        {
+          "order": 4,
+          "content": "For each task with dependencies, create arrows from dependency nodes to the current task node."
+        },
+        {
+          "order": 5,
+          "content": "Apply the appropriate status class to each task node based on its execution status."
+        },
+        {
+          "order": 6,
+          "content": "Join all diagram lines into a single string and return it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_34bf7c9b",
+      "name": "generateTaskDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(state: TaskDiagramState): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the batches from the input task diagram state."
+        },
+        {
+          "order": 2,
+          "content": "IF the batches are empty or absent, return a placeholder diagram indicating no tasks."
+        },
+        {
+          "order": 3,
+          "content": "ELSE generate and return the full Mermaid diagram content from the batches."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

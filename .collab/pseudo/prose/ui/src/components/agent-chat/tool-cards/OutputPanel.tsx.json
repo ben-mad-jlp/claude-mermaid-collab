@@ -1,0 +1,95 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/OutputPanel.tsx",
+  "title": "Output panel component for displaying tool execution results with formatting options",
+  "purpose": "Renders tool execution output in various formats (ansi, lines, json, text) with expandable/collapsible functionality and error handling.",
+  "module_context": "Exports an OutputPanel React component and a deriveText helper function. Defines the OutputPanelProps interface and ANSI stripping regex.",
+  "methods": [
+    {
+      "id": "m_f0b8017e",
+      "name": "deriveText",
+      "enclosing_class": null,
+      "normalized_params": "(props: OutputPanelProps): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract status, stdout, stderr, output, error, and format from the input props."
+        },
+        {
+          "order": 2,
+          "content": "IF the status is error, return the error message or fallback to stderr, stdout, or stringified output."
+        },
+        {
+          "order": 3,
+          "content": "IF stderr exists and stdout does not, return stderr with or without ANSI stripping based on format."
+        },
+        {
+          "order": 4,
+          "content": "IF stdout exists, return stdout with or without ANSI stripping based on format."
+        },
+        {
+          "order": 5,
+          "content": "IF output is present, format it as JSON if requested or as plain text otherwise."
+        },
+        {
+          "order": 6,
+          "content": "IF no output is present, return an empty string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_250893b9",
+      "name": "OutputPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: OutputPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract toolUseId, status, and format from the props."
+        },
+        {
+          "order": 2,
+          "content": "Compute the text content by calling deriveText with the props."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the number of lines in the text content."
+        },
+        {
+          "order": 4,
+          "content": "Initialize expanded state to true when status is error."
+        },
+        {
+          "order": 5,
+          "content": "IF the status is canceled, render a canceled message with specific styling."
+        },
+        {
+          "order": 6,
+          "content": "IF the status is error, render the error text with specific styling."
+        },
+        {
+          "order": 7,
+          "content": "ELSE format the text content as lines with line numbers if format is lines, otherwise return the text as-is."
+        },
+        {
+          "order": 8,
+          "content": "Render a button to toggle visibility of the output content."
+        },
+        {
+          "order": 9,
+          "content": "IF the output is expanded, render the formatted content in a preformatted block with specific styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

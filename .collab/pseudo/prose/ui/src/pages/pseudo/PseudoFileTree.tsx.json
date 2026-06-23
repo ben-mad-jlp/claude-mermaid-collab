@@ -1,0 +1,133 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/PseudoFileTree.tsx",
+  "title": "Pseudo file tree component with search and navigation",
+  "purpose": "Provides a file tree UI for pseudo files with search filtering, collapse/expand functionality, and navigation capabilities.",
+  "module_context": "Exports TreeNode type and TreeNodeRenderer component for reuse. Defines PseudoFileTree component that manages search input and delegates rendering to PseudoTreeBody.",
+  "methods": [
+    {
+      "id": "m_02e987c1",
+      "name": "ChevronIcon",
+      "enclosing_class": null,
+      "normalized_params": "(isDown: boolean): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a chevron SVG icon that rotates based on the isDown prop."
+        },
+        {
+          "order": 2,
+          "content": "Apply CSS styles to rotate the icon and add a smooth transition effect."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d8a1e54",
+      "name": "TreeNodeRenderer",
+      "enclosing_class": null,
+      "normalized_params": "(node: TreeNode, level: number, currentPath: string, collapsedDirs: Set<string>, onToggleCollapse: (path: string) => void, onNavigate: (path: string) => void, filterExpanded: Set<string>, fileMeta: Map<string, PseudoFileSummary>): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the current node is collapsed, active, or has children."
+        },
+        {
+          "order": 2,
+          "content": "Calculate whether to show children based on collapse state and filter expansion."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve session and tab store data for linking files to sessions."
+        },
+        {
+          "order": 4,
+          "content": "Define a handler to link a file to the current session and open it as a tab."
+        },
+        {
+          "order": 5,
+          "content": "Render the node with appropriate styling and conditional elements based on node type."
+        },
+        {
+          "order": 6,
+          "content": "Render child nodes recursively if they should be shown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_33dd2b54",
+      "name": "PseudoFileTree",
+      "enclosing_class": null,
+      "normalized_params": "(fileList: PseudoFileSummary[], currentPath: string, onNavigate: (stem: string) => void, project: string): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the search query and setter from the sidebar tree store."
+        },
+        {
+          "order": 2,
+          "content": "Perform a one-time migration of legacy collapsed paths from local storage to the shared store."
+        },
+        {
+          "order": 3,
+          "content": "IF the file list is empty, render a message indicating no files are available."
+        },
+        {
+          "order": 4,
+          "content": "Render the search input field with appropriate styling and event handlers."
+        },
+        {
+          "order": 5,
+          "content": "Delegate rendering of the file tree body to the PseudoTreeBody component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b0cba28a",
+      "name": "useEffect",
+      "enclosing_class": "PseudoFileTree",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a project is defined before attempting migration."
+        },
+        {
+          "order": 2,
+          "content": "Load legacy collapsed paths from local storage using a project-specific key."
+        },
+        {
+          "order": 3,
+          "content": "IF legacy data exists, parse it and validate its structure."
+        },
+        {
+          "order": 4,
+          "content": "Merge legacy paths with existing collapsed paths in the store."
+        },
+        {
+          "order": 5,
+          "content": "Update the store with the merged collapsed paths and remove the legacy data from local storage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "multiselect-probe",
+  "name": "multiselect-probe",
+  "definition": {
+    "url": "http://localhost:9002/",
+    "steps": [
+      {
+        "wait": 2500
+      },
+      {
+        "eval": "JSON.stringify({body: document.body.innerText.slice(0,300), hasEmpty: !!document.querySelector('[data-testid=sidebar-empty]'), hasTree: !!document.querySelector('[data-testid=artifact-tree]'), bodyHTML: document.body.innerHTML.length})",
+        "as": "probe"
+      }
+    ]
+  },
+  "createdAt": "2026-04-20T18:03:32.189Z",
+  "updatedAt": "2026-04-20T18:03:32.189Z"
+}

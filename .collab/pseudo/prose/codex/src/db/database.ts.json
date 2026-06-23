@@ -1,0 +1,117 @@
+{
+  "schema_version": 3,
+  "file": "codex/src/db/database.ts",
+  "title": "Database initialization and migration utility for Codex",
+  "purpose": "Provides functions to initialize, migrate, and manage database connections for the Codex application.",
+  "module_context": "Exports four functions for database management: initDatabase, runMigrations, closeDatabase, and createTestDatabase. Uses better-sqlite3 for database operations and reads schema from a local SQL file.",
+  "methods": [
+    {
+      "id": "m_19a61596",
+      "name": "initDatabase",
+      "enclosing_class": null,
+      "normalized_params": "(config: DbConfig): Database.Database",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the parent directory for the database path exists."
+        },
+        {
+          "order": 2,
+          "content": "Create or open the database connection using better-sqlite3."
+        },
+        {
+          "order": 3,
+          "content": "Enable foreign key constraints on the database."
+        },
+        {
+          "order": 4,
+          "content": "Execute database migrations to ensure the schema is up to date."
+        },
+        {
+          "order": 5,
+          "content": "Return the initialized database connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a12634b2",
+      "name": "runMigrations",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database.Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the path to the schema.sql file in the same directory."
+        },
+        {
+          "order": 2,
+          "content": "Verify that the schema file exists, throwing an error if it does not."
+        },
+        {
+          "order": 3,
+          "content": "Read the contents of the schema file as a UTF-8 string."
+        },
+        {
+          "order": 4,
+          "content": "Execute the schema SQL statements against the database."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14283193",
+      "name": "closeDatabase",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database.Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the database connection gracefully."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e8625eb",
+      "name": "createTestDatabase",
+      "enclosing_class": null,
+      "normalized_params": "(): Database.Database",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create an in-memory database for testing purposes."
+        },
+        {
+          "order": 2,
+          "content": "Enable foreign key constraints on the in-memory database."
+        },
+        {
+          "order": 3,
+          "content": "Read and execute the schema SQL file against the in-memory database."
+        },
+        {
+          "order": 4,
+          "content": "Return the initialized test database connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

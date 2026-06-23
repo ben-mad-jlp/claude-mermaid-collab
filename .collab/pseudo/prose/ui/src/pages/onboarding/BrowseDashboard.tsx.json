@@ -1,0 +1,124 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/BrowseDashboard.tsx",
+  "title": "Onboarding file browser with directory filtering",
+  "purpose": "Displays a list of files in the codebase with directory filters and search capabilities for onboarding purposes.",
+  "module_context": "Exports a React component that fetches and displays files and directories from an API, with filtering capabilities based on directory selection.",
+  "methods": [
+    {
+      "id": "m_58955396",
+      "name": "BrowseDashboard",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the current project context from the onboarding layout."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state for files, directories, selected directory, and loading status."
+        },
+        {
+          "order": 3,
+          "content": "Fetch files and directories when the project context changes."
+        },
+        {
+          "order": 4,
+          "content": "Filter files based on the selected directory."
+        },
+        {
+          "order": 5,
+          "content": "Render a loading indicator while data is being fetched."
+        },
+        {
+          "order": 6,
+          "content": "Display directory tabs for filtering files."
+        },
+        {
+          "order": 7,
+          "content": "Render a grid of file links with directory information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c369f300",
+      "name": "useEffect",
+      "enclosing_class": "BrowseDashboard",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the project context is available."
+        },
+        {
+          "order": 2,
+          "content": "IF the project is not available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Set the loading state to true."
+        },
+        {
+          "order": 4,
+          "content": "Fetch files and directories concurrently from the API."
+        },
+        {
+          "order": 5,
+          "content": "Update the files and directories state with the fetched data."
+        },
+        {
+          "order": 6,
+          "content": "Reset the loading state after data fetching completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cd6b0833",
+      "name": "useMemo",
+      "enclosing_class": "BrowseDashboard",
+      "normalized_params": "(): TopicSummary[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if all files should be displayed."
+        },
+        {
+          "order": 2,
+          "content": "IF displaying all files, return the complete file list."
+        },
+        {
+          "order": 3,
+          "content": "ELSE find the selected directory in the directories list."
+        },
+        {
+          "order": 4,
+          "content": "IF the directory is not found, return the complete file list."
+        },
+        {
+          "order": 5,
+          "content": "Create a set of file paths from the selected directory."
+        },
+        {
+          "order": 6,
+          "content": "Filter the files to only include those in the selected directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

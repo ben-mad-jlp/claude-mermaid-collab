@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/TodoWriteView.tsx",
+  "title": "Todo list display component for agent chat interface",
+  "purpose": "Renders a formatted list of todos with status indicators and error handling for agent tool calls.",
+  "module_context": "Defines a React functional component that displays todo items with different visual styles based on their status and handles error display.",
+  "methods": [
+    {
+      "id": "m_0c253993",
+      "name": "TodoWriteView",
+      "enclosing_class": null,
+      "normalized_params": "(props: TodoWriteViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the todos array from the tool call input."
+        },
+        {
+          "order": 2,
+          "content": "IF no todos exist, display a 'No todos' message."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render each todo with appropriate styling based on its status."
+        },
+        {
+          "order": 4,
+          "content": "Apply visual formatting such as bold text for in-progress items and strikethrough for completed items."
+        },
+        {
+          "order": 5,
+          "content": "Display the todo content with proper spacing and word wrapping."
+        },
+        {
+          "order": 6,
+          "content": "IF an error exists on the tool call, render it below the todo list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

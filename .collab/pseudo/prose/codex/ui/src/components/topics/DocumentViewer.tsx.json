@@ -1,0 +1,186 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/DocumentViewer.tsx",
+  "title": "Markdown document viewer with mermaid diagram support",
+  "purpose": "Renders markdown content with syntax highlighting and mermaid diagram support in a scrollable container. Handles loading states and empty content displays.",
+  "module_context": "Exports a DocumentViewer component that renders markdown content with custom handling for code blocks, headers, lists, and inline formatting. Includes a MermaidBlock subcomponent for rendering mermaid diagrams and a set of helper functions for markdown processing.",
+  "methods": [
+    {
+      "id": "m_b433efa6",
+      "name": "MermaidBlock",
+      "enclosing_class": null,
+      "normalized_params": "(props: { content: string }): React.FC<{ content: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a unique identifier for the mermaid diagram."
+        },
+        {
+          "order": 2,
+          "content": "Set up a ref to hold the container element for the diagram."
+        },
+        {
+          "order": 3,
+          "content": "Initialize state to track rendering errors."
+        },
+        {
+          "order": 4,
+          "content": "Configure mermaid library on first render if not already initialized."
+        },
+        {
+          "order": 5,
+          "content": "Render the mermaid diagram when content changes or component mounts."
+        },
+        {
+          "order": 6,
+          "content": "Handle rendering errors by displaying error message in UI."
+        },
+        {
+          "order": 7,
+          "content": "Return a container div that displays the rendered diagram or error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c23f45e2",
+      "name": "renderMarkdown",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the markdown content into individual lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Initialize tracking variables for code block state and content."
+        },
+        {
+          "order": 3,
+          "content": "Process each line to identify and render code blocks, headers, lists, and paragraphs."
+        },
+        {
+          "order": 4,
+          "content": "For code blocks, determine if they are mermaid diagrams and render with MermaidBlock component."
+        },
+        {
+          "order": 5,
+          "content": "For regular code blocks, render with appropriate styling and language indicator."
+        },
+        {
+          "order": 6,
+          "content": "For headers, render with appropriate heading tags and styling."
+        },
+        {
+          "order": 7,
+          "content": "For list items, render with appropriate list styling."
+        },
+        {
+          "order": 8,
+          "content": "For regular paragraphs, render with appropriate paragraph styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d18364fb",
+      "name": "renderInlineMarkdown",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize tracking variables for processing inline markdown elements."
+        },
+        {
+          "order": 2,
+          "content": "Process text to identify and render inline code elements."
+        },
+        {
+          "order": 3,
+          "content": "Process text to identify and render links."
+        },
+        {
+          "order": 4,
+          "content": "For remaining text without special formatting, process for bold and italic formatting."
+        },
+        {
+          "order": 5,
+          "content": "Return processed elements as a React node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43798c7d",
+      "name": "processTextFormatting",
+      "enclosing_class": null,
+      "normalized_params": "(text: string, getKey: () => string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify and process bold text formatting."
+        },
+        {
+          "order": 2,
+          "content": "Return text with bold formatting applied if found."
+        },
+        {
+          "order": 3,
+          "content": "Return unformatted text if no bold formatting is detected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d338e29e",
+      "name": "DocumentViewer",
+      "enclosing_class": null,
+      "normalized_params": "(props: DocumentViewerProps): React.FC<DocumentViewerProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Display a loading spinner if the component is in loading state."
+        },
+        {
+          "order": 2,
+          "content": "Display a message indicating no content is available if content is empty."
+        },
+        {
+          "order": 3,
+          "content": "Render the document content in a scrollable container with optional title bar."
+        },
+        {
+          "order": 4,
+          "content": "Apply appropriate styling and layout for the document viewer."
+        },
+        {
+          "order": 5,
+          "content": "Pass the markdown content to the renderMarkdown function for processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

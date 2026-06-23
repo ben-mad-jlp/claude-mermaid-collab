@@ -1,0 +1,125 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/common/CodeMirrorEditor.tsx",
+  "title": "CodeMirrorEditor React component with line numbers and tab handling",
+  "purpose": "Provides a styled textarea editor with optional line numbers, tab indentation support, and read-only mode. Used as a lightweight code editor replacement.",
+  "module_context": "Exports a React functional component named CodeMirrorEditor that accepts various props for customization including content, callbacks, styling, and behavior flags.",
+  "methods": [
+    {
+      "id": "m_25fad31f",
+      "name": "CodeMirrorEditor",
+      "enclosing_class": null,
+      "normalized_params": "(props: CodeMirrorEditorProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize line number calculation based on current content."
+        },
+        {
+          "order": 2,
+          "content": "Set up change handler that updates content when user types."
+        },
+        {
+          "order": 3,
+          "content": "Set up key down handler that manages tab key behavior for indentation."
+        },
+        {
+          "order": 4,
+          "content": "Render a container with styling for the editor area."
+        },
+        {
+          "order": 5,
+          "content": "IF line numbers are enabled, render a gutter with line number indicators."
+        },
+        {
+          "order": 6,
+          "content": "Render the main textarea with appropriate styling and event handlers."
+        },
+        {
+          "order": 7,
+          "content": "IF language is specified, render a badge showing the language hint."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_20c7f019",
+      "name": "lineNumbers",
+      "enclosing_class": "CodeMirrorEditor",
+      "normalized_params": "(): number[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the current content into lines using newline character."
+        },
+        {
+          "order": 2,
+          "content": "Map each line to its corresponding line number starting from 1."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c46fdbc1",
+      "name": "handleChange",
+      "enclosing_class": "CodeMirrorEditor",
+      "normalized_params": "(e: React.ChangeEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the editor is not read-only, update the content via the provided callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b0343982",
+      "name": "handleKeyDown",
+      "enclosing_class": "CodeMirrorEditor",
+      "normalized_params": "(e: React.KeyboardEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the editor is read-only, exit early without processing."
+        },
+        {
+          "order": 2,
+          "content": "IF the tab key is pressed, prevent default tab behavior."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the current cursor position and selected text range."
+        },
+        {
+          "order": 4,
+          "content": "Insert two spaces at the cursor position in the content."
+        },
+        {
+          "order": 5,
+          "content": "Update the editor content with the modified text."
+        },
+        {
+          "order": 6,
+          "content": "Move the cursor to the position after the inserted spaces."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

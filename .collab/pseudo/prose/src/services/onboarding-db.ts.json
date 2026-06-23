@@ -1,0 +1,445 @@
+{
+  "schema_version": 3,
+  "file": "src/services/onboarding-db.ts",
+  "title": "Onboarding database service managing FTS5 index and progress tracking",
+  "purpose": "Provides database operations for onboarding functionality including full-text search over topic content and user progress tracking with notes and team data.",
+  "module_context": "Exports types for search results, users, progress entries, notes, and team members. Defines schema for progress database with tables for users, progress, notes, and path progress.",
+  "methods": [
+    {
+      "id": "m_3ceb7a10",
+      "name": "ensureIndex",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the onboarding directory exists for storing database files."
+        },
+        {
+          "order": 2,
+          "content": "Check if the pseudo database file exists before proceeding."
+        },
+        {
+          "order": 3,
+          "content": "Determine if the index database needs to be rebuilt based on modification times."
+        },
+        {
+          "order": 4,
+          "content": "IF rebuilding is needed, close any existing index database connection."
+        },
+        {
+          "order": 5,
+          "content": "Open or reopen the index database file."
+        },
+        {
+          "order": 6,
+          "content": "IF rebuilding is needed, drop the existing FTS5 table."
+        },
+        {
+          "order": 7,
+          "content": "IF rebuilding is needed, create a new FTS5 table with file path, method name, and content fields."
+        },
+        {
+          "order": 8,
+          "content": "IF rebuilding is needed, iterate through all files in the pseudo database."
+        },
+        {
+          "order": 9,
+          "content": "IF rebuilding is needed, for each file, extract method steps and insert them into the FTS5 table."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c2f2d149",
+      "name": "search",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(q: string, scope?: string[]): SearchResult[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the FTS5 index is up-to-date before performing search."
+        },
+        {
+          "order": 2,
+          "content": "IF the index database is not available, return an empty result set."
+        },
+        {
+          "order": 3,
+          "content": "Construct a SQL query to search the FTS5 table with the provided query."
+        },
+        {
+          "order": 4,
+          "content": "Escape special FTS5 syntax in the query by wrapping it in double quotes."
+        },
+        {
+          "order": 5,
+          "content": "IF a scope is provided, add file path filtering to the query."
+        },
+        {
+          "order": 6,
+          "content": "Execute the search query and retrieve matching rows."
+        },
+        {
+          "order": 7,
+          "content": "Map the query results to the expected search result format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a6dc82e",
+      "name": "ensureProgressDb",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(): Database",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the progress database is already initialized, return it immediately."
+        },
+        {
+          "order": 2,
+          "content": "Ensure the onboarding directory exists for storing database files."
+        },
+        {
+          "order": 3,
+          "content": "Open or create the progress database file."
+        },
+        {
+          "order": 4,
+          "content": "Execute the progress database schema to create necessary tables."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_31f0115e",
+      "name": "createUser",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(name: string): User",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Insert a new user record into the users table with the provided name."
+        },
+        {
+          "order": 3,
+          "content": "Return the created user with ID, name, and creation timestamp."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2f79cbcd",
+      "name": "listUsers",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(): User[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Query all users from the database ordered by name."
+        },
+        {
+          "order": 3,
+          "content": "Map the database rows to the expected user format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1c83189e",
+      "name": "getUser",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(id: number): User | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Query a user by ID from the database."
+        },
+        {
+          "order": 3,
+          "content": "IF no user is found, return null."
+        },
+        {
+          "order": 4,
+          "content": "ELSE map the database row to the expected user format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6f0f14fc",
+      "name": "markProgress",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(userId: number, filePath: string, status: 'explored' | 'skipped'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Insert or replace a progress record for the user and file path with the specified status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eb569435",
+      "name": "deleteProgress",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(userId: number, filePath: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Delete the progress record for the specified user and file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_294f71ae",
+      "name": "getUserProgress",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(userId: number): ProgressEntry[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Query all progress records for the specified user."
+        },
+        {
+          "order": 3,
+          "content": "Map the database rows to the expected progress entry format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_68c38e01",
+      "name": "getNotes",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(userId: number, filePath: string): Note[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Query all notes for the specified user and file path."
+        },
+        {
+          "order": 3,
+          "content": "Map the database rows to the expected note format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e9a3e216",
+      "name": "addNote",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(userId: number, filePath: string, content: string): Note",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Insert a new note record for the user and file path with the provided content."
+        },
+        {
+          "order": 3,
+          "content": "Return the created note with all its fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ee67117",
+      "name": "editNote",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(noteId: number, content: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Update the content and updated timestamp of the note with the specified ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7710b678",
+      "name": "deleteNote",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(noteId: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Delete the note with the specified ID from the database."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_580ae968",
+      "name": "getTeam",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(): TeamMember[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the progress database is initialized."
+        },
+        {
+          "order": 2,
+          "content": "Query all users and their progress statistics to build team member data."
+        },
+        {
+          "order": 3,
+          "content": "For each user, fetch their explored file paths."
+        },
+        {
+          "order": 4,
+          "content": "Map the combined data to the expected team member format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b4cf15a6",
+      "name": "isPseudoDbReady",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to get the pseudo database instance for the project."
+        },
+        {
+          "order": 2,
+          "content": "IF the pseudo database is accessible, check if it contains any files."
+        },
+        {
+          "order": 3,
+          "content": "IF the pseudo database is not accessible or has no files, return false."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return true indicating the pseudo database is ready."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f5fd8757",
+      "name": "close",
+      "enclosing_class": "OnboardingDbService",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF an index database connection exists, close it and set the reference to null."
+        },
+        {
+          "order": 2,
+          "content": "IF a progress database connection exists, close it and set the reference to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

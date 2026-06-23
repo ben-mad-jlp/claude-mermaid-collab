@@ -1,0 +1,372 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-prose-file.ts",
+  "title": "Pseudo Prose File validator and IO handler with fsync durability",
+  "purpose": "Validates ProseFileV3 schema objects and provides atomic read/write operations with fsync for durability.",
+  "module_context": "Exports interfaces for ProseStep, ProseMethodTags, ProseMethod, and ProseFileV3. Includes validation functions for each schema component and IO functions for reading and writing prose files.",
+  "methods": [
+    {
+      "id": "m_f5946bd6",
+      "name": "isObject",
+      "enclosing_class": null,
+      "normalized_params": "(v: unknown): v is Record<string, unknown>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the input value is an object and not null or an array."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the value matches the object type criteria, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf3129f9",
+      "name": "fail",
+      "enclosing_class": null,
+      "normalized_params": "(field: string, reason: string): never",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct an error message using the field and reason parameters."
+        },
+        {
+          "order": 2,
+          "content": "Throw a new Error with the constructed message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f7233592",
+      "name": "assertString",
+      "enclosing_class": null,
+      "normalized_params": "(v: unknown, field: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input value is a string."
+        },
+        {
+          "order": 2,
+          "content": "If the value is not a string, throw a validation error."
+        },
+        {
+          "order": 3,
+          "content": "Return the input value cast as a string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b04e0ea",
+      "name": "assertBoolean",
+      "enclosing_class": null,
+      "normalized_params": "(v: unknown, field: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input value is a boolean."
+        },
+        {
+          "order": 2,
+          "content": "If the value is not a boolean, throw a validation error."
+        },
+        {
+          "order": 3,
+          "content": "Return the input value cast as a boolean."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_81a7005a",
+      "name": "assertNumber",
+      "enclosing_class": null,
+      "normalized_params": "(v: unknown, field: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input value is a finite number."
+        },
+        {
+          "order": 2,
+          "content": "If the value is not a finite number, throw a validation error."
+        },
+        {
+          "order": 3,
+          "content": "Return the input value cast as a number."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cea155fd",
+      "name": "validateStep",
+      "enclosing_class": null,
+      "normalized_params": "(raw: unknown, field: string): ProseStep",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input raw value is an object."
+        },
+        {
+          "order": 2,
+          "content": "Extract and validate the order field as a non-negative integer."
+        },
+        {
+          "order": 3,
+          "content": "Extract and validate the content field as a string."
+        },
+        {
+          "order": 4,
+          "content": "Return a new ProseStep object with validated order and content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d3aabeb7",
+      "name": "validateTags",
+      "enclosing_class": null,
+      "normalized_params": "(raw: unknown, field: string): ProseMethodTags",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input raw value is an object."
+        },
+        {
+          "order": 2,
+          "content": "Extract and validate the deprecated field as a boolean."
+        },
+        {
+          "order": 3,
+          "content": "If the since field is present, validate it as a string."
+        },
+        {
+          "order": 4,
+          "content": "Return a new ProseMethodTags object with validated fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fadca7a1",
+      "name": "validateMethod",
+      "enclosing_class": null,
+      "normalized_params": "(raw: unknown, field: string): ProseMethod",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input raw value is an object."
+        },
+        {
+          "order": 2,
+          "content": "Extract and validate the id field as a string."
+        },
+        {
+          "order": 3,
+          "content": "Extract and validate the name field as a string."
+        },
+        {
+          "order": 4,
+          "content": "Extract and validate the enclosing_class field as a string or null."
+        },
+        {
+          "order": 5,
+          "content": "Extract and validate the normalized_params field as a string."
+        },
+        {
+          "order": 6,
+          "content": "Extract and validate the body_fingerprint field as a string."
+        },
+        {
+          "order": 7,
+          "content": "Extract and validate the prose_origin field as 'manual' or 'llm'."
+        },
+        {
+          "order": 8,
+          "content": "Extract and validate the steps field as an array of ProseStep objects."
+        },
+        {
+          "order": 9,
+          "content": "Extract and validate the tags field as a ProseMethodTags object."
+        },
+        {
+          "order": 10,
+          "content": "Return a new ProseMethod object with all validated fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_13d0a0bf",
+      "name": "validateProseSchema",
+      "enclosing_class": null,
+      "normalized_params": "(raw: unknown): ProseFileV3",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the input raw value is an object."
+        },
+        {
+          "order": 2,
+          "content": "Extract and validate the schema_version field as 3."
+        },
+        {
+          "order": 3,
+          "content": "Extract and validate the file field as a string."
+        },
+        {
+          "order": 4,
+          "content": "Extract and validate the title field as a string."
+        },
+        {
+          "order": 5,
+          "content": "Extract and validate the purpose field as a string."
+        },
+        {
+          "order": 6,
+          "content": "Extract and validate the module_context field as a string."
+        },
+        {
+          "order": 7,
+          "content": "Extract and validate the methods field as an array of ProseMethod objects."
+        },
+        {
+          "order": 8,
+          "content": "Return a new ProseFileV3 object with all validated fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_572df1dd",
+      "name": "readProseFile",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project?: string): Promise<ProseFileV3 | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the file exists at the specified path."
+        },
+        {
+          "order": 2,
+          "content": "IF the file does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Read the file content as UTF-8 text."
+        },
+        {
+          "order": 4,
+          "content": "IF reading fails, throw an error with the failure details."
+        },
+        {
+          "order": 5,
+          "content": "Parse the file content as JSON."
+        },
+        {
+          "order": 6,
+          "content": "IF parsing fails, throw an error with the failure details."
+        },
+        {
+          "order": 7,
+          "content": "Validate the parsed JSON against the ProseFileV3 schema."
+        },
+        {
+          "order": 8,
+          "content": "IF a project is specified, convert the file path to a relative POSIX path."
+        },
+        {
+          "order": 9,
+          "content": "Return the validated ProseFileV3 object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d12d72c",
+      "name": "writeProseFile",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, content: ProseFileV3): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate the input content against the ProseFileV3 schema."
+        },
+        {
+          "order": 2,
+          "content": "Create the directory path for the file if it does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Open a temporary file for writing."
+        },
+        {
+          "order": 4,
+          "content": "Write the validated content as JSON to the temporary file."
+        },
+        {
+          "order": 5,
+          "content": "Ensure the file is flushed to disk using fsync."
+        },
+        {
+          "order": 6,
+          "content": "Close the temporary file handle."
+        },
+        {
+          "order": 7,
+          "content": "Rename the temporary file to the target file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

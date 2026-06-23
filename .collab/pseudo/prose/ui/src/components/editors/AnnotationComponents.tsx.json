@@ -1,0 +1,150 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/AnnotationComponents.tsx",
+  "title": "React components for rendering annotation markers in markdown preview",
+  "purpose": "Provides visual styling for comments, proposals, approvals, and rejections parsed by the remarkAnnotations plugin. Used to render annotation markers in markdown preview.",
+  "module_context": "Exports four annotation components (CommentAnnotation, ProposeAnnotation, ApproveAnnotation, RejectAnnotation) and an AnnotationRenderer that dispatches to the appropriate component based on annotation type.",
+  "methods": [
+    {
+      "id": "m_3b6269c8",
+      "name": "CommentAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "(props: AnnotationProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if child content is present."
+        },
+        {
+          "order": 2,
+          "content": "IF child content exists, render inline comment with tooltip highlighting."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render block comment as blue-styled note."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_330604b6",
+      "name": "ProposeAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "(props: AnnotationProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render proposed content with yellow styling."
+        },
+        {
+          "order": 2,
+          "content": "Display 'PROPOSED' label with yellow text."
+        },
+        {
+          "order": 3,
+          "content": "Show child content below the label."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0b239a07",
+      "name": "ApproveAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "(props: AnnotationProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render approved content with green styling."
+        },
+        {
+          "order": 2,
+          "content": "Display 'APPROVED' label with green text."
+        },
+        {
+          "order": 3,
+          "content": "Show child content below the label."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e584ca0c",
+      "name": "RejectAnnotation",
+      "enclosing_class": null,
+      "normalized_params": "(props: AnnotationProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render rejected content with red styling."
+        },
+        {
+          "order": 2,
+          "content": "Display 'REJECTED' label with red text."
+        },
+        {
+          "order": 3,
+          "content": "IF rejection reason is provided, show it in parentheses."
+        },
+        {
+          "order": 4,
+          "content": "Show child content with strikethrough and reduced opacity."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8cc5a70b",
+      "name": "AnnotationRenderer",
+      "enclosing_class": null,
+      "normalized_params": "(props: AnnotationProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine annotation type from props."
+        },
+        {
+          "order": 2,
+          "content": "IF type is comment or comment-inline, render CommentAnnotation."
+        },
+        {
+          "order": 3,
+          "content": "IF type is propose, render ProposeAnnotation."
+        },
+        {
+          "order": 4,
+          "content": "IF type is approve, render ApproveAnnotation."
+        },
+        {
+          "order": 5,
+          "content": "IF type is reject, render RejectAnnotation."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return child content unchanged."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

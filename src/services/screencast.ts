@@ -114,8 +114,10 @@ export class ScreencastService {
     return {
       format: 'jpeg' as const,
       quality: c?.quality ?? this.opts.quality,
-      maxWidth: c?.maxWidth ?? entry.viewport?.width ?? this.opts.maxWidth,
-      maxHeight: c?.maxHeight ?? entry.viewport?.height ?? this.opts.maxHeight,
+      // Cap in DEVICE px: the screencast bitmap is viewport(CSS px) * deviceScaleFactor,
+      // so capping in CSS px would force Chrome to downscale and skew the aspect ratio.
+      maxWidth: c?.maxWidth ?? (entry.viewport ? entry.viewport.width * (entry.viewport.deviceScaleFactor ?? 1) : this.opts.maxWidth),
+      maxHeight: c?.maxHeight ?? (entry.viewport ? entry.viewport.height * (entry.viewport.deviceScaleFactor ?? 1) : this.opts.maxHeight),
       everyNthFrame: c?.everyNthFrame ?? this.opts.everyNthFrame,
     };
   }
@@ -131,7 +133,10 @@ export class ScreencastService {
     const cur = entry.viewport;
     if (cur && cur.width === next.width && cur.height === next.height && cur.deviceScaleFactor === next.deviceScaleFactor) return;
     entry.viewport = next;
-    if (entry.client && !entry.starting) await this.restartScreencast(sessionName).catch(() => {});
+    // A resize that lands while the screencast is still starting must not be dropped:
+    // wait out the in-flight start, then restart with the now-current viewport.
+    if (entry.starting) await entry.starting;
+    if (entry.client) await this.restartScreencast(sessionName).catch(() => {});
   }
 
   async setQuality(sessionName: string, q: { quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number }): Promise<void> {
@@ -143,7 +148,8 @@ export class ScreencastService {
       maxHeight: q.maxHeight ?? entry.config?.maxHeight ?? this.opts.maxHeight,
       everyNthFrame: Math.max(1, q.everyNthFrame ?? entry.config?.everyNthFrame ?? this.opts.everyNthFrame),
     };
-    if (entry.client && !entry.starting) await this.restartScreencast(sessionName).catch(() => {});
+    if (entry.starting) await entry.starting;
+    if (entry.client) await this.restartScreencast(sessionName).catch(() => {});
   }
 
   private async restartScreencast(sessionName: string): Promise<void> {

@@ -1,0 +1,111 @@
+{
+  "schema_version": 3,
+  "file": "bin/structural-index-project.ts",
+  "title": "Full-project structural index scanner and upserter",
+  "purpose": "Recursively scans a project directory for supported source files and upserts their structural data into a pseudo-database for schema v2 migration or forced re-indexing.",
+  "module_context": "Defines a set of excluded directories and file patterns, and sets up the main execution flow including file walking, scanning, database upserts, and git integration.",
+  "methods": [
+    {
+      "id": "m_1bc8aec0",
+      "name": "walkSourceTree",
+      "enclosing_class": null,
+      "normalized_params": "(dir: string, out: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the directory entries with file type information."
+        },
+        {
+          "order": 2,
+          "content": "IF reading fails, return early without processing."
+        },
+        {
+          "order": 3,
+          "content": "For each entry, skip if it matches any excluded name or starts with a dot."
+        },
+        {
+          "order": 4,
+          "content": "IF the entry is a directory, recursively walk its contents."
+        },
+        {
+          "order": 5,
+          "content": "IF the entry is a file, check if its extension is supported."
+        },
+        {
+          "order": 6,
+          "content": "IF the file has a supported extension, add its full path to the output array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d723d7ef",
+      "name": "main",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the project root path from command line argument or current working directory."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an empty array to collect file paths."
+        },
+        {
+          "order": 3,
+          "content": "Walk the source tree starting from the project root and populate the file list."
+        },
+        {
+          "order": 4,
+          "content": "Log the total number of files to be scanned."
+        },
+        {
+          "order": 5,
+          "content": "Initialize the pseudo-database with the project root."
+        },
+        {
+          "order": 6,
+          "content": "Process each file in the list by scanning and upserting its data."
+        },
+        {
+          "order": 7,
+          "content": "IF a scan fails, increment the error counter and continue."
+        },
+        {
+          "order": 8,
+          "content": "IF a scan succeeds, upsert the structural data into the database and update counters."
+        },
+        {
+          "order": 9,
+          "content": "Periodically log progress every 50 files."
+        },
+        {
+          "order": 10,
+          "content": "After processing all files, attempt to checkpoint the database WAL."
+        },
+        {
+          "order": 11,
+          "content": "Attempt to add the database file to git staging."
+        },
+        {
+          "order": 12,
+          "content": "Log the final summary of indexed files, methods, and errors."
+        },
+        {
+          "order": 13,
+          "content": "Exit the process with success code."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/TopicRow.tsx",
+  "title": "Topic row component with confidence badges and flag indicators",
+  "purpose": "Displays a single topic row with name, access count, draft indicator, flag count, and confidence level in a styled UI element.",
+  "module_context": "Exports a React functional component TopicRow that accepts topic data, click handler, selection state, and optional class name. Includes helper functions for confidence badge styling and formatting.",
+  "methods": [
+    {
+      "id": "m_ec54cd79",
+      "name": "getConfidenceBadgeClasses",
+      "enclosing_class": null,
+      "normalized_params": "(confidence: ConfidenceTier): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the CSS class names for a badge based on the confidence tier value."
+        },
+        {
+          "order": 2,
+          "content": "Return green classes for high confidence."
+        },
+        {
+          "order": 3,
+          "content": "Return yellow classes for medium confidence."
+        },
+        {
+          "order": 4,
+          "content": "Return red classes for low confidence."
+        },
+        {
+          "order": 5,
+          "content": "Return gray classes for default or unknown confidence."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d524a643",
+      "name": "formatConfidence",
+      "enclosing_class": null,
+      "normalized_params": "(confidence: ConfidenceTier): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the first character of the confidence tier to uppercase."
+        },
+        {
+          "order": 2,
+          "content": "Return the capitalized confidence tier string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_618cf34e",
+      "name": "TopicRow",
+      "enclosing_class": null,
+      "normalized_params": "(props: TopicRowProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept topic data, click handler, selection state, and optional class name."
+        },
+        {
+          "order": 2,
+          "content": "Define a click handler that invokes the provided click handler with the topic."
+        },
+        {
+          "order": 3,
+          "content": "Define a key down handler that triggers the click handler on Enter or space key."
+        },
+        {
+          "order": 4,
+          "content": "Render a div element with styling for the topic row."
+        },
+        {
+          "order": 5,
+          "content": "Include topic name and access count in the left side of the row."
+        },
+        {
+          "order": 6,
+          "content": "Display draft indicator if the topic has a draft."
+        },
+        {
+          "order": 7,
+          "content": "Display flag count badge if the topic has open flags."
+        },
+        {
+          "order": 8,
+          "content": "Display confidence badge with appropriate styling based on the topic's confidence."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

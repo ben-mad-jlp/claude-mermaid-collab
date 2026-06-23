@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/Confirmation.tsx",
+  "title": "Confirmation dialog component with customizable buttons",
+  "purpose": "Provides a reusable UI component for displaying confirmation dialogs with customizable message, button labels, and actions.",
+  "module_context": "Exports a React functional component named Confirmation that accepts props for handling confirmation and cancellation actions, with support for different confirmation types and accessibility attributes.",
+  "methods": [
+    {
+      "id": "m_f8628139",
+      "name": "Confirmation",
+      "enclosing_class": null,
+      "normalized_params": "(props: ConfirmationProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique identifier for the component instance."
+        },
+        {
+          "order": 2,
+          "content": "Construct an ID for the message element using the generated identifier."
+        },
+        {
+          "order": 3,
+          "content": "Determine the labels for confirm and cancel buttons based on the confirmation type."
+        },
+        {
+          "order": 4,
+          "content": "Render a container div with appropriate ARIA attributes and styling."
+        },
+        {
+          "order": 5,
+          "content": "IF a message is provided, render it as a paragraph with the constructed message ID."
+        },
+        {
+          "order": 6,
+          "content": "Render a button group containing cancel and confirm buttons with appropriate styling and event handlers."
+        },
+        {
+          "order": 7,
+          "content": "Set the button labels and ARIA labels based on the confirmation type and props."
+        },
+        {
+          "order": 8,
+          "content": "Apply disabled state and styling to both buttons when the disabled prop is true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/setup.ts",
+  "title": "Mermaid Diagram Server - MCP Server Setup",
+  "purpose": "This document outlines the setup and configuration of the Mermaid Diagram Server's MCP (Model Communication Protocol) server, which provides a range of tools for managing diagrams, documents, designs, and sessions within a collaborative environment.",
+  "module_context": "The server is initialized with a specific name and version, and it sets up handlers for various requests including listing tools, resources, and handling tool invocations. It also initializes a pseudo-database for faster startup and handles session management.",
+  "methods": [
+    {
+      "id": "m_f3343687",
+      "name": "setupMCPServer",
+      "enclosing_class": "export async function setupMCPServer(): Promise<Server>",
+      "normalized_params": "None",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo-db v6 handle for the current working directory at startup to begin warming/scanning immediately instead of lazily on first tool call."
+        },
+        {
+          "order": 2,
+          "content": "Check for and consume the SessionStart rescan marker if present, unlinking it and triggering a retry scan if found."
+        },
+        {
+          "order": 3,
+          "content": "Create a new Server instance with the name 'mermaid-diagram-server' and version SERVER_VERSION."
+        },
+        {
+          "order": 4,
+          "content": "Set up handlers for ListResourcesRequestSchema and ReadResourceRequestSchema."
+        },
+        {
+          "order": 5,
+          "content": "Set up a handler for ListToolsRequestSchema that returns a list of available tools with their descriptions and input schemas."
+        },
+        {
+          "order": 6,
+          "content": "Set up handlers for various tool invocations including diagram management, document management, design management, session management, and more."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

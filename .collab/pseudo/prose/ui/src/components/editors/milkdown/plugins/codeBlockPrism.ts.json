@@ -1,0 +1,30 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/codeBlockPrism.ts",
+  "title": "Milkdown code block Prism plugin wrapper",
+  "purpose": "Provides a Milkdown plugin wrapper that integrates Prism for syntax highlighting in code blocks using bundled common languages.",
+  "module_context": "Imports Prism CSS themes for styling highlighted tokens and exports a plugin array that wraps the @milkdown/plugin-prism functionality.",
+  "methods": [
+    {
+      "id": "m_dd031a00",
+      "name": "codeBlockPrismPlugin",
+      "enclosing_class": null,
+      "normalized_params": "(): MilkdownPlugin[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Import the Prism CSS themes for token styling."
+        },
+        {
+          "order": 2,
+          "content": "Export the prism plugin array from @milkdown/plugin-prism."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

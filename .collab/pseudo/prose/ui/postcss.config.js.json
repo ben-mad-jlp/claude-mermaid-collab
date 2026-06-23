@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/postcss.config.js",
+  "title": "PostCSS configuration for Tailwind CSS and autoprefixer",
+  "purpose": "Configures PostCSS to process CSS files with Tailwind CSS and autoprefixer plugins for automatic vendor prefixing.",
+  "module_context": "Exports a configuration object that defines PostCSS plugins to be applied to CSS files.",
+  "methods": [
+    {
+      "id": "m_3621e660",
+      "name": "default",
+      "enclosing_class": null,
+      "normalized_params": "(): { plugins: { tailwindcss: {}; autoprefixer: {} } }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the PostCSS plugin configuration object."
+        },
+        {
+          "order": 2,
+          "content": "Specify Tailwind CSS as one of the plugins to process CSS."
+        },
+        {
+          "order": 3,
+          "content": "Specify autoprefixer as another plugin to add vendor prefixes."
+        },
+        {
+          "order": 4,
+          "content": "Return the complete plugin configuration for PostCSS processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

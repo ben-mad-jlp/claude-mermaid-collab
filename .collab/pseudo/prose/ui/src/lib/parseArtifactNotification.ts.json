@@ -1,0 +1,153 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/parseArtifactNotification.ts",
+  "title": "MCP artifact notification parser with type and name extraction",
+  "purpose": "Parses MCP responses to extract artifact creation/update notifications including type, name, and notification type.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_23681946",
+      "name": "parseArtifactNotification",
+      "enclosing_class": null,
+      "normalized_params": "(mcpResponse: any): ArtifactNotification | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the response is a non-null object."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, return null."
+        },
+        {
+          "order": 3,
+          "content": "IF the response lacks a valid ID, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response lacks a valid preview URL, return null."
+        },
+        {
+          "order": 5,
+          "content": "IF the response lacks a valid message, return null."
+        },
+        {
+          "order": 6,
+          "content": "Extract the artifact type from the preview URL."
+        },
+        {
+          "order": 7,
+          "content": "IF the artifact type cannot be determined, return null."
+        },
+        {
+          "order": 8,
+          "content": "Extract the notification type from the message."
+        },
+        {
+          "order": 9,
+          "content": "IF the notification type cannot be determined, return null."
+        },
+        {
+          "order": 10,
+          "content": "Extract the artifact name from the message."
+        },
+        {
+          "order": 11,
+          "content": "IF the artifact name is missing or empty, return null."
+        },
+        {
+          "order": 12,
+          "content": "Return a complete artifact notification object with all extracted values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ebae8c3d",
+      "name": "extractArtifactType",
+      "enclosing_class": null,
+      "normalized_params": "(previewUrl: string): 'diagram' | 'document' | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the preview URL to lowercase for case-insensitive matching."
+        },
+        {
+          "order": 2,
+          "content": "IF the URL contains 'diagram', return 'diagram'."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the URL contains 'document', return 'document'."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_65ef9572",
+      "name": "extractNotificationType",
+      "enclosing_class": null,
+      "normalized_params": "(message: string): 'created' | 'updated' | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the message to lowercase for case-insensitive matching."
+        },
+        {
+          "order": 2,
+          "content": "IF the message contains 'created', return 'created'."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the message contains 'updated', return 'updated'."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_94d3af80",
+      "name": "extractArtifactName",
+      "enclosing_class": null,
+      "normalized_params": "(message: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Search for the first quoted string in the message."
+        },
+        {
+          "order": 2,
+          "content": "IF a quoted string is found, return its content."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

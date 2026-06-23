@@ -1,0 +1,30 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/skills.ts",
+  "title": "Skill type definitions and descriptions for AI-UI system",
+  "purpose": "Provides type definitions and metadata for skill transitions in the AI-UI system, used for displaying skill transitions in the UI.",
+  "module_context": "Exports a SkillTransition interface and a constant object SKILL_DESCRIPTIONS containing descriptions for all available skills.",
+  "methods": [
+    {
+      "id": "m_31e39c62",
+      "name": "SKILL_DESCRIPTIONS",
+      "enclosing_class": null,
+      "normalized_params": ": Record<string, string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a mapping of skill names to their descriptive text."
+        },
+        {
+          "order": 2,
+          "content": "Provide descriptions for all available skills in the system."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

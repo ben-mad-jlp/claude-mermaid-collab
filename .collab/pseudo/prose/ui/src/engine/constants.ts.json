@@ -1,0 +1,995 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/constants.ts",
+  "title": "UI engine constants for graphics rendering and interaction",
+  "purpose": "Defines color, size, and interaction constants used throughout the UI engine for rendering graphics, handling user interactions, and managing layout.",
+  "module_context": "Exports a collection of constants including colors, sizes, thresholds, and stroke/fill definitions used for UI rendering and interaction handling.",
+  "methods": [
+    {
+      "id": "m_23e3451f",
+      "name": "SELECTION_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the color used for selection highlights."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7736a9e8",
+      "name": "COMPONENT_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the color used for component outlines."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43055ec1",
+      "name": "SNAP_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the color used for snap indicators."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bd11dcdb",
+      "name": "CANVAS_BG_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the background color of the canvas."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a02841d",
+      "name": "RULER_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the size of the ruler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2fedea77",
+      "name": "RULER_BG_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the background color of the ruler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_14c17dce",
+      "name": "RULER_TICK_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the color of ruler ticks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_423c7b4e",
+      "name": "RULER_TEXT_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the color of ruler text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f7ae383d",
+      "name": "PEN_HANDLE_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the radius of pen handles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_17192625",
+      "name": "PEN_VERTEX_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the radius of pen vertices."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a2719a6",
+      "name": "PEN_CLOSE_RADIUS_BOOST",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the radius boost for closing pen paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66436c6b",
+      "name": "PEN_PATH_STROKE_WIDTH",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the stroke width of pen paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_77747fd2",
+      "name": "DEFAULT_FONT_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the default font size for text elements."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a2ccb831",
+      "name": "LABEL_FONT_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the font size for labels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_abee72d3",
+      "name": "SIZE_FONT_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the font size for size indicators."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3437fa01",
+      "name": "ROTATION_HANDLE_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the radius of rotation handles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ac670663",
+      "name": "HANDLE_HALF_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define half the size of handles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9e58938",
+      "name": "LABEL_OFFSET_Y",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the vertical offset for labels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d8b1ab8",
+      "name": "SIZE_PILL_PADDING_X",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define horizontal padding for size pills."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_713c23cf",
+      "name": "SIZE_PILL_PADDING_Y",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define vertical padding for size pills."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_736109db",
+      "name": "SIZE_PILL_HEIGHT",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the height of size pills."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4830af89",
+      "name": "SIZE_PILL_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the corner radius of size pills."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8932f80c",
+      "name": "SIZE_PILL_TEXT_OFFSET_Y",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the vertical offset for text in size pills."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5987c9b6",
+      "name": "MARQUEE_FILL_ALPHA",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the alpha value for marquee fill."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6c291647",
+      "name": "SELECTION_DASH_ALPHA",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the alpha value for selection dash."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d8695df",
+      "name": "DROP_HIGHLIGHT_ALPHA",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the alpha value for drop highlight."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3d1040d1",
+      "name": "DROP_HIGHLIGHT_STROKE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the stroke width for drop highlight."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e03563b0",
+      "name": "LAYOUT_INDICATOR_STROKE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the stroke width for layout indicators."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3209eb87",
+      "name": "SECTION_CORNER_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the corner radius for sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f0062f12",
+      "name": "SECTION_TITLE_HEIGHT",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the height of section titles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_150bb667",
+      "name": "SECTION_TITLE_PADDING_X",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define horizontal padding for section titles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2047e55a",
+      "name": "SECTION_TITLE_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the corner radius for section titles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_20d9a104",
+      "name": "SECTION_TITLE_FONT_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the font size for section titles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9603ddb",
+      "name": "SECTION_TITLE_GAP",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the gap between section titles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3c1e78aa",
+      "name": "COMPONENT_SET_DASH",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the dash length for component sets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9f64fc0",
+      "name": "COMPONENT_SET_DASH_GAP",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the gap between dashes for component sets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_70a26409",
+      "name": "COMPONENT_SET_BORDER_WIDTH",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the border width for component sets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c061daf",
+      "name": "COMPONENT_LABEL_FONT_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the font size for component labels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b4c48f21",
+      "name": "COMPONENT_LABEL_GAP",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the gap between component labels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d18f0b9",
+      "name": "COMPONENT_LABEL_ICON_SIZE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the size of icons in component labels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_de427033",
+      "name": "COMPONENT_LABEL_ICON_GAP",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the gap between icons and text in component labels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eee53736",
+      "name": "RULER_TARGET_PIXEL_SPACING",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the target pixel spacing for rulers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_55475e45",
+      "name": "RULER_MAJOR_TOLERANCE",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the tolerance for major ruler ticks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7bd19400",
+      "name": "TEXT_SELECTION_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the color used for text selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_55f2108f",
+      "name": "TEXT_CARET_COLOR",
+      "enclosing_class": null,
+      "normalized_params": "(): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the color of the text caret."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_221140a0",
+      "name": "TEXT_CARET_WIDTH",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the width of the text caret."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_92dbd437",
+      "name": "DEFAULT_SHAPE_FILL",
+      "enclosing_class": null,
+      "normalized_params": "(): Fill",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the default fill for shapes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e3dcb138",
+      "name": "DEFAULT_FRAME_FILL",
+      "enclosing_class": null,
+      "normalized_params": "(): Fill",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the default fill for frames."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a074005",
+      "name": "SECTION_DEFAULT_FILL",
+      "enclosing_class": null,
+      "normalized_params": "(): Fill",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the default fill for sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_04afab1c",
+      "name": "SECTION_DEFAULT_STROKE",
+      "enclosing_class": null,
+      "normalized_params": "(): Stroke",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the default stroke for sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c08ae906",
+      "name": "HANDLE_HIT_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the hit radius for handles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69e859a9",
+      "name": "ROTATION_HIT_RADIUS",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the hit radius for rotation handles."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8462df0c",
+      "name": "ROTATION_HIT_OFFSET",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the offset for rotation hit detection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2bd4702a",
+      "name": "ROTATION_SNAP_DEGREES",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the degrees to snap rotation to."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d3f0ee8e",
+      "name": "PEN_CLOSE_THRESHOLD",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the threshold for closing pen paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d6f90798",
+      "name": "AUTO_LAYOUT_BREAK_THRESHOLD",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the threshold for auto layout breaking."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_33eaadf5",
+      "name": "DEFAULT_TEXT_WIDTH",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the default width for text elements."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b478c48a",
+      "name": "DEFAULT_TEXT_HEIGHT",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the default height for text elements."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

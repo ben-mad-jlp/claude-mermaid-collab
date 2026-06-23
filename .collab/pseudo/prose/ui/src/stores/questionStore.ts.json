@@ -1,0 +1,223 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/questionStore.ts",
+  "title": "Claude question management store with WebSocket response submission",
+  "purpose": "Manages the state of Claude questions including current question tracking, history, and response submission via WebSocket. Handles loading, error, and success states for question submissions.",
+  "module_context": "Exports a Zustand store for managing Claude questions with WebSocket integration for submitting responses. Includes a helper function for sending responses via WebSocket.",
+  "methods": [
+    {
+      "id": "m_57df7291",
+      "name": "submitQuestionResponse",
+      "enclosing_class": null,
+      "normalized_params": "(response: QuestionResponse): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Obtain the WebSocket client instance."
+        },
+        {
+          "order": 2,
+          "content": "Send a message to the WebSocket with the question response details."
+        },
+        {
+          "order": 3,
+          "content": "Include the question ID, answer, and timestamp in the message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_384e6d9d",
+      "name": "receiveQuestion",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(question: Question): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the current question in state."
+        },
+        {
+          "order": 2,
+          "content": "Add the new question to the beginning of the question history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d0929404",
+      "name": "submitResponse",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(response: QuestionResponse): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a current question exists and matches the response."
+        },
+        {
+          "order": 2,
+          "content": "IF validation fails, update submission state with error and return."
+        },
+        {
+          "order": 3,
+          "content": "Set submission state to loading."
+        },
+        {
+          "order": 4,
+          "content": "Send the response to the Claude Code question handler via WebSocket."
+        },
+        {
+          "order": 5,
+          "content": "IF submission succeeds, update state to show success and clear current question."
+        },
+        {
+          "order": 6,
+          "content": "IF submission fails, update state with error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c727bf3f",
+      "name": "dismissQuestion",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the current question from state."
+        },
+        {
+          "order": 2,
+          "content": "Reset submission state to initial values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9ee87ac4",
+      "name": "getQuestionHistory",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(): Question[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the current question history from state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7380825f",
+      "name": "clearHistory",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all questions from the question history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_be807da3",
+      "name": "setSubmitLoading",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(loading: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the loading state in submission state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5bb7966d",
+      "name": "setSubmitError",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(error: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the error state in submission state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a3dcc40",
+      "name": "setSubmitSuccess",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(success: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the success state in submission state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_959ad74e",
+      "name": "reset",
+      "enclosing_class": "useQuestionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the current question."
+        },
+        {
+          "order": 2,
+          "content": "Clear the question history."
+        },
+        {
+          "order": 3,
+          "content": "Reset submission state to initial values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

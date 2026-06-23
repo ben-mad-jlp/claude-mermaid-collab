@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dashboard/TaskGraphCard.tsx",
+  "title": "Task execution graph card with real-time updates",
+  "purpose": "Displays task execution graphs with loading, error, and empty states. Supports real-time updates via WebSocket and includes optional close functionality.",
+  "module_context": "Exports a React functional component TaskGraphCard that accepts project and session props, uses a custom hook for task graph data, and renders different UI states based on loading, error, or diagram availability.",
+  "methods": [
+    {
+      "id": "m_d6189779",
+      "name": "TaskGraphCard",
+      "enclosing_class": null,
+      "normalized_params": "(props: TaskGraphCardProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve task graph data and loading/error states from the useTaskGraph hook."
+        },
+        {
+          "order": 2,
+          "content": "IF loading state is active, render a centered spinner with loading message."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF an error occurred, display an error alert with the error message."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF no diagram is available, show a message indicating no tasks."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render the task diagram within a card layout with optional close button."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/pages/TopicEditorPage.tsx",
+  "title": "Topic editor page component with create/edit modes",
+  "purpose": "Provides a full page layout for creating or editing topics, including loading states, error handling, and navigation.",
+  "module_context": "Exports a React functional component TopicEditorPage that handles both create and edit modes for topics, with proper routing and state management.",
+  "methods": [
+    {
+      "id": "m_a153efdf",
+      "name": "TopicEditorPage",
+      "enclosing_class": null,
+      "normalized_params": "(props: TopicEditorPageProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine if the component is in create mode based on the presence of topic name."
+        },
+        {
+          "order": 2,
+          "content": "Fetch existing topic data when in edit mode using a custom hook."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback handler for navigation back after save or cancel actions."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback handler for saving topic data with simulated API call."
+        },
+        {
+          "order": 5,
+          "content": "Generate breadcrumb navigation based on whether in create or edit mode."
+        },
+        {
+          "order": 6,
+          "content": "Render loading state with spinner if in edit mode and data is still loading."
+        },
+        {
+          "order": 7,
+          "content": "Render error state with message and back button if in edit mode and data failed to load."
+        },
+        {
+          "order": 8,
+          "content": "Render not found state with message and back button if in edit mode and topic does not exist."
+        },
+        {
+          "order": 9,
+          "content": "Render the topic editor component with appropriate initial data and handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc76083a",
+      "name": "handleBack",
+      "enclosing_class": "TopicEditorPage",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a custom back callback is provided, invoke it."
+        },
+        {
+          "order": 2,
+          "content": "ELSE IF a topic name exists, navigate to the topic detail page."
+        },
+        {
+          "order": 3,
+          "content": "ELSE navigate to the topics list page."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43175f05",
+      "name": "handleSave",
+      "enclosing_class": "TopicEditorPage",
+      "normalized_params": "(documents: TopicDocuments, editedBy: string, verify: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Simulate an API call with a timeout."
+        },
+        {
+          "order": 2,
+          "content": "Log the topic saving details to console."
+        },
+        {
+          "order": 3,
+          "content": "IF a success callback is provided, invoke it with the topic name."
+        },
+        {
+          "order": 4,
+          "content": "ELSE navigate back using the back handler."
+        },
+        {
+          "order": 5,
+          "content": "IF the save operation fails, log the error and show an alert to the user."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/chat-drawer/ChatToggle.tsx",
+  "title": "Chat toggle button component with unread message badge",
+  "purpose": "Provides a fixed-position toggle button for opening/closing the chat drawer with visual feedback and unread message indicators.",
+  "module_context": "Exports a React functional component named ChatToggle that accepts props for click handling, unread count, and open state to render a styled toggle button with conditional icons and badge display.",
+  "methods": [
+    {
+      "id": "m_4f1114da",
+      "name": "ChatToggle",
+      "enclosing_class": null,
+      "normalized_params": "(props: ChatToggleProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a fixed-position button element with styling based on the open state."
+        },
+        {
+          "order": 2,
+          "content": "Display a hamburger icon when the drawer is open and a chat icon when closed."
+        },
+        {
+          "order": 3,
+          "content": "Show a red badge with unread message count when there are unread messages."
+        },
+        {
+          "order": 4,
+          "content": "Apply appropriate CSS classes for hover and active states based on the open state."
+        },
+        {
+          "order": 5,
+          "content": "Set aria-label and title attributes for accessibility and user feedback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

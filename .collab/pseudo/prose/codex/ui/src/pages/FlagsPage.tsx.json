@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/pages/FlagsPage.tsx",
+  "title": "Flags management page with layout and header",
+  "purpose": "Displays a full page for managing flags with filtering capabilities, wrapped in layout and header components.",
+  "module_context": "Exports a React functional component FlagsPage that accepts initialTab and className props, and renders a layout with header and flags view.",
+  "methods": [
+    {
+      "id": "m_339ed7fd",
+      "name": "FlagsPage",
+      "enclosing_class": null,
+      "normalized_params": "(props: FlagsPageProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept initialTab and className props with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Render the main layout container with provided class name."
+        },
+        {
+          "order": 3,
+          "content": "Display the page header with title, subtitle, and breadcrumbs."
+        },
+        {
+          "order": 4,
+          "content": "Render the flags view component inside a styled container with padding."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

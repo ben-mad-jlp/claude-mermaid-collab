@@ -1,0 +1,129 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/SmachPropertiesPane.tsx",
+  "title": "SMACH properties pane for editing state descriptions and transitions",
+  "purpose": "Provides a UI component for editing SMACH diagram state properties including description and transitions, with utility functions for content detection and parsing.",
+  "module_context": "Exports interfaces for SmachState and SmachPropertiesPaneProps, utility functions isSmachContent and parseSmachState for SMACH content handling, and the main SmachPropertiesPane React component.",
+  "methods": [
+    {
+      "id": "m_bd4cabc1",
+      "name": "isSmachContent",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test if the content matches the SMACH diagram pattern using a regular expression."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the pattern is found, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_363cd235",
+      "name": "parseSmachState",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, stateName: string): SmachState | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the YAML content into a structured object."
+        },
+        {
+          "order": 2,
+          "content": "Extract the states section from the parsed diagram."
+        },
+        {
+          "order": 3,
+          "content": "Look up the specified state name in the states collection."
+        },
+        {
+          "order": 4,
+          "content": "IF the state is not found, return null."
+        },
+        {
+          "order": 5,
+          "content": "Extract transitions from the state data and convert them to an array format."
+        },
+        {
+          "order": 6,
+          "content": "Construct and return a SmachState object with the state name, description, and transitions."
+        },
+        {
+          "order": 7,
+          "content": "IF parsing fails, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_932f38dd",
+      "name": "SmachPropertiesPane",
+      "enclosing_class": null,
+      "normalized_params": "(props: SmachPropertiesPaneProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking description editing and the current description value."
+        },
+        {
+          "order": 2,
+          "content": "Reset the description value and editing state when the selected state changes."
+        },
+        {
+          "order": 3,
+          "content": "IF no state is selected, return null to render nothing."
+        },
+        {
+          "order": 4,
+          "content": "Render the header with the state name and close button."
+        },
+        {
+          "order": 5,
+          "content": "Render the description section with edit and save functionality."
+        },
+        {
+          "order": 6,
+          "content": "Render the transitions section with list of transitions and add/remove controls."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dcfa1cb2",
+      "name": "handleSaveDescription",
+      "enclosing_class": "SmachPropertiesPane",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the onEditDescription callback with the current description value."
+        },
+        {
+          "order": 2,
+          "content": "Exit the editing mode for the description."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,212 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/permission-bridge.ts",
+  "title": "Permission bridge for managing tool use permissions with session-based controls",
+  "purpose": "Handles permission requests for tool use in agent sessions, supporting bypass, plan, and accept-edits modes with user interaction for decisions.",
+  "module_context": "Exports PendingPermission interface, PermissionBridgeDeps interface, ACCEPT_EDITS_TOOLS set, and the PermissionBridge class.",
+  "methods": [
+    {
+      "id": "m_cc49e802",
+      "name": "onPermissionRequest",
+      "enclosing_class": "PermissionBridge",
+      "normalized_params": "(sessionId: string, req: PermissionRequest): Promise<PermissionResponse>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract tool name and input from the permission request."
+        },
+        {
+          "order": 2,
+          "content": "Determine the permission mode for the session."
+        },
+        {
+          "order": 3,
+          "content": "IF the mode is bypass, automatically allow the tool use and broadcast the resolution."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the mode is plan, automatically deny the tool use and broadcast the resolution."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the mode is accept-edits and the tool is an editing tool, automatically allow the tool use and broadcast the resolution."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the session has an allowlist that includes this tool, automatically allow the tool use and broadcast the resolution."
+        },
+        {
+          "order": 7,
+          "content": "ELSE set up a pending entry for this tool use request and broadcast a permission requested event."
+        },
+        {
+          "order": 8,
+          "content": "Await user decision for the tool use request and return the appropriate permission response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc97a005",
+      "name": "resolvePermission",
+      "enclosing_class": "PermissionBridge",
+      "normalized_params": "(sessionId: string, promptId: string, decision: PermissionDecision, userLabel?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the pending permission entry for the given session and prompt ID."
+        },
+        {
+          "order": 2,
+          "content": "Clear the timeout timer for the pending entry."
+        },
+        {
+          "order": 3,
+          "content": "IF the decision is to allow for the session, add the tool name to the session's allowlist."
+        },
+        {
+          "order": 4,
+          "content": "Resolve the pending promise with the appropriate verdict and reason."
+        },
+        {
+          "order": 5,
+          "content": "Broadcast the permission resolved event for this tool use."
+        },
+        {
+          "order": 6,
+          "content": "Remove the pending entry from the session's pending map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ddba6258",
+      "name": "setMode",
+      "enclosing_class": "PermissionBridge",
+      "normalized_params": "(sessionId: string, mode: PermissionMode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Do nothing as this is a placeholder method for API symmetry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_04fae9e9",
+      "name": "cancelSessionPending",
+      "enclosing_class": "PermissionBridge",
+      "normalized_params": "(sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve all pending permission entries for the given session."
+        },
+        {
+          "order": 2,
+          "content": "For each pending entry, clear its timeout timer and resolve it as denied with a timeout reason."
+        },
+        {
+          "order": 3,
+          "content": "Broadcast a timeout event for each pending entry."
+        },
+        {
+          "order": 4,
+          "content": "Remove all pending entries for the session."
+        },
+        {
+          "order": 5,
+          "content": "Remove the session's allowlist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_90409388",
+      "name": "generateSettingsFile",
+      "enclosing_class": "PermissionBridge",
+      "normalized_params": "(sessionId: string, _socketPath: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique file name based on the session ID."
+        },
+        {
+          "order": 2,
+          "content": "Create the settings directory if it does not exist."
+        },
+        {
+          "order": 3,
+          "content": "Define the hook configuration for the Claude CLI settings file."
+        },
+        {
+          "order": 4,
+          "content": "Write the settings file with the hook configuration."
+        },
+        {
+          "order": 5,
+          "content": "Return the path to the generated settings file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a9f2192c",
+      "name": "makeResponse",
+      "enclosing_class": "PermissionBridge",
+      "normalized_params": "(verdict: PermissionVerdict, reason?: string): PermissionResponse",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return a permission response object with the specified verdict and reason."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_960cff2d",
+      "name": "broadcastResolved",
+      "enclosing_class": "PermissionBridge",
+      "normalized_params": "(sessionId: string, promptId: string, decision: PermissionDecision | 'timeout', resolvedBy: 'user' | 'mode_auto' | 'session_allowlist' | 'timeout', userLabel?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct an agent event for the permission resolution."
+        },
+        {
+          "order": 2,
+          "content": "Broadcast the permission resolved event to all listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

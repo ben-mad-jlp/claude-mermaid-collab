@@ -1,0 +1,18 @@
+{
+  "id": "milkdown-inspect-sidebar",
+  "name": "milkdown-inspect-sidebar",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1200
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('[data-doc-id], [data-testid], button, [role=button]')).filter(e => (e.textContent||'').includes('design-chat-parity-gaps')).slice(0,10).map(e => ({tag:e.tagName, cls:e.className, role:e.getAttribute('role'), testid:e.getAttribute('data-testid'), text:(e.textContent||'').slice(0,80)}))",
+        "as": "docEls"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:36:08.692Z",
+  "updatedAt": "2026-04-18T18:36:08.692Z"
+}

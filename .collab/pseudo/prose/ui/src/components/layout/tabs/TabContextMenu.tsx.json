@@ -1,0 +1,105 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/tabs/TabContextMenu.tsx",
+  "title": "Tab context menu component with interactive actions",
+  "purpose": "Provides a contextual menu for tabs with actions like closing, pinning, and revealing. Handles user interactions and outside clicks to dismiss.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_8fc8dcbe",
+      "name": "TabContextMenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: TabContextMenuProps): React.FC<TabContextMenuProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a reference to the menu element for DOM interaction."
+        },
+        {
+          "order": 2,
+          "content": "Set up event listeners for mouse clicks and keyboard input to dismiss the menu."
+        },
+        {
+          "order": 3,
+          "content": "Clean up event listeners when the component unmounts."
+        },
+        {
+          "order": 4,
+          "content": "Define a helper function to execute an action and then dismiss the menu."
+        },
+        {
+          "order": 5,
+          "content": "Render the menu UI with action buttons and appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_684c49af",
+      "name": "handleClickOutside",
+      "enclosing_class": "TabContextMenu",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click occurred outside the menu element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, dismiss the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d62a5bfa",
+      "name": "handleKeyDown",
+      "enclosing_class": "TabContextMenu",
+      "normalized_params": "(event: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for the Escape key press."
+        },
+        {
+          "order": 2,
+          "content": "IF Escape is pressed, dismiss the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_becc6959",
+      "name": "handle",
+      "enclosing_class": "TabContextMenu",
+      "normalized_params": "(cb: () => void): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the provided callback function."
+        },
+        {
+          "order": 2,
+          "content": "Dismiss the menu after executing the callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

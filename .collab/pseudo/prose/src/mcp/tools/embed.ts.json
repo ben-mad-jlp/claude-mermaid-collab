@@ -1,0 +1,191 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/embed.ts",
+  "title": "MCP Embed Tools for CRUD operations on embed resources",
+  "purpose": "Provides functions to create, list, and delete embed resources such as iframes and Storybook previews, with support for Storybook-specific configurations.",
+  "module_context": "Defines API constants for host and port, URL building utility, and interfaces for result types. Exports schemas for validation of input parameters for various embed operations.",
+  "methods": [
+    {
+      "id": "m_b38a0df1",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string, session: string, extraParams?: Record<string, string>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a base URL using the provided path and API base URL."
+        },
+        {
+          "order": 2,
+          "content": "Set the project parameter in the URL search parameters."
+        },
+        {
+          "order": 3,
+          "content": "Set the session parameter in the URL search parameters."
+        },
+        {
+          "order": 4,
+          "content": "If extra parameters are provided, add each key-value pair to the URL search parameters."
+        },
+        {
+          "order": 5,
+          "content": "Return the fully constructed URL string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_94b3d980",
+      "name": "handleCreateEmbed",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name: string, url: string, subtype?: string, width?: string, height?: string, storybook?: { storyId: string; port: number }): Promise<CreateEmbedResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare a request body with the provided name and URL."
+        },
+        {
+          "order": 2,
+          "content": "Add subtype, width, height, and storybook properties to the request body if they are defined."
+        },
+        {
+          "order": 3,
+          "content": "Send a POST request to the embed API endpoint with the constructed body."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, parse the error and throw a new error with the message."
+        },
+        {
+          "order": 5,
+          "content": "IF the response is successful, parse the JSON response and return an object with success status and the ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_68bc13bb",
+      "name": "handleListEmbeds",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<ListEmbedsResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the embeds API endpoint."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is successful, parse the JSON response and return an object with the embeds array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d0e8a126",
+      "name": "handleDeleteEmbed",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<DeleteEmbedResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a DELETE request to the specific embed API endpoint using the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, parse the error and throw a new error with the message."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is successful, return an object with a success status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bc6d2a4b",
+      "name": "handleCreateStorybookEmbed",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name: string, storyId: string, port?: number, host?: string): Promise<CreateEmbedResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the actual port and host for the Storybook server, defaulting to 6006 and localhost if not provided."
+        },
+        {
+          "order": 2,
+          "content": "Construct the URL for the Storybook iframe using the actual host and port."
+        },
+        {
+          "order": 3,
+          "content": "Delegate to the create embed handler with the constructed URL and storybook-specific configuration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2a214560",
+      "name": "handleListStorybookStories",
+      "enclosing_class": null,
+      "normalized_params": "(port?: number, host?: string): Promise<{ stories?: Array<{ id: string; title: string; name: string; importPath: string }>; error?: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the actual port and host for the Storybook server, defaulting to 6006 and localhost if not provided."
+        },
+        {
+          "order": 2,
+          "content": "Construct the index URL for the Storybook server."
+        },
+        {
+          "order": 3,
+          "content": "Send a GET request to the Storybook index URL."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, return an error message indicating the server could not be reached."
+        },
+        {
+          "order": 5,
+          "content": "IF the response is successful, parse the JSON and filter entries to include only those of type 'story'."
+        },
+        {
+          "order": 6,
+          "content": "Map the filtered entries to extract story ID, title, name, and import path."
+        },
+        {
+          "order": 7,
+          "content": "Return an object containing the extracted stories."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

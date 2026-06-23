@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/Checkbox.tsx",
+  "title": "Checkbox component with controlled and uncontrolled state management",
+  "purpose": "Provides a reusable checkbox group component that supports both controlled and uncontrolled state, with options for disabling individual checkboxes and managing selection changes.",
+  "module_context": "Exports a Checkbox React component with TypeScript interfaces for props and options, using React hooks for state management and accessibility attributes.",
+  "methods": [
+    {
+      "id": "m_68e778f5",
+      "name": "Checkbox",
+      "enclosing_class": null,
+      "normalized_params": "(props: CheckboxProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique ID for the component instance."
+        },
+        {
+          "order": 2,
+          "content": "Create a group ID and description ID for accessibility."
+        },
+        {
+          "order": 3,
+          "content": "Initialize internal state for checkbox values if not controlled externally."
+        },
+        {
+          "order": 4,
+          "content": "Determine whether to use controlled or internal values based on props."
+        },
+        {
+          "order": 5,
+          "content": "Define a change handler that updates values and notifies parent of changes."
+        },
+        {
+          "order": 6,
+          "content": "Render a fieldset containing the checkbox group with appropriate labels and accessibility attributes."
+        },
+        {
+          "order": 7,
+          "content": "Map over provided options to render individual checkboxes with their respective labels."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_097d4458",
+      "name": "handleChange",
+      "enclosing_class": "Checkbox",
+      "normalized_params": "(optionValue: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the new set of values by either removing or adding the option value."
+        },
+        {
+          "order": 2,
+          "content": "Update the internal state with the new values."
+        },
+        {
+          "order": 3,
+          "content": "Notify the parent component of the change via the onChange callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

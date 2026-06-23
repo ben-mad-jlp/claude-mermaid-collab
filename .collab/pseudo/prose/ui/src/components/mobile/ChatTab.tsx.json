@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/mobile/ChatTab.tsx",
+  "title": "Mobile chat tab component with full-screen wrapper",
+  "purpose": "Provides a full-screen chat interface for mobile devices that wraps the existing chat panel component and handles AI UI card rendering inline.",
+  "module_context": "Exports a React functional component named ChatTab that accepts messages, send handler, and auto-switch callback props. The component renders a full-height flex container wrapping the ChatPanel component.",
+  "methods": [
+    {
+      "id": "m_7aed3dcf",
+      "name": "ChatTab",
+      "enclosing_class": null,
+      "normalized_params": "(props: ChatTabProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Receive messages, send handler, and auto-switch callback as props."
+        },
+        {
+          "order": 2,
+          "content": "Render a full-height flex container with white background."
+        },
+        {
+          "order": 3,
+          "content": "Include the ChatPanel component inside the container."
+        },
+        {
+          "order": 4,
+          "content": "Pass the auto-switch callback to the ChatPanel component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

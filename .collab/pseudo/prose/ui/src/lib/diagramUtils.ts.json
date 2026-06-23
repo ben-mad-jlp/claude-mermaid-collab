@@ -1,0 +1,315 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/diagramUtils.ts",
+  "title": "Mermaid diagram utility functions for direction toggling and node extraction",
+  "purpose": "Provides utility functions for detecting and toggling diagram directions, extracting node and edge information from DOM elements, and building Mermaid node definitions and styles.",
+  "module_context": "Exports type definitions for diagram direction and node types, a constant mapping of node types to their shapes and styles, and functions for manipulating Mermaid diagram content and extracting information from DOM elements.",
+  "methods": [
+    {
+      "id": "m_5a0aa608",
+      "name": "detectDirection",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): DiagramDirection | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the input content is a non-empty string."
+        },
+        {
+          "order": 2,
+          "content": "Match the content against a regex pattern to detect diagram direction."
+        },
+        {
+          "order": 3,
+          "content": "IF a match is found, return the detected direction in uppercase."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return null indicating no direction was detected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8aa71938",
+      "name": "toggleDirection",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): ToggleDirectionResult",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the input content is a non-empty string."
+        },
+        {
+          "order": 2,
+          "content": "Detect the current direction of the diagram."
+        },
+        {
+          "order": 3,
+          "content": "Determine the new direction based on the pairing of LR/TD or RL/BT."
+        },
+        {
+          "order": 4,
+          "content": "IF a direction is found, replace it in the content with the new direction."
+        },
+        {
+          "order": 5,
+          "content": "ELSE add the new direction after the diagram type in the content."
+        },
+        {
+          "order": 6,
+          "content": "Return an object containing the updated content, old direction, and new direction."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_049d07f5",
+      "name": "escapeRegex",
+      "enclosing_class": null,
+      "normalized_params": "(str: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Take the input string and escape all special regex characters."
+        },
+        {
+          "order": 2,
+          "content": "Return the escaped string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f153c507",
+      "name": "extractNodeId",
+      "enclosing_class": null,
+      "normalized_params": "(element: Element): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Start walking up the DOM tree from the given element."
+        },
+        {
+          "order": 2,
+          "content": "Check for a data-id attribute on the current element."
+        },
+        {
+          "order": 3,
+          "content": "IF a data-id is found, return it immediately."
+        },
+        {
+          "order": 4,
+          "content": "ELSE check for an id attribute that starts with flowchart-."
+        },
+        {
+          "order": 5,
+          "content": "IF an id matches the older format, extract and return the node ID."
+        },
+        {
+          "order": 6,
+          "content": "ELSE continue walking up the DOM tree until a match is found or root is reached."
+        },
+        {
+          "order": 7,
+          "content": "IF no match is found, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b63e7cd",
+      "name": "extractEdgeInfo",
+      "enclosing_class": null,
+      "normalized_params": "(element: Element): { source: string; target: string; label?: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Start walking up the DOM tree from the given element."
+        },
+        {
+          "order": 2,
+          "content": "Check if the current element has the class edgePath."
+        },
+        {
+          "order": 3,
+          "content": "IF the class is found, extract the edge ID from the id or data-id attribute."
+        },
+        {
+          "order": 4,
+          "content": "Parse the edge ID to extract source and target node IDs."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing is successful, return an object with source, target, and optional label."
+        },
+        {
+          "order": 6,
+          "content": "ELSE continue walking up the DOM tree until a match is found or root is reached."
+        },
+        {
+          "order": 7,
+          "content": "IF no match is found, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7a48cd8b",
+      "name": "findNodeLine",
+      "enclosing_class": null,
+      "normalized_params": "(nodeId: string, content: string): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines."
+        },
+        {
+          "order": 2,
+          "content": "Construct a regex pattern to match the node ID followed by shape characters."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through each line to find a match for the pattern."
+        },
+        {
+          "order": 4,
+          "content": "IF a match is found, return the 1-indexed line number."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return null indicating the node was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad144766",
+      "name": "findEdgeLine",
+      "enclosing_class": null,
+      "normalized_params": "(source: string, target: string, content: string): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the content into lines."
+        },
+        {
+          "order": 2,
+          "content": "Construct a regex pattern to match source and target node IDs with connection arrows."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through each line to find a match for the pattern."
+        },
+        {
+          "order": 4,
+          "content": "IF a match is found, return the 1-indexed line number."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return null indicating the edge was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_07484af3",
+      "name": "generateNodeId",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, prefix: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find all existing node IDs in the content using a regex pattern."
+        },
+        {
+          "order": 2,
+          "content": "Store the existing IDs in a set for fast lookup."
+        },
+        {
+          "order": 3,
+          "content": "Start with a counter of 1 and increment until a unique ID is found."
+        },
+        {
+          "order": 4,
+          "content": "Return the unique node ID constructed from the prefix and counter."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0b18a87b",
+      "name": "buildNodeDefinition",
+      "enclosing_class": null,
+      "normalized_params": "(id: string, label: string, type: NodeType['name']): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node type definition from the NODE_TYPES constant."
+        },
+        {
+          "order": 2,
+          "content": "Construct and return a Mermaid node definition string using the ID, label, and shape characters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2988bd48",
+      "name": "buildNodeStyle",
+      "enclosing_class": null,
+      "normalized_params": "(id: string, type: NodeType['name']): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node type definition from the NODE_TYPES constant."
+        },
+        {
+          "order": 2,
+          "content": "Construct and return a Mermaid style statement string using the ID and style."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

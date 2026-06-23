@@ -1,0 +1,116 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/dispatcher.ts",
+  "title": "Agent dispatcher for handling WebSocket commands and managing session lifecycle",
+  "purpose": "Routes incoming agent commands to appropriate session handlers and manages WebSocket subscriptions and event replay.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_0cd632ee",
+      "name": "handle",
+      "enclosing_class": "AgentDispatcher",
+      "normalized_params": "(ws: AgentWS, cmd: AgentCommand): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process the command based on its kind."
+        },
+        {
+          "order": 2,
+          "content": "For agent_start, create or retrieve the session and subscribe to events."
+        },
+        {
+          "order": 3,
+          "content": "For agent_resume, attempt to resume the session or fall back to creating it."
+        },
+        {
+          "order": 4,
+          "content": "For agent_send, validate the session is alive and forward the message."
+        },
+        {
+          "order": 5,
+          "content": "For agent_cancel, cancel the current turn in the session."
+        },
+        {
+          "order": 6,
+          "content": "For agent_stop, stop the session."
+        },
+        {
+          "order": 7,
+          "content": "For agent_delete_session, delete the session."
+        },
+        {
+          "order": 8,
+          "content": "For agent_permission_resolve, resolve a permission decision."
+        },
+        {
+          "order": 9,
+          "content": "For agent_commit_push_pr, execute a commit and push PR operation."
+        },
+        {
+          "order": 10,
+          "content": "IF any command fails, emit an error to the caller."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ac1d6a38",
+      "name": "subscribeAndReplay",
+      "enclosing_class": "AgentDispatcher",
+      "normalized_params": "(ws: AgentWS, sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the session to the WebSocket's subscriptions."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the transcript for the session."
+        },
+        {
+          "order": 3,
+          "content": "For each event in the transcript, send it to the WebSocket."
+        },
+        {
+          "order": 4,
+          "content": "Ignore errors from sending to dead WebSockets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c41f160",
+      "name": "emitErrorToCaller",
+      "enclosing_class": "AgentDispatcher",
+      "normalized_params": "(ws: AgentWS, sessionId: string, where: ErrorEvent['where'], message: string, recoverable: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct an error event with the provided details."
+        },
+        {
+          "order": 2,
+          "content": "Send the error event to the WebSocket."
+        },
+        {
+          "order": 3,
+          "content": "Ignore errors from sending to dead WebSockets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

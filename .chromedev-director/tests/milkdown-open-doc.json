@@ -1,0 +1,25 @@
+{
+  "id": "milkdown-open-doc",
+  "name": "milkdown-open-doc",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 800
+      },
+      {
+        "click_text": "design-chat-parity-gaps",
+        "label": "open doc"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "({hasMilkdown: !!document.querySelector('.milkdown, [class*=milkdown], .ProseMirror'), editorCount: document.querySelectorAll('.ProseMirror').length, innerText: (document.querySelector('.ProseMirror')?.innerText || '').slice(0, 500), editorHTML: (document.querySelector('.ProseMirror')?.innerHTML || '').slice(0, 1500)})",
+        "as": "editor"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:35:39.812Z",
+  "updatedAt": "2026-04-18T18:35:39.812Z"
+}

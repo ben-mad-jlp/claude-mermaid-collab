@@ -38,6 +38,25 @@ export default defineConfig({
         target: `ws://localhost:${API_PORT}`,
         ws: true,
       },
+      // Per-server terminal bridge: the client namespaces the PTY WS URL as
+      // /_per-server/<serverId>/terminal/<ptyId> (terminal-ws.ts). In the desktop
+      // app a proxy strips /_per-server/<serverId> and forwards to the resolved
+      // server (desktop/src/main/server-proxy.ts). In plain web dev there's only
+      // one backend, so strip the prefix and forward the rest to the API.
+      '/_per-server': {
+        target: `ws://localhost:${API_PORT}`,
+        ws: true,
+        rewrite: (p) => p.replace(/^\/_per-server\/[^/]*/, ''),
+      },
+      // Server-id-prefixed REST calls: apiFetch() routes writes through
+      // /srv/<serverId>/api/... (api.ts). The desktop shell terminates this via
+      // invokeOnServer; in plain web dev there's a single backend, so strip the
+      // /srv/<serverId> segment (possibly empty/`local`) and forward to the API.
+      '/srv': {
+        target: `http://localhost:${API_PORT}`,
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/srv\/[^/]*/, ''),
+      },
     },
   },
   esbuild: {

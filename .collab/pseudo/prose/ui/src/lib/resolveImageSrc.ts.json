@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/resolveImageSrc.ts",
+  "title": "Resolves markdown image sources to backend API endpoints for collab-specific references",
+  "purpose": "Converts image source URLs that reference project-specific design or diagram assets into backend API endpoints, while leaving regular URLs unchanged.",
+  "module_context": "Exports a function that accepts an image source string and context object containing project, session, and theme information.",
+  "methods": [
+    {
+      "id": "m_271e2b12",
+      "name": "resolveImageSrc",
+      "enclosing_class": null,
+      "normalized_params": "(src: string, ctx: ResolveImageSrcContext): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract project, session, and theme from the context, defaulting theme to 'dark'."
+        },
+        {
+          "order": 2,
+          "content": "IF the source string is empty, return it unchanged."
+        },
+        {
+          "order": 3,
+          "content": "IF project or session information is missing, return the source unchanged."
+        },
+        {
+          "order": 4,
+          "content": "Construct URL parameters including project and session."
+        },
+        {
+          "order": 5,
+          "content": "IF the source starts with '@design/', extract the ID and return a design render API endpoint."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the source starts with '@diagram/', extract the ID and return a diagram render API endpoint with theme parameter."
+        },
+        {
+          "order": 7,
+          "content": "ELSE IF the source matches the designs/diagrams path pattern, extract the ID and return the appropriate API endpoint."
+        },
+        {
+          "order": 8,
+          "content": "ELSE return the original source string unchanged."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

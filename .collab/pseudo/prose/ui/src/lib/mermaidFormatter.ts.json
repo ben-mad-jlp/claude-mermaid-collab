@@ -1,0 +1,79 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/mermaidFormatter.ts",
+  "title": "Mermaid diagram formatter with indentation and arrow normalization",
+  "purpose": "Normalizes Mermaid diagram syntax by handling indentation, arrow operators, and subgraph structure while preserving diagram semantics.",
+  "module_context": "Exports FormatOptions and FormatResult interfaces, and two utility functions: formatMermaid for formatting diagrams and canFormat for validation.",
+  "methods": [
+    {
+      "id": "m_ff9429e2",
+      "name": "formatMermaid",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, options: FormatOptions): FormatResult",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input content into individual lines."
+        },
+        {
+          "order": 2,
+          "content": "Initialize result array and indentation tracking variables."
+        },
+        {
+          "order": 3,
+          "content": "Process each line by trimming whitespace and skipping empty lines."
+        },
+        {
+          "order": 4,
+          "content": "IF the line matches a diagram type declaration, preserve it as-is and continue."
+        },
+        {
+          "order": 5,
+          "content": "IF the line starts a subgraph, increase indentation level and add it to results."
+        },
+        {
+          "order": 6,
+          "content": "IF the line ends a subgraph, decrease indentation level and add it to results."
+        },
+        {
+          "order": 7,
+          "content": "ELSE normalize arrow syntax with consistent spacing and apply current indentation."
+        },
+        {
+          "order": 8,
+          "content": "Return the formatted content with success status or error details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_614f5657",
+      "name": "canFormat",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the first line of the content and trim whitespace."
+        },
+        {
+          "order": 2,
+          "content": "Check if the first line matches any known Mermaid diagram type."
+        },
+        {
+          "order": 3,
+          "content": "Return true if a match is found, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,2016 @@
+{
+  "id": "2026-04-25T19-51-48-436Z-5",
+  "testId": "collab-interaction-test",
+  "status": "failed",
+  "result": {
+    "status": "failed",
+    "failed_step": 6,
+    "step_definition": {
+      "click": {
+        "selector": "[data-testid=\"theme-toggle\"]"
+      }
+    },
+    "error": "Failed to click [data-testid=\"theme-toggle\"]: Error: Element not found: [data-testid=\"theme-toggle\"]",
+    "console_errors": [
+      "[vite] connecting...",
+      "[vite] connected.",
+      "[global-sdk] event stream error [object Object]"
+    ],
+    "dom_snapshot": "<html lang=\"en\" style=\"background-color: var(--background-base); --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, &quot;Liberation Mono&quot;, &quot;Courier New&quot;, monospace; --font-family-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif; --dialog-left-margin: 48px;\" data-theme=\"oc-2\" data-color-scheme=\"light\"><head><script type=\"module\" src=\"/@vite/client\"></script><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, interactive-widget=resizes-content\"><title>OpenCode</title><link rel=\"icon\" type=\"image/png\" href=\"/favicon-96x96-v3.png\" sizes=\"96x96\"><link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon-v3.svg\"><link rel=\"shortcut icon\" href=\"/favicon-v3.ico\"><link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/apple-touch-icon-v3.png\"><link rel=\"manifest\" href=\"/site.webmanifest\"><meta name=\"theme-color\" content=\"#F8F7F7\"><meta name=\"theme-color\" content=\"#131010\" media=\"(prefers-color-scheme: dark)\"><meta property=\"og:image\" content=\"/social-share.png\"><meta property=\"twitter:image\" content=\"/social-share.png\"><script id=\"oc-theme-preload-script\">;(function () {\n  var key = \"opencode-theme-id\"\n  var themeId = localStorage.getItem(key) || \"oc-2\"\n\n  if (themeId === \"oc-1\") {\n    themeId = \"oc-2\"\n    localStorage.setItem(key, themeId)\n    localStorage.removeItem(\"opencode-theme-css-light\")\n    localStorage.removeItem(\"opencode-theme-css-dark\")\n  }\n\n  var scheme = localStorage.getItem(\"opencode-color-scheme\") || \"system\"\n  var isDark = scheme === \"dark\" || (scheme === \"system\" && matchMedia(\"(prefers-color-scheme: dark)\").matches)\n  var mode = isDark ? \"dark\" : \"light\"\n\n  document.documentElement.dataset.theme = themeId\n  document.documentElement.dataset.colorScheme = mode\n\n  if (themeId === \"oc-2\") return\n\n  var css = localStorage.getItem(\"opencode-theme-css-\" + mode)\n  if (css) {\n    var style = document.createElement(\"style\")\n    style.id = \"oc-theme-preload\"\n    style.textContent =\n      \":root{color-scheme:\" +\n      mode +\n      \";--text-mix-blend-mode:\" +\n      (isDark ? \"plus-lighter\" : \"multiply\") +\n      \";\" +\n      css +\n      \"}\"\n    document.head.appendChild(style)\n  }\n})()\n</script><style type=\"text/css\" data-vite-dev-id=\"/srv/codebase/open-collab/packages/app/src/index.css\">/*! tailwindcss v4.1.11 | MIT License | https://tailwindcss.com */\n@layer properties;\n@layer theme, base, components, utilities;\n@layer theme {\n  :root, :host {\n    --spacing: 0.25rem;\n    --container-sm: 24rem;\n    --container-md: 28rem;\n    --container-xl: 36rem;\n    --container-2xl: 42rem;\n    --container-3xl: 48rem;\n    --font-sans: var(--font-family-sans);\n    --font-sans--font-feature-settings: var(--font-family-sans--font-feature-settings);\n    --font-mono: var(--font-family-mono);\n    --font-mono--font-feature-settings: var(--font-family-mono--font-feature-settings);\n    --text-sm: var(--font-size-small);\n    --text-base: var(--font-size-base);\n    --text-lg: var(--font-size-large);\n    --text-xl: var(--font-size-x-large);\n    --font-weight-regular: var(--font-weight-regular);\n    --font-weight-medium: var(--font-weight-medium);\n    --radius-xs: 0.125rem;\n    --radius-sm: 0.25rem;\n    --radius-md: 0.375rem;\n    --radius-lg: 0.5rem;\n    --radius-xl: 0.625rem;\n    --shadow-xs: var(--shadow-xs);\n    --shadow-md: var(--shadow-md);\n    --shadow-xs-border: var(--shadow-xs-border);\n    --shadow-xs-border-base: var(--shadow-xs-border-base);\n    --shadow-xs-border-select: var(--shadow-xs-border-select);\n    --shadow-xs-border-focus: var(--shadow-xs-border-focus);\n    --shadow-xs-border-hover: var(--shadow-xs-border-hover);\n    --shadow-xs-border-critical-base: var(--shadow-xs-border-critical-base);\n    --shadow-lg-border-base: var(--shadow-lg-border-base);\n    --animate-pulse: var(--animate-pulse);\n    --color-background-base: var(--background-base);\n    --color-background-weak: var(--background-weak);\n    --color-background-strong: var(--background-strong);\n    --color-background-stronger: var(--background-stronger);\n    --color-surface-base: var(--surface-base);\n    --color-base: var(--base);\n    --color-surface-base-hover: var(--surface-base-hover);\n    --color-surface-base-active: var(--surface-base-active);\n    --color-surface-inset-base: var(--surface-inset-base);\n    --color-surface-raised-base: var(--surface-raised-base);\n    --color-surface-raised-base-hover: var(--surface-raised-base-hover);\n    --color-surface-raised-base-active: var(--surface-raised-base-active);\n    --color-surface-weak: var(--surface-weak);\n    --color-surface-strong: var(--surface-strong);\n    --color-surface-raised-stronger-non-alpha: var(--surface-raised-stronger-non-alpha);\n    --color-surface-interactive-hover: var(--surface-interactive-hover);\n    --color-surface-interactive-weak: var(--surface-interactive-weak);\n    --color-surface-warning-strong: var(--surface-warning-strong);\n    --color-surface-critical-weak: var(--surface-critical-weak);\n    --color-surface-info-base: var(--surface-info-base);\n    --color-text-base: var(--text-base);\n    --color-input-base: var(--input-base);\n    --color-text-weak: var(--text-weak);\n    --color-text-weaker: var(--text-weaker);\n    --color-text-strong: var(--text-strong);\n    --color-text-interactive-base: var(--text-interactive-base);\n    --color-text-on-critical-base: var(--text-on-critical-base);\n    --color-text-diff-delete-base: var(--text-diff-delete-base);\n    --color-border-base: var(--border-base);\n    --color-border-hover: var(--border-hover);\n    --color-border-weak-base: var(--border-weak-base);\n    --color-border-strong-base: var(--border-strong-base);\n    --color-border-weaker-base: var(--border-weaker-base);\n    --color-icon-base: var(--icon-base);\n    --color-icon-weak-base: var(--icon-weak-base);\n    --color-icon-strong-base: var(--icon-strong-base);\n    --color-icon-interactive-base: var(--icon-interactive-base);\n    --color-icon-success-base: var(--icon-success-base);\n    --color-icon-warning-base: var(--icon-warning-base);\n    --color-icon-critical-base: var(--icon-critical-base);\n    --color-icon-info-active: var(--icon-info-active);\n    --color-icon-on-interactive-base: var(--icon-on-interactive-base);\n    --color-syntax-property: var(--syntax-property);\n    --color-syntax-type: var(--syntax-type);\n  }\n}\n@layer utilities {\n  .\\@container {\n    container-type: inline-size;\n  }\n  .pointer-events-auto {\n    pointer-events: auto;\n  }\n  .pointer-events-none {\n    pointer-events: none;\n  }\n  .collapse {\n    visibility: collapse;\n  }\n  .invisible {\n    visibility: hidden;\n  }\n  .visible {\n    visibility: visible;\n  }\n  .sr-only {\n    position: absolute;\n    width: 1px;\n    height: 1px;\n    padding: 0;\n    margin: -1px;\n    overflow: hidden;\n    clip: rect(0, 0, 0, 0);\n    white-space: nowrap;\n    border-width: 0;\n  }\n  .absolute {\n    position: absolute;\n  }\n  .fixed {\n    position: fixed;\n  }\n  .relative {\n    position: relative;\n  }\n  .static {\n    position: static;\n  }\n  .sticky {\n    position: sticky;\n  }\n  .inset-0 {\n    inset: calc(var(--spacing) * 0);\n  }\n  .inset-x-0 {\n    inset-inline: calc(var(--spacing) * 0);\n  }\n  .inset-y-0 {\n    inset-block: calc(var(--spacing) * 0);\n  }\n  .-top-1\\.5 {\n    top: calc(var(--spacing) * -1.5);\n  }\n  .-top-2 {\n    top: calc(var(--spacing) * -2);\n  }\n  .-top-4 {\n    top: calc(var(--spacing) * -4);\n  }\n  .-top-px {\n    top: -1px;\n  }\n  .top-0 {\n    top: calc(var(--spacing) * 0);\n  }\n  .top-1\\/2 {\n    top: calc(1/2 * 100%);\n  }\n  .top-2 {\n    top: calc(var(--spacing) * 2);\n  }\n  .top-7 {\n    top: calc(var(--spacing) * 7);\n  }\n  .top-10 {\n    top: calc(var(--spacing) * 10);\n  }\n  .top-20 {\n    top: calc(var(--spacing) * 20);\n  }\n  .top-px {\n    top: 1px;\n  }\n  .-right-1\\.5 {\n    right: calc(var(--spacing) * -1.5);\n  }\n  .-right-4 {\n    right: calc(var(--spacing) * -4);\n  }\n  .-right-px {\n    right: -1px;\n  }\n  .right-0 {\n    right: calc(var(--spacing) * 0);\n  }\n  .right-1 {\n    right: calc(var(--spacing) * 1);\n  }\n  .right-2 {\n    right: calc(var(--spacing) * 2);\n  }\n  .right-3 {\n    right: calc(var(--spacing) * 3);\n  }\n  .right-px {\n    right: 1px;\n  }\n  .bottom-0 {\n    bottom: calc(var(--spacing) * 0);\n  }\n  .bottom-2 {\n    bottom: calc(var(--spacing) * 2);\n  }\n  .bottom-3 {\n    bottom: calc(var(--spacing) * 3);\n  }\n  .bottom-6 {\n    bottom: calc(var(--spacing) * 6);\n  }\n  .left-0 {\n    left: calc(var(--spacing) * 0);\n  }\n  .left-1\\/2 {\n    left: calc(1/2 * 100%);\n  }\n  .left-2 {\n    left: calc(var(--spacing) * 2);\n  }\n  .left-16 {\n    left: calc(var(--spacing) * 16);\n  }\n  .isolate {\n    isolation: isolate;\n  }\n  .z-0 {\n    z-index: 0;\n  }\n  .z-10 {\n    z-index: 10;\n  }\n  .z-20 {\n    z-index: 20;\n  }\n  .z-25 {\n    z-index: 25;\n  }\n  .z-30 {\n    z-index: 30;\n  }\n  .z-40 {\n    z-index: 40;\n  }\n  .z-50 {\n    z-index: 50;\n  }\n  .z-\\[60\\] {\n    z-index: 60;\n  }\n  .col-span-2 {\n    grid-column: span 2 / span 2;\n  }\n  .container {\n    width: 100%;\n    @media (width >= 40rem) {\n      max-width: 40rem;\n    }\n    @media (width >= 48rem) {\n      max-width: 48rem;\n    }\n    @media (width >= 64rem) {\n      max-width: 64rem;\n    }\n    @media (width >= 80rem) {\n      max-width: 80rem;\n    }\n    @media (width >= 96rem) {\n      max-width: 96rem;\n    }\n    @media (width >= 112rem) {\n      max-width: 112rem;\n    }\n    @media (width >= 128rem) {\n      max-width: 128rem;\n    }\n    @media (width >= 144rem) {\n      max-width: 144rem;\n    }\n  }\n  .-m-3 {\n    margin: calc(var(--spacing) * -3);\n  }\n  .m-0 {\n    margin: calc(var(--spacing) * 0);\n  }\n  .m-1 {\n    margin: calc(var(--spacing) * 1);\n  }\n  .-mx-2 {\n    margin-inline: calc(var(--spacing) * -2);\n  }\n  .mx-1 {\n    margin-inline: calc(var(--spacing) * 1);\n  }\n  .mx-3 {\n    margin-inline: calc(var(--spacing) * 3);\n  }\n  .mx-auto {\n    margin-inline: auto;\n  }\n  .-my-1 {\n    margin-block: calc(var(--spacing) * -1);\n  }\n  .-my-2\\.5 {\n    margin-block: calc(var(--spacing) * -2.5);\n  }\n  .my-0\\.5 {\n    margin-block: calc(var(--spacing) * 0.5);\n  }\n  .my-1 {\n    margin-block: calc(var(--spacing) * 1);\n  }\n  .my-4 {\n    margin-block: calc(var(--spacing) * 4);\n  }\n  .my-16 {\n    margin-block: calc(var(--spacing) * 16);\n  }\n  .my-auto {\n    margin-block: auto;\n  }\n  .-mt-4 {\n    margin-top: calc(var(--spacing) * -4);\n  }\n  .-mt-20 {\n    margin-top: calc(var(--spacing) * -20);\n  }\n  .mt-0 {\n    margin-top: calc(var(--spacing) * 0);\n  }\n  .mt-0\\.5 {\n    margin-top: calc(var(--spacing) * 0.5);\n  }\n  .mt-1 {\n    margin-top: calc(var(--spacing) * 1);\n  }\n  .mt-1\\.5 {\n    margin-top: calc(var(--spacing) * 1.5);\n  }\n  .mt-2 {\n    margin-top: calc(var(--spacing) * 2);\n  }\n  .mt-3 {\n    margin-top: calc(var(--spacing) * 3);\n  }\n  .mt-4 {\n    margin-top: calc(var(--spacing) * 4);\n  }\n  .mt-5 {\n    margin-top: calc(var(--spacing) * 5);\n  }\n  .mt-6 {\n    margin-top: calc(var(--spacing) * 6);\n  }\n  .mt-8 {\n    margin-top: calc(var(--spacing) * 8);\n  }\n  .mt-20 {\n    margin-top: calc(var(--spacing) * 20);\n  }\n  .mt-30 {\n    margin-top: calc(var(--spacing) * 30);\n  }\n  .mt-55 {\n    margin-top: calc(var(--spacing) * 55);\n  }\n  .-mr-1 {\n    margin-right: calc(var(--spacing) * -1);\n  }\n  .mr-1 {\n    margin-right: calc(var(--spacing) * 1);\n  }\n  .mr-1\\.5 {\n    margin-right: calc(var(--spacing) * 1.5);\n  }\n  .mr-2 {\n    margin-right: calc(var(--spacing) * 2);\n  }\n  .mb-1 {\n    margin-bottom: calc(var(--spacing) * 1);\n  }\n  .mb-2 {\n    margin-bottom: calc(var(--spacing) * 2);\n  }\n  .mb-3 {\n    margin-bottom: calc(var(--spacing) * 3);\n  }\n  .mb-4 {\n    margin-bottom: calc(var(--spacing) * 4);\n  }\n  .mb-6 {\n    margin-bottom: calc(var(--spacing) * 6);\n  }\n  .-ml-1 {\n    margin-left: calc(var(--spacing) * -1);\n  }\n  .-ml-2 {\n    margin-left: calc(var(--spacing) * -2);\n  }\n  .ml-0 {\n    margin-left: calc(var(--spacing) * 0);\n  }\n  .ml-0\\.5 {\n    margin-left: calc(var(--spacing) * 0.5);\n  }\n  .ml-1 {\n    margin-left: calc(var(--spacing) * 1);\n  }\n  .ml-2 {\n    margin-left: calc(var(--spacing) * 2);\n  }\n  .ml-3 {\n    margin-left: calc(var(--spacing) * 3);\n  }\n  .ml-4 {\n    margin-left: calc(var(--spacing) * 4);\n  }\n  .ml-5 {\n    margin-left: calc(var(--spacing) * 5);\n  }\n  .ml-14 {\n    margin-left: calc(var(--spacing) * 14);\n  }\n  .ml-auto {\n    margin-left: auto;\n  }\n  .box-border {\n    box-sizing: border-box;\n  }\n  .no-scrollbar {\n …</style><style id=\"oc-theme\">:root {\n  color-scheme: light;\n  --text-mix-blend-mode: multiply;\n  --background-base: #f8f8f8;\n  --background-weak: #ededed;\n  --background-strong: #f8f8f8;\n  --background-stronger: #fcfcfc;\n  --surface-base: #F8F8F8;\n  --base: #ebebeb;\n  --surface-base-hover: #0000000A;\n  --surface-base-active: #e2e2e2;\n  --surface-base-interactive-active: rgba(237, 243, 254, 0.3);\n  --base2: #ebebeb;\n  --base3: #ebebeb;\n  --surface-inset-base: #ebebeb;\n  --surface-inset-base-hover: #e2e2e2;\n  --surface-inset-strong: rgba(230, 230, 230, 0.09);\n  --surface-inset-strong-hover: rgba(230, 230, 230, 0.09);\n  --surface-raised-base: #F3F3F3;\n  --surface-float-base: #1d1917;\n  --surface-float-base-hover: #3b3735;\n  --surface-raised-base-hover: #EDEDED;\n  --surface-raised-base-active: #e2e2e2;\n  --surface-raised-strong: #f8f8f8;\n  --surface-raised-strong-hover: #ffffff;\n  --surface-raised-stronger: #ffffff;\n  --surface-raised-stronger-hover: #ffffff;\n  --surface-weak: #e2e2e2;\n  --surface-weaker: #d8d8d7;\n  --surface-strong: #ffffff;\n  --surface-raised-stronger-non-alpha: #ffffff;\n  --surface-brand-base: #dddf79;\n  --surface-brand-hover: #d2d369;\n  --surface-interactive-base: #d2e1fd;\n  --surface-interactive-hover: #bfd3fc;\n  --surface-interactive-weak: #F5FAFF;\n  --surface-interactive-weak-hover: #d2e1fd;\n  --surface-success-base: #E6FFE5;\n  --surface-success-weak: #bbffb4;\n  --surface-success-strong: #197414;\n  --surface-warning-base: #fce05a;\n  --surface-warning-weak: #feeb92;\n  --surface-warning-strong: #6f6015;\n  --surface-critical-base: #FFF2F0;\n  --surface-critical-weak: #fde3de;\n  --surface-critical-strong: #af210d;\n  --surface-info-base: #fbcffe;\n  --surface-info-weak: #fcdffe;\n  --surface-info-strong: #912a9a;\n  --surface-diff-unchanged-base: #ffffff00;\n  --surface-diff-skip-base: #f2f2f2;\n  --surface-diff-hidden-base: #e5e9f2;\n  --surface-diff-hidden-weak: #ebeef4;\n  --surface-diff-hidden-weaker: #dfe4f0;\n  --surface-diff-hidden-strong: #d2dbec;\n  --surface-diff-hidden-stronger: #bfcce7;\n  --surface-diff-add-base: #d9ffd6;\n  --surface-diff-add-weak: #efffee;\n  --surface-diff-add-weaker: #f9fff8;\n  --surface-diff-add-strong: #b0f5ab;\n  --surface-diff-add-stronger: #8ff78a;\n  --surface-diff-delete-base: #feeeeb;\n  --surface-diff-delete-weak: #fef8f6;\n  --surface-diff-delete-weaker: #fffcfb;\n  --surface-diff-delete-strong: #fec2b6;\n  --surface-diff-delete-stronger: #fb543c;\n  --input-base: #f8f8f8;\n  --input-hover: #f2f2f2;\n  --input-active: #fcfdff;\n  --input-selected: #e0eafd;\n  --input-focus: #fcfdff;\n  --input-disabled: #e6e6e6;\n  --text-base: #6F6F6F;\n  --text-weak: #8F8F8F;\n  --text-weaker: #C7C7C7;\n  --text-strong: #171717;\n  --text-invert-base: #f2f2f2;\n  --text-invert-weak: #ededed;\n  --text-invert-weaker: #e6e6e6;\n  --text-invert-strong: #f8f8f8;\n  --text-interactive-base: #0445e6;\n  --text-on-brand-base: #000000;\n  --text-on-interactive-base: #000000;\n  --text-on-interactive-weak: #000000;\n  --text-on-success-base: #000000;\n  --text-on-critical-base: #000000;\n  --text-on-critical-weak: #000000;\n  --text-on-critical-strong: #ffffff;\n  --text-on-warning-base: #000000;\n  --text-on-info-base: #000000;\n  --text-diff-add-base: #167517;\n  --text-diff-delete-base: #fa3012;\n  --text-diff-delete-strong: #4c0903;\n  --text-diff-add-strong: #053005;\n  --text-on-info-weak: #000000;\n  --text-on-info-strong: #ffffff;\n  --text-on-warning-weak: #000000;\n  --text-on-warning-strong: #ffffff;\n  --text-on-success-weak: #000000;\n  --text-on-success-strong: #ffffff;\n  --text-on-brand-weak: #000000;\n  --text-on-brand-weaker: #000000;\n  --text-on-brand-strong: #000000;\n  --button-primary-base: #1d1917;\n  --button-secondary-base: #f8f8f8;\n  --button-secondary-hover: #f2f2f2;\n  --button-ghost-hover: #ebebeb;\n  --button-ghost-hover2: #e2e2e2;\n  --border-base: #c1c0c0;\n  --border-hover: #b4b2b2;\n  --border-active: #a6a5a4;\n  --border-selected: rgba(5, 77, 253, 0.99);\n  --border-disabled: #cac9c9;\n  --border-focus: #a6a5a4;\n  --border-weak-base: #DBDBDB;\n  --border-strong-base: #a6a5a4;\n  --border-strong-hover: #999796;\n  --border-strong-active: #8b8988;\n  --border-strong-selected: rgba(191, 211, 252, 0.6);\n  --border-strong-disabled: #d3d2d2;\n  --border-strong-focus: #8b8988;\n  --border-weak-hover: #cfcecd;\n  --border-weak-active: #c1c0c0;\n  --border-weak-selected: rgba(210, 225, 253, 0.5);\n  --border-weak-disabled: #e1e0e0;\n  --border-weak-focus: #c1c0c0;\n  --border-weaker-base: #E8E8E8;\n  --border-interactive-base: #a3c1fd;\n  --border-interactive-hover: #83aaf7;\n  --border-interactive-active: #054dfd;\n  --border-interactive-selected: #054dfd;\n  --border-interactive-disabled: #adacab;\n  --border-interactive-focus: #054dfd;\n  --border-success-base: #2ce822;\n  --border-success-hover: #35cc2d;\n  --border-success-selected: #1ac90f;\n  --border-warning-base: #dec025;\n  --border-warning-hover: #c3aa2e;\n  --border-warning-selected: #ffdc20;\n  --border-critical-base: #faaa9b;\n  --border-critical-hover: #ff806a;\n  --border-critical-selected: #fb543c;\n  --border-info-base: #f39cf9;\n  --border-info-hover: #e37ceb;\n  --border-info-selected: #b045b9;\n  --border-color: #ffffff;\n  --icon-base: #8F8F8F;\n  --icon-hover: #161210;\n  --icon-active: #070504;\n  --icon-selected: #070504;\n  --icon-disabled: #adacab;\n  --icon-focus: #070504;\n  --icon-invert-base: #ffffff;\n  --icon-weak-base: C7C7C7;\n  --icon-weak-hover: #adacab;\n  --icon-weak-active: #8d8b89;\n  --icon-weak-selected: #656260;\n  --icon-weak-disabled: #d2d2d1;\n  --icon-weak-focus: #8d8b89;\n  --icon-strong-base: #1d1917;\n  --icon-strong-hover: #151313;\n  --icon-strong-active: #020202;\n  --icon-strong-selected: #020202;\n  --icon-strong-disabled: #adacab;\n  --icon-strong-focus: #020202;\n  --icon-brand-base: #1d1917;\n  --icon-interactive-base: #054dfd;\n  --icon-success-base: #0ABE00;\n  --icon-success-hover: #21bb19;\n  --icon-success-active: #197414;\n  --icon-warning-base: #f9b13f;\n  --icon-warning-hover: #f1a620;\n  --icon-warning-active: #805711;\n  --icon-critical-base: #fa3012;\n  --icon-critical-hover: #fa3012;\n  --icon-critical-active: #af210d;\n  --icon-info-base: #f39cf9;\n  --icon-info-hover: #e37ceb;\n  --icon-info-active: #912a9a;\n  --icon-on-brand-base: #000000;\n  --icon-on-brand-hover: #000000;\n  --icon-on-brand-selected: #000000;\n  --icon-on-interactive-base: #000000;\n  --icon-agent-plan-base: #b045b9;\n  --icon-agent-docs-base: #fbb23c;\n  --icon-agent-ask-base: #2390f4;\n  --icon-agent-build-base: #054dfd;\n  --icon-on-success-base: #000000;\n  --icon-on-success-hover: #ffffff;\n  --icon-on-success-selected: #ffffff;\n  --icon-on-warning-base: #000000;\n  --icon-on-warning-hover: #ffffff;\n  --icon-on-warning-selected: #ffffff;\n  --icon-on-critical-base: #000000;\n  --icon-on-critical-hover: #ffffff;\n  --icon-on-critical-selected: #ffffff;\n  --icon-on-info-base: #000000;\n  --icon-on-info-hover: #ffffff;\n  --icon-on-info-selected: #ffffff;\n  --icon-diff-add-base: #167517;\n  --icon-diff-add-hover: #053005;\n  --icon-diff-add-active: #053005;\n  --icon-diff-delete-base: #fa3012;\n  --icon-diff-delete-hover: #af210d;\n  --icon-diff-modified-base: #675912;\n  --syntax-comment: #7a7a7a;\n  --syntax-regexp: var(--text-base);\n  --syntax-string: #00ceb9;\n  --syntax-keyword: #a753ae;\n  --syntax-primitive: #034cff;\n  --syntax-operator: var(--text-base);\n  --syntax-variable: var(--text-strong);\n  --syntax-property: #a753ae;\n  --syntax-type: #8a6f00;\n  --syntax-constant: #007b80;\n  --syntax-punctuation: var(--text-base);\n  --syntax-object: var(--text-strong);\n  --syntax-success: #197414;\n  --syntax-warning: #805711;\n  --syntax-critical: #ff8c00;\n  --syntax-info: #8c1896;\n  --syntax-diff-add: #167517;\n  --syntax-diff-delete: #ff8c00;\n  --syntax-diff-unknown: #a753ae;\n  --markdown-heading: #5e5e11;\n  --markdown-text: #6F6F6F;\n  --markdown-link: #0040df;\n  --markdown-link-text: #8c1896;\n  --markdown-code: #166c11;\n  --markdown-block-quote: #675912;\n  --markdown-emph: #675912;\n  --markdown-strong: #8c1896;\n  --markdown-horizontal-rule: #c1c0c0;\n  --markdown-list-item: #0040df;\n  --markdown-list-enumeration: #8c1896;\n  --markdown-image: #0040df;\n  --markdown-image-text: #8c1896;\n  --markdown-code-block: #6F6F6F;\n  --avatar-background-pink: #feeef8;\n  --avatar-background-mint: #e1fbf4;\n  --avatar-background-orange: #fff1e7;\n  --avatar-background-purple: #f9f1fe;\n  --avatar-background-cyan: #e7f9fb;\n  --avatar-background-lime: #eefadc;\n  --avatar-text-pink: #cd1d8d;\n  --avatar-text-mint: #147d6f;\n  --avatar-text-orange: #ed5f00;\n  --avatar-text-purple: #8445bc;\n  --avatar-text-cyan: #0894b3;\n  --avatar-text-lime: #5d770d;\n  --text-stronger: #171717;\n}</style></head><body class=\"antialiased overscroll-none text-12-regular overflow-hidden\"><noscript>You need to enable JavaScript to run this app.</noscript><div id=\"root\" class=\"flex flex-col h-dvh p-px\"><div class=\"relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&amp;_input]:select-text [&amp;_textarea]:select-text [&amp;_[contenteditable]]:select-text\"><header class=\"h-10 shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center\" data-tauri-drag-region=\"\"><div class=\"flex items-center min-w-0 pl-2\"><div class=\"xl:hidden w-[48px] shrink-0 flex items-center justify-center\"><button type=\"button\" icon=\"menu\" aria-label=\"Toggle menu\" aria-expanded=\"false\" data-component=\"icon-button\" data-icon=\"menu\" data-size=\"normal\" data-variant=\"ghost\" class=\"titlebar-icon rounded-md\"><div data-component=\"icon\" data-size=\"small\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M2.5 5H17.5M2.5 10H17.5M2.5 15H17.5\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div></button></div><div class=\"flex items-center gap-1 shrink-0\"><div data-closed=\"\" data-component=\"tooltip-trigger\" class=\"hidden xl:flex shrink-0 ml-14\"><button type=\"button\" aria-label=\"Toggle sidebar\" aria-expanded=\"false\" data-component=\"button\" data-size=\"normal\" data-variant=\"ghost\" class=\"group/sidebar-toggle titlebar-icon w-8 h-6 p-0 box-border\"><div data-component=\"icon\" data-size=\"small\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M7.86667 2H5.2H2V18H5.2H7.86667M7.86667 2H18V18H7.86667M7.86667 2V18\" stroke=\"currentColor\"></path></svg></div></button></div><div class=\"hidden xl:flex items-center shrink-0\"><div class=\"flex items-center shrink-0 duration-180 ease-out\"><div id=\"opencode-titlebar-left\" class=\"flex items-center gap-3 min-w-0 px-2\"></div></div></div></div></div><div class=\"min-w-0 flex items-center justify-center pointer-events-none\"><div id=\"opencode-titlebar-center\" class=\"pointer-events-auto min-w-0 flex justify-center w-fit max-w-full\"></div></div><div data-tauri-drag-region=\"\" class=\"flex items-center min-w-0 justify-end pr-2\"><div id=\"opencode-titlebar-right\" class=\"flex items-center gap-1 shrink-0 justify-end\"></div></div></header><div class=\"flex-1 min-h-0 min-w-0 flex\"><div class=\"flex-1 min-h-0 relative\"><div class=\"size-full relative overflow-x-hidden\"><nav data-component=\"sidebar-nav-desktop\" class=\"hidden xl:block absolute inset-y-0 left-0 z-10\" aria-label=\"Projects and sessions\" style=\"width: 344px;\"><div class=\"@container w-full h-full contain-strict\"><div class=\"flex h-full w-full min-w-0 overflow-hidden\"><div data-component=\"sidebar-rail\" class=\"w-16 shrink-0 bg-background-base flex flex-col items-center overflow-hidden\"><div class=\"flex-1 min-h-0 w-full\"><div class=\"h-full w-full flex flex-col items-center gap-3 px-3 py-3 overflow-y-auto no-scrollbar\"><div data-closed=\"\" data-component=\"tooltip-trigger\"><button type=\"button\" icon=\"plus\" aria-label=\"Open project\" data-component=\"icon-button\" data-icon=\"plus\" data-size=\"large\" data-variant=\"ghost\"><div data-component=\"icon\" data-size=\"normal\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M9.9987 2.20703V9.9987M9.9987 9.9987V17.7904M9.9987 9.9987H2.20703M9.9987 9.9987H17.7904\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div></button></div></div></div><div class=\"shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2\"><div data-closed=\"\" data-component=\"tooltip-trigger\"><button type=\"button\" icon=\"settings-gear\" aria-label=\"Settings\" data-component=\"icon-button\" data-icon=\"settings-gear\" data-size=\"large\" data-variant=\"ghost\"><div data-component=\"icon\" data-size=\"normal\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M7.62516 4.46094L5.05225 3.86719L3.86475 5.05469L4.4585 7.6276L2.0835 9.21094V10.7943L4.4585 12.3776L3.86475 14.9505L5.05225 16.138L7.62516 15.5443L9.2085 17.9193H10.7918L12.3752 15.5443L14.9481 16.138L16.1356 14.9505L15.5418 12.3776L17.9168 10.7943V9.21094L15.5418 7.6276L16.1356 5.05469L14.9481 3.86719L12.3752 4.46094L10.7918 2.08594H9.2085L7.62516 4.46094Z\" stroke=\"currentColor\"></path><path d=\"M12.5002 10.0026C12.5002 11.3833 11.3809 12.5026 10.0002 12.5026C8.61945 12.5026 7.50016 11.3833 7.50016 10.0026C7.50016 8.62189 8.61945 7.5026 10.0002 7.5026C11.3809 7.5026 12.5002 8.62189 12.5002 10.0026Z\" stroke=\"currentColor\"></path></svg></div></button></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><button type=\"button\" icon=\"help\" aria-label=\"Help\" data-component=\"icon-button\" data-icon=\"help\" data-size=\"large\" data-variant=\"ghost\"><div data-component=\"icon\" data-size=\"normal\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M7.91683 7.91927V6.2526H12.0835V8.7526L10.0002 10.0026V12.0859M10.0002 13.7526V13.7609M17.9168 10.0026C17.9168 14.3749 14.3724 17.9193 10.0002 17.9193C5.62791 17.9193 2.0835 14.3749 2.0835 10.0026C2.0835 5.63035 5.62791 2.08594 10.0002 2.08594C14.3724 2.08594 17.9168 5.63035 17.9168 10.0026Z\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div></button></div></div></div><div class=\"flex-1 flex h-full min-h-0 min-w-0 overflow-hidden pointer-events-none\" aria-hidden=\"true\" inert=\"\"><div class=\"flex flex-col min-h-0 min-w-0 box-border rounded-tl-[12px] px-3 border-l border-t border-border-weaker-base bg-background-base\" style=\"width: 280px;\"><div class=\"flex-1 min-h-0 -mt-4 flex items-center justify-center px-6 pb-64 text-center\"><div class=\"mt-8 flex max-w-60 flex-col items-center gap-6 text-center\"><div class=\"flex flex-col gap-3\"><div class=\"text-14-medium text-text-strong\">No projects open</div><div class=\"text-14-regular text-text-base\" style=\"line-height:var(--line-height-normal)\">Open a project to get started</div></div><button type=\"button\" data-component=\"button\" data-size=\"large\" data-variant=\"secondary\" data-icon=\"folder-add-left\"><div data-component=\"icon\" data-size=\"small\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M2.08333 9.58268V2.91602H8.33333L10 5.41602H17.9167V16.2493H8.75M3.75 12.0827V14.5827M3.75 14.5827V17.0827M3.75 14.5827H1.25M3.75 14.5827H6.25\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div>Open project</button></div></div><div class=\"shrink-0 px-3 py-3 hidden\"><div class=\"rounded-xl bg-background-base shadow-xs-border-base\" data-component=\"getting-started\"><div class=\"p-3 flex flex-col gap-6\"><div class=\"flex flex-col gap-2\"><div class=\"text-14-medium text-text-strong\">Getting started</div><div class=\"text-14-regular text-text-base\" style=\"line-height:var(--line-height-normal)\">OpenCode includes free models so you can start immediately.</div><div class=\"text-14-regular text-text-base\" style=\"line-height:var(--line-height-normal)\">Connect any provider to use models, inc. Claude, GPT, Gemini etc.</div></div><div data-component=\"getting-started-actions\"><button type=\"button\" data-component=\"button\" data-size=\"large\" data-variant=\"secondary\" data-icon=\"plus-small\"><div data-component=\"icon\" data-size=\"small\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M9.99984 5.41699V10.0003M9.99984 10.0003V14.5837M9.99984 10.0003H5.4165M9.99984 10.0003H14.5832\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div>Connect provider</button><button type=\"button\" data-component=\"button\" data-size=\"large\" data-variant=\"ghost\">Not yet</button></div></div></div></div></div></div></div></div></nav><div class=\"hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base\" style=\"left:calc(4rem + 12px)\"></div><div class=\"xl:hidden\"><div class=\"fixed inset-x-0 top-10 bottom-0 z-40 transition-opacity duration-200 opacity-0 pointer-events-none\"></div><nav data-component=\"sidebar-nav-mobile\" aria-label=\"Projects and sessions\" class=\"@container fixed top-10 bottom-0 left-0 z-50 w-full max-w-[400px] overflow-hidden border-r border-border-weaker-base bg-background-base transition-transform duration-200 ease-out -translate-x-full\"><div class=\"flex h-full w-full min-w-0 overflow-hidden\"><div data-component=\"sidebar-rail\" class=\"w-16 shrink-0 bg-background-base flex flex-col items-center overflow-hidden\"><div class=\"flex-1 min-h-0 w-full\"><div class=\"h-full w-full flex flex-col items-center gap-3 px-3 py-3 overflow-y-auto no-scrollbar\"><div data-closed=\"\" data-component=\"tooltip-trigger\"><button type=\"button\" icon=\"plus\" aria-label=\"Open project\" data-component=\"icon-button\" data-icon=\"plus\" data-size=\"large\" data-variant=\"ghost\"><div data-component=\"icon\" data-size=\"normal\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M9.9987 2.20703V9.9987M9.9987 9.9987V17.7904M9.9987 9.9987H2.20703M9.9987 9.9987H17.7904\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div></button></div></div></div><div class=\"shrink-0 w-full pt-3 pb-6 flex flex-col items-center gap-2\"><div data-closed=\"\" data-component=\"tooltip-trigger\"><button type=\"button\" icon=\"settings-gear\" aria-label=\"Settings\" data-component=\"icon-button\" data-icon=\"settings-gear\" data-size=\"large\" data-variant=\"ghost\"><div data-component=\"icon\" data-size=\"normal\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M7.62516 4.46094L5.05225 3.86719L3.86475 5.05469L4.4585 7.6276L2.0835 9.21094V10.7943L4.4585 12.3776L3.86475 14.9505L5.05225 16.138L7.62516 15.5443L9.2085 17.9193H10.7918L12.3752 15.5443L14.9481 16.138L16.1356 14.9505L15.5418 12.3776L17.9168 10.7943V9.21094L15.5418 7.6276L16.1356 5.05469L14.9481 3.86719L12.3752 4.46094L10.7918 2.08594H9.2085L7.62516 4.46094Z\" stroke=\"currentColor\"></path><path d=\"M12.5002 10.0026C12.5002 11.3833 11.3809 12.5026 10.0002 12.5026C8.61945 12.5026 7.50016 11.3833 7.50016 10.0026C7.50016 8.62189 8.61945 7.5026 10.0002 7.5026C11.3809 7.5026 12.5002 8.62189 12.5002 10.0026Z\" stroke=\"currentColor\"></path></svg></div></button></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><button type=\"button\" icon=\"help\" aria-label=\"Help\" data-component=\"icon-button\" data-icon=\"help\" data-size=\"large\" data-variant=\"ghost\"><div data-component=\"icon\" data-size=\"normal\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M7.91683 7.91927V6.2526H12.0835V8.7526L10.0002 10.0026V12.0859M10.0002 13.7526V13.7609M17.9168 10.0026C17.9168 14.3749 14.3724 17.9193 10.0002 17.9193C5.62791 17.9193 2.0835 14.3749 2.0835 10.0026C2.0835 5.63035 5.62791 2.08594 10.0002 2.08594C14.3724 2.08594 17.9168 5.63035 17.9168 10.0026Z\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div></button></div></div></div><div class=\"flex-1 flex h-full min-h-0 min-w-0 overflow-hidden\" aria-hidden=\"false\"><div class=\"flex flex-col min-h-0 min-w-0 box-border rounded-tl-[12px] px-3 border-l border-t border-border-weaker-base bg-background-base flex-1 max-w-full overflow-hidden\"><div class=\"flex-1 min-h-0 -mt-4 flex items-center justify-center px-6 pb-64 text-center\"><div class=\"mt-8 flex max-w-60 flex-col items-center gap-6 text-center\"><div class=\"flex flex-col gap-3\"><div class=\"text-14-medium text-text-strong\">No projects open</div><div class=\"text-14-regular text-text-base\" style=\"line-height:var(--line-height-normal)\">Open a project to get started</div></div><button type=\"button\" data-component=\"button\" data-size=\"large\" data-variant=\"secondary\" data-icon=\"folder-add-left\"><div data-component=\"icon\" data-size=\"small\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M2.08333 9.58268V2.91602H8.33333L10 5.41602H17.9167V16.2493H8.75M3.75 12.0827V14.5827M3.75 14.5827V17.0827M3.75 14.5827H1.25M3.75 14.5827H6.25\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div>Open project</button></div></div><div class=\"shrink-0 px-3 py-3 hidden\"><div class=\"rounded-xl bg-background-base shadow-xs-border-base\" data-component=\"getting-started\"><div class=\"p-3 flex flex-col gap-6\"><div class=\"flex flex-col gap-2\"><div class=\"text-14-medium text-text-strong\">Getting started</div><div class=\"text-14-regular text-text-base\" style=\"line-height:var(--line-height-normal)\">OpenCode includes free models so you can start immediately.</div><div class=\"text-14-regular text-text-base\" style=\"line-height:var(--line-height-normal)\">Connect any provider to use models, inc. Claude, GPT, Gemini etc.</div></div><div data-component=\"getting-started-actions\"><button type=\"button\" data-component=\"button\" data-size=\"large\" data-variant=\"secondary\" data-icon=\"plus-small\"><div data-component=\"icon\" data-size=\"small\"><svg data-slot=\"icon-svg\" fill=\"none\" aria-hidden=\"true\" viewBox=\"0 0 20 20\"><path d=\"M9.99984 5.41699V10.0003M9.99984 10.0003V14.5837M9.99984 10.0003H5.4165M9.99984 10.0003H14.5832\" stroke=\"currentColor\" stroke-linecap=\"square\"></path></svg></div>Connect provider</button><button type=\"button\" data-component=\"button\" data-size=\"large\" data-variant=\"ghost\">Not yet</button></div></div></div></div></div></div></div></nav></div><div class=\"absolute inset-0 xl:inset-y-0 xl:right-0 xl:left-[var(--main-left)] z-20 transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none\" style=\"--main-left: 4rem;\"><main class=\"size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]\"><div data-testid=\"dashboard\" class=\"flex flex-col h-full \"><div data-testid=\"split-pane\" class=\"w-full h-full min-w-0 flex flex-row flex-1\"><div data-testid=\"split-pane-primary\" class=\"min-w-0 overflow-hidden\" style=\"width: 20px; flex-shrink: 0;\"><div data-testid=\"dashboard-sessions-panel\" class=\"flex flex-col bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 h-full overflow-hidden\"><div class=\"px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800\"><h2 class=\"text-sm font-semibold text-gray-900 dark:text-white\">Sessions</h2></div><div data-testid=\"dashboard-sessions-list\" class=\"flex-1 overflow-y-auto p-4\"><div class=\"text-center py-8\"><svg class=\"w-12 h-12 mx-auto text-gray-400 dark:text-gray-600 mb-3\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"M20 7L12 3L4 7M20 7L12 11M20 7V17L12 21M12 11L4 7M12 11V21M4 7V17L12 21\"></path></svg><p class=\"text-sm text-gray-500 dark:text-gray-400\">No sessions available</p></div></div></div></div><div data-testid=\"split-pane-handle\" data-component=\"resize-handle\" data-direction=\"horizontal\" data-edge=\"end\" class=\"w-1.5 cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-accent-400 dark:hover:bg-accent-600 active:bg-accent-500 dark:active:bg-accent-500 flex-shrink-0\"></div><div data-testid=\"split-pane-secondary\" class=\"flex-1 min-w-0 overflow-hidden\"><div data-testid=\"dashboard-items-panel\" class=\"flex flex-col bg-white dark:bg-gray-800 h-full overflow-hidden\"><div class=\"h-14 px-4 flex items-center gap-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800\"><h2 class=\"text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap\">Items</h2></div><div class=\"flex-1 overflow-hidden\"><div class=\"flex items-center justify-center h-full\"><div class=\"text-center\"><svg class=\"w-12 h-12 mx-auto text-gray-400 dark:text-gray-600 mb-3\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" aria-hidden=\"true\"><path d=\"M9 12h6m-6 4h6M9 8h6\"></path><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"></rect></svg><p class=\"text-sm text-gray-500 dark:text-gray-400\">Select a session to view items</p></div></div></div></div></div></div></div></main></div><div class=\"hidden xl:flex absolute inset-y-0 left-16 z-30 opacity-0 -translate-x-2 pointer-events-none transition-[opacity,transform] motion-reduce:transition-none duration-120 ease-in\"></div><div class=\"hidden xl:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden opacity-0 -translate-x-2 transition-[opacity,transform] motion-reduce:transition-none duration-120 ease-in\" style=\"left: calc(280px + 4rem);\"><div class=\"h-full w-px\" style=\"box-shadow:var(--shadow-sidebar-overlay)\"></div></div></div></div><aside class=\"pointer-events-auto fixed bottom-3 right-3 z-50 w-[308px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border-base bg-surface-raised-stronger-non-alpha p-0.5 text-text-strong shadow-[var(--shadow-lg-border-base)] sm:bottom-4 sm:right-4 sm:w-[324px]\" aria-label=\"Development performance diagnostics\"><div class=\"grid grid-cols-5 gap-px font-mono\"><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">NAV</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px] opacity-70\">n/a</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">FPS</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px] opacity-70\">n/a</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">FRAME</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px] opacity-70\">n/a</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">JANK</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px] opacity-70\">n/a</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">LONG</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px]\">0/0</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">DELAY</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px] opacity-70\">n/a</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">INP</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px] opacity-70\">n/a</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">CLS</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px]\">0.00</div></div></div><div data-closed=\"\" data-component=\"tooltip-trigger\"><div class=\"flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center col-span-2\"><div class=\"text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70\">MEM</div><div class=\"text-[13px] leading-none font-bold tabular-nums sm:text-[14px]\">1%</div></div></div></div></aside></div></div><div data-component=\"dialog-stack\"></div></div><script src=\"/src/entry.tsx?t=1777146626171\" type=\"module\"></script><div></div><div></div><div><div role=\"region\" tabindex=\"-1\" aria-label=\"Notifications (alt+T)\" data-kb-top-layer=\"\" id=\"toast-region-cl-16\" data-component=\"toast-region\" style=\"pointer-events: none;\"><ol tabindex=\"-1\" data-slot=\"toast-list\"></ol></div></div></body></html>",
+    "duration_ms": 17265,
+    "console_log": [
+      {
+        "type": "debug",
+        "text": "[vite] connecting...",
+        "timestamp": 1777146691226
+      },
+      {
+        "type": "debug",
+        "text": "[vite] connected.",
+        "timestamp": 1777146691228
+      },
+      {
+        "type": "error",
+        "text": "[global-sdk] event stream error [object Object]",
+        "timestamp": 1777146694033
+      }
+    ],
+    "network_log": [
+      {
+        "url": "http://localhost:3002/collab",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691209
+      },
+      {
+        "url": "http://localhost:3002/src/entry.tsx?t=1777146626171",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691215
+      },
+      {
+        "url": "http://localhost:3002/site.webmanifest",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691216
+      },
+      {
+        "url": "http://localhost:3002/@vite/client",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691216
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/solid-js_web.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691217
+      },
+      {
+        "url": "http://localhost:3002/@solid-refresh",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691218
+      },
+      {
+        "url": "http://localhost:3002/src/context/platform.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691219
+      },
+      {
+        "url": "http://localhost:3002/src/app.tsx?t=1777146626171",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691220
+      },
+      {
+        "url": "http://localhost:3002/src/i18n/en.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691222
+      },
+      {
+        "url": "http://localhost:3002/src/utils/notification-click.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691223
+      },
+      {
+        "url": "http://localhost:3002/src/i18n/zh.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691224
+      },
+      {
+        "url": "http://localhost:3002/package.json?import",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691224
+      },
+      {
+        "url": "http://localhost:3002/src/context/server.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691225
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/vite@7.1.4+1809f18aa5f0af33/node_modules/vite/dist/client/env.mjs",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691226
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-VLA55CI3.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691228
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-EZWYHVNM.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691229
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-M2PPBBZ4.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691229
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/solid-js.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691230
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/context/index.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691232
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/context/dialog.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691233
+      },
+      {
+        "url": "http://localhost:3002/src/index.css?t=1777146559016",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691234
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/context/file.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691235
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/context/marked.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691236
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/font.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691237
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/file.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691238
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/logo.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691239
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/theme/context.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691240
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+meta@0.29.4+95b571dd5236cc92/node_modules/@solidjs/meta/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691241
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691242
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@tanstack_solid-query.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691245
+      },
+      {
+        "url": "http://localhost:3002/src/context/command.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691245
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-N72VEKS2.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691245
+      },
+      {
+        "url": "http://localhost:3002/src/context/comments.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691248
+      },
+      {
+        "url": "http://localhost:3002/src/context/file.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691248
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sdk.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691250
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691251
+      },
+      {
+        "url": "http://localhost:3002/src/context/highlights.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691253
+      },
+      {
+        "url": "http://localhost:3002/src/context/language.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691253
+      },
+      {
+        "url": "http://localhost:3002/src/context/models.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691255
+      },
+      {
+        "url": "http://localhost:3002/src/context/layout.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691256
+      },
+      {
+        "url": "http://localhost:3002/src/context/notification.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691257
+      },
+      {
+        "url": "http://localhost:3002/src/context/permission.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691258
+      },
+      {
+        "url": "http://localhost:3002/src/context/prompt.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691259
+      },
+      {
+        "url": "http://localhost:3002/src/context/settings.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691260
+      },
+      {
+        "url": "http://localhost:3002/src/context/terminal.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691261
+      },
+      {
+        "url": "http://localhost:3002/src/pages/directory-layout.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691262
+      },
+      {
+        "url": "http://localhost:3002/src/collab/routes.tsx?t=1777146626171",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691265
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691266
+      },
+      {
+        "url": "http://localhost:3002/src/pages/error.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691267
+      },
+      {
+        "url": "http://localhost:3002/src/utils/server-health.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691268
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/solid-js_store.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691269
+      },
+      {
+        "url": "http://localhost:3002/src/utils/persist.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691270
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/context/helper.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691271
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/context/data.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691273
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/context/i18n.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691274
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/effect.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691275
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@solid-primitives_event-listener.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691275
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-CLS46NE4.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691275
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-6RQ3H4EO.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691275
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/dialog/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691276
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/marked-katex-extension.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691277
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-E73MJT7M.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691277
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/marked-shiki.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691277
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/marked.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691277
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/katex.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691278
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/shiki.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691279
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-D4LERGHY.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691279
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/shared/src/util/encode.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691280
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@solid-primitives_media.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691281
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@pierre_diffs.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691281
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-ZUXIFUBN.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691281
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/index.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691283
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/diff-selection.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691285
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/commented-lines.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691285
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/file-find.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691286
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@solid-primitives_resize-observer.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691286
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/file-runtime.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691287
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/file-selection.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691287
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/selection-bridge.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691289
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/virtualizer.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691290
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/worker.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691290
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@pierre_diffs_worker.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691290
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/file-media.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691291
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/file-search.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691292
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/theme/themes/oc-2.json?import",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691292
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691293
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/theme/resolve.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691294
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/components.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691295
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/lifecycle.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691296
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routing.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691297
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/utils.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691298
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691299
+      },
+      {
+        "url": "http://localhost:3002/src/utils/scoped-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691300
+      },
+      {
+        "url": "http://localhost:3002/src/utils/uuid.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691301
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/toast.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691301
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/shared/src/util/path.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691302
+      },
+      {
+        "url": "http://localhost:3002/src/context/sdk.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691303
+      },
+      {
+        "url": "http://localhost:3002/src/context/sync.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691304
+      },
+      {
+        "url": "http://localhost:3002/src/context/file/path.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691304
+      },
+      {
+        "url": "http://localhost:3002/src/context/file/content-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691305
+      },
+      {
+        "url": "http://localhost:3002/src/context/file/view-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691306
+      },
+      {
+        "url": "http://localhost:3002/src/context/file/tree-store.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691307
+      },
+      {
+        "url": "http://localhost:3002/src/context/file/watcher.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691308
+      },
+      {
+        "url": "http://localhost:3002/src/context/file/types.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691308
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@solid-primitives_event-bus.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691309
+      },
+      {
+        "url": "http://localhost:3002/src/utils/server.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691311
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/bootstrap.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691313
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/child-store.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691314
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/event-reducer.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691315
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/zod.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691315
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/queue.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691317
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/session-prefetch.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691318
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/session-load.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691318
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/session-trim.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691319
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/types.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691320
+      },
+      {
+        "url": "http://localhost:3002/src/utils/server-errors.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691321
+      },
+      {
+        "url": "http://localhost:3002/src/components/dialog-release-notes.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691322
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@solid-primitives_i18n.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691323
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/i18n/en.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691323
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/remeda.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691325
+      },
+      {
+        "url": "http://localhost:3002/src/hooks/use-providers.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691325
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/luxon.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691325
+      },
+      {
+        "url": "http://localhost:3002/src/utils/base64.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691327
+      },
+      {
+        "url": "http://localhost:3002/src/utils/same.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691328
+      },
+      {
+        "url": "http://localhost:3002/src/context/layout-scroll.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691328
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/shared/src/util/binary.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691330
+      },
+      {
+        "url": "http://localhost:3002/src/context/permission-auto-respond.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691332
+      },
+      {
+        "url": "http://localhost:3002/src/utils/sound.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691332
+      },
+      {
+        "url": "http://localhost:3002/src/context/terminal-title.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691333
+      },
+      {
+        "url": "http://localhost:3002/src/context/local.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691335
+      },
+      {
+        "url": "http://localhost:3002/src/collab/stores/sessionStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691335
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/Sidebar.tsx?t=1777146626171",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691336
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/resize-handle.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691337
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/button.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691338
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/icon-button.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691339
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/tooltip.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691340
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/dropdown-menu.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691341
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/dialog.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691342
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@thisbeyond+solid-dnd@0.7.5+95b571dd5236cc92/node_modules/@thisbeyond/solid-dnd/dist/dev.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691344
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/session-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691344
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/shared/src/util/retry.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691345
+      },
+      {
+        "url": "http://localhost:3002/src/utils/aim.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691347
+      },
+      {
+        "url": "http://localhost:3002/src/utils/worktree.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691347
+      },
+      {
+        "url": "http://localhost:3002/src/pages/session/handoff.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691348
+      },
+      {
+        "url": "http://localhost:3002/src/utils/solid-dnd.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691350
+      },
+      {
+        "url": "http://localhost:3002/src/components/debug-bar.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691350
+      },
+      {
+        "url": "http://localhost:3002/src/components/titlebar.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691351
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout/helpers.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691352
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout/deep-links.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691354
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout/inline-editor.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691354
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout/sidebar-workspace.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691356
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout/sidebar-project.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691357
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout/sidebar-shell.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691358
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/text-field.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691358
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/icon.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691360
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/@solid-primitives_storage.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691360
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/PLLNVYER.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691362
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+utils@0.9.1+95b571dd5236cc92/node_modules/@kobalte/utils/dist/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691362
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691362
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+keyed@1.5.3+95b571dd5236cc92/node_modules/@solid-primitives/keyed/dist/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+map@0.4.13+95b571dd5236cc92/node_modules/@solid-primitives/map/dist/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+refs@1.1.3+95b571dd5236cc92/node_modules/@solid-primitives/refs/dist/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+utils@6.4.0+95b571dd5236cc92/node_modules/@solid-primitives/utils/dist/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/propTraps.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/filterProps.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/combineProps.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+trigger@1.2.3+95b571dd5236cc92/node_modules/@solid-primitives/trigger/dist/index.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+utils@6.4.0+95b571dd5236cc92/node_modules/@solid-primitives/utils/dist/types.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/7A3GDF4Y.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691363
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FBCYWU27.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691364
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/3VFJM5NZ.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691365
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/IGYOA2ZZ.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691366
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/MGQGUY64.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691366
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/3NI6FTA2.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691367
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/JHMNWOLY.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691368
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/E53DB7BS.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691369
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/UKTBL2JL.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691370
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/EJ5I5XML.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691371
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/JNCCF6MP.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691372
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FN6EICGO.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691373
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/OYES4GOP.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691373
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FLVHQV4A.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691374
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-6CFDQT52.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691376
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/5WXHJDCZ.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691376
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-FYVIAUIM.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691377
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-7JD2AQW3.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691378
+      },
+      {
+        "url": "http://localhost:3002/node_modules/.vite/deps/chunk-36OW6TQL.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691378
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/line-comment-styles.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691380
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@pierre+diffs@1.1.0-beta.18+dde3f20a083be258/node_modules/@pierre/diffs/dist/worker/worker.js?worker&url",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691381
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/pierre/media.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691381
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/createRouter.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691384
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/Router.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691384
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/components.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691385
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/HashRouter.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691387
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/MemoryRouter.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691387
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/StaticRouter.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691388
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/createAsync.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691389
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/theme/color.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691390
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/action.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691390
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/query.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691390
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/response.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691391
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/toast/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691392
+      },
+      {
+        "url": "http://localhost:3002/src/utils/diffs.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691393
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/client.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691394
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/utils.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691395
+      },
+      {
+        "url": "http://localhost:3002/src/context/global-sync/eviction.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691396
+      },
+      {
+        "url": "http://localhost:3002/src/context/model-variant.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691397
+      },
+      {
+        "url": "http://localhost:3002/src/collab/stores/tabsStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691398
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/SubscriptionsPanel.tsx?t=1777146626171",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691399
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/ArtifactTree.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691401
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/WorktreeBadge.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691402
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/button/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691403
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/tooltip/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691404
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/dropdown-menu/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691404
+      },
+      {
+        "url": "http://localhost:3002/src/components/titlebar-history.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691405
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/collapsible.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691407
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/inline-input.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691407
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/spinner.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691408
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/context-menu.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691410
+      },
+      {
+        "url": "http://localhost:3002/src/pages/layout/sidebar-items.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691410
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/hover-card.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691411
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/text-field/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691412
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/solid-prevent-scroll@0.1.10+95b571dd5236cc92/node_modules/solid-prevent-scroll/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691412
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/solid-presence@0.1.8+95b571dd5236cc92/node_modules/solid-presence/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691413
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/events.js?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691414
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/DU4ZVMV4.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691416
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/types.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691416
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client/client.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691417
+      },
+      {
+        "url": "http://localhost:3002/src/collab/stores/subscriptionStore.ts?t=1777146626171",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691419
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/sdk.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691419
+      },
+      {
+        "url": "http://localhost:3002/src/collab/stores/sidebarTreeStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691420
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/ArtifactTreeNode.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691421
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/TreeBranchRow.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691422
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/FolderTreeRow.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691423
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/folderTree.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691424
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/orderVisibleNodes.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691426
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/artifactTreeSelectors.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691426
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/PseudoTreeBody.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691427
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/sidebar-tree/TodosTreeSection.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691428
+      },
+      {
+        "url": "http://localhost:3002/src/collab/stores/agentStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691429
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/2N4PRSLE.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691430
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/2CTBMVJ4.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691431
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+dom@1.7.6/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691431
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+core@1.7.5/node_modules/@floating-ui/core/dist/floating-ui.core.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691431
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+utils@0.2.11/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691431
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+utils@0.2.11/node_modules/@floating-ui/utils/dist/floating-ui.utils.dom.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691431
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/LR7LBJN3.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691432
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/index.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691432
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+number@3.6.6/node_modules/@internationalized/number/dist/index.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691432
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/CalendarDate.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/GregorianCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/JapaneseCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/BuddhistCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/TaiwanCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/PersianCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/IndianCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/IslamicCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691433
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/HebrewCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/EthiopicCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/createCalendar.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/conversion.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/queries.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/string.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/DateFormatter.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+number@3.6.6/node_modules/@internationalized/number/dist/private/NumberFormatter.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+number@3.6.6/node_modules/@internationalized/number/dist/private/NumberParser.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/V6FPT6B6.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/manipulation.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691434
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/utils.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691435
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/weekStartData.mjs?v=3ff2675e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691435
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/G4JQYERT.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691435
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/LEK3K6R3.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691435
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/T4C3DMHT.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691436
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/N3GAC5SS.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691437
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/QZDH5R5B.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691437
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/YRH543JR.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691439
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/SOM3K36D.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691439
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/VI7QYH27.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691440
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/collapsible/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691441
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/context-menu/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691441
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/ui/src/components/avatar.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691442
+      },
+      {
+        "url": "http://localhost:3002/src/utils/agent.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691443
+      },
+      {
+        "url": "http://localhost:3002/src/utils/session-title.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691443
+      },
+      {
+        "url": "http://localhost:3002/src/pages/session/composer/session-request-tree.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691444
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/hover-card/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691445
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/MKJEDDFV.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691446
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/NGHEENNE.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691447
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FOXVCQFV.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691448
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/QJIB6BDF.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691449
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/ZZYKR3VO.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691451
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/XUUROM4M.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691452
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/reactivity/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691452
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/dom/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691453
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/create/style.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691455
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/scroll/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691455
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/serverSentEvents.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691457
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/utils.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691458
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client/utils.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691458
+      },
+      {
+        "url": "http://localhost:3002/src/collab/utils/sessionItemsCache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691459
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691460
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client/index.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691461
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/UGE6PPGT.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691462
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/RHVJLHNR.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691463
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/VS2QDEVD.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691464
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/3JA5IX2L.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691465
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/chunk/U42ECMND.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691466
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/chunk/GZJAOTUE.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691467
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/pathSerializer.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691468
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/auth.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691469
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/bodySerializer.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691470
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/params.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691471
+      },
+      {
+        "url": "http://localhost:3002/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/queryKeySerializer.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691472
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/dashboard/Dashboard.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691525
+      },
+      {
+        "url": "http://localhost:3002/src/collab/stores/uiStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691528
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/layout/SplitPane.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691529
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/dashboard/SessionCard.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691529
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/dashboard/ItemGrid.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691530
+      },
+      {
+        "url": "http://localhost:3002/src/collab/components/dashboard/ItemCard.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777146691533
+      }
+    ],
+    "step_traces": [
+      {
+        "step_index": 0,
+        "section": "steps",
+        "step_type": "wait",
+        "status": "passed",
+        "start_time_ms": 354,
+        "duration_ms": 2502
+      },
+      {
+        "step_index": 1,
+        "section": "steps",
+        "step_type": "screenshot",
+        "status": "passed",
+        "start_time_ms": 2856,
+        "duration_ms": 60,
+        "result": "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vfT0dCksGeudfIuMIpMk2oULF6o2YiwoWURNj0AyRzDbqSQBwAna4Yw22T1/9dVXxoZ4w4YN55577ssBsv82ixlXXnnlX/7yF3lUsUYW4KxZs4zygISM09dxGQZjBylFI6msSDaVFlngstiN5S+9bJ999pkxZv/+/e+66y4VBSSr/ed//qcsT+kBNO6Nc+TIkdra2hdffFHmWR5Xr14tLcbIwV8tFei6lfLSxIkTpSq2adMmFR0kjEo2Mmp7kvaC+zRvuOEG4++iAp9FOhONYenMVafBSVd2KkkAOqmOPb1fChWvvPKKCpSRzCR0wQUXSOlFOiPkN7T0sj344IOPPvqoijWyh5baxtNPPy2FAdm1t/+JYK0hfW2PP/643W6XWp15Bpz8ISQz3XjjjdpJJJEYZ7fJ55LyjGovkuduu+22uXPnSmKYNm2aCvRvXnLJJcYxVfIow9Jijm9+tdTxL/mZZ555zz33PPvss1IMO+OMM1S727Fjh3l227333iulI3mUeCfZ7oc//GFGRoY5prwk8VQ62lSg4DRp0iRZBSRnp6SktOfpC2YxKcHo/w6PdBZGMjkAdKDmzvw3yaZZfsTv3Llz65YtjqwsBSCWuZcu7T9gQHJysuRO4xIApqYjG410twHojFo+GumkowGIUa1cx412QhKATqeVCQlAZ9DCBoGQBKBzaX0S6pDM9HyAik3SQTljxowOOVW7TWzbtm3SpEnyqGKTLHlZ/lF1pPwp+W2AOv24mCQAaLSwcYyGMpLsnpcvX56dna1i0/vvvy+PV199tYpNFRUVP/nJT8455xwVgyQbvfHGG7fcckt0Xnp09uzZmZmZQ4YMueuuu+rq6pqO4PV6//KXv/zmN78xnu7bt++ee+65+OKLL7300gceeODQoUPqdGpu9SckAegsTikGdUhmkp20w+GI6Z306NGjY+L64E1JQq2uro7phNqzZ8/oTKgvvPDCggULnnnmGfkNcO655/785z9vOs5TTz01duzY8847z3gqJaVvv/327bfffv3119esWWPck64NtXIF5xIAADqFDi8UTZgwYdq0aYsXL25oaLBarbKfCAlDxk66uLjYbPn4449dLtfnn38+YMAA2XlfdtllqoN88sknzz777Pjx45csWSJlgKFDh+bm5hrnw5uMnXTw9cFja/4loWZlZQX/URYtWrRixYot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3HnnnfJBVBTYvn37tGnTfve738lX4o9//KPFYpk4caK5qGWEAQMGTJgwwe12L1iwYN68efLFk++PzL/8pRRaTTYL5jWTCEkAcBqNHz9eQoPsmF977bXJkydLS1ZW1i233HLSCSWL/OIXv/jwww+NkJSdnS17x6uvvlqG33//fRlWHWFEwL333jtz5kyzsU+fPu++++7o0aODx5QPLnO+efPmPwSo6PDGG28MHjz4N7/5zcqVK//6178af5EQso/8n//5n7lz50rykEW9evXqK6+8UkWHQYMGyVeif//+kqElpxqNxqIOHk0C66pVq4yQqhAButsAxKTIi0DtdjRSly5dpOrzySefnNJU69evv+KKK7Zu3Xr06FF5Kju822677W8Bt956a5TUNgxDhw6tqak5fPhw05f2798fVftp+Stcc801MiDLVpuQVODKy7J4JRv5/X5JpdGTkIQkvM8//3zFihVpaWktjHbZZZdVV1dLMezyyy9XOHXmxoFKEgCcdj169JA9rjG8IEAGZD83Y8YM7fjr1q276KKLZEAqBDJ88cUXy3BmZubSpUtVoHKgoozMm5S+gluMWtc555wjXUIqauzatevMM8886WgPPvig9IrK0pY/3Lhx46xWq4oa8mV47733ZK6kymW0mGXFMWPGSMVRBvr167dp0ybpLjzvvPMUIkBIAoDTbt++fbK7NYbvuuuuk3a3SZeK7KQrKipk+NprrzVCkrjkkktU9JGf3dKH+NRTT8m+2Ww0Dp1RUUbijvwtLBaLChzic/bZZ2tHk/Y777xTBtxu9+uvvz5p0iQVNa666iop2plfJ9XMoh4+fLjUIOXDKkSA7jYAnVE7n/kvfWRSa2nlyFIAqK2tffHFF19++WV5lH4faVHRTcoz0hO0efNmFd2k+0nSpwrU6l544QXtODt27JgzZ44x3LNnz2i7SET//v0lZ590tGHDhkmcUgiX8XenkgQAp5EEHRXoNbv99tuNFunEkdxjDEvH2aBBg2SgsrJS+lBUoFaUmpoqj127dpWn8ijDq1atipIjY4yz26Q+8dhjjxlnt5kvOZ1Ol8ulotutt94qubOoqEgqMXfffbfRKKnIPLvt3nvvlXqYBBHJSZJNDxw4MGXKFBXd5DtmHKMm35bmOnARngSzmzwMUrGMZHIACE8bHrUd/FbHAowB2UHKo/RrNDQ0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"
+      },
+      {
+        "step_index": 2,
+        "section": "steps",
+        "step_type": "eval",
+        "status": "passed",
+        "start_time_ms": 2916,
+        "duration_ms": 2873,
+        "result": "found"
+      },
+      {
+        "step_index": 3,
+        "section": "steps",
+        "step_type": "eval",
+        "status": "passed",
+        "start_time_ms": 5789,
+        "duration_ms": 2871,
+        "result": "found"
+      },
+      {
+        "step_index": 4,
+        "section": "steps",
+        "step_type": "eval",
+        "status": "passed",
+        "start_time_ms": 8660,
+        "duration_ms": 2867,
+        "result": "found"
+      },
+      {
+        "step_index": 5,
+        "section": "steps",
+        "step_type": "eval",
+        "status": "passed",
+        "start_time_ms": 11527,
+        "duration_ms": 2865,
+        "result": "missing"
+      },
+      {
+        "step_index": 6,
+        "section": "steps",
+        "step_type": "click",
+        "status": "failed",
+        "start_time_ms": 14392,
+        "duration_ms": 2871,
+        "error": "Failed to click [data-testid=\"theme-toggle\"]: Error: Element not found: [data-testid=\"theme-toggle\"]"
+      }
+    ]
+  },
+  "startedAt": "2026-04-25T19:51:48.436Z",
+  "completedAt": "2026-04-25T19:51:48.436Z",
+  "duration_ms": 17265
+}

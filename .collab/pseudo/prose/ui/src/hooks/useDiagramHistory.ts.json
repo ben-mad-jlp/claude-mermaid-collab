@@ -1,0 +1,136 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDiagramHistory.ts",
+  "title": "Diagram history management hook with API fetching and version retrieval",
+  "purpose": "Manages diagram change history by fetching from an API and providing functions to retrieve content at specific timestamps.",
+  "module_context": "Exports a React hook that manages diagram history state and provides utility functions for fetching history and retrieving versions.",
+  "methods": [
+    {
+      "id": "m_cd66e316",
+      "name": "useDiagramHistory",
+      "enclosing_class": null,
+      "normalized_params": "(diagramId: string | null): UseDiagramHistoryReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for history data, loading status, and error messages."
+        },
+        {
+          "order": 2,
+          "content": "Extract project and session information from the current session."
+        },
+        {
+          "order": 3,
+          "content": "Define and memoize a function to fetch diagram history from the API."
+        },
+        {
+          "order": 4,
+          "content": "Define and memoize a function to retrieve diagram content at a specific timestamp."
+        },
+        {
+          "order": 5,
+          "content": "Trigger the history fetch when the diagram ID changes."
+        },
+        {
+          "order": 6,
+          "content": "Return the history state and utility functions for external use."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f35a69d5",
+      "name": "fetchHistory",
+      "enclosing_class": "useDiagramHistory",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that diagram ID, project, and session are available."
+        },
+        {
+          "order": 2,
+          "content": "IF validation fails, clear the history and return early."
+        },
+        {
+          "order": 3,
+          "content": "Set loading state to true and clear any previous error."
+        },
+        {
+          "order": 4,
+          "content": "Construct URL parameters with project and session information."
+        },
+        {
+          "order": 5,
+          "content": "Fetch diagram history from the API endpoint."
+        },
+        {
+          "order": 6,
+          "content": "IF the response indicates no history (404), set history to null."
+        },
+        {
+          "order": 7,
+          "content": "IF the response is successful, parse and store the history data."
+        },
+        {
+          "order": 8,
+          "content": "IF the response fails for other reasons, set an error message."
+        },
+        {
+          "order": 9,
+          "content": "IF a network error occurs, set a network error message."
+        },
+        {
+          "order": 10,
+          "content": "Reset loading state after the fetch attempt completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7653b469",
+      "name": "getVersionAt",
+      "enclosing_class": "useDiagramHistory",
+      "normalized_params": "(timestamp: string): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that diagram ID, project, and session are available."
+        },
+        {
+          "order": 2,
+          "content": "IF validation fails, return null immediately."
+        },
+        {
+          "order": 3,
+          "content": "Construct URL parameters with project, session, and timestamp information."
+        },
+        {
+          "order": 4,
+          "content": "Fetch diagram version from the API endpoint."
+        },
+        {
+          "order": 5,
+          "content": "IF the response is successful, parse and return the content."
+        },
+        {
+          "order": 6,
+          "content": "IF the response fails, ignore the error and return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

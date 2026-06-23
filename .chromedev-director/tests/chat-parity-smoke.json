@@ -1,0 +1,122 @@
+{
+  "id": "chat-parity-smoke",
+  "name": "chat-parity-smoke",
+  "tags": [
+    "smoke",
+    "chat"
+  ],
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 3000
+      },
+      {
+        "label": "F1. No runtime errors on page",
+        "eval": "(() => { const t = document.body.innerText; if (/TypeError|undefined is not an object|Cannot read properties/.test(t)) throw new Error('RUNTIME_ERROR_VISIBLE: ' + t.slice(0, 300)); return 'clean'; })()"
+      },
+      {
+        "label": "F2. Textarea present + enabled",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); if (!el) throw new Error('textarea missing'); return { disabled: el.disabled }; })()"
+      },
+      {
+        "label": "F5a. Click Trusted tools",
+        "eval": "(() => { const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Trusted tools'); if (!btn) throw new Error('Trusted tools btn missing'); btn.click(); return 'clicked'; })()"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "label": "F5b. Trusted drawer visible",
+        "eval": "(() => { if (!document.querySelector('[role=\"dialog\"][aria-label=\"Trusted tools\"]')) throw new Error('trusted drawer not open'); return 'ok'; })()"
+      },
+      {
+        "label": "F5c. Close via X",
+        "eval": "(() => { const btn = document.querySelector('button[aria-label=\"Close trusted tools drawer\"]'); if (!btn) throw new Error('X button missing'); btn.click(); return 'closed'; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "F5d. Trusted drawer gone",
+        "eval": "(() => { if (document.querySelector('[role=\"dialog\"][aria-label=\"Trusted tools\"]')) throw new Error('trusted drawer still open'); return 'ok'; })()"
+      },
+      {
+        "label": "F6a. Click Resume transcript",
+        "eval": "(() => { const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === 'Resume transcript'); if (!btn) throw new Error('missing'); btn.click(); return 'clicked'; })()"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "label": "F6b. Picker visible",
+        "eval": "(() => { const t = document.body.innerText; if (!/Transcript|Dismiss|No transcripts/i.test(t)) throw new Error('transcript picker not visible'); return 'ok'; })()"
+      },
+      {
+        "label": "F6c. Dismiss",
+        "eval": "(() => { const dismiss = Array.from(document.querySelectorAll('button')).find(b => /dismiss/i.test(b.textContent||'')); if (dismiss) dismiss.click(); return 'done'; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "F8a. Click worktree switcher",
+        "eval": "(() => { const btn = document.querySelector('button[aria-label=\"Worktree switcher\"]'); if (!btn) throw new Error('missing'); btn.click(); return 'clicked'; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "F8b. Listbox rendered",
+        "eval": "(() => { const lb = document.querySelectorAll('[role=\"listbox\"], [role=\"menu\"]'); return { count: lb.length }; })()"
+      },
+      {
+        "label": "F8c. Click outside",
+        "eval": "(() => { document.body.click(); return true; })()"
+      },
+      {
+        "wait": 200
+      },
+      {
+        "label": "F10. Slash picker",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, '/'); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+      },
+      {
+        "wait": 300
+      },
+      {
+        "label": "F10b. Slash listbox rendered",
+        "eval": "(() => { const lb = document.querySelectorAll('[role=\"listbox\"]'); if (lb.length === 0) throw new Error('no slash listbox'); return { count: lb.length }; })()"
+      },
+      {
+        "label": "F10c. Clear",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+      },
+      {
+        "label": "F11. Mention @foo",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, '@foo'); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "label": "F11b. Mention picker rendered",
+        "eval": "(() => { const lb = document.querySelectorAll('[role=\"listbox\"]'); return { count: lb.length }; })()"
+      },
+      {
+        "label": "F11c. Clear",
+        "eval": "(() => { const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); const s = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; s.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()"
+      },
+      {
+        "label": "F12. Cmd+Enter fires <=1 time",
+        "eval": "(() => new Promise((res, rej) => { window.__sendCount = 0; const ws = WebSocket.prototype.send; WebSocket.prototype.send = function(data) { try { const s = typeof data === 'string' ? data : ''; if (/user_prompt|send_prompt|\"prompt\"|\"type\"\\s*:\\s*\"send/.test(s)) window.__sendCount++; } catch(e){} return ws.apply(this, arguments); }; const el = document.querySelector('textarea[placeholder=\"Message the agent\\u2026\"]'); el.focus(); const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; setter.call(el, 'hello'); el.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, cancelable: true })); setTimeout(() => { if (window.__sendCount > 1) rej(new Error('send fired ' + window.__sendCount + ' times')); else res({ sendCount: window.__sendCount }); }, 900); }, 100); }))()"
+      },
+      {
+        "label": "Final runtime error check",
+        "eval": "(() => { const t = document.body.innerText; if (/TypeError|Cannot read properties|undefined is not/.test(t)) throw new Error('LATE_ERR: ' + t.slice(0, 400)); return 'clean'; })()"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:38:14.148Z",
+  "updatedAt": "2026-04-18T18:50:00.213Z"
+}

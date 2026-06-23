@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/config/featureFlags.ts",
+  "title": "Feature flags management with localStorage persistence",
+  "purpose": "Manages feature flag state using localStorage for persistence and React hooks for synchronization across components.",
+  "module_context": "Exports a FeatureFlags interface, default flags, storage key constants, and utility functions for reading, writing, and syncing feature flags.",
+  "methods": [
+    {
+      "id": "m_9407b2b3",
+      "name": "isTruthy",
+      "enclosing_class": null,
+      "normalized_params": "(value: string | null): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the value equals '1'."
+        },
+        {
+          "order": 2,
+          "content": "IF the value equals '1', return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if the value equals 'true'."
+        },
+        {
+          "order": 4,
+          "content": "IF the value equals 'true', return true."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_37352917",
+      "name": "readFlags",
+      "enclosing_class": null,
+      "normalized_params": "(): FeatureFlags",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the window object is undefined, return the default flags."
+        },
+        {
+          "order": 2,
+          "content": "ELSE attempt to read the feature flag from localStorage."
+        },
+        {
+          "order": 3,
+          "content": "IF reading from localStorage succeeds, parse and return the flags."
+        },
+        {
+          "order": 4,
+          "content": "IF reading from localStorage fails, return the default flags."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d1ca97b0",
+      "name": "setWysiwygDocumentEditor",
+      "enclosing_class": null,
+      "normalized_params": "(enabled: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the window object is undefined, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "ELSE attempt to set or remove the feature flag in localStorage."
+        },
+        {
+          "order": 3,
+          "content": "IF enabled is true, store '1' in localStorage."
+        },
+        {
+          "order": 4,
+          "content": "ELSE remove the key from localStorage."
+        },
+        {
+          "order": 5,
+          "content": "Dispatch a custom change event to notify other parts of the application."
+        },
+        {
+          "order": 6,
+          "content": "IF storing fails, ignore the error silently."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e16f3445",
+      "name": "useFeatureFlags",
+      "enclosing_class": null,
+      "normalized_params": "(): FeatureFlags",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the state with flags read from storage."
+        },
+        {
+          "order": 2,
+          "content": "Setup effect to synchronize flags with storage changes."
+        },
+        {
+          "order": 3,
+          "content": "IF the window object is undefined, return early."
+        },
+        {
+          "order": 4,
+          "content": "ELSE register event listeners for storage and custom change events."
+        },
+        {
+          "order": 5,
+          "content": "WHEN the component unmounts, remove the registered event listeners."
+        },
+        {
+          "order": 6,
+          "content": "Return the current flags state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

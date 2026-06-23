@@ -1,0 +1,178 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/tree.utils.ts",
+  "title": "Tree utility functions for PseudoFileTree component",
+  "purpose": "Provides utilities for building, sorting, and filtering hierarchical file tree structures from flat file lists.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_61383f5b",
+      "name": "convertChildrenMap",
+      "enclosing_class": null,
+      "normalized_params": "(node: TreeNode & { _childrenMap?: unknown }): TreeNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the node has a children map property."
+        },
+        {
+          "order": 2,
+          "content": "If the node has a children map, convert its values to an array of child nodes."
+        },
+        {
+          "order": 3,
+          "content": "Delete the temporary children map from the node after conversion."
+        },
+        {
+          "order": 4,
+          "content": "Return the node with converted children."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9971b311",
+      "name": "buildTree",
+      "enclosing_class": null,
+      "normalized_params": "(fileList: string[]): TreeNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty object to hold root nodes."
+        },
+        {
+          "order": 2,
+          "content": "Process each file path in the input list."
+        },
+        {
+          "order": 3,
+          "content": "Split each file path into its component parts."
+        },
+        {
+          "order": 4,
+          "content": "Traverse the path parts to build the tree structure."
+        },
+        {
+          "order": 5,
+          "content": "Create nodes for each path part as needed."
+        },
+        {
+          "order": 6,
+          "content": "Ensure each node has a children array."
+        },
+        {
+          "order": 7,
+          "content": "Convert directory nodes to use a children map for efficient access."
+        },
+        {
+          "order": 8,
+          "content": "Convert the root object to an array and recursively convert all children maps."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d883c10a",
+      "name": "sortTreeNodes",
+      "enclosing_class": null,
+      "normalized_params": "(nodes: TreeNode[]): TreeNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a copy of the input nodes array."
+        },
+        {
+          "order": 2,
+          "content": "Sort the nodes by directory status and then alphabetically."
+        },
+        {
+          "order": 3,
+          "content": "Place directories before files in the sorted result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b4dfd96",
+      "name": "deepSortTree",
+      "enclosing_class": null,
+      "normalized_params": "(nodes: TreeNode[]): TreeNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sort the top-level nodes using the sorting function."
+        },
+        {
+          "order": 2,
+          "content": "Recursively sort the children of each node."
+        },
+        {
+          "order": 3,
+          "content": "Return the sorted tree structure with all levels properly ordered."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b725c5e",
+      "name": "filterTree",
+      "enclosing_class": null,
+      "normalized_params": "(nodes: TreeNode[], query: string, ancestorMatched: boolean): { nodes: TreeNode[]; expandedPaths: Set<string> }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty set to track expanded paths."
+        },
+        {
+          "order": 2,
+          "content": "Process each node in the input list."
+        },
+        {
+          "order": 3,
+          "content": "Check if the node name matches the query string."
+        },
+        {
+          "order": 4,
+          "content": "Recursively filter the children of the node if they exist."
+        },
+        {
+          "order": 5,
+          "content": "Determine if the node should be included in the result."
+        },
+        {
+          "order": 6,
+          "content": "IF the node should be included, add its path to the expanded paths set."
+        },
+        {
+          "order": 7,
+          "content": "Include the filtered children in the returned node."
+        },
+        {
+          "order": 8,
+          "content": "Return the filtered nodes and the set of expanded paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

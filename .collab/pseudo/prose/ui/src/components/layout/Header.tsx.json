@@ -1,0 +1,281 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/Header.tsx",
+  "title": "Header component with theme toggle, project/session selectors, and connection status",
+  "purpose": "Provides a top navigation bar with application branding, theme switching, project and session selection, and connection status indicators.",
+  "module_context": "Exports a Header React component that integrates with useTheme and useSession hooks for state management, and uses zustand stores for UI state.",
+  "methods": [
+    {
+      "id": "m_215a00b7",
+      "name": "Header",
+      "enclosing_class": null,
+      "normalized_params": "(props: HeaderProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize theme and session state from hooks."
+        },
+        {
+          "order": 2,
+          "content": "Set up state for project and session dropdowns."
+        },
+        {
+          "order": 3,
+          "content": "Compute unique projects from sessions and registered projects."
+        },
+        {
+          "order": 4,
+          "content": "Filter sessions by selected project."
+        },
+        {
+          "order": 5,
+          "content": "Synchronize selected project with current session when it changes."
+        },
+        {
+          "order": 6,
+          "content": "Auto-select first project if none is selected."
+        },
+        {
+          "order": 7,
+          "content": "Add event listeners for clicking outside dropdowns and pressing escape key."
+        },
+        {
+          "order": 8,
+          "content": "Return the rendered header UI with all controls and dropdowns."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_313218f4",
+      "name": "handleProjectSelect",
+      "enclosing_class": "Header",
+      "normalized_params": "(project: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the selected project state."
+        },
+        {
+          "order": 2,
+          "content": "Close the project dropdown."
+        },
+        {
+          "order": 3,
+          "content": "If sessions exist in the selected project, auto-select the first one."
+        },
+        {
+          "order": 4,
+          "content": "If no sessions exist in the selected project, clear the current session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5afc2cf0",
+      "name": "handleSessionClick",
+      "enclosing_class": "Header",
+      "normalized_params": "(session: Session): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the session selection callback with the clicked session."
+        },
+        {
+          "order": 2,
+          "content": "Close the session dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c323b45d",
+      "name": "handleThemeToggle",
+      "enclosing_class": "Header",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the application theme via the theme hook."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4d08d510",
+      "name": "handleEditModeToggle",
+      "enclosing_class": "Header",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the edit mode state in the UI store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e3cdf1f4",
+      "name": "handleAgentToggle",
+      "enclosing_class": "Header",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the agent chat visibility state in the UI store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ec77450e",
+      "name": "handleRefreshSessions",
+      "enclosing_class": "Header",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the refresh sessions callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e6319e1",
+      "name": "handleAddProject",
+      "enclosing_class": "Header",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the project dropdown."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the add project callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03727425",
+      "name": "handleRemoveProject",
+      "enclosing_class": "Header",
+      "normalized_params": "(e: React.MouseEvent, project: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop event propagation to prevent dropdown closing."
+        },
+        {
+          "order": 2,
+          "content": "Confirm project removal with user."
+        },
+        {
+          "order": 3,
+          "content": "Invoke the remove project callback if confirmed."
+        },
+        {
+          "order": 4,
+          "content": "Clear selected project if it matches the removed project."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7a5488c",
+      "name": "handleCreateSession",
+      "enclosing_class": "Header",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the session dropdown."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the create session callback with the selected project."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4b58acc",
+      "name": "handleDeleteSession",
+      "enclosing_class": "Header",
+      "normalized_params": "(e: React.MouseEvent, session: Session): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop event propagation to prevent dropdown closing."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the delete session callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4bd4511b",
+      "name": "getProjectDisplayName",
+      "enclosing_class": "Header",
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the last part of the project path as the display name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

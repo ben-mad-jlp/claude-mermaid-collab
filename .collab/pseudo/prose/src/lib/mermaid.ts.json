@@ -1,0 +1,233 @@
+{
+  "schema_version": 3,
+  "file": "src/lib/mermaid.ts",
+  "title": "Mermaid diagram rendering and management utilities",
+  "purpose": "Provides functions to initialize, render, validate, and manage Mermaid diagrams with theme support and error handling.",
+  "module_context": "Exports type definitions for Theme, Format, MermaidInitOptions, and RenderResult. Also exports MermaidError class and internal state variable isInitialized.",
+  "methods": [
+    {
+      "id": "m_2b90714f",
+      "name": "initializeMermaid",
+      "enclosing_class": null,
+      "normalized_params": "(options: MermaidInitOptions): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if Mermaid is already initialized."
+        },
+        {
+          "order": 2,
+          "content": "IF not initialized, prepare the initialization configuration with default values."
+        },
+        {
+          "order": 3,
+          "content": "Initialize Mermaid with the prepared configuration."
+        },
+        {
+          "order": 4,
+          "content": "Mark Mermaid as initialized."
+        },
+        {
+          "order": 5,
+          "content": "IF initialization fails, throw a MermaidError with the original error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_31f0c1f8",
+      "name": "renderToSVG",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, theme: Theme): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if Mermaid is initialized and initialize if needed."
+        },
+        {
+          "order": 2,
+          "content": "Update the theme configuration if different from current initialization."
+        },
+        {
+          "order": 3,
+          "content": "Render the diagram content to SVG format."
+        },
+        {
+          "order": 4,
+          "content": "IF rendering fails, throw a MermaidError with the original error."
+        },
+        {
+          "order": 5,
+          "content": "Return the rendered SVG string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_86b49a52",
+      "name": "renderWithDimensions",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, theme: Theme): Promise<RenderResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render the diagram to SVG format with the specified theme."
+        },
+        {
+          "order": 2,
+          "content": "Extract width and height from the SVG viewBox or attributes."
+        },
+        {
+          "order": 3,
+          "content": "Parse width and height values from viewBox if present."
+        },
+        {
+          "order": 4,
+          "content": "IF width is not extracted from viewBox, try to extract it from width attribute."
+        },
+        {
+          "order": 5,
+          "content": "IF height is not extracted from viewBox, try to extract it from height attribute."
+        },
+        {
+          "order": 6,
+          "content": "Return the SVG string along with extracted dimensions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e2d00107",
+      "name": "validateDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the diagram content is empty or whitespace."
+        },
+        {
+          "order": 2,
+          "content": "Trim the diagram content for validation."
+        },
+        {
+          "order": 3,
+          "content": "Check if the diagram content starts with a known Mermaid diagram type."
+        },
+        {
+          "order": 4,
+          "content": "IF validation fails, return false."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return true if the diagram content is valid."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59e640fe",
+      "name": "getCurrentTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): Theme",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current Mermaid configuration."
+        },
+        {
+          "order": 2,
+          "content": "Extract and return the theme from the configuration."
+        },
+        {
+          "order": 3,
+          "content": "IF no theme is configured, return 'default' as the fallback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b4c6d08",
+      "name": "setTheme",
+      "enclosing_class": null,
+      "normalized_params": "(theme: Theme): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize Mermaid with the specified theme."
+        },
+        {
+          "order": 2,
+          "content": "IF setting the theme fails, throw a MermaidError with the original error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_165c1328",
+      "name": "reset",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the internal initialization flag to false."
+        },
+        {
+          "order": 2,
+          "content": "Notify Mermaid that content has loaded to reset its state."
+        },
+        {
+          "order": 3,
+          "content": "IF the content loaded notification fails, ignore the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4801d7da",
+      "name": "isInitializedMermaid",
+      "enclosing_class": null,
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the current initialization status of Mermaid."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

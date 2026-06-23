@@ -1,0 +1,1402 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/scene-graph.ts",
+  "title": "Scene graph implementation for UI node management and variable handling",
+  "purpose": "Provides a hierarchical structure for UI elements with support for variables, instances, and component relationships. Used to manage the visual composition and state of UI designs.",
+  "module_context": "Exports type definitions for scene nodes, variables, and UI elements. Includes a SceneGraph class that manages nodes, variables, and their relationships with methods for creating, updating, and traversing the node hierarchy.",
+  "methods": [
+    {
+      "id": "m_092b84ee",
+      "name": "generateId",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a unique identifier string using a global counter."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_030fe164",
+      "name": "createDefaultNode",
+      "enclosing_class": null,
+      "normalized_params": "(type: NodeType, overrides?: Partial<SceneNode>): SceneNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a new unique identifier for the node."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the node with default values based on its type."
+        },
+        {
+          "order": 3,
+          "content": "Apply any provided overrides to customize the node properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_48db6779",
+      "name": "SceneGraph",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty map to store nodes by ID."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an empty map to store images by hash."
+        },
+        {
+          "order": 3,
+          "content": "Initialize empty maps for variables and variable collections."
+        },
+        {
+          "order": 4,
+          "content": "Initialize an empty map for active mode selections."
+        },
+        {
+          "order": 5,
+          "content": "Create a default root frame node and set it as the root ID."
+        },
+        {
+          "order": 6,
+          "content": "Add an initial page to the scene graph."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_02d87367",
+      "name": "addPage",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(name: string): SceneNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new canvas node with the specified name and zero dimensions."
+        },
+        {
+          "order": 2,
+          "content": "Add the canvas node as a child of the root node."
+        },
+        {
+          "order": 3,
+          "content": "Return the newly created canvas node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d9a0c95",
+      "name": "getPages",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(): SceneNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve all direct children of the root node."
+        },
+        {
+          "order": 2,
+          "content": "Filter the children to include only those with type CANVAS."
+        },
+        {
+          "order": 3,
+          "content": "Return the filtered list of canvas nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2375ab26",
+      "name": "getAllNodes",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(): Iterable<SceneNode>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return an iterable over all nodes stored in the nodes map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c87ac615",
+      "name": "getNode",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): SceneNode | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the node with the specified ID in the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "Return the node if found, otherwise return undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eccfff91",
+      "name": "addVariable",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(variable: Variable): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the variable in the variables map using its ID as the key."
+        },
+        {
+          "order": 2,
+          "content": "If the variable's collection exists, add the variable ID to the collection's variable IDs list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03938f80",
+      "name": "removeVariable",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the variable with the specified ID from the variables map."
+        },
+        {
+          "order": 2,
+          "content": "If the variable does not exist, return early."
+        },
+        {
+          "order": 3,
+          "content": "Remove the variable from the variables map."
+        },
+        {
+          "order": 4,
+          "content": "If the variable's collection exists, remove the variable ID from the collection's variable IDs list."
+        },
+        {
+          "order": 5,
+          "content": "For each node in the scene graph, remove any bound variable references to this variable."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7ac7c2d6",
+      "name": "addCollection",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(collection: VariableCollection): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the collection in the variableCollections map using its ID as the key."
+        },
+        {
+          "order": 2,
+          "content": "If no active mode is set for this collection, initialize it with the default mode ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_831d748a",
+      "name": "removeCollection",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the collection with the specified ID from the variableCollections map."
+        },
+        {
+          "order": 2,
+          "content": "If the collection does not exist, return early."
+        },
+        {
+          "order": 3,
+          "content": "For each variable ID in the collection, remove the corresponding variable."
+        },
+        {
+          "order": 4,
+          "content": "Delete the collection from the variableCollections map."
+        },
+        {
+          "order": 5,
+          "content": "Remove the collection's active mode from the activeMode map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b2589fb6",
+      "name": "getActiveModeId",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(collectionId: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the active mode ID for the specified collection in the activeMode map."
+        },
+        {
+          "order": 2,
+          "content": "IF an active mode is found, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE retrieve the collection from the variableCollections map."
+        },
+        {
+          "order": 4,
+          "content": "IF the collection exists, return its default mode ID."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return an empty string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a0db3209",
+      "name": "setActiveMode",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(collectionId: string, modeId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the specified mode ID as the active mode for the given collection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8e44fe5a",
+      "name": "resolveVariable",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(variableId: string, modeId?: string, visited?: Set<string>): VariableValue | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the variable ID has been visited previously, return undefined to prevent circular references."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the variable with the specified ID from the variables map."
+        },
+        {
+          "order": 3,
+          "content": "IF the variable does not exist, return undefined."
+        },
+        {
+          "order": 4,
+          "content": "Determine the resolved mode ID using the provided mode or the active mode."
+        },
+        {
+          "order": 5,
+          "content": "Retrieve the value for the resolved mode from the variable's valuesByMode map."
+        },
+        {
+          "order": 6,
+          "content": "IF the value is undefined, return undefined."
+        },
+        {
+          "order": 7,
+          "content": "IF the value is an object with an aliasId property, recursively resolve the referenced variable."
+        },
+        {
+          "order": 8,
+          "content": "ELSE return the resolved value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_98d427f9",
+      "name": "resolveColorVariable",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(variableId: string): Color | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the variable value using the standard variable resolution process."
+        },
+        {
+          "order": 2,
+          "content": "IF the resolved value is an object with a 'r' property, return it as a color."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a106979c",
+      "name": "resolveNumberVariable",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(variableId: string): number | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the variable value using the standard variable resolution process."
+        },
+        {
+          "order": 2,
+          "content": "IF the resolved value is a number, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43e53ece",
+      "name": "getVariablesForCollection",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(collectionId: string): Variable[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the collection with the specified ID from the variableCollections map."
+        },
+        {
+          "order": 2,
+          "content": "IF the collection does not exist, return an empty array."
+        },
+        {
+          "order": 3,
+          "content": "For each variable ID in the collection, retrieve the corresponding variable from the variables map."
+        },
+        {
+          "order": 4,
+          "content": "Filter out any undefined variables and return the resulting array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7493735a",
+      "name": "getVariablesByType",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(type: VariableType): Variable[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all variables in the variables map."
+        },
+        {
+          "order": 2,
+          "content": "Filter variables to include only those matching the specified type."
+        },
+        {
+          "order": 3,
+          "content": "Return the filtered list of variables."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_91bcaca6",
+      "name": "bindVariable",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(nodeId: string, field: string, variableId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node exists, store the variable ID in the node's boundVariables map under the specified field."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9eec7b56",
+      "name": "unbindVariable",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(nodeId: string, field: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node exists, remove the variable binding for the specified field."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ea0d16e",
+      "name": "getChildren",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): SceneNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist, return an empty array."
+        },
+        {
+          "order": 3,
+          "content": "For each child ID in the node's childIds array, retrieve the corresponding node from the nodes map."
+        },
+        {
+          "order": 4,
+          "content": "Filter out any undefined nodes and return the resulting array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9fcd7dc4",
+      "name": "isContainer",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist, return false."
+        },
+        {
+          "order": 3,
+          "content": "Check if the node's type is in the set of container types."
+        },
+        {
+          "order": 4,
+          "content": "Return the result of the type check."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_35d68872",
+      "name": "isDescendant",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(childId: string, ancestorId: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the child node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "While the current node exists, check if it matches the ancestor ID."
+        },
+        {
+          "order": 3,
+          "content": "IF a match is found, return true."
+        },
+        {
+          "order": 4,
+          "content": "ELSE move to the parent node and continue the loop."
+        },
+        {
+          "order": 5,
+          "content": "IF no ancestor is found, return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16207d5e",
+      "name": "getAbsolutePosition",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): { x: number; y: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize absolute coordinates to zero."
+        },
+        {
+          "order": 2,
+          "content": "Start with the node with the specified ID."
+        },
+        {
+          "order": 3,
+          "content": "While the current node is not the root and is not a canvas, add its position to the absolute coordinates."
+        },
+        {
+          "order": 4,
+          "content": "Move to the parent node and continue the loop."
+        },
+        {
+          "order": 5,
+          "content": "Return the calculated absolute position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bc4c7127",
+      "name": "getAbsoluteBounds",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): Rect",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the absolute position of the node."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 3,
+          "content": "Return a rectangle with the absolute position and the node's dimensions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c01cdac2",
+      "name": "createNode",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(type: NodeType, parentId: string, overrides?: Partial<SceneNode>): SceneNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a new node with default properties based on the specified type."
+        },
+        {
+          "order": 2,
+          "content": "Set the parent ID of the new node."
+        },
+        {
+          "order": 3,
+          "content": "Store the new node in the nodes map."
+        },
+        {
+          "order": 4,
+          "content": "Add the new node ID to the parent's child IDs list."
+        },
+        {
+          "order": 5,
+          "content": "Return the newly created node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6fd09cf2",
+      "name": "updateNode",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string, changes: Partial<SceneNode>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist, return early."
+        },
+        {
+          "order": 3,
+          "content": "Apply the provided changes to the node using Object.assign."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4a7d7c77",
+      "name": "reparentNode",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(nodeId: string, newParentId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist or is the root, return early."
+        },
+        {
+          "order": 3,
+          "content": "IF the new parent is a descendant of the node, return early to prevent cycles."
+        },
+        {
+          "order": 4,
+          "content": "Retrieve the old parent of the node."
+        },
+        {
+          "order": 5,
+          "content": "Retrieve the new parent node."
+        },
+        {
+          "order": 6,
+          "content": "IF the new parent does not exist, return early."
+        },
+        {
+          "order": 7,
+          "content": "IF the node is already a child of the new parent, return early."
+        },
+        {
+          "order": 8,
+          "content": "Calculate the absolute position of the node."
+        },
+        {
+          "order": 9,
+          "content": "Calculate the absolute position of the new parent."
+        },
+        {
+          "order": 10,
+          "content": "Remove the node from the old parent's child IDs list."
+        },
+        {
+          "order": 11,
+          "content": "Set the new parent ID of the node."
+        },
+        {
+          "order": 12,
+          "content": "Add the node ID to the new parent's child IDs list."
+        },
+        {
+          "order": 13,
+          "content": "Adjust the node's position to maintain its visual placement."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9cec6b71",
+      "name": "reorderChild",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(nodeId: string, parentId: string, insertIndex: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist, return early."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the old parent of the node."
+        },
+        {
+          "order": 4,
+          "content": "Retrieve the new parent node."
+        },
+        {
+          "order": 5,
+          "content": "IF the new parent does not exist, return early."
+        },
+        {
+          "order": 6,
+          "content": "Remove the node from the old parent's child IDs list."
+        },
+        {
+          "order": 7,
+          "content": "Set the new parent ID of the node."
+        },
+        {
+          "order": 8,
+          "content": "Insert the node ID at the specified index in the new parent's child IDs list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5d3a725e",
+      "name": "deleteNode",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist or is the root, return early."
+        },
+        {
+          "order": 3,
+          "content": "If the node has a parent, remove it from the parent's child IDs list."
+        },
+        {
+          "order": 4,
+          "content": "For each child of the node, recursively delete the child."
+        },
+        {
+          "order": 5,
+          "content": "Remove the node from the nodes map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69724d69",
+      "name": "hitTest",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(px: number, py: number, scopeId?: string): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the scope to the specified ID or default to the root ID."
+        },
+        {
+          "order": 2,
+          "content": "Perform a hit test on the children of the scope with shallow depth."
+        },
+        {
+          "order": 3,
+          "content": "Return the result of the hit test."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5e88ac82",
+      "name": "hitTestDeep",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(px: number, py: number, scopeId?: string): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the scope to the specified ID or default to the root ID."
+        },
+        {
+          "order": 2,
+          "content": "Perform a hit test on the children of the scope with deep depth."
+        },
+        {
+          "order": 3,
+          "content": "Return the result of the hit test."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a49753ed",
+      "name": "hitTestChildren",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(px: number, py: number, parentId: string, offsetX: number, offsetY: number, deep?: boolean): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the parent node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the parent does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through the children of the parent in reverse order."
+        },
+        {
+          "order": 4,
+          "content": "For each child, check if it is visible."
+        },
+        {
+          "order": 5,
+          "content": "IF the child is not visible, skip to the next child."
+        },
+        {
+          "order": 6,
+          "content": "Calculate the absolute position of the child."
+        },
+        {
+          "order": 7,
+          "content": "IF the child is a component or instance and deep mode is false, check if the point is within the bounds."
+        },
+        {
+          "order": 8,
+          "content": "IF the point is within the bounds and the child is a component or instance, return the child."
+        },
+        {
+          "order": 9,
+          "content": "IF the child is a container, recursively check its children for a deeper hit."
+        },
+        {
+          "order": 10,
+          "content": "IF a deeper hit is found, return it."
+        },
+        {
+          "order": 11,
+          "content": "Check if the point is within the bounds of the child."
+        },
+        {
+          "order": 12,
+          "content": "IF the point is within the bounds, return the child."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_220a40db",
+      "name": "hitTestFrame",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(px: number, py: number, excludeIds: Set<string>, scopeId?: string): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the scope to the specified ID or default to the root ID."
+        },
+        {
+          "order": 2,
+          "content": "Perform a frame hit test on the children of the scope with excluded IDs."
+        },
+        {
+          "order": 3,
+          "content": "Return the result of the frame hit test."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a188609",
+      "name": "hitTestFrameChildren",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(px: number, py: number, parentId: string, offsetX: number, offsetY: number, excludeIds: Set<string>): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the parent node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the parent does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Initialize a variable to track the best matching frame."
+        },
+        {
+          "order": 4,
+          "content": "Iterate through each child of the parent."
+        },
+        {
+          "order": 5,
+          "content": "IF the child ID is in the exclude list, skip to the next child."
+        },
+        {
+          "order": 6,
+          "content": "Retrieve the child node."
+        },
+        {
+          "order": 7,
+          "content": "IF the child is not visible, skip to the next child."
+        },
+        {
+          "order": 8,
+          "content": "Calculate the absolute position of the child."
+        },
+        {
+          "order": 9,
+          "content": "IF the child is not a container type, skip to the next child."
+        },
+        {
+          "order": 10,
+          "content": "IF the point is not within the bounds of the child, skip to the next child."
+        },
+        {
+          "order": 11,
+          "content": "Set the child as the best match."
+        },
+        {
+          "order": 12,
+          "content": "Recursively check the children of the child for a deeper match."
+        },
+        {
+          "order": 13,
+          "content": "IF a deeper match is found, update the best match."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_af39d004",
+      "name": "cloneTree",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(sourceId: string, parentId: string, overrides?: Partial<SceneNode>): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the source node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the source node does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Create a clone of the source node with the specified parent ID and overrides."
+        },
+        {
+          "order": 4,
+          "content": "For each child of the source node, recursively clone the child tree."
+        },
+        {
+          "order": 5,
+          "content": "Return the cloned node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5f146a2d",
+      "name": "copyProp",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "<K extends keyof SceneNode>(target: Partial<SceneNode> | SceneNode, source: SceneNode, key: K): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the value of the specified key from the source node."
+        },
+        {
+          "order": 2,
+          "content": "IF the value is an array, create a deep copy of the array."
+        },
+        {
+          "order": 3,
+          "content": "Store the value in the target node at the specified key."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_40382a14",
+      "name": "createInstance",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(componentId: string, parentId: string, overrides?: Partial<SceneNode>): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the component node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the component does not exist or is not of type COMPONENT, return null."
+        },
+        {
+          "order": 3,
+          "content": "Initialize properties for the new instance based on the component."
+        },
+        {
+          "order": 4,
+          "content": "Create the instance node with the specified parent ID and properties."
+        },
+        {
+          "order": 5,
+          "content": "Clone the children of the component and add them to the instance."
+        },
+        {
+          "order": 6,
+          "content": "Return the newly created instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_819c8770",
+      "name": "cloneChildrenWithMapping",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(sourceParentId: string, destParentId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the source parent node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the source parent does not exist, return early."
+        },
+        {
+          "order": 3,
+          "content": "For each child of the source parent, create a clone with the destination parent ID."
+        },
+        {
+          "order": 4,
+          "content": "If the child has children, recursively clone the child tree."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad9cfe8e",
+      "name": "syncInstances",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(componentId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the component node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the component does not exist or is not of type COMPONENT, return early."
+        },
+        {
+          "order": 3,
+          "content": "For each instance of the component, synchronize its properties with the component."
+        },
+        {
+          "order": 4,
+          "content": "Sync the children of each instance with the component's children."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c4339e74",
+      "name": "syncChildren",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(compParentId: string, instParentId: string, overrides: Record<string, unknown>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the component parent and instance parent nodes with the specified IDs from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF either parent does not exist, return early."
+        },
+        {
+          "order": 3,
+          "content": "Create a mapping of instance children by component ID."
+        },
+        {
+          "order": 4,
+          "content": "For each child of the component parent, add new children to the instance if they don't exist."
+        },
+        {
+          "order": 5,
+          "content": "For each existing child, synchronize its properties with the component."
+        },
+        {
+          "order": 6,
+          "content": "Recursively synchronize children if they have children."
+        },
+        {
+          "order": 7,
+          "content": "Reorder the instance children to match the component order."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b5c12b98",
+      "name": "detachInstance",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(instanceId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist or is not of type INSTANCE, return early."
+        },
+        {
+          "order": 3,
+          "content": "Change the node type to FRAME."
+        },
+        {
+          "order": 4,
+          "content": "Clear the component ID of the node."
+        },
+        {
+          "order": 5,
+          "content": "Clear the overrides of the node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_743e9616",
+      "name": "getMainComponent",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(instanceId: string): SceneNode | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the node with the specified ID from the nodes map."
+        },
+        {
+          "order": 2,
+          "content": "IF the node does not exist or has no component ID, return undefined."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the component node with the component ID from the nodes map."
+        },
+        {
+          "order": 4,
+          "content": "Return the component node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5a25d846",
+      "name": "getInstances",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(componentId: string): SceneNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to store instances."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all nodes in the nodes map."
+        },
+        {
+          "order": 3,
+          "content": "IF a node is of type INSTANCE and has the specified component ID, add it to the instances array."
+        },
+        {
+          "order": 4,
+          "content": "Return the instances array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4d69a0d8",
+      "name": "flattenTree",
+      "enclosing_class": "SceneGraph",
+      "normalized_params": "(parentId?: string, depth?: number): Array<{ node: SceneNode; depth: number }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the parent ID to the specified ID or default to the root ID."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the parent node with the specified ID from the nodes map."
+        },
+        {
+          "order": 3,
+          "content": "IF the parent does not exist, return an empty array."
+        },
+        {
+          "order": 4,
+          "content": "Initialize an empty result array."
+        },
+        {
+          "order": 5,
+          "content": "For each child of the parent, add the child to the result array with the current depth."
+        },
+        {
+          "order": 6,
+          "content": "If the child has children, recursively flatten the child tree with increased depth."
+        },
+        {
+          "order": 7,
+          "content": "Return the flattened result array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-schema.ts",
+  "title": "SQLite schema creation and destruction helpers for pseudo DB schema v6",
+  "purpose": "Provides functions to initialize and clean up the database schema for the pseudo DB, including all tables, indexes, and FTS5 virtual table definitions.",
+  "module_context": "Exports SCHEMA_VERSION constant and DDL/DROP_DDL strings containing complete SQL definitions for the schema. Defines createSchema() and dropSchema() functions that execute the DDL and DROP_DDL statements against a database connection.",
+  "methods": [
+    {
+      "id": "m_06d99f38",
+      "name": "createSchema",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the complete DDL string to create all tables, indexes, and the FTS5 virtual table."
+        },
+        {
+          "order": 2,
+          "content": "Ensure all schema objects are created only if they do not already exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9dc12e15",
+      "name": "dropSchema",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the complete DROP_DDL string to remove all schema objects in reverse dependency order."
+        },
+        {
+          "order": 2,
+          "content": "Ensure all schema objects are dropped only if they exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

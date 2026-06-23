@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "file": "codex/src/services/confidence-service.ts",
+  "title": "Topic confidence tier calculation and management service",
+  "purpose": "Calculates and updates confidence tiers for topics based on verification dates and flag counts. Used to categorize topics as high, medium, or low confidence.",
+  "module_context": "Exports a ConfidenceService class that manages database operations for calculating topic confidence tiers using predefined thresholds for verification days and open flags.",
+  "methods": [
+    {
+      "id": "m_dfcb9d22",
+      "name": "constructor",
+      "enclosing_class": "ConfidenceService",
+      "normalized_params": "(db: Database.Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the database connection for later use."
+        },
+        {
+          "order": 2,
+          "content": "Prepare all SQL statements for performance optimization."
+        },
+        {
+          "order": 3,
+          "content": "Build the getTopicVerification statement to fetch topic verification data."
+        },
+        {
+          "order": 4,
+          "content": "Build the getOpenFlagCount statement to count open flags for a topic."
+        },
+        {
+          "order": 5,
+          "content": "Build the updateConfidence statement to update a topic's confidence tier."
+        },
+        {
+          "order": 6,
+          "content": "Build the getAllTopics statement to fetch all topic IDs for batch operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1485d19c",
+      "name": "calculate",
+      "enclosing_class": "ConfidenceService",
+      "normalized_params": "(topicId: number): ConfidenceTier",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch the verification information for the specified topic."
+        },
+        {
+          "order": 2,
+          "content": "IF the topic does not exist, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Count the number of open flags for the topic."
+        },
+        {
+          "order": 4,
+          "content": "IF the topic has never been verified, return low confidence."
+        },
+        {
+          "order": 5,
+          "content": "Check if the topic qualifies for high confidence based on verification date and flag count."
+        },
+        {
+          "order": 6,
+          "content": "IF the topic does not qualify for high confidence, check if it qualifies for medium confidence."
+        },
+        {
+          "order": 7,
+          "content": "IF the topic does not qualify for medium confidence, return low confidence."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f39dd136",
+      "name": "calculateAndUpdate",
+      "enclosing_class": "ConfidenceService",
+      "normalized_params": "(topicId: number): ConfidenceTier",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the new confidence tier for the specified topic."
+        },
+        {
+          "order": 2,
+          "content": "Update the topic's confidence tier in the database."
+        },
+        {
+          "order": 3,
+          "content": "Return the newly calculated confidence tier."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_177124e9",
+      "name": "recalculateAll",
+      "enclosing_class": "ConfidenceService",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Begin a database transaction for batch updates."
+        },
+        {
+          "order": 2,
+          "content": "Fetch all topic IDs from the database."
+        },
+        {
+          "order": 3,
+          "content": "For each topic ID, calculate its new confidence tier."
+        },
+        {
+          "order": 4,
+          "content": "Update each topic's confidence tier in the database."
+        },
+        {
+          "order": 5,
+          "content": "Commit the database transaction."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

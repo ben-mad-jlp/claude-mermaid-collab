@@ -1,0 +1,171 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/color.ts",
+  "title": "Color parsing and conversion utilities for UI engine",
+  "purpose": "Provides functions to parse color strings into RGB objects, convert colors between various formats, and create fill objects for UI rendering.",
+  "module_context": "Exports several color utility functions including parsing, conversion, and formatting utilities. Uses the culori library for color parsing and formatting.",
+  "methods": [
+    {
+      "id": "m_1585b004",
+      "name": "parseColor",
+      "enclosing_class": null,
+      "normalized_params": "(input: string): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the input string as a color."
+        },
+        {
+          "order": 2,
+          "content": "IF parsing fails, return a default black color with full opacity."
+        },
+        {
+          "order": 3,
+          "content": "Convert the parsed color to RGB format."
+        },
+        {
+          "order": 4,
+          "content": "Extract and return the RGB components with alpha from the parsed color."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c75e9ed6",
+      "name": "colorToHex",
+      "enclosing_class": null,
+      "normalized_params": "(color: Color): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Format the RGB color components as a hexadecimal string."
+        },
+        {
+          "order": 2,
+          "content": "IF formatting fails, return a default black hex string."
+        },
+        {
+          "order": 3,
+          "content": "Convert the result to uppercase for consistent formatting."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_beefa158",
+      "name": "colorToHexRaw",
+      "enclosing_class": null,
+      "normalized_params": "(color: Color): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the full hexadecimal color string for the input color."
+        },
+        {
+          "order": 2,
+          "content": "Remove the leading hash character from the hex string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e45e5ca",
+      "name": "colorToRgba255",
+      "enclosing_class": null,
+      "normalized_params": "(color: Color): { r: number; g: number; b: number; a: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Scale the red component of the color to the 0-255 range."
+        },
+        {
+          "order": 2,
+          "content": "Scale the green component of the color to the 0-255 range."
+        },
+        {
+          "order": 3,
+          "content": "Scale the blue component of the color to the 0-255 range."
+        },
+        {
+          "order": 4,
+          "content": "Return the scaled RGB components along with the alpha value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6bc4d297",
+      "name": "rgba255ToColor",
+      "enclosing_class": null,
+      "normalized_params": "(rgba: { r: number; g: number; b: number; a: number }): Color",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Scale the red component from 0-255 range to 0-1 range."
+        },
+        {
+          "order": 2,
+          "content": "Scale the green component from 0-255 range to 0-1 range."
+        },
+        {
+          "order": 3,
+          "content": "Scale the blue component from 0-255 range to 0-1 range."
+        },
+        {
+          "order": 4,
+          "content": "Return the normalized color components with the alpha value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8c038bf2",
+      "name": "colorToFill",
+      "enclosing_class": null,
+      "normalized_params": "(color: string | Color): { type: 'SOLID'; color: { r: number; g: number; b: number; a: number }; opacity: number; visible: boolean }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the input is a string, parse it into a color object."
+        },
+        {
+          "order": 2,
+          "content": "Create a fill object with solid type."
+        },
+        {
+          "order": 3,
+          "content": "Set the color components and opacity in the fill object."
+        },
+        {
+          "order": 4,
+          "content": "Mark the fill object as visible."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

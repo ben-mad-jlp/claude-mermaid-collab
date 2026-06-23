@@ -236,8 +236,14 @@ export async function handleAPI(
   validator: Validator,
   renderer: Renderer,
   wsHandler: WebSocketHandler,
+  // Pre-parsed, prefix-stripped URL from the caller. In the same-origin web
+  // deployment the server strips the `/srv/<serverId>` routing prefix before
+  // dispatch; we must route off THAT (not a re-parse of req.url, which still
+  // carries the prefix) or every `/api/...` match fails under the proxy (e.g.
+  // session creation worked only via the Electron bridge's bare path).
+  parsedUrl?: URL,
 ): Promise<Response> {
-  const url = new URL(req.url);
+  const url = parsedUrl ?? new URL(req.url);
   const path = url.pathname;
 
   // ============================================

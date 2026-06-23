@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/DiffControls.tsx",
+  "title": "Diff controls component with clear button",
+  "purpose": "Renders UI controls for displaying and clearing diffs in a user interface.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_8ff13c8d",
+      "name": "DiffControls",
+      "enclosing_class": null,
+      "normalized_params": "({ hasDiff, onClearDiff }: DiffControlsProps): React.ReactElement | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there are any differences to display."
+        },
+        {
+          "order": 2,
+          "content": "IF no differences exist, return null to render nothing."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the diff controls container with badge and clear button."
+        },
+        {
+          "order": 4,
+          "content": "Display a badge indicating that changes are being shown."
+        },
+        {
+          "order": 5,
+          "content": "Render a button that triggers the clear diff action when clicked."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

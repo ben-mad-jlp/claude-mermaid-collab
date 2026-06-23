@@ -1,0 +1,396 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/uiStore.ts",
+  "title": "UI state management store with theme, panels, and zoom controls",
+  "purpose": "Manages user interface state including theme preferences, panel visibility, edit modes, and zoom levels using Zustand with persistence.",
+  "module_context": "Exports a Zustand store with persistence middleware that manages UI state including theme, panel visibility, edit modes, and zoom levels. Includes migration logic for version 5.",
+  "methods": [
+    {
+      "id": "m_01004a24",
+      "name": "getDefaultTheme",
+      "enclosing_class": null,
+      "normalized_params": "(): Theme",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if running in a browser environment."
+        },
+        {
+          "order": 2,
+          "content": "IF running in browser, check system color scheme preference."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return light theme as default."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8a678c47",
+      "name": "toggleTheme",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current theme from state."
+        },
+        {
+          "order": 2,
+          "content": "IF current theme is light, switch to dark."
+        },
+        {
+          "order": 3,
+          "content": "ELSE switch to light."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7835aed",
+      "name": "toggleSidebar",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current sidebar visibility from state."
+        },
+        {
+          "order": 2,
+          "content": "Toggle the sidebar visibility state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69e4a292",
+      "name": "toggleSessionPanel",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current session panel visibility from state."
+        },
+        {
+          "order": 2,
+          "content": "Toggle the session panel visibility state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_23af0a01",
+      "name": "toggleEditMode",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current edit mode from state."
+        },
+        {
+          "order": 2,
+          "content": "Toggle the edit mode state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e66b3c54",
+      "name": "toggleDocumentEditable",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current document editable state from state."
+        },
+        {
+          "order": 2,
+          "content": "Toggle the document editable state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0ad8c974",
+      "name": "toggleAgentChat",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current agent chat visibility from state."
+        },
+        {
+          "order": 2,
+          "content": "Toggle the agent chat visibility state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb7b968b",
+      "name": "setSidebarSplitPosition",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(position: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clamp the provided position between 10 and 50 percent."
+        },
+        {
+          "order": 2,
+          "content": "Update the sidebar split position with the clamped value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_488ae36c",
+      "name": "setSessionPanelSplitPosition",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(position: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clamp the provided position between 10 and 50 percent."
+        },
+        {
+          "order": 2,
+          "content": "Update the session panel split position with the clamped value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc5bab97",
+      "name": "setEditorSplitPosition",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(position: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clamp the provided position between 10 and 90 percent."
+        },
+        {
+          "order": 2,
+          "content": "Update the editor split position with the clamped value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aaaea3c5",
+      "name": "setZoomLevel",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(level: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clamp the provided zoom level between minimum and maximum values."
+        },
+        {
+          "order": 2,
+          "content": "Update the zoom level with the clamped value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51e18de8",
+      "name": "zoomIn",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current zoom level from state."
+        },
+        {
+          "order": 2,
+          "content": "Increase the zoom level by the defined step amount."
+        },
+        {
+          "order": 3,
+          "content": "IF the new level exceeds maximum, cap it at maximum."
+        },
+        {
+          "order": 4,
+          "content": "Update the zoom level with the new value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dcf92f64",
+      "name": "zoomOut",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current zoom level from state."
+        },
+        {
+          "order": 2,
+          "content": "Decrease the zoom level by the defined step amount."
+        },
+        {
+          "order": 3,
+          "content": "IF the new level falls below minimum, cap it at minimum."
+        },
+        {
+          "order": 4,
+          "content": "Update the zoom level with the new value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5668ac22",
+      "name": "reset",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset all UI state values to their default configurations."
+        },
+        {
+          "order": 2,
+          "content": "Set theme to default theme value."
+        },
+        {
+          "order": 3,
+          "content": "Set sidebar visibility to true."
+        },
+        {
+          "order": 4,
+          "content": "Set session panel visibility to true."
+        },
+        {
+          "order": 5,
+          "content": "Set edit mode to true."
+        },
+        {
+          "order": 6,
+          "content": "Set agent chat visibility to true."
+        },
+        {
+          "order": 7,
+          "content": "Set migration banner seen flag to false."
+        },
+        {
+          "order": 8,
+          "content": "Set sidebar split position to default value."
+        },
+        {
+          "order": 9,
+          "content": "Set session panel split position to default value."
+        },
+        {
+          "order": 10,
+          "content": "Set editor split position to default value."
+        },
+        {
+          "order": 11,
+          "content": "Set zoom level to default value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b36c93eb",
+      "name": "migrate",
+      "enclosing_class": "useUIStore",
+      "normalized_params": "(persistedState: unknown, version: number): UIState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF persisted state is invalid, return as is."
+        },
+        {
+          "order": 2,
+          "content": "IF version is less than 5, remove legacy panel flags."
+        },
+        {
+          "order": 3,
+          "content": "IF version is less than 5, set agent chat visibility to true."
+        },
+        {
+          "order": 4,
+          "content": "IF version is less than 5, ensure migration banner seen flag is boolean."
+        },
+        {
+          "order": 5,
+          "content": "Return updated state with legacy flags removed and defaults applied."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

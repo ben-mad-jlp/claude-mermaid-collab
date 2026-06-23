@@ -1,0 +1,127 @@
+{
+  "schema_version": 3,
+  "file": "codex/src/types/index.ts",
+  "title": "Codex type definitions for knowledge base topics and content",
+  "purpose": "Defines TypeScript interfaces and types for representing knowledge base topics, their content, flags, and dashboard statistics in the Collab Codex system.",
+  "module_context": "Exports type definitions for ConfidenceTier, Topic, TopicFlag, DashboardStats, TopicContent, and QueryResult that form the core data models for the knowledge base system.",
+  "methods": [
+    {
+      "id": "m_c3a10309",
+      "name": "ConfidenceTier",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a type alias for confidence levels with high, medium, and low tiers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b307037a",
+      "name": "Topic",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for knowledge base topics with name, title, confidence, and timestamp properties."
+        },
+        {
+          "order": 2,
+          "content": "Include optional lastAccessed timestamp and accessCount for tracking usage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cede7351",
+      "name": "TopicFlag",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for topic flags indicating issues requiring attention."
+        },
+        {
+          "order": 2,
+          "content": "Specify flag types including outdated, incomplete, incorrect, and needs-review."
+        },
+        {
+          "order": 3,
+          "content": "Include timestamps for creation and optional resolution."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f6de71f5",
+      "name": "DashboardStats",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for dashboard statistics aggregating topic and flag metrics."
+        },
+        {
+          "order": 2,
+          "content": "Include counts for topics by confidence level, drafts, open flags, and stale topics."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_feeaf133",
+      "name": "TopicContent",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for topic content sections including summary, concepts, examples, gotchas, and diagrams."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d11dd74e",
+      "name": "QueryResult",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for query results containing both topic metadata and its content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

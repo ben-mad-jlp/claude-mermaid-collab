@@ -1,0 +1,211 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/DraftDiffViewer.tsx",
+  "title": "Side-by-side diff viewer for comparing current and draft content",
+  "purpose": "Displays a visual comparison between current and draft content with color-coded additions and deletions. Used to help users understand changes in topic content.",
+  "module_context": "Exports a DraftDiffViewer component that accepts current and draft content as props, along with optional language and class name. Includes helper functions for computing diffs and determining styling classes.",
+  "methods": [
+    {
+      "id": "m_718116e8",
+      "name": "computeDiff",
+      "enclosing_class": null,
+      "normalized_params": "(current: string, draft: string): { currentLines: DiffLine[]; draftLines: DiffLine[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the current content into lines."
+        },
+        {
+          "order": 2,
+          "content": "Split the draft content into lines."
+        },
+        {
+          "order": 3,
+          "content": "Create sets of trimmed lines for both current and draft content for efficient lookup."
+        },
+        {
+          "order": 4,
+          "content": "Process each line of current content to determine if it was removed or unchanged."
+        },
+        {
+          "order": 5,
+          "content": "Process each line of draft content to determine if it was added or unchanged."
+        },
+        {
+          "order": 6,
+          "content": "Return the computed lines for both current and draft content with their statuses."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9902cdeb",
+      "name": "getLineBackgroundClass",
+      "enclosing_class": null,
+      "normalized_params": "(status: DiffLineStatus): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a background color class based on the line status."
+        },
+        {
+          "order": 2,
+          "content": "Use green for added lines."
+        },
+        {
+          "order": 3,
+          "content": "Use red for removed lines."
+        },
+        {
+          "order": 4,
+          "content": "Use yellow for modified lines."
+        },
+        {
+          "order": 5,
+          "content": "Return empty string for unchanged lines."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d1e4ccdc",
+      "name": "getLineTextClass",
+      "enclosing_class": null,
+      "normalized_params": "(status: DiffLineStatus): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a text color class based on the line status."
+        },
+        {
+          "order": 2,
+          "content": "Use green for added lines."
+        },
+        {
+          "order": 3,
+          "content": "Use red for removed lines."
+        },
+        {
+          "order": 4,
+          "content": "Use yellow for modified lines."
+        },
+        {
+          "order": 5,
+          "content": "Use gray for unchanged lines."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e068ea3",
+      "name": "getLineNumberClass",
+      "enclosing_class": null,
+      "normalized_params": "(status: DiffLineStatus): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return a line number color class based on the line status."
+        },
+        {
+          "order": 2,
+          "content": "Use green for added lines."
+        },
+        {
+          "order": 3,
+          "content": "Use red for removed lines."
+        },
+        {
+          "order": 4,
+          "content": "Use gray for unchanged lines."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4dfd7891",
+      "name": "DiffPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiffPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a panel header with the provided title."
+        },
+        {
+          "order": 2,
+          "content": "Render panel content area with scrollable overflow."
+        },
+        {
+          "order": 3,
+          "content": "IF the lines array is empty or contains only an empty line, display the empty message."
+        },
+        {
+          "order": 4,
+          "content": "ELSE render each line with its corresponding background and text colors."
+        },
+        {
+          "order": 5,
+          "content": "Display line numbers with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_19ae9436",
+      "name": "DraftDiffViewer",
+      "enclosing_class": null,
+      "normalized_params": "(props: DraftDiffViewerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compute the diff between current and draft content using the computeDiff function."
+        },
+        {
+          "order": 2,
+          "content": "Calculate statistics for additions and deletions from the computed diff."
+        },
+        {
+          "order": 3,
+          "content": "Render a stats bar showing language and addition/deletion counts."
+        },
+        {
+          "order": 4,
+          "content": "Render the current content panel on the left side."
+        },
+        {
+          "order": 5,
+          "content": "Render a divider between the panels."
+        },
+        {
+          "order": 6,
+          "content": "Render the draft content panel on the right side."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

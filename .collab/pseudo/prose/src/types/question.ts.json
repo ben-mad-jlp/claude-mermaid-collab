@@ -1,0 +1,125 @@
+{
+  "schema_version": 3,
+  "file": "src/types/question.ts",
+  "title": "Question types and interfaces for MCP UI handling",
+  "purpose": "Defines the TypeScript interfaces and types for representing questions, responses, and UI rendering parameters used in the MCP system for handling user interactions.",
+  "module_context": "Exports multiple TypeScript interfaces and types related to question handling, UI rendering, and session management in the MCP system.",
+  "methods": [
+    {
+      "id": "m_9e557ee4",
+      "name": "receiveQuestion",
+      "enclosing_class": "QuestionStoreActions",
+      "normalized_params": "(id: string, ui: UINode, context?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the new question with its unique identifier and UI definition."
+        },
+        {
+          "order": 2,
+          "content": "Set the question as the currently pending question."
+        },
+        {
+          "order": 3,
+          "content": "Add the question to the session's question history."
+        },
+        {
+          "order": 4,
+          "content": "Open the question panel for user interaction."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_99f04b70",
+      "name": "answerQuestion",
+      "enclosing_class": "QuestionStoreActions",
+      "normalized_params": "(response: QuestionResponse): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the currently pending question from storage."
+        },
+        {
+          "order": 2,
+          "content": "Update the pending question with the provided response data."
+        },
+        {
+          "order": 3,
+          "content": "Mark the question as answered."
+        },
+        {
+          "order": 4,
+          "content": "Send the response back to Claude via the MCP system."
+        },
+        {
+          "order": 5,
+          "content": "Remove the question from the pending state."
+        },
+        {
+          "order": 6,
+          "content": "Add the answered question to the session's question history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6235361d",
+      "name": "dismissQuestion",
+      "enclosing_class": "QuestionStoreActions",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the currently pending question from storage."
+        },
+        {
+          "order": 2,
+          "content": "Mark the question as answered with no response data."
+        },
+        {
+          "order": 3,
+          "content": "Remove the question from the pending state."
+        },
+        {
+          "order": 4,
+          "content": "Add the dismissed question to the session's question history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_436f57a4",
+      "name": "clearHistory",
+      "enclosing_class": "QuestionStoreActions",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all questions from the session's question history."
+        },
+        {
+          "order": 2,
+          "content": "Reset the pending question to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

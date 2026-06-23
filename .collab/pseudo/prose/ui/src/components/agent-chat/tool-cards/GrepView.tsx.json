@@ -1,0 +1,79 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/GrepView.tsx",
+  "title": "Grep tool output view component with summary and chips",
+  "purpose": "Displays the output of a grep tool call with formatted input chips, match summary, and output panel.",
+  "module_context": "Exports a React component named GrepView that renders tool call data with pattern highlighting, input parameter chips, and summary statistics.",
+  "methods": [
+    {
+      "id": "m_3f2323b0",
+      "name": "Chip",
+      "enclosing_class": "GrepView",
+      "normalized_params": "(props: { label: string; value: string }): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a chip element with label and value."
+        },
+        {
+          "order": 2,
+          "content": "Apply consistent styling for inline display with background and text colors."
+        },
+        {
+          "order": 3,
+          "content": "Format the label as bold and the value as monospace font."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_03c4025f",
+      "name": "GrepView",
+      "enclosing_class": null,
+      "normalized_params": "(props: GrepViewProps): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract input parameters from the tool call item."
+        },
+        {
+          "order": 2,
+          "content": "Parse and normalize boolean flags from the input."
+        },
+        {
+          "order": 3,
+          "content": "Generate a summary of matches and files if output is a non-empty string."
+        },
+        {
+          "order": 4,
+          "content": "Prepare stdout for display if output is a string."
+        },
+        {
+          "order": 5,
+          "content": "Render the pattern as a monospace code block."
+        },
+        {
+          "order": 6,
+          "content": "Display input parameters as chips in a flex container."
+        },
+        {
+          "order": 7,
+          "content": "Show the summary if it was generated."
+        },
+        {
+          "order": 8,
+          "content": "Render the output panel with tool use ID, status, stdout, and error information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

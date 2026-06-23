@@ -1,0 +1,94 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/interactive/index.ts",
+  "title": "Re-exports all interactive UI components for AI interfaces",
+  "purpose": "Provides a centralized export point for all interactive UI components used in AI-powered user interfaces, making them easily importable by other modules.",
+  "module_context": "Exports multiple interactive UI component types and their corresponding React components including Wizard, Checklist, ApprovalButtons, ProgressBar, and Tabs.",
+  "methods": [
+    {
+      "id": "m_e6b7c95a",
+      "name": "Wizard",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Wizard component for step-by-step guided interactions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ab6953b1",
+      "name": "Checklist",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Checklist component for displaying ordered task lists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f32cfe8a",
+      "name": "ApprovalButtons",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ApprovalButtons component for user approval actions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_23ed23f5",
+      "name": "ProgressBar",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ProgressBar component for showing progress indicators."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7bec23f0",
+      "name": "Tabs",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Tabs component for tabbed navigation interfaces."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

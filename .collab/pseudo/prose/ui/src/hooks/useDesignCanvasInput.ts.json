@@ -1,0 +1,599 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDesignCanvasInput.ts",
+  "title": "Design canvas input handling with drag state machine for various interactions",
+  "purpose": "Manages all mouse, touch, and gesture input on the design editor canvas, implementing a drag state machine for select, draw, move, pan, resize, rotate, marquee, pen, and text-select interactions.",
+  "module_context": "Exports a React hook that sets up event listeners on a canvas element to handle various input interactions including mouse, touch, and gesture events for a design editor.",
+  "methods": [
+    {
+      "id": "m_43271b6a",
+      "name": "useDesignCanvasInput",
+      "enclosing_class": null,
+      "normalized_params": "({ canvasRef, hitTestSectionTitle, hitTestComponentLabel }: UseDesignCanvasInputOptions): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize drag state and last click tracking references."
+        },
+        {
+          "order": 2,
+          "content": "Set up mouse event handlers for mousedown, mousemove, mouseup, mouseleave, and dblclick."
+        },
+        {
+          "order": 3,
+          "content": "Set up touch event handlers for touchstart, touchmove, and touchend."
+        },
+        {
+          "order": 4,
+          "content": "Set up gesture event handlers for gesturestart, gesturechange, and gestureend."
+        },
+        {
+          "order": 5,
+          "content": "Set up wheel event handler for zooming and panning."
+        },
+        {
+          "order": 6,
+          "content": "Set up context menu handler to show the context menu."
+        },
+        {
+          "order": 7,
+          "content": "Attach all event listeners to the canvas element."
+        },
+        {
+          "order": 8,
+          "content": "Return cleanup function to remove all event listeners when component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_45c28b50",
+      "name": "getCoords",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: MouseEvent): { sx: number; sy: number; cx: number; cy: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the canvas element from the ref."
+        },
+        {
+          "order": 2,
+          "content": "If canvas is not available, return default coordinates."
+        },
+        {
+          "order": 3,
+          "content": "Calculate screen coordinates relative to canvas bounds."
+        },
+        {
+          "order": 4,
+          "content": "Convert screen coordinates to canvas coordinates using store's screenToCanvas function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b77ce401",
+      "name": "applyResize",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(d: DragResize, cx: number, cy: number, constrain: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the change in x and y coordinates from the drag start."
+        },
+        {
+          "order": 2,
+          "content": "Update width and height based on the handle position and drag direction."
+        },
+        {
+          "order": 3,
+          "content": "Apply aspect ratio constraints if the constrain flag is true."
+        },
+        {
+          "order": 4,
+          "content": "Ensure width and height are positive values."
+        },
+        {
+          "order": 5,
+          "content": "Update the node with the new dimensions and position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1b3883c3",
+      "name": "computeAutoLayoutIndicatorForFrame",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(parent: SceneNode, cx: number, cy: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the graph and store from refs."
+        },
+        {
+          "order": 2,
+          "content": "Filter children of the parent node that are not absolute positioned and not selected."
+        },
+        {
+          "order": 3,
+          "content": "Determine the insertion index based on the cursor position relative to child nodes."
+        },
+        {
+          "order": 4,
+          "content": "Calculate the indicator position based on the insertion index."
+        },
+        {
+          "order": 5,
+          "content": "Convert the filtered index to the real childIds index."
+        },
+        {
+          "order": 6,
+          "content": "Set the layout insert indicator with calculated position and dimensions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2bb5dc35",
+      "name": "onMouseDown",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the hovered node in the store."
+        },
+        {
+          "order": 2,
+          "content": "Get screen and canvas coordinates for the mouse event."
+        },
+        {
+          "order": 3,
+          "content": "Track multi-clicks for text selection behavior."
+        },
+        {
+          "order": 4,
+          "content": "Handle pan operation using middle mouse button or Hand tool."
+        },
+        {
+          "order": 5,
+          "content": "Handle pan operation when Alt key is pressed and no nodes are selected."
+        },
+        {
+          "order": 6,
+          "content": "Handle text editing mode when editing text."
+        },
+        {
+          "order": 7,
+          "content": "Handle rotation handle interaction for single selection."
+        },
+        {
+          "order": 8,
+          "content": "Handle resize handle interaction for selected nodes."
+        },
+        {
+          "order": 9,
+          "content": "Handle node selection and prepare move operation."
+        },
+        {
+          "order": 10,
+          "content": "Handle marquee selection when clicking on empty space."
+        },
+        {
+          "order": 11,
+          "content": "Handle pen tool creation of vertices."
+        },
+        {
+          "order": 12,
+          "content": "Handle text tool creation of text nodes."
+        },
+        {
+          "order": 13,
+          "content": "Handle shape creation for other tools."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1b94a997",
+      "name": "onMouseMove",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update pen cursor preview if in pen tool mode."
+        },
+        {
+          "order": 2,
+          "content": "Update hover highlight for nodes when not dragging."
+        },
+        {
+          "order": 3,
+          "content": "Handle pan operation when drag state is pan."
+        },
+        {
+          "order": 4,
+          "content": "Handle rotation operation when drag state is rotate."
+        },
+        {
+          "order": 5,
+          "content": "Handle move operation when drag state is move."
+        },
+        {
+          "order": 6,
+          "content": "Handle text selection when drag state is text-select."
+        },
+        {
+          "order": 7,
+          "content": "Handle resize operation when drag state is resize."
+        },
+        {
+          "order": 8,
+          "content": "Handle pen drag operation when drag state is pen-drag."
+        },
+        {
+          "order": 9,
+          "content": "Handle draw operation when drag state is draw."
+        },
+        {
+          "order": 10,
+          "content": "Handle marquee selection when drag state is marquee."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_01a75899",
+      "name": "onMouseUp",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the drag state after a move operation."
+        },
+        {
+          "order": 2,
+          "content": "Commit changes for move operation including layout insert indicator."
+        },
+        {
+          "order": 3,
+          "content": "Clear text selection drag state."
+        },
+        {
+          "order": 4,
+          "content": "Commit changes for resize operation."
+        },
+        {
+          "order": 5,
+          "content": "Clear pen drag state."
+        },
+        {
+          "order": 6,
+          "content": "Commit changes for rotation operation."
+        },
+        {
+          "order": 7,
+          "content": "Handle finalization of draw operation."
+        },
+        {
+          "order": 8,
+          "content": "Clear marquee selection."
+        },
+        {
+          "order": 9,
+          "content": "Reset drag state and cursor after all operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43b65d60",
+      "name": "onWheel",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: WheelEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default wheel behavior to avoid scrolling."
+        },
+        {
+          "order": 2,
+          "content": "Zoom in or out based on wheel delta."
+        },
+        {
+          "order": 3,
+          "content": "Pan instead of zoom when Shift key is pressed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7d19ff1b",
+      "name": "onDblClick",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If currently editing text, do nothing."
+        },
+        {
+          "order": 2,
+          "content": "Get canvas coordinates for the double click event."
+        },
+        {
+          "order": 3,
+          "content": "Hit test for nodes at the click position."
+        },
+        {
+          "order": 4,
+          "content": "If a text node is hit, start text editing mode."
+        },
+        {
+          "order": 5,
+          "content": "Select the clicked node."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4d1705e2",
+      "name": "onTouchStart",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: TouchEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default touch behavior for touch devices."
+        },
+        {
+          "order": 2,
+          "content": "Track active touches."
+        },
+        {
+          "order": 3,
+          "content": "Handle two-finger pinch gesture for zooming."
+        },
+        {
+          "order": 4,
+          "content": "Handle single-finger pan gesture."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_517a6193",
+      "name": "onTouchMove",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: TouchEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default touch behavior for touch devices."
+        },
+        {
+          "order": 2,
+          "content": "Track active touches."
+        },
+        {
+          "order": 3,
+          "content": "Handle two-finger pinch gesture for zooming."
+        },
+        {
+          "order": 4,
+          "content": "Handle single-finger pan gesture."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a1b77930",
+      "name": "onTouchEnd",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: TouchEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default touch behavior for touch devices."
+        },
+        {
+          "order": 2,
+          "content": "Track active touches."
+        },
+        {
+          "order": 3,
+          "content": "Clear drag state when no touches remain."
+        },
+        {
+          "order": 4,
+          "content": "Handle single-finger pan gesture when one touch remains."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ff2b90dd",
+      "name": "onGestureStart",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: Event): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default gesture behavior."
+        },
+        {
+          "order": 2,
+          "content": "Store the initial zoom level for gesture calculation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ff4e0ea3",
+      "name": "onGestureChange",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: Event): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default gesture behavior."
+        },
+        {
+          "order": 2,
+          "content": "Calculate new zoom level based on gesture scale."
+        },
+        {
+          "order": 3,
+          "content": "Update pan and zoom state with calculated values."
+        },
+        {
+          "order": 4,
+          "content": "Request repaint of the canvas."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a00dc7df",
+      "name": "onGestureEnd",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: Event): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default gesture behavior."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11fd29fd",
+      "name": "onMouseLeave",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear snap guides if not dragging."
+        },
+        {
+          "order": 2,
+          "content": "Clear hovered node if not dragging."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f26fd4e9",
+      "name": "onMouseDownWithWindowCapture",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Handle mouse down event."
+        },
+        {
+          "order": 2,
+          "content": "If a drag operation was started, add window-level mouse move and up listeners."
+        },
+        {
+          "order": 3,
+          "content": "Clean up window-level listeners after mouse up."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2952e58b",
+      "name": "onContextMenu",
+      "enclosing_class": "useDesignCanvasInput",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default context menu behavior."
+        },
+        {
+          "order": 2,
+          "content": "Set context menu position in store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dialogs/CreateSessionDialog.tsx",
+  "title": "Session creation dialog with name input and UI toggle",
+  "purpose": "Provides a dialog interface for users to create new collaboration sessions by entering a name and choosing whether to use browser UI for questions.",
+  "module_context": "Exports a React functional component that renders a modal dialog with form inputs and handles user interactions for session creation.",
+  "methods": [
+    {
+      "id": "m_d0fc5a10",
+      "name": "CreateSessionDialog",
+      "enclosing_class": null,
+      "normalized_params": "(props: CreateSessionDialogProps): React.FC<CreateSessionDialogProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for session name and UI preference."
+        },
+        {
+          "order": 2,
+          "content": "Define handler for confirming the session creation with validated input."
+        },
+        {
+          "order": 3,
+          "content": "Define handler for keyboard events to support Enter and Escape keys."
+        },
+        {
+          "order": 4,
+          "content": "Render the dialog structure with header, form inputs, and footer controls."
+        },
+        {
+          "order": 5,
+          "content": "Display session name input field with auto-focus and validation."
+        },
+        {
+          "order": 6,
+          "content": "Render browser UI toggle switch with descriptive labels."
+        },
+        {
+          "order": 7,
+          "content": "Show cancel and create buttons with appropriate styling and disabled states."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_daa511fb",
+      "name": "handleConfirm",
+      "enclosing_class": "CreateSessionDialog",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is not empty after trimming whitespace."
+        },
+        {
+          "order": 2,
+          "content": "IF the session name is valid, call the confirm callback with the name and UI preference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ca74df32",
+      "name": "handleKeyDown",
+      "enclosing_class": "CreateSessionDialog",
+      "normalized_params": "(e: React.KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the Enter key was pressed and the session name is valid."
+        },
+        {
+          "order": 2,
+          "content": "IF Enter is pressed with valid input, trigger the confirm action."
+        },
+        {
+          "order": 3,
+          "content": "IF the Escape key is pressed, trigger the close action."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

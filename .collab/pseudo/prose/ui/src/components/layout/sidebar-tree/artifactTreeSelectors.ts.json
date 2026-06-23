@@ -1,0 +1,278 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/artifactTreeSelectors.ts",
+  "title": "Sidebar artifact tree selection and filtering utilities",
+  "purpose": "Provide pure selector functions to filter and transform artifact data for sidebar tree display, including pinned nodes, blueprints, snippets, and search filtering.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_48f70bc8",
+      "name": "selectPinnedNodes",
+      "enclosing_class": null,
+      "normalized_params": "<T extends { pinned?: boolean }>(items: T[]): T[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the input items to include only those with pinned property set to true."
+        },
+        {
+          "order": 2,
+          "content": "Return the filtered array of pinned items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5acfd38f",
+      "name": "selectBlueprintNodes",
+      "enclosing_class": null,
+      "normalized_params": "<T extends { id: string; blueprint?: boolean; deprecated?: boolean; name: string; lastModified: number }>(documents: T[]): Array<T & { type: 'document' }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the documents to include only those marked as blueprints and not ending with 'vibeinstructions'."
+        },
+        {
+          "order": 2,
+          "content": "Create a shallow copy of the filtered documents."
+        },
+        {
+          "order": 3,
+          "content": "Sort the copied documents by lastModified in descending order."
+        },
+        {
+          "order": 4,
+          "content": "Map each document to include a type property set to 'document'."
+        },
+        {
+          "order": 5,
+          "content": "Return the transformed and sorted array of blueprint documents."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ba58ff2c",
+      "name": "selectLinkedSnippets",
+      "enclosing_class": null,
+      "normalized_params": "<T extends { name: string; content?: string; lastModified: number; linked?: boolean; filePath?: string; dirty?: boolean }>(snippets: T[]): Array<T & { type: 'snippet'; _filePath: string; _dirty: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the snippets to include only those marked as linked or containing linked property in their parsed content."
+        },
+        {
+          "order": 2,
+          "content": "Create a shallow copy of the filtered snippets."
+        },
+        {
+          "order": 3,
+          "content": "Sort the copied snippets by lastModified in descending order."
+        },
+        {
+          "order": 4,
+          "content": "Map each snippet to parse its content and extract file path and dirty status."
+        },
+        {
+          "order": 5,
+          "content": "Update the snippet name based on parsed file path or original name."
+        },
+        {
+          "order": 6,
+          "content": "Return the transformed and sorted array of linked snippets with additional metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc9c2396",
+      "name": "selectCatchAllDiagrams",
+      "enclosing_class": null,
+      "normalized_params": "<T extends object>(diagrams: T[]): Array<T & { type: 'diagram' }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map each diagram in the input to include a type property set to 'diagram'."
+        },
+        {
+          "order": 2,
+          "content": "Return the transformed array of diagrams."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1ca4275f",
+      "name": "selectCatchAllDocuments",
+      "enclosing_class": null,
+      "normalized_params": "<T extends { name: string; blueprint?: boolean }>(documents: T[]): Array<T & { type: 'document' }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the documents to exclude those ending with 'vibeinstructions', marked as blueprints, or named 'task-graph'."
+        },
+        {
+          "order": 2,
+          "content": "Map each filtered document to include a type property set to 'document'."
+        },
+        {
+          "order": 3,
+          "content": "Return the transformed array of catch-all documents."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_10b59ac9",
+      "name": "selectCatchAllDesigns",
+      "enclosing_class": null,
+      "normalized_params": "<T extends { content?: string; lastModified?: number }>(designs: T[]): Array<T & { content: string; lastModified: number; type: 'design' }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map each design in the input to provide default values for content and lastModified if they are missing."
+        },
+        {
+          "order": 2,
+          "content": "Include a type property set to 'design' in each mapped design."
+        },
+        {
+          "order": 3,
+          "content": "Return the transformed array of designs with default values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_52dd8733",
+      "name": "selectCatchAllSpreadsheets",
+      "enclosing_class": null,
+      "normalized_params": "<T extends { content?: string; lastModified?: number }>(spreadsheets: T[]): Array<T & { content: string; lastModified: number; type: 'spreadsheet' }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map each spreadsheet in the input to provide default values for content and lastModified if they are missing."
+        },
+        {
+          "order": 2,
+          "content": "Include a type property set to 'spreadsheet' in each mapped spreadsheet."
+        },
+        {
+          "order": 3,
+          "content": "Return the transformed array of spreadsheets with default values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_62bf91bf",
+      "name": "selectCatchAllSnippets",
+      "enclosing_class": null,
+      "normalized_params": "<T extends { name: string; content?: string; lastModified: number; linked?: boolean }>(snippets: T[]): Array<T & { type: 'snippet' }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a set to track seen group IDs for deduplication."
+        },
+        {
+          "order": 2,
+          "content": "Create a shallow copy of the input snippets."
+        },
+        {
+          "order": 3,
+          "content": "Sort the copied snippets by lastModified in descending order."
+        },
+        {
+          "order": 4,
+          "content": "Filter snippets to exclude those ending with 'vibeinstructions', marked as linked, or containing linked property in parsed content."
+        },
+        {
+          "order": 5,
+          "content": "For snippets with group IDs, ensure they are not duplicates by checking against the seen groups set."
+        },
+        {
+          "order": 6,
+          "content": "Map each filtered snippet to extract and update its name based on parsed group name or original name."
+        },
+        {
+          "order": 7,
+          "content": "Return the transformed and deduplicated array of catch-all snippets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_23c4a545",
+      "name": "filterTreeBySearch",
+      "enclosing_class": null,
+      "normalized_params": "(sections: TreeSection[], query: string): { visibleNodes: Set<string>; sectionsWithMatches: Set<string> }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the search query and check if it is empty."
+        },
+        {
+          "order": 2,
+          "content": "IF the query is empty, mark all nodes and sections as visible."
+        },
+        {
+          "order": 3,
+          "content": "ELSE convert the trimmed query to lowercase for case-insensitive matching."
+        },
+        {
+          "order": 4,
+          "content": "For each section, check if any of its leaves match the query."
+        },
+        {
+          "order": 5,
+          "content": "IF a leaf matches, add its ID to the visible nodes set."
+        },
+        {
+          "order": 6,
+          "content": "IF a section contains at least one matching leaf, add its ID to the sections with matches set."
+        },
+        {
+          "order": 7,
+          "content": "Return the sets of visible nodes and sections with matches."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

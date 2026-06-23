@@ -1,0 +1,23 @@
+{
+  "id": "collab-integration-full",
+  "name": "collab-integration-full",
+  "definition": {
+    "url": "http://localhost:3003/collab",
+    "steps": [
+      {
+        "wait": 3000
+      },
+      {
+        "assert": "document.querySelector('[data-testid=\"collab-dashboard\"]') !== null"
+      },
+      {
+        "assert": "fetch('/collab/api/projects').then(r => r.ok)"
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('[data-testid]')).map(el => el.dataset.testid).join(' | ')"
+      }
+    ]
+  },
+  "createdAt": "2026-04-27T01:36:42.592Z",
+  "updatedAt": "2026-04-27T01:36:42.592Z"
+}

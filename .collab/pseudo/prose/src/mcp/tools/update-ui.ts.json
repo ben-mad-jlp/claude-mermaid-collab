@@ -1,0 +1,71 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/update-ui.ts",
+  "title": "MCP tool for updating UI with partial patches",
+  "purpose": "Provides a mechanism to update the currently displayed UI by applying a partial patch without full re-rendering, communicating with a server via HTTP and WebSocket.",
+  "module_context": "Exports a tool function 'updateUI' and a schema definition 'updateUISchema' for use in MCP tooling. Defines API endpoint constants for server communication.",
+  "methods": [
+    {
+      "id": "m_520795b8",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL using the provided path and base API URL."
+        },
+        {
+          "order": 2,
+          "content": "Add project and session as query parameters to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Return the fully constructed URL with query parameters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9deabbfe",
+      "name": "updateUI",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, patch: Record<string, any>): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the patch is a non-null, non-array object."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to the server with the patch data."
+        },
+        {
+          "order": 3,
+          "content": "IF the server response indicates failure, parse and throw an error with the server's error message or status text."
+        },
+        {
+          "order": 4,
+          "content": "IF the server response is successful, extract the message from the response."
+        },
+        {
+          "order": 5,
+          "content": "Return a JSON string containing success status and the server's message."
+        },
+        {
+          "order": 6,
+          "content": "IF any error occurs during the process, catch it and re-throw with the error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/globalSearch.ts",
+  "title": "Global search overlay state management store",
+  "purpose": "Manages the open/closed state of a global search overlay that can be triggered from anywhere in the UI, not just via keyboard shortcut.",
+  "module_context": "Exports a Zustand store that maintains global search state with methods to open, close, and toggle the overlay.",
+  "methods": [
+    {
+      "id": "m_3b00cf72",
+      "name": "useGlobalSearch",
+      "enclosing_class": null,
+      "normalized_params": "(set, get): GlobalSearchState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the store with default open state set to false."
+        },
+        {
+          "order": 2,
+          "content": "Define the open method to set the store's open state to true."
+        },
+        {
+          "order": 3,
+          "content": "Define the close method to set the store's open state to false."
+        },
+        {
+          "order": 4,
+          "content": "Define the toggle method to flip the store's open state to its opposite value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

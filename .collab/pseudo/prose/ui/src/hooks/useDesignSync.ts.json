@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDesignSync.ts",
+  "title": "Design synchronization hook with auto-save and WebSocket updates",
+  "purpose": "Manages loading and saving design data from/to the API, handles auto-saving with debouncing, and processes remote updates via WebSocket.",
+  "module_context": "Exports a hook function useDesignSync that manages the lifecycle of a design's scene graph including loading, saving, and handling remote changes.",
+  "methods": [
+    {
+      "id": "m_f4c5f404",
+      "name": "serializeGraph",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Collect all nodes from the scene graph into a serializable array."
+        },
+        {
+          "order": 2,
+          "content": "Serialize Map fields like variables, variableCollections, and activeMode into key-value pairs."
+        },
+        {
+          "order": 3,
+          "content": "Encode image data as base64 strings for JSON serialization."
+        },
+        {
+          "order": 4,
+          "content": "Combine all serialized data into a single JSON string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2558901b",
+      "name": "deserializeGraph",
+      "enclosing_class": null,
+      "normalized_params": "(json: string): SceneGraph",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the JSON string into a structured object."
+        },
+        {
+          "order": 2,
+          "content": "Initialize a new scene graph instance."
+        },
+        {
+          "order": 3,
+          "content": "Reconstruct nodes from the parsed data, merging with default values."
+        },
+        {
+          "order": 4,
+          "content": "Apply properties from MCP-created designs to actual node fields."
+        },
+        {
+          "order": 5,
+          "content": "Restore Map fields like variables, variableCollections, and activeMode from serialized entries."
+        },
+        {
+          "order": 6,
+          "content": "Decode image data from base64 strings back into Uint8Array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_38b6c2bf",
+      "name": "useDesignSync",
+      "enclosing_class": null,
+      "normalized_params": "(designId: string | null): { handleRemoteUpdate: (content: string) => void }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize references for tracking last saved version, save timer, loading state, and saving state."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to session store changes to track current session and update design function."
+        },
+        {
+          "order": 3,
+          "content": "Subscribe to design editor store changes to track scene version."
+        },
+        {
+          "order": 4,
+          "content": "Load design from API when designId changes, handling loading states and errors."
+        },
+        {
+          "order": 5,
+          "content": "Debounce and save scene graph changes to API when sceneVersion changes."
+        },
+        {
+          "order": 6,
+          "content": "Handle incoming WebSocket updates by deserializing and applying changes to the scene graph."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8e5c9afe",
+      "name": "handleRemoteUpdate",
+      "enclosing_class": "useDesignSync",
+      "normalized_params": "(content: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Skip processing if the design is currently loading."
+        },
+        {
+          "order": 2,
+          "content": "Deserialize the incoming content into a scene graph."
+        },
+        {
+          "order": 3,
+          "content": "Apply the deserialized graph to the current scene."
+        },
+        {
+          "order": 4,
+          "content": "Initialize the design editor store from the updated graph."
+        },
+        {
+          "order": 5,
+          "content": "Update the last saved version reference to match the current scene version."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

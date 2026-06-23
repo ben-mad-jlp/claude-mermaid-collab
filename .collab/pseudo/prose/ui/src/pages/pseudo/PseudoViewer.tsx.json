@@ -1,0 +1,128 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/PseudoViewer.tsx",
+  "title": "Pseudo-file viewer with syntax highlighting and function navigation",
+  "purpose": "Displays pseudo-file contents with syntax highlighting, file metadata, and interactive function blocks that can be navigated to.",
+  "module_context": "Exports a forward-ref'd React component named PseudoViewer that handles loading, displaying, and navigating pseudo-files with methods.",
+  "methods": [
+    {
+      "id": "m_917fff76",
+      "name": "PseudoViewer",
+      "enclosing_class": null,
+      "normalized_params": "({ path, project, onFunctionsChange }: PseudoViewerProps, ref: React.Ref<PseudoViewerHandle>): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for file data, loading status, and error handling."
+        },
+        {
+          "order": 2,
+          "content": "Load pseudo-file content when path or project changes."
+        },
+        {
+          "order": 3,
+          "content": "Notify parent component of function changes when file data updates."
+        },
+        {
+          "order": 4,
+          "content": "Expose scroll-to-function functionality via imperative handle."
+        },
+        {
+          "order": 5,
+          "content": "Render empty state when no file is selected."
+        },
+        {
+          "order": 6,
+          "content": "Render loading spinner while fetching file content."
+        },
+        {
+          "order": 7,
+          "content": "Render error message if file loading fails."
+        },
+        {
+          "order": 8,
+          "content": "Render file header with metadata and breadcrumbs."
+        },
+        {
+          "order": 9,
+          "content": "Render module header with title, purpose, and context."
+        },
+        {
+          "order": 10,
+          "content": "Render function blocks if methods exist, otherwise show no functions message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_62f5a24d",
+      "name": "loadFile",
+      "enclosing_class": "PseudoViewer",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF path or project is not set, clear file data and loading state."
+        },
+        {
+          "order": 2,
+          "content": "Set loading state to true before fetching file."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to fetch pseudo-file content using project and path."
+        },
+        {
+          "order": 4,
+          "content": "IF fetch succeeds, update file data state with the fetched content."
+        },
+        {
+          "order": 5,
+          "content": "IF fetch fails, set error state with error message."
+        },
+        {
+          "order": 6,
+          "content": "Reset loading state after fetch attempt completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b1b29cfc",
+      "name": "scrollToFunction",
+      "enclosing_class": "PseudoViewer",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the DOM element associated with the specified function name."
+        },
+        {
+          "order": 2,
+          "content": "IF the element exists, smoothly scroll it into view at the top of the container."
+        },
+        {
+          "order": 3,
+          "content": "Add a visual flash effect to the function element during scroll."
+        },
+        {
+          "order": 4,
+          "content": "Remove the flash effect after 1.5 seconds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

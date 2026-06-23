@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/layout/index.ts",
+  "title": "AI-UI Layout Components Exporter",
+  "purpose": "Exports all layout components for organizing content in AI-UI applications. Provides a centralized import point for layout components.",
+  "module_context": "Exports Card, Section, Columns, Accordion, and Alert components along with their respective type definitions for use in applications.",
+  "methods": [
+    {
+      "id": "m_07714795",
+      "name": "export",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Card component and its type definitions."
+        },
+        {
+          "order": 2,
+          "content": "Export the Section component and its type definitions."
+        },
+        {
+          "order": 3,
+          "content": "Export the Columns component and its type definitions."
+        },
+        {
+          "order": 4,
+          "content": "Export the Accordion component and its type definitions."
+        },
+        {
+          "order": 5,
+          "content": "Export the Alert component and its type definitions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

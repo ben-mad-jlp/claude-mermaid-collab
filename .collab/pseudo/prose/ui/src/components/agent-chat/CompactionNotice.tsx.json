@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/CompactionNotice.tsx",
+  "title": "Displays a notice about context compaction with token and message counts",
+  "purpose": "Renders a visual separator with information about how the context was compacted, showing token usage before and after, and number of messages retained.",
+  "module_context": "Exports a React functional component named CompactionNotice that accepts props for token counts and message retention data.",
+  "methods": [
+    {
+      "id": "m_1fad4f69",
+      "name": "CompactionNotice",
+      "enclosing_class": null,
+      "normalized_params": "(props: CompactionNoticeProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Format the token count before compaction into a display string."
+        },
+        {
+          "order": 2,
+          "content": "Format the token count after compaction into a display string."
+        },
+        {
+          "order": 3,
+          "content": "Format the number of messages retained into a display string."
+        },
+        {
+          "order": 4,
+          "content": "Render a flex container with separator bars and compacted context information."
+        },
+        {
+          "order": 5,
+          "content": "Display the before and after token counts along with the retained message count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,200 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useWebSocket.ts",
+  "title": "WebSocket hook with connection management and message handling",
+  "purpose": "Manages WebSocket connections in React components with automatic connection handling, message sending, and subscription management.",
+  "module_context": "Exports a custom React hook 'useWebSocket' that provides WebSocket functionality with automatic connection lifecycle management and state tracking.",
+  "methods": [
+    {
+      "id": "m_ef58b612",
+      "name": "useWebSocket",
+      "enclosing_class": null,
+      "normalized_params": "(url?: string, autoConnect?: boolean): UseWebSocketReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize WebSocket client reference and connection state."
+        },
+        {
+          "order": 2,
+          "content": "Create a callback to get or create the WebSocket client instance."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback to establish a WebSocket connection with error handling."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback to terminate the WebSocket connection."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to send messages through the WebSocket connection."
+        },
+        {
+          "order": 6,
+          "content": "Define a callback to subscribe to channels on the WebSocket connection."
+        },
+        {
+          "order": 7,
+          "content": "Define a callback to unsubscribe from channels on the WebSocket connection."
+        },
+        {
+          "order": 8,
+          "content": "Setup connection event listeners and handle auto-connect on component mount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a92d074",
+      "name": "getClient",
+      "enclosing_class": "useWebSocket",
+      "normalized_params": "(): WebSocketClient",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a WebSocket client instance already exists in the reference."
+        },
+        {
+          "order": 2,
+          "content": "IF no client exists, create a new one using the provided URL or default client."
+        },
+        {
+          "order": 3,
+          "content": "Return the existing or newly created WebSocket client instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8e692e39",
+      "name": "connect",
+      "enclosing_class": "useWebSocket",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the connection state to connecting and clear any previous errors."
+        },
+        {
+          "order": 2,
+          "content": "Get the WebSocket client instance."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to establish a connection with the WebSocket server."
+        },
+        {
+          "order": 4,
+          "content": "IF connection succeeds, update state to reflect connected status."
+        },
+        {
+          "order": 5,
+          "content": "IF connection fails, capture the error and update state to reflect error status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_482f9379",
+      "name": "disconnect",
+      "enclosing_class": "useWebSocket",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the WebSocket client instance."
+        },
+        {
+          "order": 2,
+          "content": "Terminate the WebSocket connection."
+        },
+        {
+          "order": 3,
+          "content": "Update connection state to reflect disconnected status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59c40f3a",
+      "name": "send",
+      "enclosing_class": "useWebSocket",
+      "normalized_params": "(message: WebSocketMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the WebSocket client instance."
+        },
+        {
+          "order": 2,
+          "content": "Send the provided message through the WebSocket connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_96722aa1",
+      "name": "subscribe",
+      "enclosing_class": "useWebSocket",
+      "normalized_params": "(channel: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the WebSocket client instance."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to the specified channel on the WebSocket connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_56d642c3",
+      "name": "unsubscribe",
+      "enclosing_class": "useWebSocket",
+      "normalized_params": "(channel: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the WebSocket client instance."
+        },
+        {
+          "order": 2,
+          "content": "Unsubscribe from the specified channel on the WebSocket connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

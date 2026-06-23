@@ -1,0 +1,121 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/ArtifactTreeSection.tsx",
+  "title": "Artifact tree section component with drag-and-drop support",
+  "purpose": "Renders a collapsible tree section with optional drag-and-drop functionality for artifact management.",
+  "module_context": "Exports a React component named ArtifactTreeSection that accepts various props including title, count, collapse state, and drag handlers.",
+  "methods": [
+    {
+      "id": "m_25b1e30d",
+      "name": "ArtifactTreeSection",
+      "enclosing_class": null,
+      "normalized_params": "(props: ArtifactTreeSectionProps): ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract all props from the input object including title, count, collapse state, and handlers."
+        },
+        {
+          "order": 2,
+          "content": "Determine the effective collapse state by checking if the section is collapsed and not forced to be expanded."
+        },
+        {
+          "order": 3,
+          "content": "Initialize a state variable to track whether the section is currently being dragged over."
+        },
+        {
+          "order": 4,
+          "content": "Set up drag event handlers for over, leave, and drop if onDrop handler is provided."
+        },
+        {
+          "order": 5,
+          "content": "Determine the appropriate ring class based on drop hint or drag over state."
+        },
+        {
+          "order": 6,
+          "content": "Render the section header with toggle button and optional count display."
+        },
+        {
+          "order": 7,
+          "content": "Render the children content only if the section is not collapsed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_161978d9",
+      "name": "handleDragOver",
+      "enclosing_class": "ArtifactTreeSection",
+      "normalized_params": "(e: React.DragEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drag behavior."
+        },
+        {
+          "order": 2,
+          "content": "Check if the dragged data contains files."
+        },
+        {
+          "order": 3,
+          "content": "IF files are present, set the drag over state to true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e45a1ba0",
+      "name": "handleDragLeave",
+      "enclosing_class": "ArtifactTreeSection",
+      "normalized_params": "(_e: React.DragEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the drag over state when the user drags away from the section."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_67a85047",
+      "name": "handleDrop",
+      "enclosing_class": "ArtifactTreeSection",
+      "normalized_params": "(e: React.DragEvent<HTMLDivElement>): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent the default drop behavior."
+        },
+        {
+          "order": 2,
+          "content": "Reset the drag over state after a drop occurs."
+        },
+        {
+          "order": 3,
+          "content": "Extract files from the dropped data transfer object."
+        },
+        {
+          "order": 4,
+          "content": "IF files are present, invoke the onDrop handler with the extracted files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,468 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/SnippetEditor.tsx",
+  "title": "Code snippet editor with diff view and annotation support",
+  "purpose": "Provides a full-featured code editing interface with syntax highlighting, diff comparison, line highlighting, and annotation capabilities for code snippets.",
+  "module_context": "Exports a SnippetEditor React component that manages snippet content, language detection, diff views, annotations, and keyboard shortcuts. Includes helper functions for language normalization and detection.",
+  "methods": [
+    {
+      "id": "m_55c25e4b",
+      "name": "normalizeLanguage",
+      "enclosing_class": null,
+      "normalized_params": "(lang: string): Language",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map language aliases like 'c#' to 'csharp' and 'js' to 'javascript'."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the language is in the list of supported languages."
+        },
+        {
+          "order": 3,
+          "content": "Return 'text' for any unrecognized language or alias."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_96371711",
+      "name": "detectLanguage",
+      "enclosing_class": null,
+      "normalized_params": "(fileName: string, content?: string): Language",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract file extension from the filename."
+        },
+        {
+          "order": 2,
+          "content": "Map file extensions to corresponding code languages."
+        },
+        {
+          "order": 3,
+          "content": "Return 'text' for any file extension not in the mapping."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0fd8af3b",
+      "name": "parseSnippetData",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(rawContent: string): { code: string; language: string | null; filePath: string | null; originalCode: string | null; highlightLines: number[]; annotations: SnippetAnnotation[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the raw content as JSON to extract snippet metadata."
+        },
+        {
+          "order": 2,
+          "content": "IF parsing succeeds, extract code, language, file path, original code, highlight lines, and annotations."
+        },
+        {
+          "order": 3,
+          "content": "IF parsing fails, treat the content as plain text and return default values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d819214e",
+      "name": "serializeSnippetData",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(newCode: string, rawContent: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the raw content as JSON to extract existing snippet data."
+        },
+        {
+          "order": 2,
+          "content": "IF parsing succeeds, merge the new code and current annotations into the existing data."
+        },
+        {
+          "order": 3,
+          "content": "IF parsing fails, create a new JSON object with the new code, selected language, and current annotations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e88f109c",
+      "name": "handleContentChange",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(newContent: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the local content state with the new code."
+        },
+        {
+          "order": 2,
+          "content": "IF an onChange callback is provided, call it with the new content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9d60d28",
+      "name": "handleLanguageChange",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(e: React.ChangeEvent<HTMLSelectElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the selected language from the dropdown change event."
+        },
+        {
+          "order": 2,
+          "content": "Update the local selected language state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b988ee04",
+      "name": "handleDiffToggle",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the visibility of the diff view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d50eca3",
+      "name": "handleCopy",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(e: React.MouseEvent<HTMLButtonElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Copy the current code content to the clipboard."
+        },
+        {
+          "order": 2,
+          "content": "Provide visual feedback to the user by temporarily changing the button text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6c3be48a",
+      "name": "handleSave",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Serialize the current code content back into a JSON envelope with annotations and language."
+        },
+        {
+          "order": 2,
+          "content": "Update the snippet on the server with the serialized content."
+        },
+        {
+          "order": 3,
+          "content": "Update the original code state to match the current content."
+        },
+        {
+          "order": 4,
+          "content": "IF an onSave callback is provided, call it with the updated snippet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5d7ddacc",
+      "name": "handleCancel",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Revert the current code content to the original code."
+        },
+        {
+          "order": 2,
+          "content": "Hide the diff view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ffb79e80",
+      "name": "saveAnnotations",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(newAnnotations: SnippetAnnotation[]): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the local annotations state with the new annotations."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to parse the snippet content as JSON to update annotations."
+        },
+        {
+          "order": 3,
+          "content": "IF parsing succeeds, update the snippet on the server with the new annotations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3abe8d34",
+      "name": "handleAnnotationClick",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(ann: SnippetAnnotation): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the index of the clicked annotation in the current annotations list."
+        },
+        {
+          "order": 2,
+          "content": "Set the annotation popover state to edit mode with the clicked annotation data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_242da06e",
+      "name": "handleOpenAddAnnotation",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new annotation with the current selection range."
+        },
+        {
+          "order": 2,
+          "content": "Add the new annotation to the list of annotations."
+        },
+        {
+          "order": 3,
+          "content": "Clear the current selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_35d3abda",
+      "name": "handleAnnotationSave",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the annotation text is not empty."
+        },
+        {
+          "order": 2,
+          "content": "Create a new annotation with the updated text."
+        },
+        {
+          "order": 3,
+          "content": "IF adding a new annotation, append it to the list."
+        },
+        {
+          "order": 4,
+          "content": "IF editing an existing annotation, replace it in the list."
+        },
+        {
+          "order": 5,
+          "content": "Save the updated annotations to the server."
+        },
+        {
+          "order": 6,
+          "content": "Clear the annotation popover state."
+        },
+        {
+          "order": 7,
+          "content": "Clear the current selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ec5499a4",
+      "name": "handleAnnotationDelete",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the annotation to delete is not a new annotation."
+        },
+        {
+          "order": 2,
+          "content": "Remove the annotation from the list of annotations."
+        },
+        {
+          "order": 3,
+          "content": "Save the updated annotations to the server."
+        },
+        {
+          "order": 4,
+          "content": "Clear the annotation popover state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e4bd8e74",
+      "name": "handleInlineAnnotationSave",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(original: SnippetAnnotation, newText: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the index of the original annotation in the current annotations list."
+        },
+        {
+          "order": 2,
+          "content": "IF the annotation is found, update its text with the new text."
+        },
+        {
+          "order": 3,
+          "content": "Save the updated annotations to the server."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c3baf3a9",
+      "name": "handleInlineAnnotationDelete",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(ann: SnippetAnnotation): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the specified annotation from the current annotations list."
+        },
+        {
+          "order": 2,
+          "content": "Save the updated annotations to the server."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a15644b",
+      "name": "handleClearAnnotations",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF there are annotations present, clear all annotations."
+        },
+        {
+          "order": 2,
+          "content": "Save the empty annotations list to the server."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2dfbee8f",
+      "name": "handleKeyDown",
+      "enclosing_class": "SnippetEditor",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for keyboard events to detect Ctrl+S or Cmd+S key combinations."
+        },
+        {
+          "order": 2,
+          "content": "IF the save key combination is detected, prevent the default action and trigger the save handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,1514 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/api.ts",
+  "title": "API client for backend session, document, diagram, and design management",
+  "purpose": "Provides HTTP fetch methods for communicating with the backend API to manage sessions, documents, diagrams, designs, and related resources.",
+  "module_context": "Exports an API client object with methods for session management, document and diagram CRUD operations, design handling, code synchronization, and image management. Includes word lists for session name generation.",
+  "methods": [
+    {
+      "id": "m_cf4b84a0",
+      "name": "generateSessionName",
+      "enclosing_class": null,
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select a random adjective from the predefined list."
+        },
+        {
+          "order": 2,
+          "content": "Select another random adjective from the predefined list."
+        },
+        {
+          "order": 3,
+          "content": "Select a random noun from the predefined list."
+        },
+        {
+          "order": 4,
+          "content": "Combine the selected words in adjective-adjective-noun format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_28a82004",
+      "name": "getSessions",
+      "enclosing_class": "api",
+      "normalized_params": "(): Promise<Session[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the sessions endpoint."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Map the server data to the frontend Session type with project and name fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_796d3dd9",
+      "name": "createSession",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, useRenderUI?: boolean): Promise<Session>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to create a new session with project and session identifiers."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Return a new Session object with the expanded project path from the server response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6bbf1e00",
+      "name": "deleteSession",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a DELETE request to remove the specified session."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Return the success status from the server response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_97a68039",
+      "name": "archiveSession",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, options?: { deleteSession?: boolean; timestamp?: boolean }): Promise<ArchiveResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to archive the specified session with provided options."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, parse the error from the response and throw it."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Return the parsed archive result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9b497326",
+      "name": "getDiagrams",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<Diagram[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for diagrams."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch diagrams for the specified session."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the diagrams array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b701d55",
+      "name": "getDocuments",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<Document[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for documents."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch documents for the specified session."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the documents array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b50064a",
+      "name": "getDiagram",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<Diagram | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and diagram ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the specific diagram."
+        },
+        {
+          "order": 3,
+          "content": "IF the response status is 404, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed diagram."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c018efc0",
+      "name": "getDocument",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<Document | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and document ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the specific document."
+        },
+        {
+          "order": 3,
+          "content": "IF the response status is 404, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1fce3ebb",
+      "name": "updateDiagram",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and diagram ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a PUT request to update the diagram content."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_76348b48",
+      "name": "updateDocument",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and document ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a PUT request to update the document content."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dd3eabba",
+      "name": "getSessionState",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<CollabState | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for session state."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the session state."
+        },
+        {
+          "order": 3,
+          "content": "IF the response status is 404, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed session state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_df30a23b",
+      "name": "getUIState",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<CachedUIState | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for UI state."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the cached UI state."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "IF the status indicates no cached UI, return null."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed cached UI state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_72bcfc28",
+      "name": "getDesigns",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<Design[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for designs."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch designs for the specified session."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the designs array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6828de1a",
+      "name": "getDesign",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<Design | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and design ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the specific design."
+        },
+        {
+          "order": 3,
+          "content": "IF the response status is 404, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed design."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c7b8ec3f",
+      "name": "updateDesign",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and design ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to update the design content with client ID header."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_609bad9b",
+      "name": "getDesignHistory",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, designId: string, signal?: AbortSignal): Promise<any | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and design ID parameters for history."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the design history with optional abort signal."
+        },
+        {
+          "order": 3,
+          "content": "IF the response status is 404, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed history data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9dc1f98c",
+      "name": "getDesignVersion",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, designId: string, timestamp: string, signal?: AbortSignal): Promise<{ content: string } | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, design ID, and timestamp parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch a specific design version with optional abort signal."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, return null."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed version content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_235b9fbd",
+      "name": "deleteDiagram",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and diagram ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to remove the specified diagram."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2bb4c4c8",
+      "name": "deleteDocument",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and document ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to remove the specified document."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3636a5e4",
+      "name": "deleteDesign",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and design ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to remove the specified design."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_942d2787",
+      "name": "getSpreadsheets",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<Spreadsheet[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for spreadsheets."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch spreadsheets for the specified session."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the spreadsheets array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2ae7c9c3",
+      "name": "getSpreadsheet",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<Spreadsheet | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and spreadsheet ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the specific spreadsheet."
+        },
+        {
+          "order": 3,
+          "content": "IF the response status is 404, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed spreadsheet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf31d732",
+      "name": "updateSpreadsheet",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and spreadsheet ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to update the spreadsheet content."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_73b6d6d4",
+      "name": "deleteSpreadsheet",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and spreadsheet ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to remove the specified spreadsheet."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_728c8b2e",
+      "name": "createSnippet",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, name: string, content: string): Promise<{ id: string; success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for snippets."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to create a new snippet with name and content."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed snippet creation result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eec0de72",
+      "name": "getSnippets",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<Snippet[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for snippets."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch snippets for the specified session."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the snippets array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c28fbda",
+      "name": "getSnippet",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<Snippet | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and snippet ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the specific snippet."
+        },
+        {
+          "order": 3,
+          "content": "IF the response status is 404, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed snippet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_70ccfa77",
+      "name": "updateSnippet",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and snippet ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a PUT request to update the snippet content."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_20e46e5a",
+      "name": "deleteSnippet",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and snippet ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to remove the specified snippet."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_40310f57",
+      "name": "getSessionTodos",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, includeCompleted?: boolean): Promise<SessionTodo[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for session todos."
+        },
+        {
+          "order": 2,
+          "content": "IF includeCompleted is false, add the includeCompleted parameter to the URL."
+        },
+        {
+          "order": 3,
+          "content": "Send a GET request to fetch session todos."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the todos array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f98c9882",
+      "name": "addSessionTodo",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, text: string): Promise<SessionTodo>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to add a new session todo with project, session, and text."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Return the created todo from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66932214",
+      "name": "patchSessionTodo",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: number, updates: { text?: string; completed?: boolean; order?: number }): Promise<SessionTodo>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with the todo ID for patching."
+        },
+        {
+          "order": 2,
+          "content": "Send a PATCH request to update the session todo with provided updates."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the updated todo from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_95026d2b",
+      "name": "removeSessionTodo",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: number): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and todo ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to remove the specified session todo."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d98f81d",
+      "name": "reorderSessionTodos",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, orderedIds: number[]): Promise<SessionTodo[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to reorder session todos with the provided ordered IDs."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Return the reordered todos array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e699dd0",
+      "name": "clearCompletedSessionTodos",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<{ removedCount: number }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to clear completed session todos."
+        },
+        {
+          "order": 2,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Return the parsed result with removed count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_592f4d5d",
+      "name": "setDeprecated",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, deprecated: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and item ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to set the deprecated status for the item."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_077bfa03",
+      "name": "setPinned",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, pinned: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and item ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to set the pinned status for the item."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_87908c6f",
+      "name": "setBlueprint",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string, blueprint: boolean): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and item ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to set the blueprint status for the item."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_daa7442b",
+      "name": "listProjectFiles",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, dirPath?: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project parameter and optional directory path."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch project files."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed file list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a8784265",
+      "name": "pushCodeToFile",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and file ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to push code to the specified file."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_00d4aa8a",
+      "name": "syncCodeFromDisk",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and file ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to synchronize code from disk."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0cb0a0db",
+      "name": "acceptProposedEdit",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<{ success: boolean; dirty: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and edit ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to accept the proposed edit."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, parse the error from the response and throw it."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8514f1cc",
+      "name": "rejectProposedEdit",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<{ success: boolean; noop?: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and edit ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to reject the proposed edit."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, parse the error from the response and throw it."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4e12ff59",
+      "name": "getCodeDiff",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and file ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch the code diff."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed diff."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c0e0ddde",
+      "name": "clearTaskGraph",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for clearing tasks."
+        },
+        {
+          "order": 2,
+          "content": "Send a POST request to clear the task graph."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ff79801",
+      "name": "createImage",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, file: File): Promise<{ id: string; name: string; mimeType: string; size: number; uploadedAt: string; success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for image upload."
+        },
+        {
+          "order": 2,
+          "content": "Create a FormData object with the file and name."
+        },
+        {
+          "order": 3,
+          "content": "Send a POST request to upload the image with form data."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed image creation result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ab4df5a7",
+      "name": "listImages",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string): Promise<Image[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project and session parameters for images."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to fetch images for the specified session."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 5,
+          "content": "Return the images array from the parsed response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11c60340",
+      "name": "deleteImage",
+      "enclosing_class": "api",
+      "normalized_params": "(project: string, session: string, id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL with project, session, and image ID parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to remove the specified image."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/DiffViewer.tsx",
+  "title": "Diff viewer component for displaying file changes in agent sessions",
+  "purpose": "Displays a list of changed files and their patch content for a given agent session, allowing users to navigate between files and view detailed changes.",
+  "module_context": "Exports a DiffViewer React component that fetches and displays git diff data for agent worktrees, with UI for file selection and patch rendering.",
+  "methods": [
+    {
+      "id": "m_6dfda294",
+      "name": "statusBadgeClass",
+      "enclosing_class": null,
+      "normalized_params": "(status: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return CSS class for a green badge when status is 'A'."
+        },
+        {
+          "order": 2,
+          "content": "Return CSS class for a red badge when status is 'D'."
+        },
+        {
+          "order": 3,
+          "content": "Return CSS class for a blue badge when status is 'R'."
+        },
+        {
+          "order": 4,
+          "content": "Return CSS class for a yellow badge when status is '??'."
+        },
+        {
+          "order": 5,
+          "content": "Return CSS class for a gray badge for all other statuses including 'M'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a72b16a8",
+      "name": "statusLabel",
+      "enclosing_class": null,
+      "normalized_params": "(status: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return 'U' when status is '??'."
+        },
+        {
+          "order": 2,
+          "content": "Return the original status for all other cases."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_be2fcb70",
+      "name": "renderPatchLine",
+      "enclosing_class": null,
+      "normalized_params": "(line: string, i: number): import(\"react\").JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set default text color to gray for most lines."
+        },
+        {
+          "order": 2,
+          "content": "Set text color to gray-500 with font weight bold for lines starting with '+++' or '---'."
+        },
+        {
+          "order": 3,
+          "content": "Set text color to purple-600 for lines starting with '@@'."
+        },
+        {
+          "order": 4,
+          "content": "Set text color to green-700 with green background for lines starting with '+'."
+        },
+        {
+          "order": 5,
+          "content": "Set text color to red-700 with red background for lines starting with '-'."
+        },
+        {
+          "order": 6,
+          "content": "Set text color to gray-400 for lines starting with 'diff ' or 'index '."
+        },
+        {
+          "order": 7,
+          "content": "Return a div element with the computed class and line content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_230dfa1b",
+      "name": "DiffViewer",
+      "enclosing_class": null,
+      "normalized_params": "({ sessionId }: DiffViewerProps): import(\"react\").JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for files, selected file path, loading status, and error message."
+        },
+        {
+          "order": 2,
+          "content": "Fetch diff data from the API endpoint for the given session ID."
+        },
+        {
+          "order": 3,
+          "content": "IF the fetch succeeds, update the files state and select the first file."
+        },
+        {
+          "order": 4,
+          "content": "IF the fetch fails, update the error state and clear loading status."
+        },
+        {
+          "order": 5,
+          "content": "Return a loading indicator while data is being fetched."
+        },
+        {
+          "order": 6,
+          "content": "Return an error message if the fetch failed."
+        },
+        {
+          "order": 7,
+          "content": "Return a no changes message if no files are present."
+        },
+        {
+          "order": 8,
+          "content": "Render a file list sidebar with selectable file entries."
+        },
+        {
+          "order": 9,
+          "content": "Render the patch content for the currently selected file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/image.ts",
+  "title": "Image type definition with metadata fields",
+  "purpose": "Defines the structure for image metadata objects used throughout the application.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_d6c57a53",
+      "name": "Image",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the interface for image metadata objects."
+        },
+        {
+          "order": 2,
+          "content": "Include required fields for image identification and properties."
+        },
+        {
+          "order": 3,
+          "content": "Add optional fields for image state and management."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

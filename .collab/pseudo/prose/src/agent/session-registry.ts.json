@@ -1,0 +1,782 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/session-registry.ts",
+  "title": "Agent session registry managing child processes and permissions",
+  "purpose": "Maintains a registry of agent sessions, handling child process lifecycle, permission management, and session persistence.",
+  "module_context": "Exports a registry class for managing agent sessions with permission bridge integration, worktree management, and Claude session ID generation using UUIDv5. Includes utility functions for UUID conversion and path extraction.",
+  "methods": [
+    {
+      "id": "m_c1c30cee",
+      "name": "uuidBytesFromString",
+      "enclosing_class": null,
+      "normalized_params": "(u: string): Uint8Array",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove hyphens from the input UUID string."
+        },
+        {
+          "order": 2,
+          "content": "Create a new 16-byte array to hold the result."
+        },
+        {
+          "order": 3,
+          "content": "Convert each pair of hex characters into a byte value and store in the output array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4d01f295",
+      "name": "bytesToUuid",
+      "enclosing_class": null,
+      "normalized_params": "(b: Uint8Array): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert each byte in the input array to a two-character hex string."
+        },
+        {
+          "order": 2,
+          "content": "Join all hex characters into a single string."
+        },
+        {
+          "order": 3,
+          "content": "Insert hyphens at the standard UUID positions to format the result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a2b08287",
+      "name": "uuidv5",
+      "enclosing_class": null,
+      "normalized_params": "(name: string, namespace: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the namespace UUID to a byte array."
+        },
+        {
+          "order": 2,
+          "content": "Create a SHA-1 hash of the namespace bytes concatenated with the input name."
+        },
+        {
+          "order": 3,
+          "content": "Take the first 16 bytes of the hash digest."
+        },
+        {
+          "order": 4,
+          "content": "Set the version bits to 5 and the variant bits to RFC 4122 compliant value."
+        },
+        {
+          "order": 5,
+          "content": "Convert the resulting byte array back to a UUID string format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b04e0923",
+      "name": "AgentSessionRegistry",
+      "enclosing_class": null,
+      "normalized_params": "(opts: RegistryOpts): AgentSessionRegistry",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the persistence directory path from options or default to .collab/agent-sessions."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the project root path from options or default to current working directory."
+        },
+        {
+          "order": 3,
+          "content": "Create a permission bridge instance with broadcast handler and configuration from options."
+        },
+        {
+          "order": 4,
+          "content": "Create a worktree manager instance with project root and persistence configuration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c7799dd",
+      "name": "resolvePermission",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, promptId: string, decision: PermissionDecision, userLabel?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate the permission resolution to the internal permission bridge instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_642a4835",
+      "name": "setPermissionMode",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, mode: PermissionMode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the session entry from the registry map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session exists, update its permission mode."
+        },
+        {
+          "order": 3,
+          "content": "IF the bridge has a setMode function, delegate the mode change to it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a584038f",
+      "name": "getOrCreate",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, cwd: string): Promise<ChildManager>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if an existing session entry is present and alive."
+        },
+        {
+          "order": 2,
+          "content": "IF an existing session is found and alive, return it immediately."
+        },
+        {
+          "order": 3,
+          "content": "Check if a pending start promise exists for this session."
+        },
+        {
+          "order": 4,
+          "content": "IF a pending start exists, return the existing promise."
+        },
+        {
+          "order": 5,
+          "content": "Start a new child process for the session and track the promise."
+        },
+        {
+          "order": 6,
+          "content": "Return the promise that resolves to the new child manager."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d3f9ff0a",
+      "name": "resume",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): Promise<ChildManager>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the persisted session record from storage."
+        },
+        {
+          "order": 2,
+          "content": "IF no record is found, throw an error indicating the session does not exist."
+        },
+        {
+          "order": 3,
+          "content": "ELSE use the persisted working directory to get or create the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b304b1c1",
+      "name": "stop",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the session entry from the registry map."
+        },
+        {
+          "order": 2,
+          "content": "IF no entry exists, return immediately."
+        },
+        {
+          "order": 3,
+          "content": "Stop the child process associated with the session."
+        },
+        {
+          "order": 4,
+          "content": "Cancel any pending permission requests for the session."
+        },
+        {
+          "order": 5,
+          "content": "Close the permission socket server if it exists."
+        },
+        {
+          "order": 6,
+          "content": "Remove the session entry from the registry map and transcript storage."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eb94ddd0",
+      "name": "deleteSession",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop the session and clean up associated resources."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to remove the worktree associated with the session."
+        },
+        {
+          "order": 3,
+          "content": "IF worktree removal fails, log a warning but continue."
+        },
+        {
+          "order": 4,
+          "content": "Attempt to delete the persisted session file."
+        },
+        {
+          "order": 5,
+          "content": "IF file deletion fails, ignore the error and continue."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bde3f72f",
+      "name": "runCommitPushPR",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, opts: { title: string; body?: string; draft?: boolean }): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the session entry from the registry map."
+        },
+        {
+          "order": 2,
+          "content": "IF no worktree exists or it is non-git, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Generate unique identifiers for the turn and tool use."
+        },
+        {
+          "order": 4,
+          "content": "Dispatch turn start and tool call started events to the session."
+        },
+        {
+          "order": 5,
+          "content": "Execute the commit and push pull request operation using the worktree manager."
+        },
+        {
+          "order": 6,
+          "content": "IF the operation succeeds, dispatch a tool call completed event with success status."
+        },
+        {
+          "order": 7,
+          "content": "IF the operation fails, dispatch a tool call completed event with error status."
+        },
+        {
+          "order": 8,
+          "content": "Dispatch turn end event to conclude the operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_382b8f52",
+      "name": "transcriptOf",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): AgentEvent[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the transcript for the specified session from storage."
+        },
+        {
+          "order": 2,
+          "content": "IF no transcript exists, return an empty array."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the stored transcript array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_df00854d",
+      "name": "getIfAlive",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): ChildManager | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the session entry from the registry map."
+        },
+        {
+          "order": 2,
+          "content": "IF the entry exists and the child is alive, return the child manager."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_078fe655",
+      "name": "recordAndDispatch",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, event: AgentEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Dispatch the event to the session's channel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3fc263d6",
+      "name": "cancelTurn",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the session entry from the registry map."
+        },
+        {
+          "order": 2,
+          "content": "IF no entry exists, return immediately."
+        },
+        {
+          "order": 3,
+          "content": "Cancel the current turn in the child process."
+        },
+        {
+          "order": 4,
+          "content": "Cancel any pending permission requests for the session."
+        },
+        {
+          "order": 5,
+          "content": "Reset the projection context for the session."
+        },
+        {
+          "order": 6,
+          "content": "Dispatch a turn end event with canceled status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_26ca7f15",
+      "name": "claudeSessionExists",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(cwd: string, claudeSessionId: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a file path for the Claude session JSONL file."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to access the file path to check if it exists."
+        },
+        {
+          "order": 3,
+          "content": "IF the file exists, return true."
+        },
+        {
+          "order": 4,
+          "content": "IF the file does not exist, return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_67236996",
+      "name": "startChild",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, _cwd: string): Promise<ChildManager>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a Claude session ID for the session."
+        },
+        {
+          "order": 2,
+          "content": "Set the default permission mode for the session."
+        },
+        {
+          "order": 3,
+          "content": "Create a socket directory and generate a socket path."
+        },
+        {
+          "order": 4,
+          "content": "Generate a settings file for the session."
+        },
+        {
+          "order": 5,
+          "content": "Ensure a worktree exists for the session."
+        },
+        {
+          "order": 6,
+          "content": "Check if the worktree is dirty."
+        },
+        {
+          "order": 7,
+          "content": "Determine the working directory for spawning the child process."
+        },
+        {
+          "order": 8,
+          "content": "Check if a Claude session exists for resuming."
+        },
+        {
+          "order": 9,
+          "content": "Dispatch worktree information event to the session."
+        },
+        {
+          "order": 10,
+          "content": "Start a permission socket server for handling permission requests."
+        },
+        {
+          "order": 11,
+          "content": "Create a child manager instance with session configuration."
+        },
+        {
+          "order": 12,
+          "content": "Initialize a projection context for the session."
+        },
+        {
+          "order": 13,
+          "content": "Set up event listeners for stdout frames, stderr, exit, and error."
+        },
+        {
+          "order": 14,
+          "content": "Start the child process."
+        },
+        {
+          "order": 15,
+          "content": "Write a persistence record for the session."
+        },
+        {
+          "order": 16,
+          "content": "Store the session entry in the registry map."
+        },
+        {
+          "order": 17,
+          "content": "Dispatch a session started event to the session."
+        },
+        {
+          "order": 18,
+          "content": "IF resuming, backfill historical events from Claude session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e907c10c",
+      "name": "backfillHistory",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, cwd: string, claudeSessionId: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a file path for the Claude session JSONL file."
+        },
+        {
+          "order": 2,
+          "content": "Read the contents of the JSONL file."
+        },
+        {
+          "order": 3,
+          "content": "IF the file cannot be read, return immediately."
+        },
+        {
+          "order": 4,
+          "content": "Split the file contents into lines."
+        },
+        {
+          "order": 5,
+          "content": "Process each line as a JSON entry."
+        },
+        {
+          "order": 6,
+          "content": "IF the entry is a user message, dispatch a user message event."
+        },
+        {
+          "order": 7,
+          "content": "IF the entry is an assistant message, dispatch turn start, tool calls, and assistant message events."
+        },
+        {
+          "order": 8,
+          "content": "IF the entry is an assistant message, dispatch a turn end event."
+        },
+        {
+          "order": 9,
+          "content": "For any tool calls that completed without results, dispatch tool call completed events with error status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ef9a6d6b",
+      "name": "dispatch",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string, event: AgentEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a channel name for the session."
+        },
+        {
+          "order": 2,
+          "content": "Broadcast the agent event to the channel."
+        },
+        {
+          "order": 3,
+          "content": "Add the event to the session's transcript ring buffer."
+        },
+        {
+          "order": 4,
+          "content": "If the ring buffer exceeds maximum size, remove the oldest entry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_af0b2ca8",
+      "name": "persistPath",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a SHA-1 hash of the session ID."
+        },
+        {
+          "order": 2,
+          "content": "Construct a file path using the hash and persistence directory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_884c85bf",
+      "name": "readPersist",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(sessionId: string): Promise<PersistRecord | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the persistence file path for the session."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to read the persistence file."
+        },
+        {
+          "order": 3,
+          "content": "IF the file does not exist, return null."
+        },
+        {
+          "order": 4,
+          "content": "IF reading fails for other reasons, return null."
+        },
+        {
+          "order": 5,
+          "content": "Parse the file contents as JSON and return the record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_be7df934",
+      "name": "writePersist",
+      "enclosing_class": "AgentSessionRegistry",
+      "normalized_params": "(record: PersistRecord): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the persistence directory exists."
+        },
+        {
+          "order": 2,
+          "content": "Write the record to the persistence file in JSON format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_63a64f98",
+      "name": "extractPathsFromInput",
+      "enclosing_class": null,
+      "normalized_params": "(name: string | undefined, input: unknown): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the tool name is not provided or input is not an object, return an empty array."
+        },
+        {
+          "order": 2,
+          "content": "IF the tool name is Read, Edit, Write, MultiEdit, or NotebookEdit, extract file path from input."
+        },
+        {
+          "order": 3,
+          "content": "IF the tool name is Grep or Glob, extract path from input."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1b6f3cdc",
+      "name": "isNonGit",
+      "enclosing_class": null,
+      "normalized_params": "(wt: SessionWorktree): wt is { kind: 'non_git'; sessionId: string; path: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the worktree has a kind property equal to 'non_git'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_804b1fc2",
+      "name": "isInsideWorktree",
+      "enclosing_class": null,
+      "normalized_params": "(p: string, worktreePath: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the path is not absolute, return false."
+        },
+        {
+          "order": 2,
+          "content": "Resolve the input path and worktree path to absolute paths."
+        },
+        {
+          "order": 3,
+          "content": "Check if the resolved input path matches or is a subdirectory of the resolved worktree path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

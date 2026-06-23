@@ -1,0 +1,283 @@
+{
+  "schema_version": 3,
+  "file": "src/services/question-manager.ts",
+  "title": "Server-side question state manager with session tracking",
+  "purpose": "Manages pending questions and response history for user sessions, enabling question lifecycle tracking and session cleanup.",
+  "module_context": "Exports a QuestionManager class and a singleton instance for managing question state across sessions.",
+  "methods": [
+    {
+      "id": "m_26f291cd",
+      "name": "receiveQuestion",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string, question: Question): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the question object is provided."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the question has required id and text properties."
+        },
+        {
+          "order": 4,
+          "content": "Store the question in the pending questions map for the specified session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_99e8b3e6",
+      "name": "receiveResponse",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string, response: QuestionResponse): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the response object is provided."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the response has required questionId and response properties."
+        },
+        {
+          "order": 4,
+          "content": "Look up the pending question for the session."
+        },
+        {
+          "order": 5,
+          "content": "IF no pending question exists or the question ID does not match, return false."
+        },
+        {
+          "order": 6,
+          "content": "Add the response to the question history for the session."
+        },
+        {
+          "order": 7,
+          "content": "Remove the question from pending questions."
+        },
+        {
+          "order": 8,
+          "content": "Return true to indicate successful processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9c408a75",
+      "name": "dismissQuestion",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Check if a pending question exists for the session."
+        },
+        {
+          "order": 3,
+          "content": "IF a pending question exists, remove it from the pending questions map."
+        },
+        {
+          "order": 4,
+          "content": "Return true if a question was dismissed, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85eba96e",
+      "name": "getQuestion",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string): Question | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Look up the pending question for the session."
+        },
+        {
+          "order": 3,
+          "content": "Return the question if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8fbc81d3",
+      "name": "getHistory",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string): QuestionResponse[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Look up the question history for the session."
+        },
+        {
+          "order": 3,
+          "content": "Return the history array if found, otherwise return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f3c8051d",
+      "name": "clearHistory",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Check if history exists for the session."
+        },
+        {
+          "order": 3,
+          "content": "IF history exists, remove it from the question history map."
+        },
+        {
+          "order": 4,
+          "content": "Return true if history was cleared, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_20b6d068",
+      "name": "clearSession",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Remove the session's pending questions from the map."
+        },
+        {
+          "order": 3,
+          "content": "Remove the session's history from the map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c81d889",
+      "name": "getPendingSessionNames",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Collect all session names that have pending questions."
+        },
+        {
+          "order": 2,
+          "content": "Return the list of session names with pending questions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e8b63eca",
+      "name": "getHistorySessions",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Collect all session names that have question history."
+        },
+        {
+          "order": 2,
+          "content": "Return the list of session names with history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5a964eda",
+      "name": "hasPendingQuestion",
+      "enclosing_class": "QuestionManager",
+      "normalized_params": "(sessionName: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session name is provided and not empty."
+        },
+        {
+          "order": 2,
+          "content": "Check if a pending question exists for the session."
+        },
+        {
+          "order": 3,
+          "content": "Return true if a pending question exists, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

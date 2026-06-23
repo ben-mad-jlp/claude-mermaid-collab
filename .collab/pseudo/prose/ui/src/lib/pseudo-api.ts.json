@@ -1,0 +1,211 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/pseudo-api.ts",
+  "title": "Pseudo API client for fetching and searching .pseudo files",
+  "purpose": "Provides HTTP methods to fetch .pseudo file contents, search across files, and resolve symbol references from a project.",
+  "module_context": "Exports type definitions for pseudo file structures and a set of async fetch functions for interacting with a pseudo API backend.",
+  "methods": [
+    {
+      "id": "m_29c6d81d",
+      "name": "fetchPseudoFiles",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<PseudoFileSummary[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Encode the project name for use in a URL query parameter."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the pseudo files endpoint with the encoded project."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response and return the array of file summaries."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing fails or the data is malformed, re-throw the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_83c00ac4",
+      "name": "fetchPseudoFile",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, file: string): Promise<PseudoFileWithMethods>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Encode the project and file names for use in a URL query parameter."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the pseudo file endpoint with the encoded parameters."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response and return the file with methods data."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing fails or the data is malformed, re-throw the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6fd44e74",
+      "name": "fetchPseudoReferences",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, functionName: string, fileStem: string): Promise<Reference[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL search parameter string with project, function name, and file stem."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the references endpoint with the constructed parameters."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response and return the array of reference objects."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing fails or the data is malformed, return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e1e8849d",
+      "name": "searchPseudo",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, q: string): Promise<SearchResult[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Encode the project and query strings for use in a URL query parameter."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the search endpoint with the encoded parameters."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response and return the array of search results."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing fails or the data is malformed, re-throw the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc514f51",
+      "name": "fetchFunctionsForSource",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, sourcePath: string): Promise<FunctionForSource[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL search parameter string with project and source path."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the functions for source endpoint with the constructed parameters."
+        },
+        {
+          "order": 3,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response and return the array of function objects."
+        },
+        {
+          "order": 5,
+          "content": "IF parsing fails or the data is malformed, return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2a19deab",
+      "name": "fetchSourceLink",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, name: string, hintFileStem?: string): Promise<SourceLinkCandidate[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL search parameter string with project and name."
+        },
+        {
+          "order": 2,
+          "content": "IF a hint file stem is provided, add it to the search parameters."
+        },
+        {
+          "order": 3,
+          "content": "Send a GET request to the source link endpoint with the constructed parameters."
+        },
+        {
+          "order": 4,
+          "content": "IF the response is not successful, throw an error with the status text."
+        },
+        {
+          "order": 5,
+          "content": "Parse the JSON response and return the array of source link candidates."
+        },
+        {
+          "order": 6,
+          "content": "IF parsing fails or the data is malformed, return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

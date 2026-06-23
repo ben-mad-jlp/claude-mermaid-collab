@@ -1,0 +1,220 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/Table.tsx",
+  "title": "Sortable and selectable data table component with pagination",
+  "purpose": "Provides a reusable table component that supports sorting, row selection, pagination, and responsive design with dark mode support.",
+  "module_context": "Exports a React functional component named Table that accepts various props for configuring table behavior including sorting, selection, pagination, and styling options.",
+  "methods": [
+    {
+      "id": "m_4cd48aa3",
+      "name": "Table",
+      "enclosing_class": null,
+      "normalized_params": "(props: TableProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state variables for sorting, pagination, and row selection."
+        },
+        {
+          "order": 2,
+          "content": "Sort the rows based on the current sort column and direction."
+        },
+        {
+          "order": 3,
+          "content": "Paginate the sorted rows according to the current page and page size."
+        },
+        {
+          "order": 4,
+          "content": "Render the table header with column labels and sort icons."
+        },
+        {
+          "order": 5,
+          "content": "Render the table body with rows and handle row selection."
+        },
+        {
+          "order": 6,
+          "content": "Display pagination controls when data is paginated and has multiple pages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c0a5903b",
+      "name": "sortedRows",
+      "enclosing_class": "Table",
+      "normalized_params": "(): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if rows exist and are an array."
+        },
+        {
+          "order": 2,
+          "content": "IF sorting is not active, return rows as-is."
+        },
+        {
+          "order": 3,
+          "content": "Create a copy of rows and sort them based on the current sort column and direction."
+        },
+        {
+          "order": 4,
+          "content": "Handle null or undefined values during sorting."
+        },
+        {
+          "order": 5,
+          "content": "Perform string comparison for string values."
+        },
+        {
+          "order": 6,
+          "content": "Perform numeric comparison for non-string values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9db598ed",
+      "name": "paginatedRows",
+      "enclosing_class": "Table",
+      "normalized_params": "(): any[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF pagination is disabled, return sorted rows as-is."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the start and end indices for the current page."
+        },
+        {
+          "order": 3,
+          "content": "Slice the sorted rows to return only the current page's data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_75df938d",
+      "name": "handleSort",
+      "enclosing_class": "Table",
+      "normalized_params": "(columnKey: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF sorting is disabled, return early."
+        },
+        {
+          "order": 2,
+          "content": "Determine the new sort direction based on the current column and direction."
+        },
+        {
+          "order": 3,
+          "content": "Update the sort column and direction state variables."
+        },
+        {
+          "order": 4,
+          "content": "Call the onSort prop with the column key and new direction."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8f9889a8",
+      "name": "handleSelectAll",
+      "enclosing_class": "Table",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new set of selected row indices."
+        },
+        {
+          "order": 2,
+          "content": "IF the select all checkbox is checked, add all visible row indices to the set."
+        },
+        {
+          "order": 3,
+          "content": "Update the selected rows state with the new set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9ffa40bf",
+      "name": "handleSelectRow",
+      "enclosing_class": "Table",
+      "normalized_params": "(rowIndex: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a copy of the current selected rows set."
+        },
+        {
+          "order": 2,
+          "content": "IF the row is already selected, remove it from the set."
+        },
+        {
+          "order": 3,
+          "content": "ELSE add the row to the set."
+        },
+        {
+          "order": 4,
+          "content": "Update the selected rows state with the modified set."
+        },
+        {
+          "order": 5,
+          "content": "Call the onRowSelect prop with the row index and selection status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78d6d81c",
+      "name": "getSortIcon",
+      "enclosing_class": "Table",
+      "normalized_params": "(columnKey: string): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the column is not currently sorted, return a generic sort icon."
+        },
+        {
+          "order": 2,
+          "content": "IF the sort direction is ascending, return an ascending sort icon."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return a descending sort icon."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

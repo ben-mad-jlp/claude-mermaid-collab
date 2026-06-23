@@ -1,0 +1,371 @@
+{
+  "schema_version": 3,
+  "file": "src/server.ts",
+  "title": "Mermaid collaboration server with WebSocket and API endpoints",
+  "purpose": "Serves the Mermaid collaboration UI and handles WebSocket connections for real-time collaboration, terminal sessions, and MCP protocol integration.",
+  "module_context": "Initializes core services like session registry, agent dispatcher, and WebSocket handlers. Sets up HTTP server with routes for API endpoints, static file serving, and WebSocket upgrades for collaboration and terminal sessions.",
+  "methods": [
+    {
+      "id": "m_ec4efc20",
+      "name": "fetch",
+      "enclosing_class": "server",
+      "normalized_params": "(req: Request, server: any): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the incoming request URL to determine the route."
+        },
+        {
+          "order": 2,
+          "content": "Handle WebSocket upgrade for collaboration at /ws path."
+        },
+        {
+          "order": 3,
+          "content": "Handle WebSocket upgrade for terminal sessions at /terminal/:sessionId path."
+        },
+        {
+          "order": 4,
+          "content": "Route MCP Streamable HTTP transport requests to /mcp endpoint."
+        },
+        {
+          "order": 5,
+          "content": "Route pseudo API requests starting with /api/pseudo."
+        },
+        {
+          "order": 6,
+          "content": "Route code API requests starting with /api/code."
+        },
+        {
+          "order": 7,
+          "content": "Route onboarding API requests starting with /api/onboarding."
+        },
+        {
+          "order": 8,
+          "content": "Route agent attachment requests starting with /api/agent/attachments."
+        },
+        {
+          "order": 9,
+          "content": "Route agent session requests starting with /api/agent/sessions."
+        },
+        {
+          "order": 10,
+          "content": "Route agent worktree diff requests starting with /api/agent/worktree-diff."
+        },
+        {
+          "order": 11,
+          "content": "Route general API requests starting with /api/."
+        },
+        {
+          "order": 12,
+          "content": "Serve static files from UI distribution directory if available."
+        },
+        {
+          "order": 13,
+          "content": "Return SPA fallback to index.html for non-file routes when appropriate."
+        },
+        {
+          "order": 14,
+          "content": "Return 404 response for all unmatched routes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_828f1728",
+      "name": "open",
+      "enclosing_class": "server",
+      "normalized_params": "(ws: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract connection type from WebSocket data."
+        },
+        {
+          "order": 2,
+          "content": "IF connection is terminal type, handle terminal open with PTY manager."
+        },
+        {
+          "order": 3,
+          "content": "ELSE handle collaboration WebSocket connection with WebSocket handler."
+        },
+        {
+          "order": 4,
+          "content": "Send connected message with diagram count to collaboration WebSocket."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dca1e340",
+      "name": "message",
+      "enclosing_class": "server",
+      "normalized_params": "(ws: any, message: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract message type from WebSocket data."
+        },
+        {
+          "order": 2,
+          "content": "IF message is from terminal WebSocket, process terminal message."
+        },
+        {
+          "order": 3,
+          "content": "ELSE process collaboration message with WebSocket handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ab3c6c4f",
+      "name": "close",
+      "enclosing_class": "server",
+      "normalized_params": "(ws: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract connection type from WebSocket data."
+        },
+        {
+          "order": 2,
+          "content": "IF connection is terminal type, handle terminal close with PTY manager."
+        },
+        {
+          "order": 3,
+          "content": "IF terminal close throws error, handle error through terminal error handler."
+        },
+        {
+          "order": 4,
+          "content": "ELSE handle collaboration WebSocket disconnection with WebSocket handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_19d9bf2c",
+      "name": "registerIfAbsent",
+      "enclosing_class": "sessionRegistry",
+      "normalized_params": "(projectPath: string, sessionId: string): Promise<{ alreadyPresent: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to register a new session if it does not already exist."
+        },
+        {
+          "order": 2,
+          "content": "IF registration succeeds, return confirmation that session was newly created."
+        },
+        {
+          "order": 3,
+          "content": "IF session already exists, return confirmation that it was already registered."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_526e775e",
+      "name": "handleConnection",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(ws: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process new WebSocket connection for collaboration."
+        },
+        {
+          "order": 2,
+          "content": "Register the connection with the WebSocket handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bbe56506",
+      "name": "handleMessage",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(ws: any, message: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse and process incoming message from collaboration WebSocket."
+        },
+        {
+          "order": 2,
+          "content": "Route message to appropriate handler based on message type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_56caa75a",
+      "name": "handleDisconnection",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(ws: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process WebSocket disconnection for collaboration."
+        },
+        {
+          "order": 2,
+          "content": "Remove connection from WebSocket handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5a4c4990",
+      "name": "handleTerminalOpen",
+      "enclosing_class": null,
+      "normalized_params": "(ws: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process new terminal WebSocket connection."
+        },
+        {
+          "order": 2,
+          "content": "Initialize PTY session for the terminal connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d477d277",
+      "name": "handleTerminalMessage",
+      "enclosing_class": null,
+      "normalized_params": "(ws: any, message: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse and forward terminal message to PTY manager."
+        },
+        {
+          "order": 2,
+          "content": "Process terminal input/output through PTY session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_442b94da",
+      "name": "handleTerminalClose",
+      "enclosing_class": null,
+      "normalized_params": "(ws: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process terminal WebSocket disconnection."
+        },
+        {
+          "order": 2,
+          "content": "Clean up PTY session associated with the terminal connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_18f80d83",
+      "name": "handleTerminalError",
+      "enclosing_class": null,
+      "normalized_params": "(ws: any, error: Error): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Handle errors during terminal WebSocket operations."
+        },
+        {
+          "order": 2,
+          "content": "Forward error to terminal error handler for client notification."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c2d9a61",
+      "name": "handleMCPRequest",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process incoming MCP HTTP request."
+        },
+        {
+          "order": 2,
+          "content": "Route request to appropriate MCP handler based on protocol version."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_837a5a89",
+      "name": "getActiveSessionCount",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the current count of active sessions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

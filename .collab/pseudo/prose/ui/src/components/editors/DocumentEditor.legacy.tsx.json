@@ -1,0 +1,338 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DocumentEditor.legacy.tsx",
+  "title": "Legacy document editor with split view, annotations, and sync features",
+  "purpose": "Provides a full-featured markdown document editor with split pane layout, annotation support, synchronized scrolling, and document versioning capabilities.",
+  "module_context": "Exports a React component DocumentEditorLegacy that manages document editing state, handles keyboard shortcuts, coordinates editor and preview panes, and integrates annotation and history features.",
+  "methods": [
+    {
+      "id": "m_e555c01e",
+      "name": "DocumentEditorLegacy",
+      "enclosing_class": null,
+      "normalized_params": "(props: DocumentEditorProps): React.FC<DocumentEditorProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize document editing state including content, saving status, loading status, and error handling."
+        },
+        {
+          "order": 2,
+          "content": "Set up document selection and content synchronization with local state."
+        },
+        {
+          "order": 3,
+          "content": "Configure debounced content updates for performance optimization."
+        },
+        {
+          "order": 4,
+          "content": "Implement keyboard shortcut handling for save and cancel actions."
+        },
+        {
+          "order": 5,
+          "content": "Build and return the split pane UI with editor, preview, minimap, and annotation toolbar."
+        },
+        {
+          "order": 6,
+          "content": "Integrate scroll synchronization between editor and preview panes."
+        },
+        {
+          "order": 7,
+          "content": "Provide export and diff view functionality for document analysis."
+        },
+        {
+          "order": 8,
+          "content": "Handle document history modal for version comparison and restoration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b25be7e5",
+      "name": "handleContentChange",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(newContent: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update local content state with new content value."
+        },
+        {
+          "order": 2,
+          "content": "Mark document as having unsaved changes."
+        },
+        {
+          "order": 3,
+          "content": "Clear any previous error messages."
+        },
+        {
+          "order": 4,
+          "content": "Invoke the onChange callback with new content for preview updates."
+        },
+        {
+          "order": 5,
+          "content": "Schedule a debounced update to the document store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9378871",
+      "name": "handleSave",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a document is selected for saving."
+        },
+        {
+          "order": 2,
+          "content": "Set saving state to indicate save operation is in progress."
+        },
+        {
+          "order": 3,
+          "content": "Clear any previous error messages."
+        },
+        {
+          "order": 4,
+          "content": "Update the document in the store with current content and timestamp."
+        },
+        {
+          "order": 5,
+          "content": "Mark document as saved and clear changes flag."
+        },
+        {
+          "order": 6,
+          "content": "Invoke the onSave callback with the updated document."
+        },
+        {
+          "order": 7,
+          "content": "Handle any errors during the save operation."
+        },
+        {
+          "order": 8,
+          "content": "Reset saving state after operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_21dfe97d",
+      "name": "handleCancel",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Revert local content state to the document's original content."
+        },
+        {
+          "order": 2,
+          "content": "Clear the changes flag indicating no unsaved modifications."
+        },
+        {
+          "order": 3,
+          "content": "Clear any previous error messages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7a842bd4",
+      "name": "handleEditorReady",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(view: EditorView | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the CodeMirror editor view reference for future use."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a746f04e",
+      "name": "handleExportClean",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate and download clean markdown content without annotation markers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c00b968",
+      "name": "handleToggleDiff",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF currently showing diff view, clear diff state and hide diff."
+        },
+        {
+          "order": 2,
+          "content": "ELSE save current content as previous content and show diff view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a2fe5ae",
+      "name": "handleClearDiff",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Hide the diff view and clear previous content state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78e8c6ff",
+      "name": "handleHistoryVersionSelect",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(timestamp: string, versionContent: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF selecting the current version, close the history modal."
+        },
+        {
+          "order": 2,
+          "content": "ELSE store the selected timestamp and content for display."
+        },
+        {
+          "order": 3,
+          "content": "Open the history modal to show the selected version."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_30c51c3b",
+      "name": "handleHistoryModalClose",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the history modal and reset selection state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_17802a7f",
+      "name": "handleMinimapScrollTo",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(position: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate scroll position in editor based on minimap position."
+        },
+        {
+          "order": 2,
+          "content": "Scroll the editor to the calculated position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ecc07a9e",
+      "name": "handleSourceLineClick",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(line: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF editor view is available, locate the specified line in the document."
+        },
+        {
+          "order": 2,
+          "content": "ELSE scroll the editor to the specified line and bring it into view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_688b818c",
+      "name": "handleKeyDown",
+      "enclosing_class": "DocumentEditorLegacy",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for keyboard events to trigger save or cancel actions."
+        },
+        {
+          "order": 2,
+          "content": "IF Ctrl+S or Cmd+S is pressed, prevent default and save the document."
+        },
+        {
+          "order": 3,
+          "content": "IF Escape key is pressed and there are changes, cancel the current edits."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

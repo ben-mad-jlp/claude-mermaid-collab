@@ -1,0 +1,234 @@
+{
+  "schema_version": 3,
+  "file": "public/js/editor.js",
+  "title": "SMACH Diagram Editor",
+  "purpose": "A web-based editor for creating and editing SMACH (State Machine for Autonomous Control) diagrams with integrated YAML editing capabilities",
+  "module_context": "This is a single-page application (SPA) that combines a diagram editor with a code editor, allowing users to visualize and modify SMACH state machines in both graphical and textual formats",
+  "methods": [
+    {
+      "id": "m_6d8e9acf",
+      "name": "loadDiagram",
+      "enclosing_class": "Global",
+      "normalized_params": "content",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the provided SMACH YAML content to extract state machine structure"
+        },
+        {
+          "order": 2,
+          "content": "Render the diagram using Mermaid.js or similar visualization library"
+        },
+        {
+          "order": 3,
+          "content": "Initialize the properties pane with state information"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_784de681",
+      "name": "updateDiagram",
+      "enclosing_class": "Global",
+      "normalized_params": "content",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate the updated SMACH YAML content"
+        },
+        {
+          "order": 2,
+          "content": "Re-render the diagram with updated structure"
+        },
+        {
+          "order": 3,
+          "content": "Update the properties pane with new state information"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ed571948",
+      "name": "handleNodeClick",
+      "enclosing_class": "Global",
+      "normalized_params": "nodeId",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify the clicked node in the diagram"
+        },
+        {
+          "order": 2,
+          "content": "Fetch properties for the selected node from the SMACH structure"
+        },
+        {
+          "order": 3,
+          "content": "Update the properties pane with node details"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f162fd5e",
+      "name": "handleEdgeClick",
+      "enclosing_class": "Global",
+      "normalized_params": "edgeId",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify the clicked edge in the diagram"
+        },
+        {
+          "order": 2,
+          "content": "Open the edge context menu for editing options"
+        },
+        {
+          "order": 3,
+          "content": "Allow user to modify edge properties (label, target, etc.)"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a44ef27",
+      "name": "applyLineEdit",
+      "enclosing_class": "Global",
+      "normalized_params": "lineIndex, newContent",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate the new line content for SMACH syntax"
+        },
+        {
+          "order": 2,
+          "content": "Update the specific line in the editor content"
+        },
+        {
+          "order": 3,
+          "content": "Re-render the diagram to reflect changes"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ebb130b7",
+      "name": "validateMermaid",
+      "enclosing_class": "Global",
+      "normalized_params": "content",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if content is valid SMACH YAML first"
+        },
+        {
+          "order": 2,
+          "content": "If not SMACH, validate using Mermaid.js parser"
+        },
+        {
+          "order": 3,
+          "content": "Return validation result with error details if invalid"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_993a3bde",
+      "name": "handleEditTransitionOutcome",
+      "enclosing_class": "Global",
+      "normalized_params": "stateId, outcome, target",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt user for new outcome name"
+        },
+        {
+          "order": 2,
+          "content": "Update the transition line in the YAML content"
+        },
+        {
+          "order": 3,
+          "content": "Update the outcomes list in the parent container"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd256a69",
+      "name": "handleSmachAddTransitionToNewState",
+      "enclosing_class": "Global",
+      "normalized_params": "stateId, outcome, target",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt user for new state name and type"
+        },
+        {
+          "order": 2,
+          "content": "Create new state in the YAML content"
+        },
+        {
+          "order": 3,
+          "content": "Add transition from source to new state"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b074264",
+      "name": "handleSmachDeleteState",
+      "enclosing_class": "Global",
+      "normalized_params": "stateId",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Confirm deletion with user"
+        },
+        {
+          "order": 2,
+          "content": "Remove state definition from YAML content"
+        },
+        {
+          "order": 3,
+          "content": "Remove all transitions to this state"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

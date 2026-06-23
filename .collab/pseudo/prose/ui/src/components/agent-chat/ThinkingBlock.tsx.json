@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/ThinkingBlock.tsx",
+  "title": "Thinking block component for agent chat with expandable content",
+  "purpose": "Displays agent thinking content that can be either streaming or expanded/collapsed. Shows a pulsing indicator during streaming and allows users to toggle expanded view of thinking content.",
+  "module_context": "Exports a React functional component named ThinkingBlock that accepts text and streaming props. Uses React state to manage expansion state for non-streaming content.",
+  "methods": [
+    {
+      "id": "m_77579d35",
+      "name": "ThinkingBlock",
+      "enclosing_class": null,
+      "normalized_params": "(props: Props): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the expansion state for the component."
+        },
+        {
+          "order": 2,
+          "content": "IF the component is in streaming mode, render a pulsing indicator and the thinking text."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render a toggle button with character count and conditional rendering of the thinking text."
+        },
+        {
+          "order": 4,
+          "content": "Handle click events on the toggle button to switch between expanded and collapsed states."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

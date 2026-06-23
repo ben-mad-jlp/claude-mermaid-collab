@@ -1,0 +1,308 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/CollapsibleSection.tsx",
+  "title": "Collapsible section component with context-based state management",
+  "purpose": "Provides a collapsible section UI element that can be expanded or collapsed, with shared state management across multiple sections using React context.",
+  "module_context": "Exports a CollapsibleSection component for rendering collapsible markdown sections, a ChevronIcon for visual toggle indicator, a CollapsibleSectionsProvider for shared state management, and related hooks and controls for managing multiple sections together.",
+  "methods": [
+    {
+      "id": "m_0ae56256",
+      "name": "ChevronIcon",
+      "enclosing_class": null,
+      "normalized_params": "(isExpanded: boolean): React.FC<{ isExpanded: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render an SVG chevron icon element."
+        },
+        {
+          "order": 2,
+          "content": "Apply rotation transformation based on expanded state."
+        },
+        {
+          "order": 3,
+          "content": "Set transition and sizing classes for smooth animation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1650f502",
+      "name": "CollapsibleSection",
+      "enclosing_class": null,
+      "normalized_params": "(props: CollapsibleSectionProps): React.FC<CollapsibleSectionProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the heading tag and styling class based on level prop."
+        },
+        {
+          "order": 2,
+          "content": "Set up refs for content and inner elements to measure height."
+        },
+        {
+          "order": 3,
+          "content": "Initialize state for measured height and transition status."
+        },
+        {
+          "order": 4,
+          "content": "Update measured height when component mounts or content changes."
+        },
+        {
+          "order": 5,
+          "content": "Handle transition end events to update transitioning state."
+        },
+        {
+          "order": 6,
+          "content": "Render a button with chevron icon and heading text for toggle."
+        },
+        {
+          "order": 7,
+          "content": "Render the collapsible content area with height and opacity transitions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_95b5f537",
+      "name": "useCollapsibleSections",
+      "enclosing_class": null,
+      "normalized_params": "(): CollapsibleSectionsContextValue",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the CollapsibleSectionsContext using React's useContext hook."
+        },
+        {
+          "order": 2,
+          "content": "Throw an error if context is not available."
+        },
+        {
+          "order": 3,
+          "content": "Return the context value for use in components."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a7fc3d4",
+      "name": "useCollapsibleSectionsSafe",
+      "enclosing_class": null,
+      "normalized_params": "(): CollapsibleSectionsContextValue | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the CollapsibleSectionsContext using React's useContext hook."
+        },
+        {
+          "order": 2,
+          "content": "Return the context value or null if not available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9f10ba88",
+      "name": "CollapsibleSectionsProvider",
+      "enclosing_class": null,
+      "normalized_params": "(props: CollapsibleSectionsProviderProps): React.FC<CollapsibleSectionsProviderProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for expanded sections and all sections."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback to register new sections with the provider."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback to toggle section expansion state."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback to expand all sections."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback to collapse all sections."
+        },
+        {
+          "order": 6,
+          "content": "Memoize the context value to prevent unnecessary re-renders."
+        },
+        {
+          "order": 7,
+          "content": "Provide the context value to child components."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f33bc1c0",
+      "name": "registerSection",
+      "enclosing_class": "CollapsibleSectionsProvider",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the section ID to the set of all sections."
+        },
+        {
+          "order": 2,
+          "content": "Add the section ID to the set of expanded sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_533d323f",
+      "name": "toggleSection",
+      "enclosing_class": "CollapsibleSectionsProvider",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the section ID is currently expanded."
+        },
+        {
+          "order": 2,
+          "content": "IF the section is expanded, remove it from expanded sections."
+        },
+        {
+          "order": 3,
+          "content": "ELSE add it to the expanded sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1a22ba62",
+      "name": "expandAll",
+      "enclosing_class": "CollapsibleSectionsProvider",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set all registered sections as expanded."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d33df8a0",
+      "name": "collapseAll",
+      "enclosing_class": "CollapsibleSectionsProvider",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all expanded sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9fc196d4",
+      "name": "ManagedCollapsibleSection",
+      "enclosing_class": null,
+      "normalized_params": "(props: Omit<CollapsibleSectionProps, 'isExpanded' | 'onToggle'>): React.FC<Omit<CollapsibleSectionProps, 'isExpanded' | 'onToggle'>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the collapsible sections context."
+        },
+        {
+          "order": 2,
+          "content": "Initialize local expanded state for unmanaged sections."
+        },
+        {
+          "order": 3,
+          "content": "Register the section with the context on mount."
+        },
+        {
+          "order": 4,
+          "content": "Determine if the section is expanded based on context or local state."
+        },
+        {
+          "order": 5,
+          "content": "Set the toggle handler based on whether context is available."
+        },
+        {
+          "order": 6,
+          "content": "Render the CollapsibleSection with computed props."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d7e46206",
+      "name": "CollapsibleSectionsControls",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the collapsible sections context."
+        },
+        {
+          "order": 2,
+          "content": "IF context is not available, return null."
+        },
+        {
+          "order": 3,
+          "content": "Render expand all and collapse all buttons."
+        },
+        {
+          "order": 4,
+          "content": "Attach click handlers to the buttons using context methods."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

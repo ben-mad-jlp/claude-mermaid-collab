@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/WorktreeBadge.tsx",
+  "title": "Worktree badge component showing branch and dirty status",
+  "purpose": "Displays a compact badge with worktree branch name and dirty indicator for git sessions, used in UI layouts.",
+  "module_context": "Exports a React functional component WorktreeBadge that accepts session ID and CSS class name props, and uses a custom hook to determine worktree status.",
+  "methods": [
+    {
+      "id": "m_9b7cd14d",
+      "name": "WorktreeBadge",
+      "enclosing_class": null,
+      "normalized_params": "(props: WorktreeBadgeProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the branch name, dirty flag, and session kind using the worktree status hook."
+        },
+        {
+          "order": 2,
+          "content": "IF the session ID is null, branch is empty, or session kind is not git, return null."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render a span element containing the branch name in a code block."
+        },
+        {
+          "order": 4,
+          "content": "IF the branch is dirty, append a visual indicator dot next to the branch name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

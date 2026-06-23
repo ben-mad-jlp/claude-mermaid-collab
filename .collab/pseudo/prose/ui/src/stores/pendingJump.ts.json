@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/pendingJump.ts",
+  "title": "Zustand store for coordinating pending jump targets across editor remounts",
+  "purpose": "Manages a single pending jump target to synchronize selectSnippet -> editor mount -> jumpToLine flow across component remounts.",
+  "module_context": "Exports a zustand store with pending jump state and methods to set and consume pending jumps.",
+  "methods": [
+    {
+      "id": "m_5d3fde03",
+      "name": "usePendingJump",
+      "enclosing_class": null,
+      "normalized_params": "(): PendingJumpState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a zustand store with initial pending jump state set to null."
+        },
+        {
+          "order": 2,
+          "content": "Define the setPending method to update the pending jump value."
+        },
+        {
+          "order": 3,
+          "content": "Define the consume method to check if the pending jump matches the given snippet ID."
+        },
+        {
+          "order": 4,
+          "content": "IF the pending jump matches, return its line number and clear the pending entry."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return null to indicate no matching pending jump."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ArtifactLink.tsx",
+  "title": "ArtifactLink component for clickable artifact notifications",
+  "purpose": "Provides a styled clickable link for artifact notifications that displays icons, type labels, and artifact names with dark mode support.",
+  "module_context": "Exports an ArtifactLink React component with TypeScript interface and helper functions for icon and type label generation.",
+  "methods": [
+    {
+      "id": "m_98e276ef",
+      "name": "getIconForArtifactType",
+      "enclosing_class": null,
+      "normalized_params": "(artifactType: 'document' | 'diagram'): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the document icon emoji for document artifact types."
+        },
+        {
+          "order": 2,
+          "content": "Return the diagram icon emoji for diagram artifact types."
+        },
+        {
+          "order": 3,
+          "content": "Return a default attachment icon for unrecognized artifact types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_91ec9832",
+      "name": "getTypeLabel",
+      "enclosing_class": null,
+      "normalized_params": "(type: 'created' | 'updated'): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Capitalize the first letter of the type string."
+        },
+        {
+          "order": 2,
+          "content": "Return the capitalized type string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_227757d5",
+      "name": "ArtifactLink",
+      "enclosing_class": null,
+      "normalized_params": "(props: ArtifactLinkProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract notification and onClick props from the component input."
+        },
+        {
+          "order": 2,
+          "content": "Define a click handler that calls the onClick prop with artifact id and type."
+        },
+        {
+          "order": 3,
+          "content": "Generate the icon emoji based on the artifact type."
+        },
+        {
+          "order": 4,
+          "content": "Generate the capitalized type label for display."
+        },
+        {
+          "order": 5,
+          "content": "Render a button element with styling for inline display and hover effects."
+        },
+        {
+          "order": 6,
+          "content": "Set the button title attribute to describe the artifact and action."
+        },
+        {
+          "order": 7,
+          "content": "Display the icon, type label, and artifact name within the button."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

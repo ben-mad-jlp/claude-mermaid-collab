@@ -1,0 +1,244 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/code.ts",
+  "title": "MCP Code Tools for file linking, pushing, syncing, and reviewing code snippets",
+  "purpose": "Provides tools for managing code files as linked snippet envelopes, enabling linking, pushing, syncing, reviewing edits, and listing code files.",
+  "module_context": "Exports constants for API configuration, URL building, and language mapping. Defines schemas for all tool parameters and exports async handler functions for each tool operation.",
+  "methods": [
+    {
+      "id": "m_acccea3b",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string, session: string, extraParams?: Record<string, string>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a base URL using the provided path and API base URL."
+        },
+        {
+          "order": 2,
+          "content": "Set the project parameter in the URL search string."
+        },
+        {
+          "order": 3,
+          "content": "Set the session parameter in the URL search string."
+        },
+        {
+          "order": 4,
+          "content": "IF extra parameters are provided, add them to the URL search string."
+        },
+        {
+          "order": 5,
+          "content": "Return the fully constructed URL string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59f76d2f",
+      "name": "handleLinkCodeFile",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, filePath: string, name?: string): Promise<{ success: boolean; id: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate and resolve the file path under the project root."
+        },
+        {
+          "order": 2,
+          "content": "Get file statistics and check if the file size exceeds 1MB."
+        },
+        {
+          "order": 3,
+          "content": "IF the file is too large, throw an error."
+        },
+        {
+          "order": 4,
+          "content": "Check if the file is binary."
+        },
+        {
+          "order": 5,
+          "content": "IF the file is binary, throw an error."
+        },
+        {
+          "order": 6,
+          "content": "Read the file content as UTF-8 text."
+        },
+        {
+          "order": 7,
+          "content": "Determine the language based on the file extension."
+        },
+        {
+          "order": 8,
+          "content": "Create a snippet envelope with the file content and metadata."
+        },
+        {
+          "order": 9,
+          "content": "Send a POST request to the API to create the snippet."
+        },
+        {
+          "order": 10,
+          "content": "IF the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 11,
+          "content": "Parse the API response and return the success status and snippet ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_504e3ac9",
+      "name": "handlePushCodeToFile",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<{ success: boolean; filePath: string; bytesWritten: number }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the API to push code to the file."
+        },
+        {
+          "order": 2,
+          "content": "IF the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 3,
+          "content": "Parse the API response and return the success status, file path, and bytes written."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6485b5ef",
+      "name": "handleSyncCodeFromDisk",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<{ success: boolean; diskChanged: boolean; hasLocalEdits: boolean; conflict: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the API to sync code from disk."
+        },
+        {
+          "order": 2,
+          "content": "IF the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 3,
+          "content": "Parse the API response and return the sync results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fb9fe870",
+      "name": "handleReviewCodeEdits",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, format?: 'diff' | 'full'): Promise<Record<string, unknown>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the API to retrieve the snippet."
+        },
+        {
+          "order": 2,
+          "content": "IF the API request fails, throw an error indicating the snippet was not found."
+        },
+        {
+          "order": 3,
+          "content": "Parse the snippet content as JSON to get the envelope."
+        },
+        {
+          "order": 4,
+          "content": "IF the format is 'diff', generate a unified diff patch."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the full envelope content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f202e017",
+      "name": "handleProposeCodeEdit",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, newCode: string, message?: string): Promise<Record<string, unknown>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the API to propose a code edit."
+        },
+        {
+          "order": 2,
+          "content": "IF the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 3,
+          "content": "Parse the API response and return the result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7bf19c6c",
+      "name": "handleListCodeFiles",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<{ files: Array<{ id: string; name: string; filePath: string; language: string; dirty: boolean; lastPushedAt: string | null }> }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the API to list snippets."
+        },
+        {
+          "order": 2,
+          "content": "IF the API request fails, throw an error with the response message."
+        },
+        {
+          "order": 3,
+          "content": "Parse the API response to get the list of snippets."
+        },
+        {
+          "order": 4,
+          "content": "Iterate through each snippet and attempt to parse its content as JSON."
+        },
+        {
+          "order": 5,
+          "content": "IF the snippet is a linked file, extract and include its metadata in the result."
+        },
+        {
+          "order": 6,
+          "content": "Return the list of linked files with their metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

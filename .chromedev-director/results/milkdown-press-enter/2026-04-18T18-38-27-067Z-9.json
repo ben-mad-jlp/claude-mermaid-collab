@@ -1,0 +1,20 @@
+{
+  "id": "2026-04-18T18-38-27-067Z-9",
+  "testId": "milkdown-press-enter",
+  "status": "failed",
+  "result": {
+    "status": "failed",
+    "failed_step": -1,
+    "step_definition": {
+      "wait": 800
+    },
+    "error": "Cannot read properties of undefined (reading 'replace')",
+    "console_errors": [],
+    "duration_ms": 1452,
+    "console_log": [],
+    "network_log": []
+  },
+  "startedAt": "2026-04-18T18:38:27.067Z",
+  "completedAt": "2026-04-18T18:38:27.067Z",
+  "duration_ms": 1452
+}

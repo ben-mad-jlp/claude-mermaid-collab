@@ -1,0 +1,1971 @@
+{
+  "id": "2026-04-27T01-48-39-618Z-10",
+  "testId": "collab-route-check",
+  "status": "passed",
+  "result": {
+    "status": "passed",
+    "steps_completed": 4,
+    "duration_ms": 8653,
+    "console_log": [
+      {
+        "type": "debug",
+        "text": "[vite] connecting...",
+        "timestamp": 1777254511010
+      },
+      {
+        "type": "debug",
+        "text": "[vite] connected.",
+        "timestamp": 1777254511012
+      }
+    ],
+    "network_log": [
+      {
+        "url": "http://localhost:3003/collab",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254510997
+      },
+      {
+        "url": "http://localhost:3003/site.webmanifest",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511006
+      },
+      {
+        "url": "http://localhost:3003/@vite/client",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511006
+      },
+      {
+        "url": "http://localhost:3003/src/entry.tsx?t=1777254416434",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511006
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/vite@7.1.4+1809f18aa5f0af33/node_modules/vite/dist/client/env.mjs",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511010
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/solid-js_web.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511011
+      },
+      {
+        "url": "http://localhost:3003/@solid-refresh",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511011
+      },
+      {
+        "url": "http://localhost:3003/src/app.tsx?t=1777254416434",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511013
+      },
+      {
+        "url": "http://localhost:3003/src/context/platform.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511014
+      },
+      {
+        "url": "http://localhost:3003/src/i18n/en.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511015
+      },
+      {
+        "url": "http://localhost:3003/src/i18n/zh.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511017
+      },
+      {
+        "url": "http://localhost:3003/src/utils/notification-click.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511017
+      },
+      {
+        "url": "http://localhost:3003/package.json?import",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511018
+      },
+      {
+        "url": "http://localhost:3003/src/context/server.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511020
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-VLA55CI3.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511021
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-M2PPBBZ4.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511021
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-EZWYHVNM.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511022
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/solid-js.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511022
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/context/index.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511025
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/context/dialog.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511026
+      },
+      {
+        "url": "http://localhost:3003/src/index.css?t=1777254416434",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511026
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/context/file.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511027
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/context/marked.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511028
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/file.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511030
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/font.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511031
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/logo.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511031
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/theme/context.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511032
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+meta@0.29.4+95b571dd5236cc92/node_modules/@solidjs/meta/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511033
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511034
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@tanstack_solid-query.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511036
+      },
+      {
+        "url": "http://localhost:3003/src/context/command.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511037
+      },
+      {
+        "url": "http://localhost:3003/src/context/comments.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511039
+      },
+      {
+        "url": "http://localhost:3003/src/context/file.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511040
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sdk.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511041
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511043
+      },
+      {
+        "url": "http://localhost:3003/src/context/highlights.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511043
+      },
+      {
+        "url": "http://localhost:3003/src/context/language.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511044
+      },
+      {
+        "url": "http://localhost:3003/src/context/layout.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511046
+      },
+      {
+        "url": "http://localhost:3003/src/context/models.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511047
+      },
+      {
+        "url": "http://localhost:3003/src/context/notification.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511048
+      },
+      {
+        "url": "http://localhost:3003/src/context/permission.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511048
+      },
+      {
+        "url": "http://localhost:3003/src/context/prompt.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511049
+      },
+      {
+        "url": "http://localhost:3003/src/context/settings.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511050
+      },
+      {
+        "url": "http://localhost:3003/src/context/terminal.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511051
+      },
+      {
+        "url": "http://localhost:3003/src/pages/directory-layout.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511052
+      },
+      {
+        "url": "http://localhost:3003/src/collab/routes.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511054
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511055
+      },
+      {
+        "url": "http://localhost:3003/src/pages/error.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511056
+      },
+      {
+        "url": "http://localhost:3003/src/utils/server-health.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511057
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/solid-js_store.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511058
+      },
+      {
+        "url": "http://localhost:3003/src/utils/persist.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511060
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/context/helper.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511060
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/context/data.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511062
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/context/i18n.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511062
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/dialog/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511064
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@solid-primitives_event-listener.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511065
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/effect.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511066
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/marked.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511068
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/marked-katex-extension.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511069
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/marked-shiki.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511069
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/katex.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511071
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/shiki.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511071
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@solid-primitives_media.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511073
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/shared/src/util/encode.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511074
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/index.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511075
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@pierre_diffs.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511075
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/commented-lines.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511076
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/diff-selection.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511078
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/file-find.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511078
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/file-runtime.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511080
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/file-selection.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511082
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/selection-bridge.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511082
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/virtualizer.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511083
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/worker.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511086
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/file-media.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511086
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/file-search.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511086
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/theme/themes/oc-2.json?import",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511089
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511089
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/theme/resolve.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511089
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/lifecycle.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511091
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/components.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511092
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routing.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511092
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/utils.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511093
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511094
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-N72VEKS2.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511095
+      },
+      {
+        "url": "http://localhost:3003/src/utils/scoped-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511096
+      },
+      {
+        "url": "http://localhost:3003/src/utils/uuid.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511097
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/toast.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511098
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/shared/src/util/path.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511099
+      },
+      {
+        "url": "http://localhost:3003/src/context/sdk.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511100
+      },
+      {
+        "url": "http://localhost:3003/src/context/sync.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511101
+      },
+      {
+        "url": "http://localhost:3003/src/context/file/path.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511102
+      },
+      {
+        "url": "http://localhost:3003/src/context/file/content-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511103
+      },
+      {
+        "url": "http://localhost:3003/src/context/file/view-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511103
+      },
+      {
+        "url": "http://localhost:3003/src/context/file/tree-store.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511104
+      },
+      {
+        "url": "http://localhost:3003/src/context/file/watcher.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511105
+      },
+      {
+        "url": "http://localhost:3003/src/context/file/types.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511106
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@solid-primitives_event-bus.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511107
+      },
+      {
+        "url": "http://localhost:3003/src/utils/server.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511108
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/bootstrap.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511109
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/child-store.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511110
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/event-reducer.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511112
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/queue.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511112
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/zod.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511113
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/session-prefetch.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511114
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/session-load.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511115
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/session-trim.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511116
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/types.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511116
+      },
+      {
+        "url": "http://localhost:3003/src/utils/server-errors.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511117
+      },
+      {
+        "url": "http://localhost:3003/src/components/dialog-release-notes.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511118
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@solid-primitives_i18n.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511119
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/i18n/en.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511120
+      },
+      {
+        "url": "http://localhost:3003/src/utils/same.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511121
+      },
+      {
+        "url": "http://localhost:3003/src/utils/base64.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511121
+      },
+      {
+        "url": "http://localhost:3003/src/context/layout-scroll.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511123
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/remeda.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511125
+      },
+      {
+        "url": "http://localhost:3003/src/hooks/use-providers.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511125
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/luxon.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511126
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/shared/src/util/binary.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511127
+      },
+      {
+        "url": "http://localhost:3003/src/utils/sound.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511128
+      },
+      {
+        "url": "http://localhost:3003/src/context/permission-auto-respond.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511129
+      },
+      {
+        "url": "http://localhost:3003/src/context/terminal-title.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511129
+      },
+      {
+        "url": "http://localhost:3003/src/context/local.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511130
+      },
+      {
+        "url": "http://localhost:3003/src/collab/stores/sessionStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511131
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/Sidebar.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511131
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/resize-handle.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511133
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/button.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511133
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/icon-button.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511134
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/tooltip.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511137
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/dropdown-menu.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511137
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/dialog.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511138
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/session-cache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511139
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@thisbeyond+solid-dnd@0.7.5+95b571dd5236cc92/node_modules/@thisbeyond/solid-dnd/dist/dev.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511140
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/shared/src/util/retry.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511140
+      },
+      {
+        "url": "http://localhost:3003/src/utils/aim.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511141
+      },
+      {
+        "url": "http://localhost:3003/src/utils/worktree.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511143
+      },
+      {
+        "url": "http://localhost:3003/src/pages/session/handoff.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511143
+      },
+      {
+        "url": "http://localhost:3003/src/utils/solid-dnd.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511144
+      },
+      {
+        "url": "http://localhost:3003/src/components/debug-bar.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511146
+      },
+      {
+        "url": "http://localhost:3003/src/components/titlebar.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511146
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout/helpers.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511147
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout/deep-links.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511149
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout/inline-editor.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511149
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout/sidebar-workspace.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511150
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout/sidebar-shell.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511151
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout/sidebar-project.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511152
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/text-field.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511153
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@solid-primitives_storage.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511155
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/icon.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511155
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/PLLNVYER.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511156
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/7A3GDF4Y.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511157
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FBCYWU27.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511158
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/3VFJM5NZ.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511159
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/MGQGUY64.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511160
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/IGYOA2ZZ.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511161
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/3NI6FTA2.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511162
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/JHMNWOLY.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511163
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/E53DB7BS.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511164
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/UKTBL2JL.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511165
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/EJ5I5XML.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511166
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/JNCCF6MP.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511167
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FN6EICGO.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511167
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/OYES4GOP.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511169
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FLVHQV4A.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511170
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-CLS46NE4.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511172
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/5WXHJDCZ.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511172
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-6RQ3H4EO.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511173
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-6CFDQT52.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511174
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-FYVIAUIM.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511176
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-7JD2AQW3.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511177
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-D4LERGHY.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511179
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-36OW6TQL.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511179
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/line-comment-styles.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511181
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-ZUXIFUBN.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511182
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/chunk-E73MJT7M.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511182
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@solid-primitives_resize-observer.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511183
+      },
+      {
+        "url": "http://localhost:3003/node_modules/.vite/deps/@pierre_diffs_worker.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511184
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@pierre+diffs@1.1.0-beta.18+dde3f20a083be258/node_modules/@pierre/diffs/dist/worker/worker.js?worker&url",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511185
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/pierre/media.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511186
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/createRouter.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511188
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/components.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511188
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/Router.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511189
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/MemoryRouter.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511191
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/HashRouter.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511192
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/routers/StaticRouter.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511192
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/createAsync.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511194
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/action.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511194
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/theme/color.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511195
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/response.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511196
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/query.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511197
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/toast/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511198
+      },
+      {
+        "url": "http://localhost:3003/src/utils/diffs.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511199
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/client.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511200
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/utils.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511201
+      },
+      {
+        "url": "http://localhost:3003/src/context/global-sync/eviction.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511203
+      },
+      {
+        "url": "http://localhost:3003/src/context/model-variant.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511203
+      },
+      {
+        "url": "http://localhost:3003/src/collab/stores/tabsStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511204
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/SubscriptionsPanel.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511205
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/ArtifactTree.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511206
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/WorktreeBadge.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511206
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/button/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511206
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/tooltip/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511207
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/dropdown-menu/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511209
+      },
+      {
+        "url": "http://localhost:3003/src/components/titlebar-history.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511209
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/inline-input.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511211
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/collapsible.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511212
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/spinner.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511212
+      },
+      {
+        "url": "http://localhost:3003/src/pages/layout/sidebar-items.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511214
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/hover-card.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511215
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/context-menu.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511215
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/text-field/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511217
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+utils@0.9.1+95b571dd5236cc92/node_modules/@kobalte/utils/dist/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511218
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/solid-prevent-scroll@0.1.10+95b571dd5236cc92/node_modules/solid-prevent-scroll/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511218
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511219
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/solid-presence@0.1.8+95b571dd5236cc92/node_modules/solid-presence/dist/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511221
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solidjs+router@0.15.4+95b571dd5236cc92/node_modules/@solidjs/router/dist/data/events.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511221
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/DU4ZVMV4.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511223
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/types.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511223
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client/client.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511224
+      },
+      {
+        "url": "http://localhost:3003/src/collab/stores/subscriptionStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511226
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/sdk.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511226
+      },
+      {
+        "url": "http://localhost:3003/src/collab/stores/sidebarTreeStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511227
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/ArtifactTreeNode.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511229
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/TreeBranchRow.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511229
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/FolderTreeRow.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511229
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/folderTree.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511232
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/orderVisibleNodes.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511232
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/artifactTreeSelectors.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511232
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/PseudoTreeBody.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511234
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/sidebar-tree/TodosTreeSection.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511235
+      },
+      {
+        "url": "http://localhost:3003/src/collab/stores/agentStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511236
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/2N4PRSLE.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511237
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/2CTBMVJ4.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511237
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/LR7LBJN3.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511238
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/V6FPT6B6.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511239
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/G4JQYERT.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511240
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/LEK3K6R3.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511241
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/T4C3DMHT.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511242
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/N3GAC5SS.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511243
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/QZDH5R5B.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511244
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/YRH543JR.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511245
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/SOM3K36D.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511246
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/VI7QYH27.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511247
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/collapsible/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511247
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/ui/src/components/avatar.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511249
+      },
+      {
+        "url": "http://localhost:3003/src/utils/agent.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511249
+      },
+      {
+        "url": "http://localhost:3003/src/utils/session-title.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511250
+      },
+      {
+        "url": "http://localhost:3003/src/pages/session/composer/session-request-tree.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511251
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/context-menu/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511253
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/hover-card/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511253
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/MKJEDDFV.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511255
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/NGHEENNE.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511256
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/FOXVCQFV.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511256
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/QJIB6BDF.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511258
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/ZZYKR3VO.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511259
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/XUUROM4M.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511259
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+keyed@1.5.3+95b571dd5236cc92/node_modules/@solid-primitives/keyed/dist/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511260
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+map@0.4.13+95b571dd5236cc92/node_modules/@solid-primitives/map/dist/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511261
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+refs@1.1.3+95b571dd5236cc92/node_modules/@solid-primitives/refs/dist/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511262
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+utils@6.4.0+95b571dd5236cc92/node_modules/@solid-primitives/utils/dist/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511263
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/reactivity/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511264
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/dom/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511265
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/create/style.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511266
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/scroll/index.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511267
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/propTraps.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511268
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/filterProps.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511269
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+props@3.2.3+95b571dd5236cc92/node_modules/@solid-primitives/props/dist/combineProps.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511270
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/serverSentEvents.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511271
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/utils.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511272
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client/utils.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511273
+      },
+      {
+        "url": "http://localhost:3003/src/collab/utils/sessionItemsCache.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511273
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511275
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/client/index.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511275
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+dom@1.7.6/node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511277
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/index.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511277
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+number@3.6.6/node_modules/@internationalized/number/dist/index.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511278
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/UGE6PPGT.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511279
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/RHVJLHNR.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511280
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/VS2QDEVD.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511281
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@kobalte+core@0.13.11+95b571dd5236cc92/node_modules/@kobalte/core/dist/chunk/3JA5IX2L.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511281
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+trigger@1.2.3+95b571dd5236cc92/node_modules/@solid-primitives/trigger/dist/index.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511282
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@solid-primitives+utils@6.4.0+95b571dd5236cc92/node_modules/@solid-primitives/utils/dist/types.js?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511283
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/chunk/U42ECMND.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511284
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@corvu+utils@0.4.2+95b571dd5236cc92/node_modules/@corvu/utils/dist/chunk/GZJAOTUE.jsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511285
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/pathSerializer.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511286
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/auth.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511287
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/bodySerializer.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511289
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/params.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511289
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/packages/sdk/js/src/v2/gen/core/queryKeySerializer.gen.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511290
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+utils@0.2.11/node_modules/@floating-ui/utils/dist/floating-ui.utils.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511291
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+core@1.7.5/node_modules/@floating-ui/core/dist/floating-ui.core.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511292
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@floating-ui+utils@0.2.11/node_modules/@floating-ui/utils/dist/floating-ui.utils.dom.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511292
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/CalendarDate.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511294
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/GregorianCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511294
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/JapaneseCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511295
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/BuddhistCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511297
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/TaiwanCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511297
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/PersianCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511298
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/IndianCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511299
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/IslamicCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511300
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/HebrewCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511301
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/calendars/EthiopicCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511302
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/createCalendar.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511302
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/conversion.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511303
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/queries.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511305
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/string.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511305
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/DateFormatter.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511306
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+number@3.6.6/node_modules/@internationalized/number/dist/private/NumberFormatter.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511307
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+number@3.6.6/node_modules/@internationalized/number/dist/private/NumberParser.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511307
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/manipulation.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511307
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/utils.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511308
+      },
+      {
+        "url": "http://localhost:3003/@fs/srv/codebase/open-collab/node_modules/.bun/@internationalized+date@3.12.1/node_modules/@internationalized/date/dist/private/weekStartData.mjs?v=ecfc5a8e",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511308
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/dashboard/Dashboard.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511345
+      },
+      {
+        "url": "http://localhost:3003/src/collab/stores/uiStore.ts",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511348
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/layout/SplitPane.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511349
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/dashboard/SessionCard.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511349
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/dashboard/ItemGrid.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511351
+      },
+      {
+        "url": "http://localhost:3003/src/collab/components/dashboard/ItemCard.tsx",
+        "method": "GET",
+        "status": 200,
+        "timestamp": 1777254511353
+      }
+    ],
+    "step_traces": [
+      {
+        "step_index": 0,
+        "section": "steps",
+        "step_type": "wait",
+        "status": "passed",
+        "start_time_ms": 381,
+        "duration_ms": 2502
+      },
+      {
+        "step_index": 1,
+        "section": "steps",
+        "step_type": "screenshot",
+        "status": "passed",
+        "start_time_ms": 2883,
+        "duration_ms": 27,
+        "result": "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BADgmrqRZVny/Kbj/XEyv1Atnm9xAIAr7sZFKidNU5EEAFxL555u21ppzCUAANfUeSJput9pre0VVrcTAIBr6jyRlB2Np4W5pfp8AgBwTZ0nksqNdrs+7izVEgCAa8qJ2wAAAReTBAAIiCQAgIBIAgAIiCQAgIBIAgAIvJIAXJI///nPv/3tbz/66KPky/b6669///vf/9a3vpUAnJdIAi7BcDhcX1/PfyYvUq1W29zczH8mAM/PdZKAl21/f/+HP/zhJ598krx4N27c+PWvf/29730vAXhOIgl4qf75z3/Oz89/+OGH+e1XX311aWnptddeS75sH3/8ca/X+/vf/57frlQqo9EoAXhOIgl4qd5///0f//jH+Y1SqZRPt+U/kxfj6Ogon2jLf+a333vvvYWFhQTgefh0G/BS/elPfzq98ZOf/OTFFVJyEmH5Jk5v//GPf0wAnpMTt4GX6i9/+cvpja9//evJC/ZoE5PJJAF4TkaSAAACIgkAICCSAAACzkkCrqhOp/Nvn9NutxOAF0MkAVeUSAIul+k2AICAkSTgijJKBFwukQRcUSIJuFym2wAAAiIJACAgkgAAAs5JAq4olwAALpdIAq4okQRcLtNtAAABI0nAFWWUCLhcIgm4okQScLlMtwEABEQSAEBAJAEABJyTBFxRLgEAXC6RBFxRIgm4XKbbAAACRpKAK8ooEXC5RBJwRYkk4HKZbgMACIgkAICASAIACDgnCXipSqXS6Y2//vWvyQv2aBPlcjkBeE5GkoCXam5u7vTGr371q3/961/JC5OvPN/E6e35+fkE4DndyLIsOa80TS+yOPDV9N3vfvcPf/hDfuOb3/zmj370o9deey35sn388ce/+c1vPvzww/z2d77znffffz8BeE4iCXjZfv/73//gBz/45JNPkhfvxo0bv/vd77797W8nAM/JdBvwsuVDO7/85S+/8Y1vJC9YuVzON6SQgPMxkgRcjr/97W+DweCjjz76xz/+kXzZvva1r73++utvvvnmq6++mgCci0gCAAiYbgMACIgkAICASAIACIgkAICASAIACIgkAICASAIACIgkAICASAIACIgkAICASAIACIgkAICASAIACIgkAICASAIACIgkAICASAIACIgkAICASAIACIgkuEamg9Xa3Gp/mvyHycbbrXqrO8qSy5UdbC02Vnrj5IK+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"
+      },
+      {
+        "step_index": 2,
+        "section": "steps",
+        "step_type": "assert",
+        "status": "passed",
+        "start_time_ms": 2910,
+        "duration_ms": 2871
+      },
+      {
+        "step_index": 3,
+        "section": "steps",
+        "step_type": "eval",
+        "status": "passed",
+        "start_time_ms": 5781,
+        "duration_ms": 2872,
+        "result": "no-opencode-sidebar"
+      }
+    ]
+  },
+  "startedAt": "2026-04-27T01:48:39.618Z",
+  "completedAt": "2026-04-27T01:48:39.618Z",
+  "duration_ms": 8653
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/ResumedBanner.tsx",
+  "title": "Banner component for resumed agent chat sessions",
+  "purpose": "Displays a banner indicating when an agent session has been resumed, showing session ID and prior turn count with optional dismiss functionality.",
+  "module_context": "Exports a React functional component ResumedBanner that accepts session ID, turn count, and dismiss handler props, and renders a styled banner with truncation and optional dismiss button.",
+  "methods": [
+    {
+      "id": "m_1811717f",
+      "name": "ResumedBanner",
+      "enclosing_class": null,
+      "normalized_params": "(props: ResumedBannerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract session ID, turn count, and dismiss handler from the props."
+        },
+        {
+          "order": 2,
+          "content": "Truncate the session ID to first 8 characters for display."
+        },
+        {
+          "order": 3,
+          "content": "Use the provided turn count or default to zero if not specified."
+        },
+        {
+          "order": 4,
+          "content": "Render a status banner with the truncated ID and turn count."
+        },
+        {
+          "order": 5,
+          "content": "IF a dismiss handler is provided, render a dismiss button with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

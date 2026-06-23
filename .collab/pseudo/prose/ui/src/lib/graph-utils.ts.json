@@ -1,0 +1,116 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/graph-utils.ts",
+  "title": "Mermaid graph generator for Kodex topic relationships",
+  "purpose": "Provides utilities to parse topic relationships from markdown, build graph edges, and generate Mermaid syntax for visualizing topic connections.",
+  "module_context": "Exports interfaces for GraphEdge, GraphNode, and GraphData, along with functions to parse related topics, build graph edges, and generate Mermaid graph syntax.",
+  "methods": [
+    {
+      "id": "m_d68d223e",
+      "name": "parseRelatedTopics",
+      "enclosing_class": null,
+      "normalized_params": "(relatedText: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the input text is a non-empty string."
+        },
+        {
+          "order": 2,
+          "content": "Use a regular expression to find all backtick-wrapped topic names."
+        },
+        {
+          "order": 3,
+          "content": "Extract the topic names by removing the backticks from matches."
+        },
+        {
+          "order": 4,
+          "content": "Remove duplicate topic names to ensure uniqueness."
+        },
+        {
+          "order": 5,
+          "content": "Return the array of unique topic names."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2d42d955",
+      "name": "buildGraphEdges",
+      "enclosing_class": null,
+      "normalized_params": "(topics: Array<{ name: string; related?: string }>): GraphEdge[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect graph edges."
+        },
+        {
+          "order": 2,
+          "content": "Iterate over each topic in the input array."
+        },
+        {
+          "order": 3,
+          "content": "Skip topics that do not have a related field."
+        },
+        {
+          "order": 4,
+          "content": "Parse the related field to extract referenced topic names."
+        },
+        {
+          "order": 5,
+          "content": "Create edges from the current topic to each referenced topic."
+        },
+        {
+          "order": 6,
+          "content": "Return the array of graph edges."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_af957c7f",
+      "name": "generateMermaidGraph",
+      "enclosing_class": null,
+      "normalized_params": "(edges: GraphEdge[], topics: Map<string, { title: string; name: string }>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an array to hold the lines of Mermaid syntax."
+        },
+        {
+          "order": 2,
+          "content": "Collect all node names from the edges to determine connected nodes."
+        },
+        {
+          "order": 3,
+          "content": "Define each node in the graph with its label based on title or name."
+        },
+        {
+          "order": 4,
+          "content": "Define edges between nodes using the source and target names."
+        },
+        {
+          "order": 5,
+          "content": "Join all lines with newlines to form the complete Mermaid graph syntax."
+        },
+        {
+          "order": 6,
+          "content": "Return the generated Mermaid graph syntax as a string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,247 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/fonts.ts",
+  "title": "Font management service with local font access and bundled fallback",
+  "purpose": "Provides font loading and management capabilities using local font access API when available, falling back to bundled fonts when not. Used to register and access fonts in CanvasKit and the browser.",
+  "module_context": "Initializes font provider for CanvasKit and maintains a cache of loaded font families. Defines bundled font mappings and utility functions for font style conversion.",
+  "methods": [
+    {
+      "id": "m_b7b30d8e",
+      "name": "initFontService",
+      "enclosing_class": null,
+      "normalized_params": "(_canvasKit: CanvasKit, provider: TypefaceFontProvider): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the provided font provider for use in subsequent font registration operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b292d3f",
+      "name": "getFontProvider",
+      "enclosing_class": null,
+      "normalized_params": "(): TypefaceFontProvider | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the stored font provider instance if initialized, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ce1f154f",
+      "name": "queryFonts",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<FontInfo[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF running in a browser environment and local font access API is available, query for available local fonts."
+        },
+        {
+          "order": 2,
+          "content": "ELSE return an empty array."
+        },
+        {
+          "order": 3,
+          "content": "Process the queried fonts to remove duplicates based on family and style."
+        },
+        {
+          "order": 4,
+          "content": "IF font query fails, return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d65563f0",
+      "name": "listFamilies",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<string[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve all available fonts from the system."
+        },
+        {
+          "order": 2,
+          "content": "Extract unique font family names from the retrieved fonts."
+        },
+        {
+          "order": 3,
+          "content": "Sort the unique family names alphabetically."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_70882318",
+      "name": "loadFont",
+      "enclosing_class": null,
+      "normalized_params": "(family: string, style?: string): Promise<ArrayBuffer | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a cache key from the font family and style."
+        },
+        {
+          "order": 2,
+          "content": "IF the font is already cached, return it after registering in CanvasKit."
+        },
+        {
+          "order": 3,
+          "content": "ELSE attempt to load the font using the local font access API if available."
+        },
+        {
+          "order": 4,
+          "content": "IF a matching local font is found, register it in both CanvasKit and the browser."
+        },
+        {
+          "order": 5,
+          "content": "ELSE fall back to loading a bundled font from the predefined mappings."
+        },
+        {
+          "order": 6,
+          "content": "IF a bundled font is successfully fetched, register it in both CanvasKit and the browser."
+        },
+        {
+          "order": 7,
+          "content": "IF no font can be loaded, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_39210abb",
+      "name": "registerFontInCanvasKit",
+      "enclosing_class": null,
+      "normalized_params": "(family: string, data: ArrayBuffer): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a font provider is initialized, register the font data under the specified family name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f8124ecb",
+      "name": "registerFontInBrowser",
+      "enclosing_class": null,
+      "normalized_params": "(family: string, style: string, data: ArrayBuffer): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF running in a browser environment, create a FontFace object with the font data."
+        },
+        {
+          "order": 2,
+          "content": "Configure the FontFace with appropriate weight and style based on the font style."
+        },
+        {
+          "order": 3,
+          "content": "Load the font face and add it to the document's font collection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2600fa9e",
+      "name": "styleToWeight",
+      "enclosing_class": null,
+      "normalized_params": "(style: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Normalize the style string by converting to lowercase and removing spaces and hyphens."
+        },
+        {
+          "order": 2,
+          "content": "Map style keywords to their corresponding font weights."
+        },
+        {
+          "order": 3,
+          "content": "IF no specific weight is matched, default to regular weight 400."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4e1d7e21",
+      "name": "ensureNodeFont",
+      "enclosing_class": null,
+      "normalized_params": "(family: string, weight: number): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the font weight to a style label."
+        },
+        {
+          "order": 2,
+          "content": "Load the font with the computed style label."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_35b3162b",
+      "name": "weightToStyle",
+      "enclosing_class": null,
+      "normalized_params": "(weight: number, italic?: boolean): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map font weights to descriptive style labels."
+        },
+        {
+          "order": 2,
+          "content": "IF the font is italic, append 'Italic' to the style label."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

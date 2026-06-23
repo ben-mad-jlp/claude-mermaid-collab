@@ -1,0 +1,87 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-rescan.ts",
+  "title": "MCP tools for pseudo rescan and rerank operations",
+  "purpose": "Provides tools to trigger full scans, incremental scans, drift checks, and reranking of project data.",
+  "module_context": "Exports two main functions: pseudo_rescan for triggering various types of scans and pseudo_rerank for updating rankings based on project data.",
+  "methods": [
+    {
+      "id": "m_42978056",
+      "name": "pseudo_rescan",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, opts: RescanOptions): Promise<RescanResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database handle for the given project."
+        },
+        {
+          "order": 2,
+          "content": "IF cancellation is requested, invoke the indexer cancel method and return a cancellation status."
+        },
+        {
+          "order": 3,
+          "content": "Determine the scan mode, defaulting to 'full' if not specified."
+        },
+        {
+          "order": 4,
+          "content": "IF the mode is 'full', initiate a full scan and return its status and run ID."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the mode is 'incremental', perform an incremental scan with specified paths and return its status and run ID."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the mode is 'drift_check', execute a drift check and return the results."
+        },
+        {
+          "order": 7,
+          "content": "ELSE return an error status indicating an unknown mode."
+        },
+        {
+          "order": 8,
+          "content": "IF any operation fails, return an error status with the error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7a9c52c6",
+      "name": "pseudo_rerank",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, opts: RerankOptions): Promise<RerankResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database handle for the given project."
+        },
+        {
+          "order": 2,
+          "content": "IF cancellation is requested, invoke the indexer cancel method and return a cancellation message."
+        },
+        {
+          "order": 3,
+          "content": "Execute the ranking update process using the database and specified parameters."
+        },
+        {
+          "order": 4,
+          "content": "IF the ranking update succeeds, return the number of updated rows."
+        },
+        {
+          "order": 5,
+          "content": "IF the ranking update fails, return an error status with the error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

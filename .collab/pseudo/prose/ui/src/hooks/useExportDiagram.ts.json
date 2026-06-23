@@ -1,0 +1,275 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useExportDiagram.ts",
+  "title": "Mermaid diagram export hook with SVG and PNG functionality",
+  "purpose": "Provides React hook for exporting Mermaid diagrams as SVG or PNG files with proper styling and scaling.",
+  "module_context": "Exports a hook function that manages diagram export state and provides SVG/PNG export capabilities with inline style handling and canvas-based PNG conversion.",
+  "methods": [
+    {
+      "id": "m_b64f49dd",
+      "name": "inlineStyles",
+      "enclosing_class": null,
+      "normalized_params": "(element: Element): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve computed styles for the given element."
+        },
+        {
+          "order": 2,
+          "content": "Apply the computed styles as inline styles to the element."
+        },
+        {
+          "order": 3,
+          "content": "Recursively process all child elements to inline their styles as well."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2343ddf3",
+      "name": "downloadFile",
+      "enclosing_class": null,
+      "normalized_params": "(url: string, filename: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new anchor element for file download."
+        },
+        {
+          "order": 2,
+          "content": "Set the href attribute to the provided blob URL."
+        },
+        {
+          "order": 3,
+          "content": "Set the download attribute to the specified filename."
+        },
+        {
+          "order": 4,
+          "content": "Add the anchor to the document body."
+        },
+        {
+          "order": 5,
+          "content": "Trigger a click event on the anchor to initiate download."
+        },
+        {
+          "order": 6,
+          "content": "Remove the anchor from the document body after download."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_87ed80ac",
+      "name": "useExportDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(): UseExportDiagramReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref to track the container element."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state to track whether export is possible."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback to update the container ref and export state."
+        },
+        {
+          "order": 4,
+          "content": "Define a function to export the diagram as SVG with inline styles."
+        },
+        {
+          "order": 5,
+          "content": "Define a function to export the diagram as PNG using canvas rendering."
+        },
+        {
+          "order": 6,
+          "content": "Return the container ref callback and both export functions along with export capability state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1dbe8c52",
+      "name": "svgContainerRef",
+      "enclosing_class": "useExportDiagram",
+      "normalized_params": "(node: HTMLDivElement | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the internal container reference to the provided node."
+        },
+        {
+          "order": 2,
+          "content": "IF the node is null, set export capability to false."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if the container has an SVG element and update export capability accordingly."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8dbb1e40",
+      "name": "exportAsSVG",
+      "enclosing_class": "useExportDiagram",
+      "normalized_params": "(filename: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the container element from the ref."
+        },
+        {
+          "order": 2,
+          "content": "IF the container is null, exit the function."
+        },
+        {
+          "order": 3,
+          "content": "Find the SVG element within the container."
+        },
+        {
+          "order": 4,
+          "content": "IF no SVG element exists, exit the function."
+        },
+        {
+          "order": 5,
+          "content": "Create a deep clone of the SVG element."
+        },
+        {
+          "order": 6,
+          "content": "Inline styles for the cloned SVG element and its children."
+        },
+        {
+          "order": 7,
+          "content": "Serialize the styled SVG to a string."
+        },
+        {
+          "order": 8,
+          "content": "Create a blob from the SVG string and generate a download URL."
+        },
+        {
+          "order": 9,
+          "content": "Trigger file download with the specified filename."
+        },
+        {
+          "order": 10,
+          "content": "Revoke the object URL to free memory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7fcb5e11",
+      "name": "exportAsPNG",
+      "enclosing_class": "useExportDiagram",
+      "normalized_params": "(filename: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the container element from the ref."
+        },
+        {
+          "order": 2,
+          "content": "IF the container is null, resolve the promise and exit."
+        },
+        {
+          "order": 3,
+          "content": "Find the SVG element within the container."
+        },
+        {
+          "order": 4,
+          "content": "IF no SVG element exists, resolve the promise and exit."
+        },
+        {
+          "order": 5,
+          "content": "Determine the dimensions of the SVG element."
+        },
+        {
+          "order": 6,
+          "content": "IF getBBox fails, fall back to client dimensions for sizing."
+        },
+        {
+          "order": 7,
+          "content": "Create a deep clone of the SVG element."
+        },
+        {
+          "order": 8,
+          "content": "Inline styles for the cloned SVG element and its children."
+        },
+        {
+          "order": 9,
+          "content": "Serialize the styled SVG to a data URL."
+        },
+        {
+          "order": 10,
+          "content": "Create a canvas element with 2x retina scaling."
+        },
+        {
+          "order": 11,
+          "content": "Set canvas dimensions to match the SVG size multiplied by 2."
+        },
+        {
+          "order": 12,
+          "content": "Set canvas scaling to 2x for high resolution rendering."
+        },
+        {
+          "order": 13,
+          "content": "Set a timeout to prevent hanging during image loading."
+        },
+        {
+          "order": 14,
+          "content": "Create an image element and set its source to the SVG data URL."
+        },
+        {
+          "order": 15,
+          "content": "IF image loads successfully, draw it onto the canvas."
+        },
+        {
+          "order": 16,
+          "content": "Convert the canvas content to a PNG blob."
+        },
+        {
+          "order": 17,
+          "content": "IF blob creation succeeds, trigger file download with the specified filename."
+        },
+        {
+          "order": 18,
+          "content": "Revoke the object URL to free memory after download."
+        },
+        {
+          "order": 19,
+          "content": "IF image loading fails, resolve the promise and exit."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

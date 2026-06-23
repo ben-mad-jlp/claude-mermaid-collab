@@ -88,10 +88,32 @@ interface ServerContextValue {
 
 const ServerContext = createContext<ServerContextValue | null>(null);
 
+/**
+ * In a plain browser tab (no Electron `window.mc`) there is no multi-server
+ * registry, but the page is still served by a single local backend (directly,
+ * or via the vite dev proxy). Seed a synthetic `local` server so the session/
+ * project create dialogs have something to address; apiFetch routes its calls
+ * to `/srv/local/...` against the page origin, which the backend (or the vite
+ * `/srv` proxy in dev) resolves.
+ */
+function browserLocalServer(): ServerInfo {
+  const loc = typeof window !== 'undefined' ? window.location : undefined;
+  return {
+    id: 'local',
+    label: 'Local',
+    host: loc?.hostname || 'localhost',
+    port: loc?.port ? Number(loc.port) : 9002,
+    status: 'online',
+    source: 'local',
+  };
+}
+
 export function ServerProvider({ children }: { children: React.ReactNode }) {
   const mc = typeof window !== 'undefined' ? window.mc : undefined;
   const available = !!mc;
-  const [servers, setServers] = useState<ServerInfo[]>([]);
+  // Native shell: start empty and hydrate from the bridge. Browser: a single
+  // synthetic local server (the bridge never populates the list).
+  const [servers, setServers] = useState<ServerInfo[]>(() => (mc ? [] : [browserLocalServer()]));
 
   // Probe each server's reachability (main-process fetch — the renderer can't
   // cross-origin probe other servers) and update the status dots.

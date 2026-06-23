@@ -1,0 +1,100 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/layout/Section.tsx",
+  "title": "Section component for semantic content grouping with collapsible support",
+  "purpose": "Provides a reusable section container with heading, description, and optional collapsible functionality for organizing UI content.",
+  "module_context": "Exports a Section component that accepts heading, description, level, divider, collapsible, and other props to structure content with semantic HTML and responsive design.",
+  "methods": [
+    {
+      "id": "m_55ce38d6",
+      "name": "getHeadingTag",
+      "enclosing_class": null,
+      "normalized_params": "(level: number): React.ElementType",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate and clamp the heading level between 1 and 6."
+        },
+        {
+          "order": 2,
+          "content": "Map the validated level to a corresponding HTML heading tag."
+        },
+        {
+          "order": 3,
+          "content": "Return the heading tag as a React element type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_898ee4d1",
+      "name": "getHeadingSizeClasses",
+      "enclosing_class": null,
+      "normalized_params": "(level: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Match the heading level to a predefined size class string."
+        },
+        {
+          "order": 2,
+          "content": "Return the appropriate text size and weight classes for the heading."
+        },
+        {
+          "order": 3,
+          "content": "Default to a standard size class for invalid level values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d3e28b9",
+      "name": "Section",
+      "enclosing_class": null,
+      "normalized_params": "(props: SectionComponentProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the collapsed state based on the initial prop."
+        },
+        {
+          "order": 2,
+          "content": "IF the section is marked as hidden, return null immediately."
+        },
+        {
+          "order": 3,
+          "content": "Determine the heading tag and size classes based on the level prop."
+        },
+        {
+          "order": 4,
+          "content": "Render the section header with heading and optional description."
+        },
+        {
+          "order": 5,
+          "content": "IF the section is collapsible, render a toggle button with appropriate icon."
+        },
+        {
+          "order": 6,
+          "content": "Render a divider if the divider prop is enabled."
+        },
+        {
+          "order": 7,
+          "content": "Render the section content only if not collapsed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,174 @@
+{
+  "schema_version": 3,
+  "file": "codex/src/services/access-service.ts",
+  "title": "Topic access tracking service with aggregated statistics",
+  "purpose": "Maintains individual access logs and aggregated statistics for topics, including total counts and recent access patterns.",
+  "module_context": "Exports a class AccessService that manages database interactions for tracking topic access patterns and maintaining aggregated statistics.",
+  "methods": [
+    {
+      "id": "m_675fd200",
+      "name": "constructor",
+      "enclosing_class": "AccessService",
+      "normalized_params": "(db: Database.Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the database connection for use in all statements."
+        },
+        {
+          "order": 2,
+          "content": "Prepare all SQL statements for performance optimization."
+        },
+        {
+          "order": 3,
+          "content": "Initialize the logAccess statement for recording individual access events."
+        },
+        {
+          "order": 4,
+          "content": "Initialize the ensureCountRecord statement for creating access count records."
+        },
+        {
+          "order": 5,
+          "content": "Initialize the incrementCount statement for updating total access counts."
+        },
+        {
+          "order": 6,
+          "content": "Initialize the getCounts statement for retrieving access statistics."
+        },
+        {
+          "order": 7,
+          "content": "Initialize the calculateLast30Days statement for computing recent access counts."
+        },
+        {
+          "order": 8,
+          "content": "Initialize the getAllTopicIds statement for retrieving all tracked topic IDs."
+        },
+        {
+          "order": 9,
+          "content": "Initialize the updateLast30Days statement for updating recent access aggregates."
+        },
+        {
+          "order": 10,
+          "content": "Initialize the pruneOldLogs statement for cleaning up old access records."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2eaee7bf",
+      "name": "logAccess",
+      "enclosing_class": "AccessService",
+      "normalized_params": "(topicId: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Begin a database transaction for consistency."
+        },
+        {
+          "order": 2,
+          "content": "Record the individual access event in the access log."
+        },
+        {
+          "order": 3,
+          "content": "Ensure that an access count record exists for this topic."
+        },
+        {
+          "order": 4,
+          "content": "Increment the total access count and update the last accessed timestamp."
+        },
+        {
+          "order": 5,
+          "content": "Commit the transaction to persist all changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2ac3d3a1",
+      "name": "getCounts",
+      "enclosing_class": "AccessService",
+      "normalized_params": "(topicId: number): AccessCount",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the access count statistics for the specified topic."
+        },
+        {
+          "order": 2,
+          "content": "IF a record exists for this topic, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return default values indicating no access history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e61d8d98",
+      "name": "refreshAggregates",
+      "enclosing_class": "AccessService",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Begin a database transaction for consistency."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve all topic IDs that have access records."
+        },
+        {
+          "order": 3,
+          "content": "For each topic ID, calculate the count of accesses in the last 30 days."
+        },
+        {
+          "order": 4,
+          "content": "Update the last_30_days aggregate for each topic."
+        },
+        {
+          "order": 5,
+          "content": "Remove access log entries older than 90 days."
+        },
+        {
+          "order": 6,
+          "content": "Commit the transaction to persist all changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ff47e799",
+      "name": "initializeForTopic",
+      "enclosing_class": "AccessService",
+      "normalized_params": "(topicId: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create an access count record for a new topic if one does not already exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

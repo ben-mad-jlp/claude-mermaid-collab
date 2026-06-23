@@ -1,0 +1,281 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/data-loader-integration-example.ts",
+  "title": "Data loader integration examples for React components",
+  "purpose": "Demonstrates various ways to integrate data loading functionality into React components with hooks for loading state management, progress tracking, and error handling.",
+  "module_context": "Exports multiple React hooks and utility functions for loading session artifacts with progress tracking and error recovery.",
+  "methods": [
+    {
+      "id": "m_11803027",
+      "name": "useLoadSessionArtifacts",
+      "enclosing_class": null,
+      "normalized_params": "(project: string | null, session: string | null): { isLoading: boolean; error: string | null; totalArtifacts: number; loadedCount: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize loading state and error tracking."
+        },
+        {
+          "order": 2,
+          "content": "Start artifact loading when project and session are provided."
+        },
+        {
+          "order": 3,
+          "content": "Set loading state to true and clear previous errors before starting load."
+        },
+        {
+          "order": 4,
+          "content": "Attempt to load all artifacts for the given project and session."
+        },
+        {
+          "order": 5,
+          "content": "IF loading fails, capture and store the error message."
+        },
+        {
+          "order": 6,
+          "content": "Clean up progress listeners when component unmounts."
+        },
+        {
+          "order": 7,
+          "content": "Update total artifact count upon successful load completion."
+        },
+        {
+          "order": 8,
+          "content": "Set loading state to false after load attempt completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66799e50",
+      "name": "useLoadingProgress",
+      "enclosing_class": null,
+      "normalized_params": "(): { progress: LoadingProgress | null; loaded: number; total: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize progress tracking state variables."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to loading progress events on component mount."
+        },
+        {
+          "order": 3,
+          "content": "Update progress state based on received progress events."
+        },
+        {
+          "order": 4,
+          "content": "Reset loaded and total counts when a new loading session starts."
+        },
+        {
+          "order": 5,
+          "content": "Accumulate loaded and total counts for artifact loaded events."
+        },
+        {
+          "order": 6,
+          "content": "Set final loaded and total counts when loading completes."
+        },
+        {
+          "order": 7,
+          "content": "Clean up progress listener when component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_645d9fd2",
+      "name": "useLoadingStateEffect",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to loading progress events on component mount."
+        },
+        {
+          "order": 2,
+          "content": "Set global loading state to true when loading starts."
+        },
+        {
+          "order": 3,
+          "content": "Set global loading state to false when loading completes or fails."
+        },
+        {
+          "order": 4,
+          "content": "Clean up progress listener when component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7ef7a0ae",
+      "name": "useArtifactTypeProgress",
+      "enclosing_class": null,
+      "normalized_params": "(artifactType: string): { isLoading: boolean; count: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize loading state and count tracking for specific artifact type."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to loading progress events on component mount."
+        },
+        {
+          "order": 3,
+          "content": "Update loading state and count when progress events match the specified artifact type."
+        },
+        {
+          "order": 4,
+          "content": "Set loading state to true and reset count when a new loading session starts."
+        },
+        {
+          "order": 5,
+          "content": "Set loading state to false when artifact type loading completes or fails."
+        },
+        {
+          "order": 6,
+          "content": "Clean up progress listener when component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_439e6716",
+      "name": "handleSessionChange",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<{ totalArtifacts: number; diagrams: any[]; documents: any[]; designs: any[]; spreadsheets: any[]; snippets: any[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load all artifacts for the given project and session."
+        },
+        {
+          "order": 2,
+          "content": "Log the total number of loaded artifacts upon successful load."
+        },
+        {
+          "order": 3,
+          "content": "Warn if no diagrams were found in the session."
+        },
+        {
+          "order": 4,
+          "content": "Warn if no documents were found in the session."
+        },
+        {
+          "order": 5,
+          "content": "IF loading fails, log the error and re-throw it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bcafdc17",
+      "name": "setupLoadingListener",
+      "enclosing_class": null,
+      "normalized_params": "(): () => void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to loading progress events."
+        },
+        {
+          "order": 2,
+          "content": "Log start of artifact loading."
+        },
+        {
+          "order": 3,
+          "content": "Log number of loaded artifacts and their type."
+        },
+        {
+          "order": 4,
+          "content": "Log completion of all artifact loading."
+        },
+        {
+          "order": 5,
+          "content": "Log any loading errors that occur."
+        },
+        {
+          "order": 6,
+          "content": "Return cleanup function to unsubscribe from progress events."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad5f31d8",
+      "name": "loadOnlyDiagrams",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<any[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load only diagrams for the given project and session."
+        },
+        {
+          "order": 2,
+          "content": "Log the loaded diagrams upon successful load."
+        },
+        {
+          "order": 3,
+          "content": "IF loading fails, log the error and return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_48faafd9",
+      "name": "loadOnlyDocuments",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<any[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load only documents for the given project and session."
+        },
+        {
+          "order": 2,
+          "content": "Log the loaded documents upon successful load."
+        },
+        {
+          "order": 3,
+          "content": "IF loading fails, log the error and return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

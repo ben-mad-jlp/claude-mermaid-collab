@@ -1,0 +1,95 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useAgentShortcuts.ts",
+  "title": "Keyboard shortcut handler for agent interactions",
+  "purpose": "Provides a React hook that registers global keyboard shortcuts for agent actions like sending messages, canceling, focusing, and inserting mentions.",
+  "module_context": "Exports a hook function 'useAgentShortcuts' with an interface 'UseAgentShortcutsOptions' defining available callbacks and an enabled flag.",
+  "methods": [
+    {
+      "id": "m_948f6d85",
+      "name": "useAgentShortcuts",
+      "enclosing_class": null,
+      "normalized_params": "(options: UseAgentShortcutsOptions): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set up a side effect to register keyboard event listeners when the component mounts."
+        },
+        {
+          "order": 2,
+          "content": "IF the hook is disabled or running in an environment without window, do nothing."
+        },
+        {
+          "order": 3,
+          "content": "Define a keyboard event handler that checks for specific key combinations and invokes corresponding callbacks."
+        },
+        {
+          "order": 4,
+          "content": "Register the keyboard event handler on the window object."
+        },
+        {
+          "order": 5,
+          "content": "Clean up by removing the keyboard event listener when the component unmounts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e3020104",
+      "name": "handler",
+      "enclosing_class": "useAgentShortcuts",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the Ctrl or Meta key is pressed along with Enter to trigger the send action."
+        },
+        {
+          "order": 2,
+          "content": "IF the send callback is defined, prevent the default behavior and invoke the send callback."
+        },
+        {
+          "order": 3,
+          "content": "Check if the Escape key is pressed to trigger the cancel action."
+        },
+        {
+          "order": 4,
+          "content": "IF the cancel callback is defined, invoke the cancel callback."
+        },
+        {
+          "order": 5,
+          "content": "Check if the Ctrl or Meta key is pressed along with 'k' or 'K' to trigger the focus action."
+        },
+        {
+          "order": 6,
+          "content": "IF the focus callback is defined, prevent the default behavior and invoke the focus callback."
+        },
+        {
+          "order": 7,
+          "content": "Check if the Ctrl or Meta key is pressed along with '/' to trigger the slash action."
+        },
+        {
+          "order": 8,
+          "content": "IF the slash callback is defined, prevent the default behavior and invoke the slash callback."
+        },
+        {
+          "order": 9,
+          "content": "Check if the Ctrl or Meta key is pressed along with '@' to trigger the mention action."
+        },
+        {
+          "order": 10,
+          "content": "IF the mention callback is defined, prevent the default behavior and invoke the mention callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

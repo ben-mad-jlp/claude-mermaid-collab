@@ -1,0 +1,140 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-reassign.ts",
+  "title": "Pseudo-reassign prose tool for updating method references after refactor",
+  "purpose": "Updates method references in prose files after rename or move operations, preserving ID stability and ensuring accurate documentation.",
+  "module_context": "Exports two main functions for updating method references in prose files: one for single updates and one for bulk operations with confirmation.",
+  "methods": [
+    {
+      "id": "m_cca3ce53",
+      "name": "applyOne",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, mapping: ReassignMapping): Promise<'updated' | 'not_found'>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Escape the file path for safe filesystem access."
+        },
+        {
+          "order": 2,
+          "content": "Construct the full file path for the prose file."
+        },
+        {
+          "order": 3,
+          "content": "Read the existing prose file content."
+        },
+        {
+          "order": 4,
+          "content": "IF the file does not exist, return not_found."
+        },
+        {
+          "order": 5,
+          "content": "Search for the method matching the old name, class, and parameters."
+        },
+        {
+          "order": 6,
+          "content": "IF a matching method is found, update its name, class, and parameters."
+        },
+        {
+          "order": 7,
+          "content": "IF no matching method is found, return not_found."
+        },
+        {
+          "order": 8,
+          "content": "Write the updated content back to the prose file."
+        },
+        {
+          "order": 9,
+          "content": "Return updated status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16b6ecc4",
+      "name": "pseudo_reassign_prose",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, mapping: ReassignMapping): Promise<ReassignResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the result object with counters and error array."
+        },
+        {
+          "order": 2,
+          "content": "Apply the single reassignment operation."
+        },
+        {
+          "order": 3,
+          "content": "Update the result counters based on the operation outcome."
+        },
+        {
+          "order": 4,
+          "content": "IF an error occurs during the operation, record it in the errors array."
+        },
+        {
+          "order": 5,
+          "content": "Trigger an incremental scan for the affected file in the database."
+        },
+        {
+          "order": 6,
+          "content": "Return the final result object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5fd5afe4",
+      "name": "pseudo_reassign_prose_bulk",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, mappings: ReassignMapping[], confirm: boolean): Promise<ReassignResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that bulk operation confirmation is enabled."
+        },
+        {
+          "order": 2,
+          "content": "Initialize the result object with counters and error array."
+        },
+        {
+          "order": 3,
+          "content": "Process each mapping in the list sequentially."
+        },
+        {
+          "order": 4,
+          "content": "Apply the reassignment operation for each mapping."
+        },
+        {
+          "order": 5,
+          "content": "Update the result counters based on each operation outcome."
+        },
+        {
+          "order": 6,
+          "content": "IF an error occurs during any operation, record it in the errors array."
+        },
+        {
+          "order": 7,
+          "content": "Trigger an incremental scan for all affected files in the database."
+        },
+        {
+          "order": 8,
+          "content": "Return the final result object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

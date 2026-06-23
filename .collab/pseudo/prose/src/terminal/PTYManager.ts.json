@@ -1,0 +1,413 @@
+{
+  "schema_version": 3,
+  "file": "src/terminal/PTYManager.ts",
+  "title": "PTY session manager with WebSocket attachment and terminal process control",
+  "purpose": "Manages in-memory PTY sessions using Bun's native terminal API, handling process creation, input/output streaming, WebSocket attachment, and session lifecycle management.",
+  "module_context": "Exports a singleton PTYManager instance and interfaces for session management including PTYSession, PTYSessionInfo, CreateOptions, and AttachOptions.",
+  "methods": [
+    {
+      "id": "m_cbb95959",
+      "name": "getShell",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(requestedShell?: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a shell is explicitly requested, validate its existence and return it."
+        },
+        {
+          "order": 2,
+          "content": "ELSE check the environment for SHELL variable and validate its existence."
+        },
+        {
+          "order": 3,
+          "content": "IF SHELL is not available or invalid, try fallback shells in order: zsh, bash, sh."
+        },
+        {
+          "order": 4,
+          "content": "IF no valid shell is found among all options, throw an error indicating no shell is available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_008a532b",
+      "name": "create",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string, options?: CreateOptions): Promise<PTYSessionInfo>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the session ID is not already in use."
+        },
+        {
+          "order": 2,
+          "content": "IF the session ID is invalid, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Determine the shell to use based on options or environment."
+        },
+        {
+          "order": 4,
+          "content": "Set the working directory from options or default to current working directory."
+        },
+        {
+          "order": 5,
+          "content": "Set terminal dimensions from options or use defaults."
+        },
+        {
+          "order": 6,
+          "content": "Initialize a new session object with the determined values."
+        },
+        {
+          "order": 7,
+          "content": "Spawn a new subprocess with the determined shell and terminal settings."
+        },
+        {
+          "order": 8,
+          "content": "Configure data and exit callbacks for the terminal to handle output and process termination."
+        },
+        {
+          "order": 9,
+          "content": "Store the spawned process and terminal reference in the session."
+        },
+        {
+          "order": 10,
+          "content": "Set up process exit handling to clean up session on process exit."
+        },
+        {
+          "order": 11,
+          "content": "Store the session in the internal sessions map."
+        },
+        {
+          "order": 12,
+          "content": "Return session information including ID, shell, working directory, creation time, last activity, and client count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_40333636",
+      "name": "write",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string, data: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session by ID in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Write the input data to the terminal associated with the session."
+        },
+        {
+          "order": 4,
+          "content": "IF writing fails, log a warning but continue execution."
+        },
+        {
+          "order": 5,
+          "content": "Update the last activity timestamp for the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e27e793",
+      "name": "resize",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string, cols: number, rows: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session by ID in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, return without action."
+        },
+        {
+          "order": 3,
+          "content": "Resize the terminal associated with the session to the specified dimensions."
+        },
+        {
+          "order": 4,
+          "content": "IF resizing fails, log a warning but continue execution."
+        },
+        {
+          "order": 5,
+          "content": "Track whether this is the first resize received for the session."
+        },
+        {
+          "order": 6,
+          "content": "Mark the session as having received a resize."
+        },
+        {
+          "order": 7,
+          "content": "IF this was the first resize and replay is deferred, replay the buffer to connected websockets."
+        },
+        {
+          "order": 8,
+          "content": "Update the last activity timestamp for the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ba3ac1da",
+      "name": "attach",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string, ws: ServerWebSocket<any>, options?: AttachOptions): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session by ID in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, create a new one with default settings."
+        },
+        {
+          "order": 3,
+          "content": "Add the WebSocket connection to the session's set of connected websockets."
+        },
+        {
+          "order": 4,
+          "content": "Store the deferReplay option from the attach options."
+        },
+        {
+          "order": 5,
+          "content": "IF replay is not deferred, replay the buffer contents to the newly attached WebSocket."
+        },
+        {
+          "order": 6,
+          "content": "Update the last activity timestamp for the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_93b3e9d4",
+      "name": "replayBuffer",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string, ws: ServerWebSocket<any>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session by ID in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, return without action."
+        },
+        {
+          "order": 3,
+          "content": "Retrieve the contents of the session's buffer."
+        },
+        {
+          "order": 4,
+          "content": "IF buffer contents exist, send them to the specified WebSocket."
+        },
+        {
+          "order": 5,
+          "content": "IF sending fails, log a warning but continue execution."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f59f6313",
+      "name": "detach",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string, ws: ServerWebSocket<any>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session by ID in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, return without action."
+        },
+        {
+          "order": 3,
+          "content": "Remove the WebSocket connection from the session's set of connected websockets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4a8680b4",
+      "name": "kill",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session by ID in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, return without action."
+        },
+        {
+          "order": 3,
+          "content": "Broadcast an exit message to all connected websockets for the session."
+        },
+        {
+          "order": 4,
+          "content": "Close all WebSocket connections associated with the session."
+        },
+        {
+          "order": 5,
+          "content": "Close the terminal associated with the session."
+        },
+        {
+          "order": 6,
+          "content": "Kill the subprocess associated with the session."
+        },
+        {
+          "order": 7,
+          "content": "Clear the session's buffer."
+        },
+        {
+          "order": 8,
+          "content": "Remove the session from the internal sessions map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e51983a",
+      "name": "list",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(): PTYSessionInfo[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty result array for session information."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all sessions in the internal sessions map."
+        },
+        {
+          "order": 3,
+          "content": "For each session, construct and push session information to the result array."
+        },
+        {
+          "order": 4,
+          "content": "Return the array of session information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_013fb7fc",
+      "name": "has",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a session with the given ID exists in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the session exists, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_68174918",
+      "name": "get",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(sessionId: string): PTYSessionInfo | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session by ID in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "IF the session does not exist, return undefined."
+        },
+        {
+          "order": 3,
+          "content": "Construct and return session information including ID, shell, working directory, creation time, last activity, and client count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_adc00029",
+      "name": "killAll",
+      "enclosing_class": "PTYManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all session IDs in the internal sessions map."
+        },
+        {
+          "order": 2,
+          "content": "For each session ID, call the kill method to terminate and clean up the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

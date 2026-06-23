@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/interactive/ProgressBar.tsx",
+  "title": "Accessible progress bar component with multiple display modes",
+  "purpose": "Provides a customizable progress bar that supports determinate and indeterminate states, multiple color schemes, and optional percentage display with dark mode support.",
+  "module_context": "Exports a ProgressBar React component with comprehensive props for styling and behavior control, including support for indeterminate animations, striped patterns, and dark mode themes.",
+  "methods": [
+    {
+      "id": "m_5d1c006e",
+      "name": "ProgressBar",
+      "enclosing_class": null,
+      "normalized_params": "(props: ProgressBarProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Normalize the input value to ensure it stays within the valid range defined by min and max."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the percentage representation of the current value relative to the maximum."
+        },
+        {
+          "order": 3,
+          "content": "Determine the appropriate color classes based on the specified color variant."
+        },
+        {
+          "order": 4,
+          "content": "Apply striped and animated classes conditionally based on the component props."
+        },
+        {
+          "order": 5,
+          "content": "Render the progress bar container with appropriate ARIA attributes for accessibility."
+        },
+        {
+          "order": 6,
+          "content": "Display either an indeterminate or determinate progress bar based on the indeterminate prop."
+        },
+        {
+          "order": 7,
+          "content": "Show optional label and percentage display when requested by the props."
+        },
+        {
+          "order": 8,
+          "content": "Include CSS animation definitions for the indeterminate progress bar effect."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

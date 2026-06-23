@@ -1,0 +1,88 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DocumentView.tsx",
+  "title": "Document view component with editable toggle and milkdown editor",
+  "purpose": "Renders a document with an editable toggle button and a markdown editor, switching between review and edit modes.",
+  "module_context": "Exports a React component DocumentView that manages document editing state and renders a MilkdownEditor with appropriate props based on the document's content and editability.",
+  "methods": [
+    {
+      "id": "m_e56fe400",
+      "name": "DocumentView",
+      "enclosing_class": null,
+      "normalized_params": "(props: DocumentViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract document editable state and toggle function from the UI store."
+        },
+        {
+          "order": 2,
+          "content": "Create a ref for the milkdown editor and a flush ref for pending edits."
+        },
+        {
+          "order": 3,
+          "content": "Define a change handler that notifies parent of content changes."
+        },
+        {
+          "order": 4,
+          "content": "Define a persist handler that notifies parent of content persistence."
+        },
+        {
+          "order": 5,
+          "content": "Set up an effect to flush pending edits when switching to review mode."
+        },
+        {
+          "order": 6,
+          "content": "Render a toggle button to switch between edit and review modes."
+        },
+        {
+          "order": 7,
+          "content": "Render a loading message if document content is not available."
+        },
+        {
+          "order": 8,
+          "content": "Render the milkdown editor with appropriate props when content is available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_45b101ad",
+      "name": "handleChange",
+      "enclosing_class": "DocumentView",
+      "normalized_params": "(md: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Notify the parent component of content changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8bbf1f04",
+      "name": "handlePersist",
+      "enclosing_class": "DocumentView",
+      "normalized_params": "(md: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Notify the parent component of content persistence."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

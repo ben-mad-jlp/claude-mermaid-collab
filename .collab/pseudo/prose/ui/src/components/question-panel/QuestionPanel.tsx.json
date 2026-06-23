@@ -1,0 +1,121 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/question-panel/QuestionPanel.tsx",
+  "title": "Claude question panel with overlay and focus trap",
+  "purpose": "Displays Claude questions in an overlay panel with keyboard navigation, focus trapping, and response handling.",
+  "module_context": "Exports a React functional component named QuestionPanel that uses a questionStore hook for state management and includes keyboard event handling for Escape key dismissal and Tab focus trapping.",
+  "methods": [
+    {
+      "id": "m_1645ecae",
+      "name": "QuestionPanel",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the question store hook to access current question and submission state."
+        },
+        {
+          "order": 2,
+          "content": "Set up a reference to the panel element and focusable elements array."
+        },
+        {
+          "order": 3,
+          "content": "Add keyboard event listener for Escape key to dismiss the question and Tab key for focus trapping."
+        },
+        {
+          "order": 4,
+          "content": "Collect focusable elements within the panel for focus trap functionality."
+        },
+        {
+          "order": 5,
+          "content": "If no current question exists, render nothing."
+        },
+        {
+          "order": 6,
+          "content": "Define callback handlers for dismissing the question and submitting responses."
+        },
+        {
+          "order": 7,
+          "content": "Render the overlay backdrop and question panel with header, content area, and footer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5b499147",
+      "name": "handleKeyDown",
+      "enclosing_class": "QuestionPanel",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the Escape key is pressed, dismiss the current question."
+        },
+        {
+          "order": 2,
+          "content": "IF the Tab key is pressed and focusable elements exist, implement focus trapping behavior."
+        },
+        {
+          "order": 3,
+          "content": "IF Shift + Tab is pressed and the first focusable element is active, move focus to the last element."
+        },
+        {
+          "order": 4,
+          "content": "IF Tab is pressed and the last focusable element is active, move focus to the first element."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e383e44",
+      "name": "handleDismiss",
+      "enclosing_class": "QuestionPanel",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the dismissQuestion function from the store to close the panel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4fa2b160",
+      "name": "handleAction",
+      "enclosing_class": "QuestionPanel",
+      "normalized_params": "(actionId: string, payload?: any): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare the response data with question ID, answer, and timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Submit the response to the store and await completion."
+        },
+        {
+          "order": 3,
+          "content": "IF submission fails, log the error to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

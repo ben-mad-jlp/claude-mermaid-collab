@@ -1,0 +1,209 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/projectStore.ts",
+  "title": "Project store with CRUD operations and loading states",
+  "purpose": "Manages project data, selection state, and loading/error indicators for the application's project list.",
+  "module_context": "Exports a Zustand store that maintains project state including selected project path, list of projects, loading status, and error messages. Provides actions to fetch, add, remove, and reset project data.",
+  "methods": [
+    {
+      "id": "m_c6840966",
+      "name": "setSelectedProject",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(path: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the selected project path in state."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing error messages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c785e591",
+      "name": "setProjects",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(projects: Project[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of projects in state."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing error messages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5b2f2376",
+      "name": "setLoadingProjects",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(loading: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the loading state for projects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a70bd49f",
+      "name": "setProjectsError",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(error: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the error message for projects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b9073b5",
+      "name": "fetchProjects",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to true before fetching."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the list of projects from the API."
+        },
+        {
+          "order": 3,
+          "content": "IF the fetch succeeds, update the projects list and clear loading state."
+        },
+        {
+          "order": 4,
+          "content": "IF the fetch fails, update the error message and clear loading state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3f84ba0c",
+      "name": "addProject",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(path: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Register the new project with the API."
+        },
+        {
+          "order": 2,
+          "content": "IF registration fails, update the error message and return false."
+        },
+        {
+          "order": 3,
+          "content": "IF registration succeeds, refresh the projects list."
+        },
+        {
+          "order": 4,
+          "content": "IF refresh succeeds, select the newly added project."
+        },
+        {
+          "order": 5,
+          "content": "Return true to indicate successful addition."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ca5f6cf9",
+      "name": "removeProject",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(path: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Unregister the project from the API."
+        },
+        {
+          "order": 2,
+          "content": "IF unregistration fails, update the error message and return false."
+        },
+        {
+          "order": 3,
+          "content": "IF unregistration succeeds, clear selection if it was the removed project."
+        },
+        {
+          "order": 4,
+          "content": "IF unregistration succeeds, refresh the projects list."
+        },
+        {
+          "order": 5,
+          "content": "Return true to indicate successful removal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_064ac364",
+      "name": "reset",
+      "enclosing_class": "useProjectStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the selected project to null."
+        },
+        {
+          "order": 2,
+          "content": "Reset the projects list to empty."
+        },
+        {
+          "order": 3,
+          "content": "Reset the loading state to false."
+        },
+        {
+          "order": 4,
+          "content": "Reset the error message to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

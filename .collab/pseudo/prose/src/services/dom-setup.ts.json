@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "src/services/dom-setup.ts",
+  "title": "DOM environment setup for Mermaid and SVG polyfills",
+  "purpose": "Initializes a JSDOM environment with required DOM globals and SVG polyfills needed for Mermaid rendering in server-side contexts.",
+  "module_context": "Creates a JSDOM instance and patches global DOM objects including document, window, and navigator. Also imports and initializes DOMPurify for isomorphic use and adds SVG bounding box polyfills.",
+  "methods": [
+    {
+      "id": "m_1434f299",
+      "name": "setup",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new JSDOM instance with basic HTML document structure."
+        },
+        {
+          "order": 2,
+          "content": "Extract the window object from the JSDOM instance."
+        },
+        {
+          "order": 3,
+          "content": "Assign the window, document, and navigator objects to the global scope."
+        },
+        {
+          "order": 4,
+          "content": "Import and initialize DOMPurify for secure DOM manipulation."
+        },
+        {
+          "order": 5,
+          "content": "Add polyfill for SVGElement getBBox method if not present."
+        },
+        {
+          "order": 6,
+          "content": "Add polyfill for SVGGraphicsElement if not present."
+        },
+        {
+          "order": 7,
+          "content": "Export the window and document references for use in other modules."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

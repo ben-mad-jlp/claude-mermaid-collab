@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/dangerous-commands.ts",
+  "title": "Command safety detection for potentially dangerous operations",
+  "purpose": "Analyzes command strings to identify potentially dangerous operations like force deletes, force pushes, SQL drops, and resource deletions.",
+  "module_context": "Exports a constant array of dangerous command patterns and a detection function that checks commands against these patterns.",
+  "methods": [
+    {
+      "id": "m_f94b4243",
+      "name": "detectDanger",
+      "enclosing_class": null,
+      "normalized_params": "(command: string): DetectDangerResult",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the command is a non-empty string."
+        },
+        {
+          "order": 2,
+          "content": "IF the command is invalid, return a non-dangerous result."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through each defined dangerous pattern in the list."
+        },
+        {
+          "order": 4,
+          "content": "IF a pattern matches the command, return a dangerous result with the matching reason."
+        },
+        {
+          "order": 5,
+          "content": "IF no patterns match, return a non-dangerous result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/dismiss-ui.ts",
+  "title": "MCP tool for dismissing browser UI in terminal interactions",
+  "purpose": "Provides a mechanism to clear the browser question panel when a user responds to a question in the terminal, enabling seamless interaction between terminal and browser interfaces.",
+  "module_context": "Exports a dismissUI function and a schema definition for MCP tool registration. Configures API endpoint constants from environment variables.",
+  "methods": [
+    {
+      "id": "m_d6489964",
+      "name": "buildUrl",
+      "enclosing_class": null,
+      "normalized_params": "(path: string, project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL using the base API endpoint and provided path."
+        },
+        {
+          "order": 2,
+          "content": "Add project and session as query parameters to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "Return the fully formed URL string with query parameters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_45293541",
+      "name": "dismissUI",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the dismiss UI endpoint with project and session parameters."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, parse the error message and throw an error."
+        },
+        {
+          "order": 3,
+          "content": "ELSE parse the successful response to extract the message."
+        },
+        {
+          "order": 4,
+          "content": "Format and return a success response with the message."
+        },
+        {
+          "order": 5,
+          "content": "IF any error occurs during the process, re-throw it with the error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

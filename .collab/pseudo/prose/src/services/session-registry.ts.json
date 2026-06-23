@@ -1,0 +1,572 @@
+{
+  "schema_version": 3,
+  "file": "src/services/session-registry.ts",
+  "title": "Session registry with atomic file operations and backup recovery",
+  "purpose": "Manages persistent session records for projects, ensuring atomic writes with backup recovery and validating session directory existence.",
+  "module_context": "Exports a SessionRegistry class with singleton instance and custom error type for registry corruption. Includes helper methods for file system operations and session management.",
+  "methods": [
+    {
+      "id": "m_7e1ea235",
+      "name": "SessionRegistryCorruptError",
+      "enclosing_class": null,
+      "normalized_params": "(registryPath: string, backupPath: string, cause?: unknown): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct an error indicating sessions.json is corrupt and recovery failed."
+        },
+        {
+          "order": 2,
+          "content": "Set the error name to 'SessionRegistryCorruptError'."
+        },
+        {
+          "order": 3,
+          "content": "Store the registry path and backup path for operator reference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_df89a56d",
+      "name": "Mutex",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a mutex with a promise chain to serialize asynchronous operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ab8d7d4",
+      "name": "run",
+      "enclosing_class": "Mutex",
+      "normalized_params": "(fn: () => Promise<T>): Promise<T>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Acquire the mutex by chaining the function to the existing promise chain."
+        },
+        {
+          "order": 2,
+          "content": "Await the previous operation in the chain to ensure sequential execution."
+        },
+        {
+          "order": 3,
+          "content": "Execute the provided function and return its result."
+        },
+        {
+          "order": 4,
+          "content": "Release the mutex by resolving the next promise in the chain."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_34d7c5e2",
+      "name": "SessionRegistry",
+      "enclosing_class": null,
+      "normalized_params": "(registryPath?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the session registry with a specified path or default."
+        },
+        {
+          "order": 2,
+          "content": "Set up a mutex for serializing write operations within a single process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3047998a",
+      "name": "backupPath",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the path to the backup file by appending '.bak' to the registry path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5ec35c20",
+      "name": "tmpPath",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the path to the temporary file by appending '.tmp' to the registry path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ed684793",
+      "name": "createFileIfNotExists",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(filePath: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the specified file path exists."
+        },
+        {
+          "order": 2,
+          "content": "IF the file does not exist, create the directory structure recursively."
+        },
+        {
+          "order": 3,
+          "content": "IF the file does not exist, write the specified content to the file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0b9e3364",
+      "name": "parseRegistryContent",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(content: string): SessionRegistryData",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the JSON content into an object."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the parsed object has a sessions array."
+        },
+        {
+          "order": 3,
+          "content": "Cast the parsed object to the expected registry data type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a00f65f",
+      "name": "load",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(): Promise<SessionRegistryData>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the registry file exists."
+        },
+        {
+          "order": 2,
+          "content": "IF the file does not exist, return an empty session registry."
+        },
+        {
+          "order": 3,
+          "content": "IF the file exists, attempt to read and parse its content."
+        },
+        {
+          "order": 4,
+          "content": "IF reading fails due to ENOENT, return an empty session registry."
+        },
+        {
+          "order": 5,
+          "content": "IF reading fails due to corruption, attempt to recover from the backup file."
+        },
+        {
+          "order": 6,
+          "content": "IF recovery from backup fails, throw a SessionRegistryCorruptError."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_610464c5",
+      "name": "save",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(registry: SessionRegistryData): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the directory for the registry file exists."
+        },
+        {
+          "order": 2,
+          "content": "Write the registry data to a temporary file."
+        },
+        {
+          "order": 3,
+          "content": "Sync the temporary file to disk to ensure durability."
+        },
+        {
+          "order": 4,
+          "content": "If the registry file exists, rename it to the backup path."
+        },
+        {
+          "order": 5,
+          "content": "Rename the temporary file to the registry file path to complete the atomic write."
+        },
+        {
+          "order": 6,
+          "content": "IF the final rename fails, attempt to clean up the temporary file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e28a0dd9",
+      "name": "register",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string, useRenderUI?: boolean): Promise<{ created: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the project path is an absolute path."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the session name is alphanumeric with hyphens only."
+        },
+        {
+          "order": 3,
+          "content": "Acquire the write mutex to serialize concurrent operations."
+        },
+        {
+          "order": 4,
+          "content": "Load the current session registry."
+        },
+        {
+          "order": 5,
+          "content": "Check if the session already exists in the registry."
+        },
+        {
+          "order": 6,
+          "content": "IF the session exists, update its last access timestamp."
+        },
+        {
+          "order": 7,
+          "content": "IF the session does not exist, add it to the registry."
+        },
+        {
+          "order": 8,
+          "content": "Save the updated registry to disk."
+        },
+        {
+          "order": 9,
+          "content": "Ensure the session directory structure exists for the new session."
+        },
+        {
+          "order": 10,
+          "content": "Create a collab-state.json file for the session if it does not exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_89c25938",
+      "name": "registerIfAbsent",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string, useRenderUI?: boolean): Promise<{ created: boolean; alreadyPresent: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the current session registry."
+        },
+        {
+          "order": 2,
+          "content": "Check if the session already exists in the registry."
+        },
+        {
+          "order": 3,
+          "content": "IF the session exists, return that it was already present."
+        },
+        {
+          "order": 4,
+          "content": "IF the registry is corrupt, rethrow the error to the caller."
+        },
+        {
+          "order": 5,
+          "content": "ELSE register the session and return the creation result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a0faeacc",
+      "name": "list",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(): Promise<Session[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the current session registry."
+        },
+        {
+          "order": 2,
+          "content": "Validate each session's directory exists in the new or old location."
+        },
+        {
+          "order": 3,
+          "content": "Separate valid sessions from stale sessions."
+        },
+        {
+          "order": 4,
+          "content": "IF stale sessions are found, acquire the write mutex to clean them."
+        },
+        {
+          "order": 5,
+          "content": "Re-load the registry under the mutex to avoid racing with other writers."
+        },
+        {
+          "order": 6,
+          "content": "Filter out stale sessions from the registry."
+        },
+        {
+          "order": 7,
+          "content": "Save the cleaned registry to disk."
+        },
+        {
+          "order": 8,
+          "content": "Sort valid sessions by last access time descending."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4090f732",
+      "name": "resolvePath",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string, type: 'diagrams' | 'documents' | 'designs' | 'spreadsheets' | 'snippets' | 'embeds' | 'images' | '.'): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the project path is an absolute path."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the session name is provided."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the type is one of the allowed values."
+        },
+        {
+          "order": 4,
+          "content": "Check if the new session path exists."
+        },
+        {
+          "order": 5,
+          "content": "IF the new path does not exist, check the todos directory."
+        },
+        {
+          "order": 6,
+          "content": "IF the todos directory does not exist, check the old session path for backwards compatibility."
+        },
+        {
+          "order": 7,
+          "content": "Return the path that exists or the default new path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_56cd0e96",
+      "name": "ensureSnippetsDir",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the project path is an absolute path."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the session name is alphanumeric with hyphens only."
+        },
+        {
+          "order": 3,
+          "content": "Ensure the snippets directory for the session exists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d5d78d25",
+      "name": "getSnippetsPath",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the path for the snippets directory of the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_19bbfb5c",
+      "name": "registerSnippet",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string, snippetId: string, metadata: { name: string; type?: string; locked?: boolean; folder?: string }): Promise<{ success: boolean; id: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the project path is an absolute path."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the session name is alphanumeric with hyphens only."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the snippet ID is a non-empty string."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the snippet name is a non-empty string."
+        },
+        {
+          "order": 5,
+          "content": "Ensure the snippets directory for the session exists."
+        },
+        {
+          "order": 6,
+          "content": "Return success and the snippet ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dd175c8a",
+      "name": "unregisterSnippet",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string, snippetId: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the project path is an absolute path."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the session name is alphanumeric with hyphens only."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the snippet ID is a non-empty string."
+        },
+        {
+          "order": 4,
+          "content": "Return true indicating successful unregistration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1a5ba7fb",
+      "name": "unregister",
+      "enclosing_class": "SessionRegistry",
+      "normalized_params": "(project: string, session: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Acquire the write mutex to serialize concurrent operations."
+        },
+        {
+          "order": 2,
+          "content": "Load the current session registry."
+        },
+        {
+          "order": 3,
+          "content": "Filter out the session to be removed from the registry."
+        },
+        {
+          "order": 4,
+          "content": "IF the session was removed, save the updated registry to disk."
+        },
+        {
+          "order": 5,
+          "content": "Return true if the session was removed, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

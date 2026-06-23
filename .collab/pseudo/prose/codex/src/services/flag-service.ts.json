@@ -1,0 +1,247 @@
+{
+  "schema_version": 3,
+  "file": "codex/src/services/flag-service.ts",
+  "title": "Flag service for managing topic issues with database persistence",
+  "purpose": "Provides methods to create, update, and query flags on topics, tracking their status and handling resolution, dismissal, and reopening.",
+  "module_context": "Exports a FlagStatus type and FlagRecord interface, and defines a FlagService class that manages flag records in a SQLite database with prepared statements for performance.",
+  "methods": [
+    {
+      "id": "m_f8c5e321",
+      "name": "constructor",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(db: Database.Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the database connection for use in all operations."
+        },
+        {
+          "order": 2,
+          "content": "Prepare all SQL statements for flag management operations."
+        },
+        {
+          "order": 3,
+          "content": "Initialize the statements object with prepared queries for create, get by ID, get by topic, get open count, resolve, dismiss, address, reopen, and delete."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_504ffefb",
+      "name": "create",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(topicId: number, comment: string): FlagRecord",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Insert a new flag record with the provided topic ID and comment, setting status to 'open' and current timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the ID of the newly inserted flag."
+        },
+        {
+          "order": 3,
+          "content": "Fetch the complete flag record by its ID."
+        },
+        {
+          "order": 4,
+          "content": "IF the flag record cannot be retrieved, throw an error indicating creation failure."
+        },
+        {
+          "order": 5,
+          "content": "Return the created flag record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9fb51339",
+      "name": "resolve",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(flagId: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the status of the flag to 'resolved' and set the resolved timestamp."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the flag was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0066902f",
+      "name": "dismiss",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(flagId: number, reason?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the status of the flag to 'dismissed' and set the dismissal reason."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the flag was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_81a4dce0",
+      "name": "address",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(flagId: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the status of the flag to 'addressed' and set the addressed timestamp."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the flag was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a1f66fa0",
+      "name": "reopen",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(flagId: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the status of the flag to 'open' and clear addressed_at, resolved_at, and dismiss_reason."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the flag was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6ce82e9",
+      "name": "getByTopic",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(topicId: number): FlagRecord[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query all flag records associated with the specified topic ID."
+        },
+        {
+          "order": 2,
+          "content": "Order the results by creation date in descending order."
+        },
+        {
+          "order": 3,
+          "content": "Return the list of flag records."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_507d49b4",
+      "name": "getOpenCount",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(topicId: number): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Count the number of open flags associated with the specified topic ID."
+        },
+        {
+          "order": 2,
+          "content": "Return the count of open flags."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43846ed9",
+      "name": "getById",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(flagId: number): FlagRecord | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the flag record by its unique identifier."
+        },
+        {
+          "order": 2,
+          "content": "IF a flag record is found, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e252994",
+      "name": "delete",
+      "enclosing_class": "FlagService",
+      "normalized_params": "(flagId: number): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delete the flag record with the specified identifier."
+        },
+        {
+          "order": 2,
+          "content": "IF the deletion affected any rows, return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

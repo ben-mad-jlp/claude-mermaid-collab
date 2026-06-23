@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/question-panel/QuestionRenderer.tsx",
+  "title": "Question UI renderer with fallback to simple text input",
+  "purpose": "Renders complex UI structures from AI-generated question definitions or falls back to a simple text input when the UI is invalid or missing. Handles loading states and action callbacks.",
+  "module_context": "Exports a QuestionRenderer component that accepts a question object, action callback, and loading state. Includes a SimpleTextQuestion fallback component for basic text inputs. Uses AIUIRenderer for rendering structured UI components.",
+  "methods": [
+    {
+      "id": "m_4a85c0b6",
+      "name": "SimpleTextQuestion",
+      "enclosing_class": null,
+      "normalized_params": "({ text, isLoading, onSubmit }: { text: string; isLoading?: boolean; onSubmit?: () => void }): React.FC<{ text: string; isLoading?: boolean; onSubmit?: () => void }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Display the question text within a prose formatted paragraph."
+        },
+        {
+          "order": 2,
+          "content": "Provide a textarea for user response input with disabled state during loading."
+        },
+        {
+          "order": 3,
+          "content": "Include a submit button that triggers the provided onSubmit handler when valid input is present."
+        },
+        {
+          "order": 4,
+          "content": "Disable the submit button when input is empty or during loading."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a35f32a0",
+      "name": "QuestionRenderer",
+      "enclosing_class": null,
+      "normalized_params": "({ question, onAction, isLoading }: QuestionRendererProps): React.FC<QuestionRendererProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a UI component definition from the question text, attempting to parse JSON if it starts with '{'."
+        },
+        {
+          "order": 2,
+          "content": "IF JSON parsing fails, fallback to creating a Card component with Markdown child containing the question text."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the UI component type is registered in the AI UI registry."
+        },
+        {
+          "order": 4,
+          "content": "IF the component is not valid, render the SimpleTextQuestion fallback with the original question text."
+        },
+        {
+          "order": 5,
+          "content": "ELSE render the AIUIRenderer with the validated UI component and wrapped action handler."
+        },
+        {
+          "order": 6,
+          "content": "Apply disabled state and reduced opacity to the renderer during loading."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a601b5e2",
+      "name": "handleAction",
+      "enclosing_class": "QuestionRenderer",
+      "normalized_params": "(actionId: string, payload?: any): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent action execution if the component is currently in a loading state."
+        },
+        {
+          "order": 2,
+          "content": "Execute the provided action callback with the action ID and payload."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

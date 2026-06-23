@@ -1,0 +1,265 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-docstring.ts",
+  "title": "Multi-language docstring extractor for JSDoc, Python, C#, and Doxygen formats",
+  "purpose": "Parses source code to extract structured documentation from various docstring formats and associates them with method definitions.",
+  "module_context": "Exports a function that maps method names to extracted docstring information, supporting multiple programming languages with specific extraction logic for each.",
+  "methods": [
+    {
+      "id": "m_2d1e78e6",
+      "name": "extractDocstrings",
+      "enclosing_class": null,
+      "normalized_params": "(language: 'ts' | 'js' | 'py' | 'cs' | 'cpp', source: string, methods: Array<{ name: string; start_line: number; end_line: number }>): Map<string, DocstringExtraction | DocstringAmbiguity>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the source code into individual lines."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an empty map to store the extracted docstrings keyed by method name."
+        },
+        {
+          "order": 3,
+          "content": "Select the appropriate extraction function based on the specified language."
+        },
+        {
+          "order": 4,
+          "content": "For each method definition, invoke the selected extractor with the source lines and method info."
+        },
+        {
+          "order": 5,
+          "content": "IF the extractor returns a result, check if the method name already exists in the map."
+        },
+        {
+          "order": 6,
+          "content": "IF the method name already exists, store an ambiguity indicating multiple candidates."
+        },
+        {
+          "order": 7,
+          "content": "ELSE store the extraction result under the method name in the map."
+        },
+        {
+          "order": 8,
+          "content": "Return the populated map of method names to docstring extractions or ambiguities."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9c9f2c5e",
+      "name": "ambiguity",
+      "enclosing_class": null,
+      "normalized_params": "(kind: DocstringAmbiguity['kind'], message: string, start: number, end: number): DocstringAmbiguity",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return a new DocstringAmbiguity object with the provided kind, message, and line range."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_faa38e58",
+      "name": "makeExtraction",
+      "enclosing_class": null,
+      "normalized_params": "(title: string, purposeLines: string[], stepItems: string[], tags: { deprecated?: boolean; since?: string }): DocstringExtraction",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return a new DocstringExtraction object with the provided title, purpose, steps, and tags."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_96df6d71",
+      "name": "parseTagLine",
+      "enclosing_class": null,
+      "normalized_params": "(line: string): { tag: string; body: string } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Match the line against a regular expression to extract a tag and its body."
+        },
+        {
+          "order": 2,
+          "content": "IF the line matches the expected format, return an object containing the tag and body."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return null indicating no valid tag was found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7dcd4249",
+      "name": "extractJsDoc",
+      "enclosing_class": null,
+      "normalized_params": "(sourceLines: string[], method: MethodInfo): ExtractResult | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Locate the start and end of the JSDoc block above the method."
+        },
+        {
+          "order": 2,
+          "content": "IF the docstring is too far from the method, return an unattached ambiguity."
+        },
+        {
+          "order": 3,
+          "content": "Extract and clean the lines within the JSDoc block."
+        },
+        {
+          "order": 4,
+          "content": "Parse the content of the docstring into title, purpose lines, and steps."
+        },
+        {
+          "order": 5,
+          "content": "IF no explicit steps are found, attempt to extract them from purpose lines that are numbered or bullet-pointed."
+        },
+        {
+          "order": 6,
+          "content": "Construct and return a docstring extraction with the parsed information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_740a4e7c",
+      "name": "extractPyDoc",
+      "enclosing_class": null,
+      "normalized_params": "(sourceLines: string[], method: MethodInfo): ExtractResult | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify the start of the Python docstring following the method definition."
+        },
+        {
+          "order": 2,
+          "content": "IF the docstring is too far from the method, return an unattached ambiguity."
+        },
+        {
+          "order": 3,
+          "content": "Extract and dedent the lines of the docstring."
+        },
+        {
+          "order": 4,
+          "content": "Parse the docstring content into title, purpose lines, and steps based on section headers."
+        },
+        {
+          "order": 5,
+          "content": "IF deprecated or version tags are found, set the corresponding flags in the tags object."
+        },
+        {
+          "order": 6,
+          "content": "Construct and return a docstring extraction with the parsed information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ab825028",
+      "name": "extractCsDoc",
+      "enclosing_class": null,
+      "normalized_params": "(sourceLines: string[], method: MethodInfo): ExtractResult | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Locate the start and end of the C# XML doc comment above the method."
+        },
+        {
+          "order": 2,
+          "content": "IF the docstring is too far from the method, return an unattached ambiguity."
+        },
+        {
+          "order": 3,
+          "content": "Extract and join the lines of the XML doc comment."
+        },
+        {
+          "order": 4,
+          "content": "Parse the XML content to extract summary, remarks, and tag information."
+        },
+        {
+          "order": 5,
+          "content": "IF deprecated or since tags are found, set the corresponding flags in the tags object."
+        },
+        {
+          "order": 6,
+          "content": "Construct and return a docstring extraction with the parsed information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d5fd2494",
+      "name": "extractDoxygen",
+      "enclosing_class": null,
+      "normalized_params": "(sourceLines: string[], method: MethodInfo): ExtractResult | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to extract the docstring using the JSDoc extractor first."
+        },
+        {
+          "order": 2,
+          "content": "IF the JSDoc extraction succeeds, return that result."
+        },
+        {
+          "order": 3,
+          "content": "ELSE locate the start and end of the Doxygen comment above the method."
+        },
+        {
+          "order": 4,
+          "content": "IF the docstring is too far from the method, return an unattached ambiguity."
+        },
+        {
+          "order": 5,
+          "content": "Extract and clean the lines of the Doxygen comment."
+        },
+        {
+          "order": 6,
+          "content": "Parse the content of the Doxygen comment into title, purpose lines, and steps."
+        },
+        {
+          "order": 7,
+          "content": "Construct and return a docstring extraction with the parsed information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

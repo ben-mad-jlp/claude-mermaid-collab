@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/common/MarkdownRenderer.tsx",
+  "title": "Markdown to HTML renderer with styling for common elements",
+  "purpose": "Converts markdown content into styled HTML elements with support for headings, code blocks, lists, links, and inline formatting.",
+  "module_context": "Exports a MarkdownRenderer component that accepts markdown content and optional class name, along with helper functions for rendering markdown and inline formatting.",
+  "methods": [
+    {
+      "id": "m_3fc0f8d5",
+      "name": "renderMarkdown",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the input content into lines for processing."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an array to collect rendered elements and tracking variables for code blocks."
+        },
+        {
+          "order": 3,
+          "content": "Process each line to identify and render code blocks, headers, lists, blockquotes, horizontal rules, and paragraphs."
+        },
+        {
+          "order": 4,
+          "content": "Handle code blocks by detecting opening and closing triple backticks and rendering with appropriate styling."
+        },
+        {
+          "order": 5,
+          "content": "Render headers with appropriate heading tags and styling based on level."
+        },
+        {
+          "order": 6,
+          "content": "Process list items with bullet points or numbered lists and apply appropriate styling."
+        },
+        {
+          "order": 7,
+          "content": "Render blockquotes with appropriate styling and indentation."
+        },
+        {
+          "order": 8,
+          "content": "Handle horizontal rules by rendering hr elements with styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf15b0d5",
+      "name": "renderInlineMarkdown",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an array to collect rendered parts and tracking variables."
+        },
+        {
+          "order": 2,
+          "content": "Process the text to identify and render inline code, links, bold, and italic formatting."
+        },
+        {
+          "order": 3,
+          "content": "Handle inline code by detecting backticks and rendering with appropriate styling."
+        },
+        {
+          "order": 4,
+          "content": "Process links by detecting bracket and parentheses patterns and rendering with appropriate styling."
+        },
+        {
+          "order": 5,
+          "content": "Render remaining text after processing special formatting."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d2278d34",
+      "name": "processTextFormatting",
+      "enclosing_class": null,
+      "normalized_params": "(text: string, getKey: () => string): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check for bold formatting by detecting double asterisks and render with strong tag."
+        },
+        {
+          "order": 2,
+          "content": "IF bold formatting is found, split the text and render parts before, during, and after the bold section."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check for italic formatting by detecting single asterisks and render with em tag."
+        },
+        {
+          "order": 4,
+          "content": "IF italic formatting is found, split the text and render parts before, during, and after the italic section."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the original text without any formatting."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_20f923cb",
+      "name": "MarkdownRenderer",
+      "enclosing_class": null,
+      "normalized_params": "(props: MarkdownRendererProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the input content is empty or contains only whitespace."
+        },
+        {
+          "order": 2,
+          "content": "IF the content is empty, render a placeholder message with appropriate styling."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the markdown content using the renderMarkdown function within a styled article element."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

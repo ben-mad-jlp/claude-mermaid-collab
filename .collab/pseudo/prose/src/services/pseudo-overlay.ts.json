@@ -1,0 +1,451 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-overlay.ts",
+  "title": "Hierarchical prose-to-source method matcher with fuzzy fallback",
+  "purpose": "Matches prose methods to source methods using a 6-level fallback chain and provides quality metadata for each match or orphan.",
+  "module_context": "Exports MatchQuality type and OverlayResult interface. Defines functions for building indices, performing matching steps, calculating fuzzy suggestions, and generating warnings.",
+  "methods": [
+    {
+      "id": "m_e1a8f79a",
+      "name": "normPath",
+      "enclosing_class": null,
+      "normalized_params": "(p: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace all backslashes in the path with forward slashes."
+        },
+        {
+          "order": 2,
+          "content": "Return the normalized path string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ccf7f633",
+      "name": "buildIndices",
+      "enclosing_class": null,
+      "normalized_params": "(sourceMethods: SourceMethodRow[]): Indices",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize maps for indexing by ID, file path, and body fingerprint."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each source method row and populate the indices."
+        },
+        {
+          "order": 3,
+          "content": "For each row, add it to the byId map using its ID as the key."
+        },
+        {
+          "order": 4,
+          "content": "For each row, add it to the byFile map under its normalized file path."
+        },
+        {
+          "order": 5,
+          "content": "For each row with a body fingerprint, add it to the byFingerprint map."
+        },
+        {
+          "order": 6,
+          "content": "Return the populated indices object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b79ee5b",
+      "name": "classMatches",
+      "enclosing_class": null,
+      "normalized_params": "(row: SourceMethodRow, prose: ProseMethod): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compare the enclosing class of the source method row with that of the prose method."
+        },
+        {
+          "order": 2,
+          "content": "Return true if both classes are null or if they match exactly."
+        },
+        {
+          "order": 3,
+          "content": "Return false if the classes do not match."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2bebaca0",
+      "name": "step1ById",
+      "enclosing_class": null,
+      "normalized_params": "(idx: Indices, prose: ProseMethod): SourceMethodRow | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the prose method ID in the byId index."
+        },
+        {
+          "order": 2,
+          "content": "Return the matching source method row if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6de05b4d",
+      "name": "step2ExactInFile",
+      "enclosing_class": null,
+      "normalized_params": "(bucket: SourceMethodRow[], prose: ProseMethod): SourceMethodRow | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each source method row in the file bucket."
+        },
+        {
+          "order": 2,
+          "content": "Check if the row's class, name, and parameters match the prose method."
+        },
+        {
+          "order": 3,
+          "content": "Return the first matching row if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cdacbedd",
+      "name": "step3ParamMismatch",
+      "enclosing_class": null,
+      "normalized_params": "(bucket: SourceMethodRow[], prose: ProseMethod): SourceMethodRow | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each source method row in the file bucket."
+        },
+        {
+          "order": 2,
+          "content": "Check if the row's class and name match the prose method."
+        },
+        {
+          "order": 3,
+          "content": "Return the first matching row if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a0f317e7",
+      "name": "step4NameOnly",
+      "enclosing_class": null,
+      "normalized_params": "(bucket: SourceMethodRow[], prose: ProseMethod): SourceMethodRow | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through each source method row in the file bucket."
+        },
+        {
+          "order": 2,
+          "content": "Check if the row's name matches the prose method's name."
+        },
+        {
+          "order": 3,
+          "content": "Return the first matching row if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc60f265",
+      "name": "step5FingerprintInFile",
+      "enclosing_class": null,
+      "normalized_params": "(bucket: SourceMethodRow[], prose: ProseMethod): SourceMethodRow | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the prose method has a body fingerprint."
+        },
+        {
+          "order": 2,
+          "content": "If no fingerprint, return null."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through each source method row in the file bucket."
+        },
+        {
+          "order": 4,
+          "content": "Check if the row's fingerprint matches the prose method's fingerprint."
+        },
+        {
+          "order": 5,
+          "content": "Return the first matching row if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cba67e56",
+      "name": "step6FingerprintGlobal",
+      "enclosing_class": null,
+      "normalized_params": "(idx: Indices, prose: ProseMethod, claimed: Set<string>): SourceMethodRow | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the prose method has a body fingerprint."
+        },
+        {
+          "order": 2,
+          "content": "If no fingerprint, return null."
+        },
+        {
+          "order": 3,
+          "content": "Look up candidates with matching fingerprint in the global index."
+        },
+        {
+          "order": 4,
+          "content": "If no candidates found, return null."
+        },
+        {
+          "order": 5,
+          "content": "Iterate through candidates to find one not yet claimed."
+        },
+        {
+          "order": 6,
+          "content": "Return the first unclaimed candidate if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_09186790",
+      "name": "levenshtein",
+      "enclosing_class": null,
+      "normalized_params": "(a: string, b: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If strings are identical, return zero distance."
+        },
+        {
+          "order": 2,
+          "content": "If one string is empty, return the length of the other."
+        },
+        {
+          "order": 3,
+          "content": "Initialize dynamic programming arrays for computing edit distance."
+        },
+        {
+          "order": 4,
+          "content": "Fill the dynamic programming table using character comparisons."
+        },
+        {
+          "order": 5,
+          "content": "Return the computed edit distance between the strings."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e765cb18",
+      "name": "nameSimilarity",
+      "enclosing_class": null,
+      "normalized_params": "(a: string, b: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the maximum length of the two strings."
+        },
+        {
+          "order": 2,
+          "content": "If both strings are empty, return perfect similarity."
+        },
+        {
+          "order": 3,
+          "content": "Compute the Levenshtein distance between the strings."
+        },
+        {
+          "order": 4,
+          "content": "Normalize the distance by the maximum length to get similarity score."
+        },
+        {
+          "order": 5,
+          "content": "Return the similarity score as a value between zero and one."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4823f4d4",
+      "name": "fuzzySuggestions",
+      "enclosing_class": null,
+      "normalized_params": "(proseFilePath: string, prose: ProseMethod, sourceMethods: SourceMethodRow[]): FuzzyMatch[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Normalize the prose file path and extract its directory."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an empty list of fuzzy matches."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through each source method row."
+        },
+        {
+          "order": 4,
+          "content": "Check if the source method's directory matches the prose method's directory."
+        },
+        {
+          "order": 5,
+          "content": "If directories match, calculate name similarity and fingerprint match."
+        },
+        {
+          "order": 6,
+          "content": "Compute a combined score for the match."
+        },
+        {
+          "order": 7,
+          "content": "Add the match to the candidates list if it meets the minimum score."
+        },
+        {
+          "order": 8,
+          "content": "Sort candidates by score in descending order."
+        },
+        {
+          "order": 9,
+          "content": "Return the top three candidates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1c34f59a",
+      "name": "warningFor",
+      "enclosing_class": null,
+      "normalized_params": "(quality: MatchQuality, prose: ProseMethod, row: SourceMethodRow): string | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Evaluate the match quality to determine the appropriate warning message."
+        },
+        {
+          "order": 2,
+          "content": "For parameter mismatch, describe the signature drift."
+        },
+        {
+          "order": 3,
+          "content": "For class mismatch, describe the enclosing class drift."
+        },
+        {
+          "order": 4,
+          "content": "For fuzzy rename, indicate a likely rename within the file."
+        },
+        {
+          "order": 5,
+          "content": "For fuzzy move, indicate a likely move across files."
+        },
+        {
+          "order": 6,
+          "content": "Return undefined for other quality types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cf29c104",
+      "name": "overlayProseOnMethods",
+      "enclosing_class": null,
+      "normalized_params": "(proseFiles: Map<string, ProseFileV3>, sourceMethods: SourceMethodRow[]): OverlayResult",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build indices from the source methods for efficient lookup."
+        },
+        {
+          "order": 2,
+          "content": "Initialize maps and arrays for tracking matches, orphans, and claimed IDs."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through each prose file and its methods."
+        },
+        {
+          "order": 4,
+          "content": "For each prose method, attempt to match it using the 6-level fallback chain."
+        },
+        {
+          "order": 5,
+          "content": "If a match is found, record it in the matches and attached prose maps."
+        },
+        {
+          "order": 6,
+          "content": "If no match is found, add the method to orphans with fuzzy suggestions."
+        },
+        {
+          "order": 7,
+          "content": "Return the final overlay result containing matches, orphans, and attached prose."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

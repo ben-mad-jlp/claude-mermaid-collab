@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/design-editor/DesignEditor.tsx",
+  "title": "Design editor component with canvas, toolbar, and panels",
+  "purpose": "Provides a full-featured design editor interface with canvas rendering, toolbar, layers panel, properties panel, and keyboard shortcuts.",
+  "module_context": "Exports a DesignEditor React component that manages the entire design editing experience including canvas initialization, input handling, keyboard shortcuts, text editing, and data synchronization.",
+  "methods": [
+    {
+      "id": "m_39d05a3f",
+      "name": "DesignEditor",
+      "enclosing_class": null,
+      "normalized_params": "(props: DesignEditorProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize canvas and related state using the design canvas hook."
+        },
+        {
+          "order": 2,
+          "content": "Set up canvas input handling with the design canvas input hook."
+        },
+        {
+          "order": 3,
+          "content": "Initialize keyboard shortcuts with the design keyboard hook."
+        },
+        {
+          "order": 4,
+          "content": "Set up text editing capabilities with the design text edit hook."
+        },
+        {
+          "order": 5,
+          "content": "Configure remote update handling with the design sync hook."
+        },
+        {
+          "order": 6,
+          "content": "Subscribe to remote design content updates from the session store."
+        },
+        {
+          "order": 7,
+          "content": "Render the toolbar, canvas area, and side panels based on current state."
+        },
+        {
+          "order": 8,
+          "content": "Display error message if canvas initialization fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aa374d3b",
+      "name": "handleRemoteUpdate",
+      "enclosing_class": "DesignEditor",
+      "normalized_params": "(content: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process incoming remote design content updates."
+        },
+        {
+          "order": 2,
+          "content": "Apply the remote content to the canvas if it differs from the last received content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fa8aa86e",
+      "name": "useEffect",
+      "enclosing_class": "DesignEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Watch for changes in design content from the session store."
+        },
+        {
+          "order": 2,
+          "content": "IF the content has changed and is different from the last received content, trigger a remote update."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

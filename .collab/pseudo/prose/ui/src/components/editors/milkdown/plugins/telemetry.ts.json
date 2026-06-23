@@ -1,0 +1,84 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/telemetry.ts",
+  "title": "Telemetry utility for editor performance monitoring",
+  "purpose": "Provides functions to emit telemetry events and measure performance timing for editor usage analytics.",
+  "module_context": "Exports types for editor variant and telemetry events, declares global window interface for telemetry sink, and defines browser detection utility.",
+  "methods": [
+    {
+      "id": "m_b1b5077a",
+      "name": "isBrowser",
+      "enclosing_class": null,
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the window object is defined in the current environment."
+        },
+        {
+          "order": 2,
+          "content": "Verify that the performance object is also defined."
+        },
+        {
+          "order": 3,
+          "content": "Return true if both window and performance are available, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c521d1a9",
+      "name": "emitTelemetry",
+      "enclosing_class": null,
+      "normalized_params": "(evt: TelemetryEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Exit early if not running in a browser environment."
+        },
+        {
+          "order": 2,
+          "content": "Resolve the telemetry sink from the global window object or use a default console debug logger."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to send the telemetry event through the resolved sink."
+        },
+        {
+          "order": 4,
+          "content": "Catch and ignore any errors from the sink to prevent telemetry issues from breaking the editor."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b9b8843b",
+      "name": "nowMs",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If performance.now is available, use it to get high-resolution timestamp."
+        },
+        {
+          "order": 2,
+          "content": "ELSE fall back to using Date.now for timestamp."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

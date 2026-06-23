@@ -1,0 +1,473 @@
+{
+  "schema_version": 3,
+  "file": "public/js/session-panel.js",
+  "title": "Session panel component for managing document and diagram items",
+  "purpose": "Provides a sidebar interface for navigating between session items, showing update notifications, and handling real-time updates via WebSocket.",
+  "module_context": "Exports a SessionPanel class that manages a left sidebar showing documents and diagrams with update indicators and real-time synchronization.",
+  "methods": [
+    {
+      "id": "m_908e5f1e",
+      "name": "constructor",
+      "enclosing_class": null,
+      "normalized_params": "(options: { container: HTMLElement; api: APIClient; currentItemId: string; currentItemType: 'document' | 'diagram'; onNavigate: (id: string, type: 'document' | 'diagram') => void }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the panel with provided container, API client, and navigation callback."
+        },
+        {
+          "order": 2,
+          "content": "Set up internal state including items list, viewed items tracking, and panel dimensions."
+        },
+        {
+          "order": 3,
+          "content": "Create the DOM structure for the panel and append it to the container."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_373fd9ab",
+      "name": "loadViewedItems",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(): Set<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to load viewed items from localStorage."
+        },
+        {
+          "order": 2,
+          "content": "IF loading succeeds, parse and return the stored items as a Set."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return an empty Set if loading fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_059282ca",
+      "name": "saveViewedItems",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the viewed items Set to an array."
+        },
+        {
+          "order": 2,
+          "content": "Store the array in localStorage."
+        },
+        {
+          "order": 3,
+          "content": "IF storing fails, log a warning to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1434dd79",
+      "name": "createDOM",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create the main panel wrapper element."
+        },
+        {
+          "order": 2,
+          "content": "Create the items container element."
+        },
+        {
+          "order": 3,
+          "content": "Assemble the panel structure by appending the items container to the main panel."
+        },
+        {
+          "order": 4,
+          "content": "Append the panel to the specified container element."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3ff7bd86",
+      "name": "initialize",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Display a loading indicator while initializing."
+        },
+        {
+          "order": 2,
+          "content": "Load the initial items from the API."
+        },
+        {
+          "order": 3,
+          "content": "Set up WebSocket message listeners for real-time updates."
+        },
+        {
+          "order": 4,
+          "content": "Mark the current item as viewed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d39ef40",
+      "name": "refreshItems",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Fetch documents and diagrams from the API concurrently."
+        },
+        {
+          "order": 2,
+          "content": "Merge the fetched documents and diagrams into a unified items list."
+        },
+        {
+          "order": 3,
+          "content": "Sort the items by last modified timestamp in descending order."
+        },
+        {
+          "order": 4,
+          "content": "Render the updated items to the DOM."
+        },
+        {
+          "order": 5,
+          "content": "IF fetching fails, display an error message in the items container."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dd56ab85",
+      "name": "createElement",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(tag: string, className?: string): HTMLElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new HTML element with the specified tag."
+        },
+        {
+          "order": 2,
+          "content": "IF a class name is provided, assign it to the element."
+        },
+        {
+          "order": 3,
+          "content": "Return the created element."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_688849b1",
+      "name": "formatRelativeTime",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(timestamp: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the time difference between now and the provided timestamp."
+        },
+        {
+          "order": 2,
+          "content": "IF the difference is less than a minute, return 'just now'."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the difference is less than an hour, return minutes ago."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the difference is less than a day, return hours ago."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the difference is less than a week, return days ago."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return a formatted date string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cae20584",
+      "name": "renderItems",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the existing items in the container."
+        },
+        {
+          "order": 2,
+          "content": "IF there are no items, return early."
+        },
+        {
+          "order": 3,
+          "content": "For each item, create a card element with header and name."
+        },
+        {
+          "order": 4,
+          "content": "Mark the active item with a special class."
+        },
+        {
+          "order": 5,
+          "content": "Add click handler to navigate to the item."
+        },
+        {
+          "order": 6,
+          "content": "Append the card to the items container."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c90432eb",
+      "name": "openInNewTab",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(id: string, type: 'document' | 'diagram'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Encode the project and session identifiers for URL construction."
+        },
+        {
+          "order": 2,
+          "content": "Build the URL for the item with encoded parameters."
+        },
+        {
+          "order": 3,
+          "content": "Open the constructed URL in a new browser tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e122423c",
+      "name": "handleItemCreated",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(id: string, name: string, type: 'document' | 'diagram'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a new item object with provided details."
+        },
+        {
+          "order": 2,
+          "content": "Add the new item to the items list."
+        },
+        {
+          "order": 3,
+          "content": "Sort the items by last modified timestamp in descending order."
+        },
+        {
+          "order": 4,
+          "content": "Re-render the items to update the UI."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f10cdbfd",
+      "name": "handleItemUpdated",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(id: string, lastModified: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the item in the items list by ID."
+        },
+        {
+          "order": 2,
+          "content": "Update the item's last modified timestamp."
+        },
+        {
+          "order": 3,
+          "content": "Set the update flag if the item is not the current one."
+        },
+        {
+          "order": 4,
+          "content": "Sort the items by last modified timestamp in descending order."
+        },
+        {
+          "order": 5,
+          "content": "Re-render the items to update the UI."
+        },
+        {
+          "order": 6,
+          "content": "Trigger a flash animation on the updated item if it's not current."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f5cfe424",
+      "name": "handleItemDeleted",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the item from the items list."
+        },
+        {
+          "order": 2,
+          "content": "Remove the item ID from the viewed items set."
+        },
+        {
+          "order": 3,
+          "content": "Save the updated viewed items to localStorage."
+        },
+        {
+          "order": 4,
+          "content": "Re-render the items to update the UI."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_54caa93f",
+      "name": "markAsViewed",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the item ID to the viewed items set."
+        },
+        {
+          "order": 2,
+          "content": "Clear the update flag on the item."
+        },
+        {
+          "order": 3,
+          "content": "Save the updated viewed items to localStorage."
+        },
+        {
+          "order": 4,
+          "content": "Update the DOM to remove the update badge from the item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16249439",
+      "name": "resize",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(width: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the panel width to the specified value."
+        },
+        {
+          "order": 2,
+          "content": "Apply the new width to the panel element."
+        },
+        {
+          "order": 3,
+          "content": "Update the CSS variable for main content offset."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_86d35f36",
+      "name": "destroy",
+      "enclosing_class": "SessionPanel",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the WebSocket message listener."
+        },
+        {
+          "order": 2,
+          "content": "Remove the panel DOM element from its parent."
+        },
+        {
+          "order": 3,
+          "content": "Remove the collapsed panel class from the document body."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

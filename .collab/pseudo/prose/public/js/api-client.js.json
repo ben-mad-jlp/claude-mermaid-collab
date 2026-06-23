@@ -1,0 +1,839 @@
+{
+  "schema_version": 3,
+  "file": "public/js/api-client.js",
+  "title": "API client for project and session management with WebSocket support",
+  "purpose": "Provides methods to interact with a backend API for managing diagrams, documents, metadata, and WebSocket connections for real-time updates.",
+  "module_context": "Exports a single APIClient class that manages session parameters, HTTP API calls, and WebSocket connections for real-time communication.",
+  "methods": [
+    {
+      "id": "m_4583fa23",
+      "name": "constructor",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(baseURL?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the base URL for API requests."
+        },
+        {
+          "order": 2,
+          "content": "Set up WebSocket connection tracking and listeners."
+        },
+        {
+          "order": 3,
+          "content": "Initialize connection status and reconnect delay parameters."
+        },
+        {
+          "order": 4,
+          "content": "Set up pending messages queue for WebSocket communication."
+        },
+        {
+          "order": 5,
+          "content": "Initialize session parameters to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_554aa31a",
+      "name": "setSession",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the provided project path in the instance."
+        },
+        {
+          "order": 2,
+          "content": "Store the provided session name in the instance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9f3ec1cc",
+      "name": "clearSession",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the stored project path."
+        },
+        {
+          "order": 2,
+          "content": "Clear the stored session name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e9a0822b",
+      "name": "getSessionQuery",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if both project and session are set."
+        },
+        {
+          "order": 2,
+          "content": "IF both are set, construct a query string with encoded project and session parameters."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return an empty string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_15692610",
+      "name": "hasSession",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if both project and session are truthy."
+        },
+        {
+          "order": 2,
+          "content": "Return true if both are set, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2c3ad58f",
+      "name": "getSessions",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the sessions endpoint."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59963dcb",
+      "name": "registerSession",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to register a session with the provided project and session."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b51e286",
+      "name": "unregisterSession",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(project: string, session: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a DELETE request to unregister a session with the provided project and session."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a62cff14",
+      "name": "getDiagrams",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the diagrams endpoint with session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_49351ebb",
+      "name": "getDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the diagram endpoint with the specified ID and session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9e810773",
+      "name": "createDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(name: string, content: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to create a diagram with the provided name and content."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_27309481",
+      "name": "updateDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string, content: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to update a diagram with the specified ID and new content."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a3b375cd",
+      "name": "deleteDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a DELETE request to remove a diagram with the specified ID."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2785f402",
+      "name": "validateDiagram",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(content: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to validate diagram syntax without requiring session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc97c1ce",
+      "name": "getThumbnailURL",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL for retrieving a thumbnail image for the specified diagram ID."
+        },
+        {
+          "order": 2,
+          "content": "Append session parameters to the URL."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c47c2d4d",
+      "name": "getRenderURL",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string, theme?: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a URL for rendering a diagram with the specified ID."
+        },
+        {
+          "order": 2,
+          "content": "Append session parameters to the URL."
+        },
+        {
+          "order": 3,
+          "content": "Include the theme parameter in the URL."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7fec2d6",
+      "name": "getDocuments",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the documents endpoint with session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_966720ca",
+      "name": "getDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the document endpoint with the specified ID and session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_830fede1",
+      "name": "createDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(name: string, content: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to create a document with the provided name and content."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad5cd3bb",
+      "name": "updateDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string, content: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to update a document with the specified ID and new content."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b0448d2",
+      "name": "deleteDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a DELETE request to remove a document with the specified ID."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0870d208",
+      "name": "getCleanDocument",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to retrieve a cleaned version of a document with the specified ID."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4bf9d0b8",
+      "name": "getMetadata",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the metadata endpoint with session parameters."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1164ea19",
+      "name": "updateItemMetadata",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string, updates: any): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to update metadata for an item with the specified ID."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3fdc9641",
+      "name": "createFolder",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(name: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to create a folder with the specified name."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b5703101",
+      "name": "renameFolder",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(name: string, newName: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to rename a folder from the specified name to a new name."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ffe2da75",
+      "name": "deleteFolder",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(name: string): Promise<any>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to delete a folder with the specified name."
+        },
+        {
+          "order": 2,
+          "content": "Parse and return the JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe98d13d",
+      "name": "connectWebSocket",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the WebSocket protocol based on the current page protocol."
+        },
+        {
+          "order": 2,
+          "content": "Construct the WebSocket URL using the host from the current page."
+        },
+        {
+          "order": 3,
+          "content": "Set the connection status to connecting."
+        },
+        {
+          "order": 4,
+          "content": "Create a new WebSocket connection to the constructed URL."
+        },
+        {
+          "order": 5,
+          "content": "Set up the onopen handler to update status and send pending messages."
+        },
+        {
+          "order": 6,
+          "content": "Set up the onmessage handler to broadcast messages to listeners."
+        },
+        {
+          "order": 7,
+          "content": "Set up the onclose handler to schedule a reconnect."
+        },
+        {
+          "order": 8,
+          "content": "Set up the onerror handler to update status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7a6b149",
+      "name": "disconnectWebSocket",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a WebSocket connection exists."
+        },
+        {
+          "order": 2,
+          "content": "IF a connection exists, close it and clear the reference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_901dcf44",
+      "name": "sendWebSocketMessage",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(message: any): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a WebSocket connection exists and is open."
+        },
+        {
+          "order": 2,
+          "content": "IF the connection is open, send the message."
+        },
+        {
+          "order": 3,
+          "content": "ELSE queue the message to be sent when the connection opens."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_07efecf5",
+      "name": "subscribe",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a subscribe message to the WebSocket with the specified ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c5bcb403",
+      "name": "unsubscribe",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send an unsubscribe message to the WebSocket with the specified ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c8b6b966",
+      "name": "onWebSocketMessage",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(listener: Function): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided listener to the set of WebSocket message listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_582207ea",
+      "name": "offWebSocketMessage",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(listener: Function): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the provided listener from the set of WebSocket message listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42359b74",
+      "name": "onStatusChange",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(listener: Function): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided listener to the set of status change listeners."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c522371d",
+      "name": "setStatus",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(status: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the internal connection status."
+        },
+        {
+          "order": 2,
+          "content": "Notify all registered status change listeners of the new status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a18a246",
+      "name": "scheduleReconnect",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set a timeout to attempt reconnecting after the current reconnect delay."
+        },
+        {
+          "order": 2,
+          "content": "Double the reconnect delay for the next attempt, up to a maximum."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b381fefd",
+      "name": "reconnect",
+      "enclosing_class": "APIClient",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the reconnect delay to its initial value."
+        },
+        {
+          "order": 2,
+          "content": "Close the current WebSocket connection."
+        },
+        {
+          "order": 3,
+          "content": "Initiate a new WebSocket connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

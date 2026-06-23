@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/main.tsx",
+  "title": "React application entry point with routing configuration",
+  "purpose": "Serves as the main entry file for the Mermaid Collaboration UI, responsible for rendering the React application and setting up navigation routes.",
+  "module_context": "Initializes the React DOM root element and configures routing between different application sections including onboarding, pseudo viewer, and main collaboration app.",
+  "methods": [
+    {
+      "id": "m_1163bc9c",
+      "name": "render",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Locate the DOM element with ID 'root' for React rendering."
+        },
+        {
+          "order": 2,
+          "content": "IF the root element is not found, throw an error indicating missing DOM element."
+        },
+        {
+          "order": 3,
+          "content": "Create a React root container using the found DOM element."
+        },
+        {
+          "order": 4,
+          "content": "Render the application tree with StrictMode, BrowserRouter, and configured routes."
+        },
+        {
+          "order": 5,
+          "content": "Set up routing for onboarding sections including dashboard, topic details, search, welcome, graph, and team views."
+        },
+        {
+          "order": 6,
+          "content": "Configure routing for the pseudo viewer section with wildcard path."
+        },
+        {
+          "order": 7,
+          "content": "Define the main application route as a catch-all for any unmatched paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

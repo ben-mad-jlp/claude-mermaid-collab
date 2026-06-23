@@ -1,0 +1,20 @@
+{
+  "id": "2026-04-18T18-50-32-411Z-5",
+  "testId": "chat-parity-smoke",
+  "status": "failed",
+  "result": {
+    "status": "failed",
+    "failed_step": -1,
+    "step_definition": {
+      "wait": 3000
+    },
+    "error": "Test timed out after 30000ms",
+    "console_errors": [],
+    "duration_ms": 30002,
+    "console_log": [],
+    "network_log": []
+  },
+  "startedAt": "2026-04-18T18:50:32.411Z",
+  "completedAt": "2026-04-18T18:50:32.411Z",
+  "duration_ms": 30002
+}

@@ -1,0 +1,203 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-path-escape.ts",
+  "title": "Windows-safe path encoding for prose files with collision handling",
+  "purpose": "Provides functions to escape and unescape paths for use in a Windows-safe manner, preventing reserved names and forbidden characters while handling collisions with SHA1 hashes.",
+  "module_context": "Exports interfaces and functions for path escaping, including handling of reserved Windows names, forbidden characters, trailing dots/spaces, and collision suffixes.",
+  "methods": [
+    {
+      "id": "m_5816b91f",
+      "name": "shortHash",
+      "enclosing_class": null,
+      "normalized_params": "(input: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a SHA1 hash of the input string."
+        },
+        {
+          "order": 2,
+          "content": "Return the first 8 characters of the hexadecimal digest."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6a5ffdfb",
+      "name": "isReservedWindowsName",
+      "enclosing_class": null,
+      "normalized_params": "(basename: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the stem of the basename before any dot."
+        },
+        {
+          "order": 2,
+          "content": "Check if the uppercase stem matches any reserved Windows name."
+        },
+        {
+          "order": 3,
+          "content": "Return true if a match is found, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1766e800",
+      "name": "escapeSegment",
+      "enclosing_class": null,
+      "normalized_params": "(segment: string): { escaped: string; changed: boolean }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the segment is empty, '.', or '..', return it unchanged."
+        },
+        {
+          "order": 2,
+          "content": "Replace all forbidden characters with underscores and track changes."
+        },
+        {
+          "order": 3,
+          "content": "If the segment ends with dots or spaces, replace them with underscores and track changes."
+        },
+        {
+          "order": 4,
+          "content": "If the segment is a reserved Windows name, append an underscore and track changes."
+        },
+        {
+          "order": 5,
+          "content": "Return the escaped segment and a flag indicating whether any changes occurred."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e17102ff",
+      "name": "escapePath",
+      "enclosing_class": null,
+      "normalized_params": "(sourcePath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the source path into segments using forward or backward slashes."
+        },
+        {
+          "order": 2,
+          "content": "Escape each segment individually and check if any changes occurred."
+        },
+        {
+          "order": 3,
+          "content": "If no changes occurred, return the path with backslashes replaced by forward slashes."
+        },
+        {
+          "order": 4,
+          "content": "Generate a short hash of the original source path."
+        },
+        {
+          "order": 5,
+          "content": "Modify the last segment to include the hash as a collision suffix."
+        },
+        {
+          "order": 6,
+          "content": "Join the escaped segments with forward slashes and return the result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_19c38679",
+      "name": "unescapePath",
+      "enclosing_class": null,
+      "normalized_params": "(escaped: string, map?: PathMap): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If a mapping is provided and the escaped path exists in it, return the mapped value."
+        },
+        {
+          "order": 2,
+          "content": "Remove any collision suffixes from the escaped path."
+        },
+        {
+          "order": 3,
+          "content": "Split the path into segments using forward slashes."
+        },
+        {
+          "order": 4,
+          "content": "If the last segment ends with an underscore, attempt to restore the original name."
+        },
+        {
+          "order": 5,
+          "content": "If the last segment has a dot and the stem is a reserved name, restore the original name."
+        },
+        {
+          "order": 6,
+          "content": "Join the segments back together with forward slashes and return the result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42812721",
+      "name": "toRelPosixPath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, input: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the input is already a clean POSIX relative path, return it unchanged."
+        },
+        {
+          "order": 2,
+          "content": "Detect if the input is a Windows absolute path."
+        },
+        {
+          "order": 3,
+          "content": "Resolve the input path relative to the project if it's not absolute."
+        },
+        {
+          "order": 4,
+          "content": "Compute the relative path from the project to the resolved input."
+        },
+        {
+          "order": 5,
+          "content": "Replace backslashes with forward slashes in the relative path."
+        },
+        {
+          "order": 6,
+          "content": "If the relative path starts with '..', throw an error indicating the path is outside the project."
+        },
+        {
+          "order": 7,
+          "content": "Return the normalized POSIX relative path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

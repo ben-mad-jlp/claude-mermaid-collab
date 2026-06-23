@@ -1,0 +1,62 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useIsMobile.ts",
+  "title": "React hook for detecting mobile viewport width",
+  "purpose": "Provides a boolean value indicating if the current viewport width is less than 640px, updating automatically on resize events.",
+  "module_context": "Exports a default hook function named useIsMobile that detects mobile viewports using window.matchMedia API.",
+  "methods": [
+    {
+      "id": "m_a2f2e3d1",
+      "name": "useIsMobile",
+      "enclosing_class": null,
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the mobile detection state based on current viewport width."
+        },
+        {
+          "order": 2,
+          "content": "IF the window object is not available, return false as default."
+        },
+        {
+          "order": 3,
+          "content": "ELSE create a media query to detect screens smaller than 640px."
+        },
+        {
+          "order": 4,
+          "content": "Set initial state based on whether the media query matches."
+        },
+        {
+          "order": 5,
+          "content": "Setup a resize event listener to update state when viewport changes."
+        },
+        {
+          "order": 6,
+          "content": "IF window is not available, return early without adding listeners."
+        },
+        {
+          "order": 7,
+          "content": "ELSE create a media query listener for viewport changes."
+        },
+        {
+          "order": 8,
+          "content": "Add event listener to update state when media query matches change."
+        },
+        {
+          "order": 9,
+          "content": "Return cleanup function to remove event listener on unmount."
+        },
+        {
+          "order": 10,
+          "content": "Return the current mobile detection state value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

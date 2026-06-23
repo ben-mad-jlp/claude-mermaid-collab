@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-resolver.ts",
+  "title": "Method call edge resolver with multi-round SQL-based resolution",
+  "purpose": "Resolves method call edges across a database by attempting increasingly broad matching strategies to find callee methods for each call.",
+  "module_context": "Exports types for resolution quality and report structure, and a main function to resolve method calls using 6 SQL rounds of decreasing specificity.",
+  "methods": [
+    {
+      "id": "m_4d30e06f",
+      "name": "resolveCallEdges",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, opts?: ResolveCallEdgesOptions): ResolverReport",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clean up any existing null callee references that are not already marked as ambiguous or unresolved."
+        },
+        {
+          "order": 2,
+          "content": "Prepare the scope predicate and parameters for limiting resolution to specific files if provided."
+        },
+        {
+          "order": 3,
+          "content": "Reset the resolution state for all method calls in the scope by clearing callee references and setting quality to unresolved."
+        },
+        {
+          "order": 4,
+          "content": "Perform exact name matching across the entire project to resolve calls."
+        },
+        {
+          "order": 5,
+          "content": "Resolve calls where the caller and callee are in the same file."
+        },
+        {
+          "order": 6,
+          "content": "Resolve calls where the receiver hint matches the enclosing class of the callee."
+        },
+        {
+          "order": 7,
+          "content": "Resolve calls where the callee is exported and in the same directory as the caller."
+        },
+        {
+          "order": 8,
+          "content": "Resolve calls where the callee is exported and imported by the caller's file."
+        },
+        {
+          "order": 9,
+          "content": "Mark any remaining unresolved calls as either ambiguous or unresolved based on the number of matching methods."
+        },
+        {
+          "order": 10,
+          "content": "Aggregate counts of resolved calls by quality level and compute total edges."
+        },
+        {
+          "order": 11,
+          "content": "Return a report summarizing the resolution results and duration."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_88c75115",
+      "name": "getFixedStatements",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): FixedStmts",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve cached prepared statements for the database if they exist."
+        },
+        {
+          "order": 2,
+          "content": "If no cached statements exist, prepare and cache a statement for cleaning up null callee references."
+        },
+        {
+          "order": 3,
+          "content": "Return the cached or newly created statement set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/hooks/useTopic.ts",
+  "title": "React hook for fetching and managing single topic data with mock implementation",
+  "purpose": "Provides a React hook that fetches and manages a single topic's full data including documents, with loading states, error handling, and actions to verify or refresh the topic.",
+  "module_context": "Exports a useTopic hook that manages topic data state and provides functions to verify and refresh topic data. Uses mock data for demonstration purposes.",
+  "methods": [
+    {
+      "id": "m_23fdc8a7",
+      "name": "useTopic",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): UseTopicReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for topic data, loading status, and error."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to fetch topic data from mock sources."
+        },
+        {
+          "order": 3,
+          "content": "Fetch topic data on component mount and when the topic name changes."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback function to update the lastVerified timestamp."
+        },
+        {
+          "order": 5,
+          "content": "Define a callback function to refresh the topic data."
+        },
+        {
+          "order": 6,
+          "content": "Return the topic data, loading status, error state, and action functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe990bd2",
+      "name": "fetchTopic",
+      "enclosing_class": "useTopic",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the topic name is empty, clear the topic data and loading state."
+        },
+        {
+          "order": 2,
+          "content": "Set the loading state to true and clear any previous errors."
+        },
+        {
+          "order": 3,
+          "content": "Simulate an API delay with a timeout."
+        },
+        {
+          "order": 4,
+          "content": "Look up the topic data in the mock data store."
+        },
+        {
+          "order": 5,
+          "content": "IF the topic data is not found, throw an error."
+        },
+        {
+          "order": 6,
+          "content": "Update the topic data state with the fetched data."
+        },
+        {
+          "order": 7,
+          "content": "IF an error occurs during fetch, set the error state and clear topic data."
+        },
+        {
+          "order": 8,
+          "content": "Reset the loading state after the fetch attempt completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_acec2a21",
+      "name": "verify",
+      "enclosing_class": "useTopic",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no topic data is available, return early."
+        },
+        {
+          "order": 2,
+          "content": "Simulate an API delay with a timeout."
+        },
+        {
+          "order": 3,
+          "content": "Update the lastVerified timestamp in the topic data."
+        },
+        {
+          "order": 4,
+          "content": "IF an error occurs during verification, set the error state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_74dfd343",
+      "name": "refresh",
+      "enclosing_class": "useTopic",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the fetchTopic function to reload the topic data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,312 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-drift.ts",
+  "title": "Pseudo drift checker with periodic and idle file change detection",
+  "purpose": "Monitors file system changes in a project to trigger incremental scans when files are modified, using both stat-based and hash-based checks.",
+  "module_context": "Exports DriftChecker interface, DriftReport type, and createDriftChecker factory function. Defines constants for default intervals and hash sampling fraction. Includes helper functions for SHA1 hashing, array shuffling, and Git file listing.",
+  "methods": [
+    {
+      "id": "m_f34155fd",
+      "name": "sha1",
+      "enclosing_class": null,
+      "normalized_params": "(buf: Buffer | string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compute the SHA1 hash of the input buffer or string."
+        },
+        {
+          "order": 2,
+          "content": "Return the hash as a hexadecimal string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dd60773c",
+      "name": "shuffle",
+      "enclosing_class": null,
+      "normalized_params": "(arr: T[]): T[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a shallow copy of the input array."
+        },
+        {
+          "order": 2,
+          "content": "Randomly shuffle the elements in the copied array using Fisher-Yates algorithm."
+        },
+        {
+          "order": 3,
+          "content": "Return the shuffled array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3bb17f83",
+      "name": "gitLsFiles",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<string[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Spawn a Git process to list all tracked files in the project."
+        },
+        {
+          "order": 2,
+          "content": "Collect the output from the process and split it by null bytes."
+        },
+        {
+          "order": 3,
+          "content": "Filter out any empty strings from the split results."
+        },
+        {
+          "order": 4,
+          "content": "Return the list of file paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_23bb90e1",
+      "name": "createDriftChecker",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, db: Database, indexer: PseudoIndexer, opts: DriftCheckerOptions): DriftChecker",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the periodic interval and idle check duration from options or use defaults."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state variables for timers and scan status."
+        },
+        {
+          "order": 3,
+          "content": "Build and return a drift checker object with start, stop, checkNow, and touch methods."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a300e859",
+      "name": "checkStat",
+      "enclosing_class": "createDriftChecker",
+      "normalized_params": "(): Promise<DriftReport>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the list of tracked files from Git."
+        },
+        {
+          "order": 2,
+          "content": "Load the indexed file records from the database."
+        },
+        {
+          "order": 3,
+          "content": "For each tracked file, check if its modification time has changed since last scan."
+        },
+        {
+          "order": 4,
+          "content": "If a file has changed, trigger an incremental scan for that file."
+        },
+        {
+          "order": 5,
+          "content": "Return a report of checked files and changed files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9ac01e6d",
+      "name": "checkHashSample",
+      "enclosing_class": "createDriftChecker",
+      "normalized_params": "(): Promise<DriftReport>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve a sample of files from the database that are not stubs."
+        },
+        {
+          "order": 2,
+          "content": "Randomly select a fraction of the files for hash comparison."
+        },
+        {
+          "order": 3,
+          "content": "For each sampled file, compute its current hash and compare with the stored hash."
+        },
+        {
+          "order": 4,
+          "content": "If a file's hash has changed, trigger an incremental scan for that file."
+        },
+        {
+          "order": 5,
+          "content": "Return a report of checked files and changed files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4c61a93b",
+      "name": "checkNow",
+      "enclosing_class": "createDriftChecker",
+      "normalized_params": "(mode: 'stat' | 'hash_sample' | 'full'): Promise<DriftReport>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If a scan is already in progress, return an empty report."
+        },
+        {
+          "order": 2,
+          "content": "Mark the scan as active and begin a new asynchronous check."
+        },
+        {
+          "order": 3,
+          "content": "Perform the specified check mode: stat, hash_sample, or full."
+        },
+        {
+          "order": 4,
+          "content": "If the check mode is 'full', perform both stat and hash_sample checks."
+        },
+        {
+          "order": 5,
+          "content": "Return the combined results of the checks."
+        },
+        {
+          "order": 6,
+          "content": "Reset the scan active flag and clear the current check promise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_43ff1d84",
+      "name": "armIdleTimer",
+      "enclosing_class": "createDriftChecker",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear any existing idle timer."
+        },
+        {
+          "order": 2,
+          "content": "Set a new timeout to perform a hash_sample check after the idle duration."
+        },
+        {
+          "order": 3,
+          "content": "If the timer supports unref, call unref to prevent it from keeping the process alive."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1b07d427",
+      "name": "touch",
+      "enclosing_class": "createDriftChecker",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If no timers are active, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "Reset the idle timer to delay the next hash_sample check."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7f1653e5",
+      "name": "start",
+      "enclosing_class": "createDriftChecker",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If periodic timer is already active, return immediately."
+        },
+        {
+          "order": 2,
+          "content": "Set up a periodic timer to perform stat checks at regular intervals."
+        },
+        {
+          "order": 3,
+          "content": "If the timer supports unref, call unref to prevent it from keeping the process alive."
+        },
+        {
+          "order": 4,
+          "content": "Set up an idle timer to perform hash_sample checks when idle."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d3685e9",
+      "name": "stop",
+      "enclosing_class": "createDriftChecker",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Wait for any ongoing check to complete."
+        },
+        {
+          "order": 2,
+          "content": "Clear the periodic timer if it is active."
+        },
+        {
+          "order": 3,
+          "content": "Clear the idle timer if it is active."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

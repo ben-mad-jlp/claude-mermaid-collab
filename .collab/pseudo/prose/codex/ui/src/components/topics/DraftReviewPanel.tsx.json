@@ -1,0 +1,216 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/DraftReviewPanel.tsx",
+  "title": "Draft review panel with approval workflow and document viewing",
+  "purpose": "Provides a UI component for reviewing draft documents, toggling between view modes, and approving or rejecting drafts with user identification.",
+  "module_context": "Exports a DraftReviewPanel component that manages draft review state including view mode, document tabs, approval/rejection flows, and integrates with a draft hook for diff data.",
+  "methods": [
+    {
+      "id": "m_4daafa40",
+      "name": "ViewModeButton",
+      "enclosing_class": null,
+      "normalized_params": "(props: ViewModeButtonProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a button element with styling based on whether the mode is currently active."
+        },
+        {
+          "order": 2,
+          "content": "Apply active state styling when the button's mode matches the current view mode."
+        },
+        {
+          "order": 3,
+          "content": "Set up click handler to update the view mode when clicked."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e90dcca",
+      "name": "formatTriggerType",
+      "enclosing_class": null,
+      "normalized_params": "(triggerType: DraftInfo['triggerType']): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map trigger type values to human-readable display strings."
+        },
+        {
+          "order": 2,
+          "content": "Return the formatted string for known trigger types."
+        },
+        {
+          "order": 3,
+          "content": "Return the original trigger type for unknown values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7c537fe5",
+      "name": "formatDate",
+      "enclosing_class": null,
+      "normalized_params": "(dateString: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the input date string into a Date object."
+        },
+        {
+          "order": 2,
+          "content": "Format the date using locale-specific formatting with year, month, day, hour, and minute."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b2d6c8a5",
+      "name": "DraftReviewPanel",
+      "enclosing_class": null,
+      "normalized_params": "(props: DraftReviewPanelProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for view mode, active tab, approval/rejection form fields, and loading states."
+        },
+        {
+          "order": 2,
+          "content": "Use a draft hook to retrieve diff data for the current topic."
+        },
+        {
+          "order": 3,
+          "content": "Determine the current diff data based on the active tab."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback function to get content based on the current view mode and diff data."
+        },
+        {
+          "order": 5,
+          "content": "Set up handlers for approve and reject actions with validation and loading states."
+        },
+        {
+          "order": 6,
+          "content": "Render the header with title, trigger type, close button, and metadata."
+        },
+        {
+          "order": 7,
+          "content": "Render document tabs for switching between document types."
+        },
+        {
+          "order": 8,
+          "content": "Render the document viewer or diff viewer based on the current view mode."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a9aca0e8",
+      "name": "getContent",
+      "enclosing_class": "DraftReviewPanel",
+      "normalized_params": "(): { current: string; draft: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if current diff data is available."
+        },
+        {
+          "order": 2,
+          "content": "IF diff data is available, return the current and draft content from the diff."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the current document content and draft document content from the draft prop."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_39912e1f",
+      "name": "handleApprove",
+      "enclosing_class": "DraftReviewPanel",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the approver's name is provided."
+        },
+        {
+          "order": 2,
+          "content": "IF the name is missing, show an alert and exit."
+        },
+        {
+          "order": 3,
+          "content": "Set the approval loading state to true."
+        },
+        {
+          "order": 4,
+          "content": "Call the onApprove callback with the trimmed approver name."
+        },
+        {
+          "order": 5,
+          "content": "Reset the approval loading state after the operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a777fb5c",
+      "name": "handleReject",
+      "enclosing_class": "DraftReviewPanel",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the rejector's name is provided."
+        },
+        {
+          "order": 2,
+          "content": "IF the name is missing, show an alert and exit."
+        },
+        {
+          "order": 3,
+          "content": "Set the rejection loading state to true."
+        },
+        {
+          "order": 4,
+          "content": "Call the onReject callback with the trimmed rejector name and optional reason."
+        },
+        {
+          "order": 5,
+          "content": "Reset the rejection loading state after the operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

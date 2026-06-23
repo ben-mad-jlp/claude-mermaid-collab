@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/PermissionModeSelector.tsx",
+  "title": "Permission mode selector component for agent chat interface",
+  "purpose": "Provides a dropdown UI element for selecting different permission modes in an agent chat interface. Used to control how an agent interacts with the system based on permission level.",
+  "module_context": "Exports a React functional component that renders a select dropdown with permission mode options. The component accepts value, onChange, and disabled props to control its behavior and appearance.",
+  "methods": [
+    {
+      "id": "m_b7fc5697",
+      "name": "PermissionModeSelector",
+      "enclosing_class": null,
+      "normalized_params": "(props: Props): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a select dropdown element with specified styling classes."
+        },
+        {
+          "order": 2,
+          "content": "Set the dropdown value to the provided permission mode value."
+        },
+        {
+          "order": 3,
+          "content": "Attach an event handler to process changes in the dropdown selection."
+        },
+        {
+          "order": 4,
+          "content": "Disable the dropdown if the disabled prop is true."
+        },
+        {
+          "order": 5,
+          "content": "Populate the dropdown with four permission mode options: supervised, accept-edits, plan, and bypass."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,195 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/chatStore.ts",
+  "title": "Zustand chat store for managing messages, responses, and UI state",
+  "purpose": "Manages chat message state, handles UI responses, and controls drawer visibility using Zustand state management.",
+  "module_context": "Exports a Zustand store with message state, drawer open status, and unread count. Defines ChatMessage and CachedUIState interfaces for type safety.",
+  "methods": [
+    {
+      "id": "m_1cb8ba9c",
+      "name": "addMessage",
+      "enclosing_class": "useChatStore",
+      "normalized_params": "(msg: ChatMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a message with the same ID already exists in state."
+        },
+        {
+          "order": 2,
+          "content": "IF the message already exists, do nothing and return current state."
+        },
+        {
+          "order": 3,
+          "content": "IF the new message is blocking, cancel any existing unresponded blocking messages."
+        },
+        {
+          "order": 4,
+          "content": "Prepend the new message to the message history and truncate to maximum 50 messages."
+        },
+        {
+          "order": 5,
+          "content": "IF the new message is blocking, set it as the current blocking ID and open the drawer."
+        },
+        {
+          "order": 6,
+          "content": "ELSE if the new message is not responded to, increment the unread count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0fc01182",
+      "name": "respondToMessage",
+      "enclosing_class": "useChatStore",
+      "normalized_params": "(id: string, response: any): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the message in state that matches the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no matching message is found, return without performing any action."
+        },
+        {
+          "order": 3,
+          "content": "Build a URL with project and session parameters from the message."
+        },
+        {
+          "order": 4,
+          "content": "Submit the response to the backend API via a POST request."
+        },
+        {
+          "order": 5,
+          "content": "IF the API call succeeds, mark the message as responded and update its response data."
+        },
+        {
+          "order": 6,
+          "content": "IF the message was the current blocking message, clear the current blocking ID."
+        },
+        {
+          "order": 7,
+          "content": "IF the API call fails, log the error and do not update the message state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_460067b7",
+      "name": "markAsRead",
+      "enclosing_class": "useChatStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the message in state that matches the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the message exists and has not been responded to or is blocking, decrement the unread count."
+        },
+        {
+          "order": 3,
+          "content": "IF the message does not exist or has already been responded to or is blocking, do not change the unread count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2b0d3d6d",
+      "name": "setOpen",
+      "enclosing_class": "useChatStore",
+      "normalized_params": "(open: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF opening the drawer, count all non-blocking, non-responded messages as unread."
+        },
+        {
+          "order": 2,
+          "content": "Set the unread count to zero when opening the drawer."
+        },
+        {
+          "order": 3,
+          "content": "Update the drawer open state to the provided value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_95d95a6e",
+      "name": "clearMessages",
+      "enclosing_class": "useChatStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the messages array to an empty array."
+        },
+        {
+          "order": 2,
+          "content": "Reset the unread count to zero."
+        },
+        {
+          "order": 3,
+          "content": "Reset the current blocking ID to null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e33bd328",
+      "name": "restoreUIFromCache",
+      "enclosing_class": "useChatStore",
+      "normalized_params": "(cachedUI: CachedUIState, project?: string, session?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a message with the same UI ID already exists in state."
+        },
+        {
+          "order": 2,
+          "content": "IF an existing message is found, update its status and add project/session if missing."
+        },
+        {
+          "order": 3,
+          "content": "ELSE create a new message from the cached UI data."
+        },
+        {
+          "order": 4,
+          "content": "Prepend the new message to the message history."
+        },
+        {
+          "order": 5,
+          "content": "IF the cached UI is blocking and pending, set it as the current blocking ID and open the drawer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

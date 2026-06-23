@@ -1,0 +1,167 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/CodeArtifactKebabMenu.tsx",
+  "title": "Code artifact kebab menu component with dropdown actions",
+  "purpose": "Provides a dropdown menu for code artifacts in the editor toolbar with actions like copying import paths, showing impact, deprecating, and unlinking.",
+  "module_context": "Exports a React functional component named CodeArtifactKebabMenu that accepts props for artifact metadata and callbacks for actions, along with a default export.",
+  "methods": [
+    {
+      "id": "m_a1ca640d",
+      "name": "CodeArtifactKebabMenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: CodeArtifactKebabMenuProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for menu open status and flash messages."
+        },
+        {
+          "order": 2,
+          "content": "Set up effect to auto-clear flash messages after 2 seconds."
+        },
+        {
+          "order": 3,
+          "content": "Set up effect to close menu when clicking outside."
+        },
+        {
+          "order": 4,
+          "content": "Set up effect to close menu on Escape key press."
+        },
+        {
+          "order": 5,
+          "content": "Define callback handlers for toggle, copy path, show impact, deprecate, and unlink actions."
+        },
+        {
+          "order": 6,
+          "content": "Render the kebab button and dropdown menu with action items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ab18a4b",
+      "name": "handleToggle",
+      "enclosing_class": "CodeArtifactKebabMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the open state of the dropdown menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9e6bb38",
+      "name": "handleCopyPath",
+      "enclosing_class": "CodeArtifactKebabMenu",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Copy the file path to the clipboard."
+        },
+        {
+          "order": 2,
+          "content": "Set flash message to indicate success or failure of the copy operation."
+        },
+        {
+          "order": 3,
+          "content": "Close the dropdown menu after attempting the copy."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cacc6527",
+      "name": "handleShowImpact",
+      "enclosing_class": "CodeArtifactKebabMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set flash message indicating no pseudo index for the file."
+        },
+        {
+          "order": 2,
+          "content": "Close the dropdown menu after displaying the message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b74ae73",
+      "name": "handleDeprecate",
+      "enclosing_class": "CodeArtifactKebabMenu",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the dropdown menu before attempting deprecation."
+        },
+        {
+          "order": 2,
+          "content": "Call the deprecation callback function."
+        },
+        {
+          "order": 3,
+          "content": "IF the deprecation fails, set flash message to indicate failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f7e5ee6f",
+      "name": "handleUnlink",
+      "enclosing_class": "CodeArtifactKebabMenu",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the dropdown menu before attempting unlink."
+        },
+        {
+          "order": 2,
+          "content": "Show confirmation dialog for unlinking the file."
+        },
+        {
+          "order": 3,
+          "content": "IF user cancels the unlink, return without performing action."
+        },
+        {
+          "order": 4,
+          "content": "Call the delete callback function to unlink the file."
+        },
+        {
+          "order": 5,
+          "content": "IF the unlink fails, set flash message to indicate failure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

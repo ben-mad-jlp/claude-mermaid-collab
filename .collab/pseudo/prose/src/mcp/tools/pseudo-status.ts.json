@@ -1,0 +1,66 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-status.ts",
+  "title": "Pseudo-database status reporting tool",
+  "purpose": "Provides detailed health and status information about a pseudo-database, including file counts, scan progress, warnings, and ctags availability.",
+  "module_context": "Exports an interface PseudoDbStatus and an async function pseudo_db_status that aggregates database statistics and scan information.",
+  "methods": [
+    {
+      "id": "m_e95e036c",
+      "name": "pseudo_db_status",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<PseudoDbStatus>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo-database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Query the total number of files in the database."
+        },
+        {
+          "order": 3,
+          "content": "Query the number of files with prose content."
+        },
+        {
+          "order": 4,
+          "content": "Aggregate the prose origin breakdown by counting methods grouped by their origin."
+        },
+        {
+          "order": 5,
+          "content": "Retrieve the most recent scan run details from the database."
+        },
+        {
+          "order": 6,
+          "content": "Check if a scan is currently running by querying for active scan runs."
+        },
+        {
+          "order": 7,
+          "content": "Determine if the database is currently scanning based on handle status and active scan runs."
+        },
+        {
+          "order": 8,
+          "content": "Count various types of warnings including orphans, cross-branch orphans, rename warnings, and parameter drift warnings."
+        },
+        {
+          "order": 9,
+          "content": "Detect ctags availability and version information."
+        },
+        {
+          "order": 10,
+          "content": "Determine the cache mode based on the handle's current status."
+        },
+        {
+          "order": 11,
+          "content": "Return a comprehensive status object with schema version, file counts, prose breakdown, scan details, warnings, ctags info, cache mode, and last error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

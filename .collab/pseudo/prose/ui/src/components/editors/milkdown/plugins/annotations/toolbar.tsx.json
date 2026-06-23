@@ -1,0 +1,222 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/annotations/toolbar.tsx",
+  "title": "WYSIWYG editor annotation toolbar with structured annotation support",
+  "purpose": "Provides a toolbar interface for adding and managing structured annotations in a Milkdown/ProseMirror editor, allowing users to mark text with comments, proposed changes, approvals, and rejections.",
+  "module_context": "Exports a React component for the annotation toolbar, a toolbar button component, and a divider component. Defines interfaces for toolbar props and button props, and imports editor view, annotation schema, and anchor creation utilities.",
+  "methods": [
+    {
+      "id": "m_29a93858",
+      "name": "ToolbarButton",
+      "enclosing_class": null,
+      "normalized_params": "(props: ToolbarButtonProps): React.FC<ToolbarButtonProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a button with the specified icon, title, and color styling."
+        },
+        {
+          "order": 2,
+          "content": "Apply appropriate background and text color classes based on the color prop."
+        },
+        {
+          "order": 3,
+          "content": "Attach the provided click handler and test ID to the button element."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1915c4c1",
+      "name": "Divider",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a vertical divider element with specified styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1f9e663e",
+      "name": "AnnotationToolbarWysiwyg",
+      "enclosing_class": null,
+      "normalized_params": "(props: AnnotationToolbarWysiwygProps): React.FC<AnnotationToolbarWysiwygProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render the annotation toolbar UI with buttons for adding different types of annotations."
+        },
+        {
+          "order": 2,
+          "content": "Set up click handlers for comment, propose, approve, reject, and clear actions."
+        },
+        {
+          "order": 3,
+          "content": "Configure the toolbar with appropriate icons, titles, and color coding for each action."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e619698",
+      "name": "addAnnotation",
+      "enclosing_class": "AnnotationToolbarWysiwyg",
+      "normalized_params": "(kind: AnnotationKind, body: string, reason?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the editor view is available and a text selection exists."
+        },
+        {
+          "order": 2,
+          "content": "Create an anchor from the current selection within the document."
+        },
+        {
+          "order": 3,
+          "content": "Construct a new annotation record with the specified kind, anchor, body, and timestamp."
+        },
+        {
+          "order": 4,
+          "content": "IF a reason is provided, include it in the annotation."
+        },
+        {
+          "order": 5,
+          "content": "Update the annotations array by appending the new annotation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6cba5118",
+      "name": "handleComment",
+      "enclosing_class": "AnnotationToolbarWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt the user to enter a comment body."
+        },
+        {
+          "order": 2,
+          "content": "IF the user cancels the prompt, return without creating an annotation."
+        },
+        {
+          "order": 3,
+          "content": "Create a comment annotation with the entered body."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e9ca8657",
+      "name": "handlePropose",
+      "enclosing_class": "AnnotationToolbarWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a proposed annotation with an empty body."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9d74be9c",
+      "name": "handleApprove",
+      "enclosing_class": "AnnotationToolbarWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create an approved annotation with an empty body."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_afebf984",
+      "name": "handleReject",
+      "enclosing_class": "AnnotationToolbarWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt the user to enter a rejection reason."
+        },
+        {
+          "order": 2,
+          "content": "IF the user cancels the prompt, return without creating an annotation."
+        },
+        {
+          "order": 3,
+          "content": "Create a rejected annotation with the entered reason."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_67eb0410",
+      "name": "handleClear",
+      "enclosing_class": "AnnotationToolbarWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the editor view is available and a text selection exists."
+        },
+        {
+          "order": 2,
+          "content": "IF the selection is empty, clear all annotations from the document."
+        },
+        {
+          "order": 3,
+          "content": "ELSE filter out annotations whose anchors intersect with the current selection."
+        },
+        {
+          "order": 4,
+          "content": "Update the annotations array with the filtered results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

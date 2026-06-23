@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/MigrationBannerV5.tsx",
+  "title": "V5 migration banner component for terminal relocation notification",
+  "purpose": "Displays a one-time welcome banner after v6 upgrade to inform users about terminal relocation to the Shell drawer, with dismissal persistence.",
+  "module_context": "Exports a React functional component named MigrationBannerV5 that uses UI store hooks to check dismissal status and handle dismissal, rendering nothing when dismissed.",
+  "methods": [
+    {
+      "id": "m_ba7cacac",
+      "name": "MigrationBannerV5",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the dismissal status from the UI store."
+        },
+        {
+          "order": 2,
+          "content": "IF the banner has been dismissed, return null to render nothing."
+        },
+        {
+          "order": 3,
+          "content": "ELSE render the banner with instructions for accessing the relocated terminal."
+        },
+        {
+          "order": 4,
+          "content": "Include a dismiss button that calls the store's dismissal handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/ReferencesPopover.tsx",
+  "title": "References popover component for symbol callers in code editor",
+  "purpose": "Displays a popover with references (callers) of a clicked symbol, allowing navigation to same-file references and showing cross-file references as non-clickable items.",
+  "module_context": "Exports a React functional component ReferencesPopover that accepts references, symbol name, anchor rectangle, current file path, linked source paths, and navigation callbacks. Includes helper function getBaseStem for extracting file base names.",
+  "methods": [
+    {
+      "id": "m_6ab75117",
+      "name": "getBaseStem",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string | null | undefined): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return an empty string if the file path is null or undefined."
+        },
+        {
+          "order": 2,
+          "content": "Extract the last part of the file path after splitting by forward slashes."
+        },
+        {
+          "order": 3,
+          "content": "Find the position of the last dot in the file name."
+        },
+        {
+          "order": 4,
+          "content": "IF a dot is found and it's not at the start of the name, return the substring up to but not including the dot."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the entire file name without the extension."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1006cf99",
+      "name": "ReferencesPopover",
+      "enclosing_class": null,
+      "normalized_params": "(props: ReferencesPopoverProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref for the popover container element."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the top and left positions for the popover based on the anchor rectangle."
+        },
+        {
+          "order": 3,
+          "content": "Compute the base stem of the current file path for comparison with reference files."
+        },
+        {
+          "order": 4,
+          "content": "Set up an event listener for mouse clicks outside the popover to close it."
+        },
+        {
+          "order": 5,
+          "content": "Set up an event listener for the Escape key to close the popover."
+        },
+        {
+          "order": 6,
+          "content": "Set up an event listener for scroll events to close the popover."
+        },
+        {
+          "order": 7,
+          "content": "Define a click handler for reference rows that navigates to same-file references."
+        },
+        {
+          "order": 8,
+          "content": "Render the popover UI with header, close button, and a scrollable list of references."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_059e45e8",
+      "name": "handleClick",
+      "enclosing_class": "ReferencesPopover",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked target is outside the popover container."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, invoke the close callback to hide the popover."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d0add2ea",
+      "name": "handleKey",
+      "enclosing_class": "ReferencesPopover",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the pressed key is the Escape key."
+        },
+        {
+          "order": 2,
+          "content": "IF the Escape key is pressed, invoke the close callback to hide the popover."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6ea73957",
+      "name": "handleScroll",
+      "enclosing_class": "ReferencesPopover",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the close callback to hide the popover when scrolling occurs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b63e4087",
+      "name": "handleRowClick",
+      "enclosing_class": "ReferencesPopover",
+      "normalized_params": "(ref: ReferenceItem): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Exit early if the reference does not have a source line number."
+        },
+        {
+          "order": 2,
+          "content": "Compare the base stem of the reference file with the current file base stem."
+        },
+        {
+          "order": 3,
+          "content": "IF the files match, invoke the navigation callback for same-file references."
+        },
+        {
+          "order": 4,
+          "content": "ELSE defer cross-file navigation to a future phase."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

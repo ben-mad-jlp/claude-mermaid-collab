@@ -1,0 +1,262 @@
+{
+  "schema_version": 3,
+  "file": "src/services/spreadsheet-manager.ts",
+  "title": "Spreadsheet manager for file-based storage and retrieval",
+  "purpose": "Manages spreadsheet data stored as JSON files on disk, providing operations to list, read, write, create, and delete spreadsheets.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_50a3f64b",
+      "name": "initialize",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the base directory exists for storing spreadsheets."
+        },
+        {
+          "order": 2,
+          "content": "Read all files from the base directory."
+        },
+        {
+          "order": 3,
+          "content": "For each file ending in .spreadsheet.json, extract its ID and metadata."
+        },
+        {
+          "order": 4,
+          "content": "Store the metadata in the internal index map for future lookups."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a16e14bb",
+      "name": "listSpreadsheets",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(): Promise<SpreadsheetListItem[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all entries in the internal index map."
+        },
+        {
+          "order": 2,
+          "content": "Construct a list of spreadsheet items using the stored metadata."
+        },
+        {
+          "order": 3,
+          "content": "Return the constructed list of spreadsheet items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_07de6855",
+      "name": "getSpreadsheet",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(id: string): Promise<Spreadsheet | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the spreadsheet metadata by its ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, return null."
+        },
+        {
+          "order": 3,
+          "content": "ELSE read the content of the spreadsheet file."
+        },
+        {
+          "order": 4,
+          "content": "Return the spreadsheet with its content and metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e206477",
+      "name": "saveSpreadsheet",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the spreadsheet metadata by its ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, throw an error indicating the spreadsheet was not found."
+        },
+        {
+          "order": 3,
+          "content": "Validate that the content size does not exceed the maximum allowed file size."
+        },
+        {
+          "order": 4,
+          "content": "Verify that the content is valid JSON."
+        },
+        {
+          "order": 5,
+          "content": "Write the content to the spreadsheet file."
+        },
+        {
+          "order": 6,
+          "content": "Update the last modified timestamp in the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_334feb0e",
+      "name": "createSpreadsheet",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(name: string, content: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Sanitize the provided name to ensure it only contains alphanumeric characters, hyphens, and underscores."
+        },
+        {
+          "order": 2,
+          "content": "Construct the filename and ID from the sanitized name."
+        },
+        {
+          "order": 3,
+          "content": "IF a spreadsheet with this ID already exists, throw an error."
+        },
+        {
+          "order": 4,
+          "content": "Validate that the content size does not exceed the maximum allowed file size."
+        },
+        {
+          "order": 5,
+          "content": "Verify that the content is valid JSON."
+        },
+        {
+          "order": 6,
+          "content": "Write the content to the new spreadsheet file."
+        },
+        {
+          "order": 7,
+          "content": "Update the internal index with the new spreadsheet metadata."
+        },
+        {
+          "order": 8,
+          "content": "Return the ID of the newly created spreadsheet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_772d5fb1",
+      "name": "deleteSpreadsheet",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the spreadsheet metadata by its ID in the internal index."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, throw an error indicating the spreadsheet was not found."
+        },
+        {
+          "order": 3,
+          "content": "Delete the corresponding file from the filesystem."
+        },
+        {
+          "order": 4,
+          "content": "Remove the spreadsheet entry from the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_91693220",
+      "name": "updateIndex",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(id: string, path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the file statistics for the given path."
+        },
+        {
+          "order": 2,
+          "content": "Update the internal index with the new metadata for the spreadsheet."
+        },
+        {
+          "order": 3,
+          "content": "IF retrieving file statistics fails, log an error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_885db94a",
+      "name": "removeFromIndex",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the entry for the specified ID from the internal index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7d3acd26",
+      "name": "reset",
+      "enclosing_class": "SpreadsheetManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all entries from the internal index map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

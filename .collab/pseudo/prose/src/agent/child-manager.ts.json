@@ -1,0 +1,298 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/child-manager.ts",
+  "title": "Claude CLI child process manager with stream-json I/O",
+  "purpose": "Manages a single Claude CLI child process in headless mode, handling spawning, writing user messages, reading stdout/stderr, and process lifecycle management.",
+  "module_context": "Exports ChildManager class and ChildExitInfo interface. Defines PERMISSION_MODE_MAP constant for permission mode translation. Uses EventEmitter for event handling.",
+  "methods": [
+    {
+      "id": "m_e3f5b7af",
+      "name": "isAlive",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the child process reference exists."
+        },
+        {
+          "order": 2,
+          "content": "Verify the process has not exited."
+        },
+        {
+          "order": 3,
+          "content": "Confirm the process has not been killed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c249ace5",
+      "name": "buildArgv",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct command line arguments for the Claude CLI."
+        },
+        {
+          "order": 2,
+          "content": "Include session ID and resume or session ID flags."
+        },
+        {
+          "order": 3,
+          "content": "Set permission mode using the mapping table."
+        },
+        {
+          "order": 4,
+          "content": "Add settings path if provided."
+        },
+        {
+          "order": 5,
+          "content": "Include hook events and extra arguments if present."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4e81c468",
+      "name": "start",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the Claude binary path or use default."
+        },
+        {
+          "order": 2,
+          "content": "Resolve the spawn function or use default Bun.spawn."
+        },
+        {
+          "order": 3,
+          "content": "Set environment variables including socket path if provided."
+        },
+        {
+          "order": 4,
+          "content": "Spawn the Claude CLI process with constructed arguments."
+        },
+        {
+          "order": 5,
+          "content": "Start reading stdout and stderr streams."
+        },
+        {
+          "order": 6,
+          "content": "Listen for process exit to handle cleanup."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3c51252d",
+      "name": "writeUserMessage",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(text: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify the child process is alive before writing."
+        },
+        {
+          "order": 2,
+          "content": "Format the user message as a JSON frame."
+        },
+        {
+          "order": 3,
+          "content": "Write the formatted message to the child's stdin."
+        },
+        {
+          "order": 4,
+          "content": "IF writing fails, emit an error event."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1b5c9613",
+      "name": "cancelTurn",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the child process is alive before sending cancellation."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing cancellation timer."
+        },
+        {
+          "order": 3,
+          "content": "Send SIGINT signal to cancel the current turn."
+        },
+        {
+          "order": 4,
+          "content": "Set a timer to send SIGTERM if the turn is not cancelled within 2 seconds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_22682894",
+      "name": "stop",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Mark the manager as stopping to prevent further operations."
+        },
+        {
+          "order": 2,
+          "content": "Clear any existing cancellation timer."
+        },
+        {
+          "order": 3,
+          "content": "Verify the child process is alive before stopping."
+        },
+        {
+          "order": 4,
+          "content": "End the stdin pipe to signal process termination."
+        },
+        {
+          "order": 5,
+          "content": "Send SIGTERM signal to gracefully terminate the process."
+        },
+        {
+          "order": 6,
+          "content": "Set a timer to forcefully kill the process if it doesn't terminate within 3 seconds."
+        },
+        {
+          "order": 7,
+          "content": "Wait for the process to fully exit."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_157a4b80",
+      "name": "startLineReader",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(stream: ReadableStream<Uint8Array>, channel: 'stdout' | 'stderr'): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a stream reader for the provided input stream."
+        },
+        {
+          "order": 2,
+          "content": "Create a text decoder for processing byte data."
+        },
+        {
+          "order": 3,
+          "content": "Read data from the stream in a loop until done."
+        },
+        {
+          "order": 4,
+          "content": "Accumulate data in a buffer until a newline is found."
+        },
+        {
+          "order": 5,
+          "content": "Process complete lines from the buffer."
+        },
+        {
+          "order": 6,
+          "content": "Emit parsed stdout frames or stderr lines."
+        },
+        {
+          "order": 7,
+          "content": "Handle any stream reading errors gracefully."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_457bcc2b",
+      "name": "handleStdoutLine",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(line: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the stdout line as JSON."
+        },
+        {
+          "order": 2,
+          "content": "IF parsing succeeds, emit the parsed frame."
+        },
+        {
+          "order": 3,
+          "content": "IF parsing fails, increment the parse error streak."
+        },
+        {
+          "order": 4,
+          "content": "IF three consecutive parse errors occur, emit a fatal error and kill the process."
+        },
+        {
+          "order": 5,
+          "content": "ELSE emit a recoverable parse error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_96d4a249",
+      "name": "handleExit",
+      "enclosing_class": "ChildManager",
+      "normalized_params": "(code: number | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the signal code from the process."
+        },
+        {
+          "order": 2,
+          "content": "Emit an exit event with the process code and signal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

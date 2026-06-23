@@ -1,0 +1,87 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/Slider.tsx",
+  "title": "Accessible slider component with controlled and uncontrolled value handling",
+  "purpose": "Provides a customizable slider input component that supports both controlled and uncontrolled usage patterns, with optional value display and accessibility features.",
+  "module_context": "Exports a React functional component named Slider that accepts various props for configuration and styling, including support for controlled components via the value prop and uncontrolled behavior via internal state management.",
+  "methods": [
+    {
+      "id": "m_7b8af873",
+      "name": "Slider",
+      "enclosing_class": null,
+      "normalized_params": "(props: SliderProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique identifier for the slider element."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state for the slider value when not controlled externally."
+        },
+        {
+          "order": 3,
+          "content": "Determine whether to use the controlled value or internal state value."
+        },
+        {
+          "order": 4,
+          "content": "Calculate the percentage position of the slider thumb based on current value."
+        },
+        {
+          "order": 5,
+          "content": "Define the change handler that updates internal state and calls the external onChange callback."
+        },
+        {
+          "order": 6,
+          "content": "Render the label and value display section when either is enabled."
+        },
+        {
+          "order": 7,
+          "content": "Render the hidden input field for form data collection."
+        },
+        {
+          "order": 8,
+          "content": "Render the range input with styling and accessibility attributes."
+        },
+        {
+          "order": 9,
+          "content": "Render the minimum and maximum value labels below the slider."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e8df6e7c",
+      "name": "handleChange",
+      "enclosing_class": "Slider",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Early return if the slider is disabled."
+        },
+        {
+          "order": 2,
+          "content": "Parse the new value from the input element."
+        },
+        {
+          "order": 3,
+          "content": "Update the internal state with the new value."
+        },
+        {
+          "order": 4,
+          "content": "Invoke the external onChange callback with the new value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

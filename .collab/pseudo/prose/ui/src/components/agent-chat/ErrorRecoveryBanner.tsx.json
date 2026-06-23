@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/ErrorRecoveryBanner.tsx",
+  "title": "Error recovery banner component with retry/resume/dismiss actions",
+  "purpose": "Displays a red-styled alert banner showing an error message and optional action buttons for retrying, resuming, or dismissing the error state.",
+  "module_context": "Exports a React functional component named ErrorRecoveryBanner that accepts error message and callback props for handling user interactions.",
+  "methods": [
+    {
+      "id": "m_c8acfcab",
+      "name": "ErrorRecoveryBanner",
+      "enclosing_class": null,
+      "normalized_params": "(props: ErrorRecoveryBannerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a container div with red alert styling and error message text."
+        },
+        {
+          "order": 2,
+          "content": "IF a retry handler is provided, render a retry button with appropriate styling."
+        },
+        {
+          "order": 3,
+          "content": "IF a resume handler is provided, render a resume button with appropriate styling."
+        },
+        {
+          "order": 4,
+          "content": "IF a dismiss handler is provided, render a dismiss button with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

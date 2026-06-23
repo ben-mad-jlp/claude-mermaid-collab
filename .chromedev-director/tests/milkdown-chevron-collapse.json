@@ -1,0 +1,32 @@
+{
+  "id": "milkdown-chevron-collapse",
+  "name": "milkdown-chevron-collapse",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1000
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "(()=>{const pm=document.querySelector('.ProseMirror'); const headings=Array.from(pm.querySelectorAll('h1,h2,h3')); const firstH1=headings.find(h=>h.tagName==='H1'); const chev=firstH1?.querySelector('[data-testid^=heading-collapse-chevron]'); const sid=chev?.getAttribute('data-section-id'); chev.click(); return {sid, headingText:firstH1?.innerText};})()",
+        "as": "click"
+      },
+      {
+        "wait": 400
+      },
+      {
+        "eval": "({collapsedCount: document.querySelectorAll('.section-collapsed').length, hiddenVia: document.querySelectorAll('.section-collapsed').length, firstHeadingExpanded: document.querySelector('.ProseMirror h1 [data-testid^=heading-collapse-chevron]')?.getAttribute('aria-expanded'), bodyTextLen: document.querySelector('[data-testid=document-editor-content], [class*=milkdown-host]')?.innerText.length})",
+        "as": "afterClick"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:45:05.875Z",
+  "updatedAt": "2026-04-18T18:45:05.875Z"
+}

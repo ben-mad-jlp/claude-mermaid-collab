@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/ToolCallCard.tsx",
+  "title": "Tool call card component that renders different views based on tool type",
+  "purpose": "Displays tool call information in a card format with appropriate view components for different tool types, including read, write, bash, search, and generic MCP tools.",
+  "module_context": "Exports a React component ToolCallCard that dynamically selects view components based on tool name and computes display titles from tool inputs.",
+  "methods": [
+    {
+      "id": "m_3528be24",
+      "name": "pickView",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): ViewComponent",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the tool name starts with 'mcp__' prefix."
+        },
+        {
+          "order": 2,
+          "content": "IF the name starts with 'mcp__', return the McpGenericView component."
+        },
+        {
+          "order": 3,
+          "content": "ELSE use a switch statement to match the tool name to specific view components."
+        },
+        {
+          "order": 4,
+          "content": "IF no match is found, return the JsonFallback component as default."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ae3b8b2e",
+      "name": "computeTitle",
+      "enclosing_class": null,
+      "normalized_params": "(item: AgentToolCallItem): string | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the input object from the tool call item."
+        },
+        {
+          "order": 2,
+          "content": "Define a helper function to convert values to strings if they are non-empty strings."
+        },
+        {
+          "order": 3,
+          "content": "Use a switch statement to determine the appropriate title based on tool name."
+        },
+        {
+          "order": 4,
+          "content": "For Read, Edit, MultiEdit, and Write tools, use the file path from input."
+        },
+        {
+          "order": 5,
+          "content": "For Bash tools, use either the description or command from input."
+        },
+        {
+          "order": 6,
+          "content": "For Grep and Glob tools, use the pattern from input."
+        },
+        {
+          "order": 7,
+          "content": "For all other tools, return undefined as the title."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e921abfa",
+      "name": "ToolCallCard",
+      "enclosing_class": null,
+      "normalized_params": "(props: { item: AgentToolCallItem }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the appropriate view component for the tool call based on its name."
+        },
+        {
+          "order": 2,
+          "content": "Compute the display title for the tool call using its input data."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the duration of the tool call if both start and end timestamps are present."
+        },
+        {
+          "order": 4,
+          "content": "Render the ToolCardFrame component with the tool name, computed title, status, duration, and historical flag."
+        },
+        {
+          "order": 5,
+          "content": "Pass the tool call item to the selected view component as props."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

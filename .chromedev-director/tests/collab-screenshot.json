@@ -1,0 +1,17 @@
+{
+  "id": "collab-screenshot",
+  "name": "collab-screenshot",
+  "definition": {
+    "url": "http://192.168.100.33:3003/collab",
+    "steps": [
+      {
+        "wait": 2500
+      },
+      {
+        "screenshot": true
+      }
+    ]
+  },
+  "createdAt": "2026-04-27T02:02:29.037Z",
+  "updatedAt": "2026-04-27T02:02:29.037Z"
+}

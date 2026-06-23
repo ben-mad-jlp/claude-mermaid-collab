@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/SidebarNodeContextMenu.tsx",
+  "title": "Sidebar node context menu component with click-outside and keyboard handling",
+  "purpose": "Provides a floating context menu for sidebar tree nodes that closes when clicking outside or pressing Escape, and handles action execution.",
+  "module_context": "Exports a React functional component named SidebarNodeContextMenu that accepts position, actions, and callback props to render a customizable context menu with proper event handling.",
+  "methods": [
+    {
+      "id": "m_e7d5f54d",
+      "name": "SidebarNodeContextMenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: SidebarNodeContextMenuProps): React.FC<SidebarNodeContextMenuProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref to track the menu DOM element."
+        },
+        {
+          "order": 2,
+          "content": "Set up event listeners for mouse clicks and keyboard input to close the menu when clicking outside or pressing Escape."
+        },
+        {
+          "order": 3,
+          "content": "Clean up event listeners when the component unmounts."
+        },
+        {
+          "order": 4,
+          "content": "Render the menu container with absolute positioning based on provided coordinates."
+        },
+        {
+          "order": 5,
+          "content": "Map over the provided actions to render menu items with appropriate styling and behavior."
+        },
+        {
+          "order": 6,
+          "content": "Insert separators between menu items as specified by action properties."
+        },
+        {
+          "order": 7,
+          "content": "Attach click handlers to menu items that invoke the action callback and close the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66faae73",
+      "name": "handleClickOutside",
+      "enclosing_class": "SidebarNodeContextMenu",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked target is outside the menu element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, invoke the close callback to hide the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11e45c23",
+      "name": "handleKeyDown",
+      "enclosing_class": "SidebarNodeContextMenu",
+      "normalized_params": "(event: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for keyboard events to detect Escape key presses."
+        },
+        {
+          "order": 2,
+          "content": "IF Escape is pressed, invoke the close callback to hide the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

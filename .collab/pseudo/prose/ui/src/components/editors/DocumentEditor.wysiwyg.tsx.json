@@ -1,0 +1,316 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/DocumentEditor.wysiwyg.tsx",
+  "title": "WYSIWYG document editor using Milkdown, with history and annotation support",
+  "purpose": "Provides a rich text editing experience backed by Milkdown, supporting document history, annotations, and keyboard shortcuts while maintaining compatibility with legacy document editor contracts.",
+  "module_context": "Exports a React component DocumentEditorWysiwyg that implements a WYSIWYG editor using Milkdown, manages document state and annotations, handles save/cancel operations, and integrates with history and collapsible sections features.",
+  "methods": [
+    {
+      "id": "m_071a8034",
+      "name": "DocumentEditorWysiwyg",
+      "enclosing_class": null,
+      "normalized_params": "(props: DocumentEditorProps): React.FC<DocumentEditorProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the target document from context or props."
+        },
+        {
+          "order": 2,
+          "content": "Initialize editor state including content, changes flag, and saving status."
+        },
+        {
+          "order": 3,
+          "content": "Set up annotations state by migrating legacy inline markers on first load."
+        },
+        {
+          "order": 4,
+          "content": "Configure history modal state for version history display."
+        },
+        {
+          "order": 5,
+          "content": "Set up refs for flush and milkdown handle access."
+        },
+        {
+          "order": 6,
+          "content": "Initialize editor view state to trigger toolbar re-renders."
+        },
+        {
+          "order": 7,
+          "content": "Reset local state when the target document changes."
+        },
+        {
+          "order": 8,
+          "content": "Handle content changes from the editor and update React state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_83f311e7",
+      "name": "handleEditorReady",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(view: EditorView): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the editor view state with the newly created view."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59b98ef1",
+      "name": "handleContentChange",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(md: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the latest markdown reference with the new content."
+        },
+        {
+          "order": 2,
+          "content": "Update the React state content with the new markdown."
+        },
+        {
+          "order": 3,
+          "content": "Mark the document as having unsaved changes."
+        },
+        {
+          "order": 4,
+          "content": "Clear any previous error messages."
+        },
+        {
+          "order": 5,
+          "content": "Notify parent component of the content change."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_87d6a1db",
+      "name": "handlePersist",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(md: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a document is selected before attempting to persist."
+        },
+        {
+          "order": 2,
+          "content": "Update the document in the store with the new content and timestamp."
+        },
+        {
+          "order": 3,
+          "content": "IF the update fails, capture and store the error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_68eb0378",
+      "name": "stashPendingAnnotations",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(docId: string, next: Annotation[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store pending annotations in a global window object for server-side persistence."
+        },
+        {
+          "order": 2,
+          "content": "IF storing fails, silently ignore the error as it's not critical."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe7c0df6",
+      "name": "handleAnnotationsChange",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(next: Annotation[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the annotations state with the new annotations."
+        },
+        {
+          "order": 2,
+          "content": "Mark the document as having unsaved changes."
+        },
+        {
+          "order": 3,
+          "content": "Stash the updated annotations for potential server-side persistence."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_181cd944",
+      "name": "handleSave",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that a document is selected before attempting to save."
+        },
+        {
+          "order": 2,
+          "content": "Set the saving state to true and clear any previous errors."
+        },
+        {
+          "order": 3,
+          "content": "Force milkdown to flush pending markdown changes."
+        },
+        {
+          "order": 4,
+          "content": "Determine the final content using the latest markdown reference."
+        },
+        {
+          "order": 5,
+          "content": "Persist the document content and timestamp to the store."
+        },
+        {
+          "order": 6,
+          "content": "Update the React state with the saved content and mark changes as saved."
+        },
+        {
+          "order": 7,
+          "content": "Notify parent component of the saved document."
+        },
+        {
+          "order": 8,
+          "content": "IF the save fails, capture and store the error message."
+        },
+        {
+          "order": 9,
+          "content": "Reset the saving state after completion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3883d75e",
+      "name": "handleCancel",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Revert the editor UI to show the original document content."
+        },
+        {
+          "order": 2,
+          "content": "Update React state to reflect the original content."
+        },
+        {
+          "order": 3,
+          "content": "Reset the changes flag and clear any error messages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eca4004e",
+      "name": "handleHistoryModalClose",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the history modal by setting its open state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5e93afcc",
+      "name": "openHistoryModal",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset history modal state to initial values."
+        },
+        {
+          "order": 2,
+          "content": "Open the history modal by setting its open state to true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dceca9ea",
+      "name": "handleKeyDown",
+      "enclosing_class": "DocumentEditorWysiwyg",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for keyboard events to trigger save on Ctrl/Cmd+S."
+        },
+        {
+          "order": 2,
+          "content": "Prevent default browser behavior for the save shortcut."
+        },
+        {
+          "order": 3,
+          "content": "Call the save handler when the save shortcut is detected."
+        },
+        {
+          "order": 4,
+          "content": "Do nothing for Escape key press."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

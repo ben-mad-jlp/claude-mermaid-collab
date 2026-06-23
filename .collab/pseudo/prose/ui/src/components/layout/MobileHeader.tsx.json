@@ -1,0 +1,301 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/MobileHeader.tsx",
+  "title": "Mobile header component with project/session controls and theme toggle",
+  "purpose": "Provides a compact mobile-friendly header with project and session dropdowns, refresh button, theme toggle, and connection status indicators.",
+  "module_context": "Exports a MobileHeader React component that renders a responsive header with icon-only controls for mobile viewports, including project/session selectors, refresh, agent chat toggle, theme switcher, and connection status badge.",
+  "methods": [
+    {
+      "id": "m_d3a2948e",
+      "name": "getPhaseColor",
+      "enclosing_class": null,
+      "normalized_params": "(state: string | undefined, displayName: string | undefined): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine color class based on state string prefix matches for various workflow phases."
+        },
+        {
+          "order": 2,
+          "content": "IF state matches specific phase patterns, return corresponding color classes for that phase."
+        },
+        {
+          "order": 3,
+          "content": "ELSE if displayName contains keywords related to workflow stages, return matching color classes."
+        },
+        {
+          "order": 4,
+          "content": "IF no matches found, return default gray color classes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_439177d4",
+      "name": "MobileHeader",
+      "enclosing_class": null,
+      "normalized_params": "(props: MobileHeaderProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize theme and session state using custom hooks."
+        },
+        {
+          "order": 2,
+          "content": "Set up dropdown open states and refs for project and session selectors."
+        },
+        {
+          "order": 3,
+          "content": "Compute unique projects from sessions and registered projects."
+        },
+        {
+          "order": 4,
+          "content": "Filter sessions by selected project for display in session dropdown."
+        },
+        {
+          "order": 5,
+          "content": "Synchronize selected project with current session project on mount."
+        },
+        {
+          "order": 6,
+          "content": "Auto-select first project if none is currently selected."
+        },
+        {
+          "order": 7,
+          "content": "Add event listeners for clicking outside dropdowns and pressing escape key."
+        },
+        {
+          "order": 8,
+          "content": "Render the header with logo, project selector, session selector, refresh button, agent chat toggle, theme toggle, status badge, and connection indicator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e2d868b6",
+      "name": "handleProjectSelect",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(project: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update selected project state to the chosen project."
+        },
+        {
+          "order": 2,
+          "content": "Close the project dropdown menu."
+        },
+        {
+          "order": 3,
+          "content": "Find sessions belonging to the selected project."
+        },
+        {
+          "order": 4,
+          "content": "IF sessions exist for the project, select the first one."
+        },
+        {
+          "order": 5,
+          "content": "ELSE if current session project differs from selected project, clear the session selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7029c2e9",
+      "name": "handleSessionClick",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(session: Session): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the session selection callback with the clicked session."
+        },
+        {
+          "order": 2,
+          "content": "Close the session dropdown menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_00f06a1d",
+      "name": "handleThemeToggle",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the current theme using the theme hook."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8c1b629b",
+      "name": "handleAgentChatToggle",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle the visibility of the agent chat panel."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cde339f3",
+      "name": "handleRefreshSessions",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trigger the refresh sessions callback to update session list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_87a160fe",
+      "name": "handleAddProject",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the project dropdown menu."
+        },
+        {
+          "order": 2,
+          "content": "Trigger the add project callback to create a new project."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7d3da90",
+      "name": "handleRemoveProject",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(e: React.MouseEvent, project: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop event propagation to prevent dropdown closing."
+        },
+        {
+          "order": 2,
+          "content": "Confirm project removal with user."
+        },
+        {
+          "order": 3,
+          "content": "IF confirmed, invoke the remove project callback."
+        },
+        {
+          "order": 4,
+          "content": "IF the removed project was selected, clear the selected project state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_31ca1f06",
+      "name": "handleCreateSession",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the session dropdown menu."
+        },
+        {
+          "order": 2,
+          "content": "IF a project is selected, trigger the create session callback with that project."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6841320b",
+      "name": "handleDeleteSession",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(e: React.MouseEvent, session: Session): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop event propagation to prevent dropdown closing."
+        },
+        {
+          "order": 2,
+          "content": "Confirm session deletion with user."
+        },
+        {
+          "order": 3,
+          "content": "IF confirmed, invoke the delete session callback with the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_21df8247",
+      "name": "getProjectDisplayName",
+      "enclosing_class": "MobileHeader",
+      "normalized_params": "(project: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the last part of the project path as the display name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

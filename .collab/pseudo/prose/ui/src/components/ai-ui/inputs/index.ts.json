@@ -1,0 +1,147 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/index.ts",
+  "title": "AI UI input components re-export module",
+  "purpose": "Provides a centralized export of all AI UI input components and their associated types for easy consumption by other modules.",
+  "module_context": "Exports multiple input component types and their corresponding props interfaces from individual component files.",
+  "methods": [
+    {
+      "id": "m_c4509553",
+      "name": "MultipleChoice",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the MultipleChoice component."
+        },
+        {
+          "order": 2,
+          "content": "Export the MultipleChoiceProps type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8bb754d2",
+      "name": "TextInput",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TextInput component."
+        },
+        {
+          "order": 2,
+          "content": "Export the TextInputProps type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_038f2873",
+      "name": "TextArea",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TextArea component."
+        },
+        {
+          "order": 2,
+          "content": "Export the TextAreaProps type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b4074c61",
+      "name": "Checkbox",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Checkbox component."
+        },
+        {
+          "order": 2,
+          "content": "Export the CheckboxProps type."
+        },
+        {
+          "order": 3,
+          "content": "Export the CheckboxOption type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_69618b86",
+      "name": "Confirmation",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Confirmation component."
+        },
+        {
+          "order": 2,
+          "content": "Export the ConfirmationProps type."
+        },
+        {
+          "order": 3,
+          "content": "Export the ConfirmationType type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11744d18",
+      "name": "Dropdown",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Dropdown component."
+        },
+        {
+          "order": 2,
+          "content": "Export the DropdownProps type."
+        },
+        {
+          "order": 3,
+          "content": "Export the DropdownOption type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

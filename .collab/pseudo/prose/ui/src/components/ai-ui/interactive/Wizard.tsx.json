@@ -1,0 +1,109 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/interactive/Wizard.tsx",
+  "title": "Multi-step wizard component with navigation and progress tracking",
+  "purpose": "Provides a reusable wizard interface for multi-step processes with customizable steps, navigation controls, and progress indicators.",
+  "module_context": "Exports a Wizard component that accepts steps, navigation settings, and callback handlers. Defines WizardStep and WizardProps interfaces for type safety.",
+  "methods": [
+    {
+      "id": "m_60e8d579",
+      "name": "Wizard",
+      "enclosing_class": null,
+      "normalized_params": "(props: WizardProps): ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the active step index from props or default to zero."
+        },
+        {
+          "order": 2,
+          "content": "Render the progress indicator if enabled, showing completion percentage and step markers."
+        },
+        {
+          "order": 3,
+          "content": "Display the current step's title, description, and content within a styled container."
+        },
+        {
+          "order": 4,
+          "content": "Render navigation buttons for going back, skipping, and proceeding to the next step."
+        },
+        {
+          "order": 5,
+          "content": "Handle navigation logic for next, back, and skip actions based on step properties and user permissions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5f4765d3",
+      "name": "handleNext",
+      "enclosing_class": "Wizard",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current step is not the last step."
+        },
+        {
+          "order": 2,
+          "content": "IF not the last step, increment the active step index and notify parent of the change."
+        },
+        {
+          "order": 3,
+          "content": "IF the current step is the last step, invoke the completion handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a8884185",
+      "name": "handleBack",
+      "enclosing_class": "Wizard",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that back navigation is allowed and the current step is not the first."
+        },
+        {
+          "order": 2,
+          "content": "IF allowed, decrement the active step index and notify parent of the change."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9cb5c358",
+      "name": "handleSkip",
+      "enclosing_class": "Wizard",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the data for the current step."
+        },
+        {
+          "order": 2,
+          "content": "IF skipping is allowed and the current step is marked as optional, proceed to the next step."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/EditView.tsx",
+  "title": "Component for displaying tool call edits with diff visualization",
+  "purpose": "Renders a tool call edit view that shows file path, replacement flags, line-by-line differences, and output panel.",
+  "module_context": "Exports a React functional component EditView that accepts an AgentToolCallItem prop and renders structured UI elements including file path display, diff visualization, and output panel.",
+  "methods": [
+    {
+      "id": "m_a33d8914",
+      "name": "EditView",
+      "enclosing_class": null,
+      "normalized_params": "(props: EditViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the input object from the tool call item and destructure file path, old string, new string, and replace all flag."
+        },
+        {
+          "order": 2,
+          "content": "Compute the line-by-line diff between old and new strings using a memoized computation."
+        },
+        {
+          "order": 3,
+          "content": "Render a container with file path display and replace all flag indicator if applicable."
+        },
+        {
+          "order": 4,
+          "content": "Render the computed diff lines with appropriate styling for additions, deletions, and unchanged lines."
+        },
+        {
+          "order": 5,
+          "content": "Render the output panel component with tool use ID, status, output, and error information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

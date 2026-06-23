@@ -1,0 +1,832 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/CodeEditor.tsx",
+  "title": "Code editor component with linked file support and conflict resolution",
+  "purpose": "Provides a code editing interface that integrates with file system operations, handles conflicts between local edits and disk changes, and supports navigation features like function jumping and symbol references.",
+  "module_context": "Exports a React functional component CodeEditor that wraps SnippetEditor for linked code files, managing state for push/sync operations, conflict detection, and navigation history.",
+  "methods": [
+    {
+      "id": "m_239c284d",
+      "name": "formatRelativeTime",
+      "enclosing_class": null,
+      "normalized_params": "(ts: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the time difference between current time and the provided timestamp."
+        },
+        {
+          "order": 2,
+          "content": "Format the time difference as a human-readable relative time string based on the delta."
+        },
+        {
+          "order": 3,
+          "content": "Return 'just now' for differences less than a minute."
+        },
+        {
+          "order": 4,
+          "content": "Return minutes ago for differences less than an hour."
+        },
+        {
+          "order": 5,
+          "content": "Return hours ago for differences less than a day."
+        },
+        {
+          "order": 6,
+          "content": "Return days ago for differences greater than or equal to a day."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_64f0573b",
+      "name": "parseLinkedEnvelope",
+      "enclosing_class": null,
+      "normalized_params": "(content: string | undefined): { linked: true; code: string; language: string; filePath: string; dirty: boolean; lastPushedAt: number | null; lastSyncedAt: number; proposedEdit: { newCode: string; message?: string; proposedAt: number } | null } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the content is null or undefined and return null if so."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to parse the JSON content."
+        },
+        {
+          "order": 3,
+          "content": "Verify that the parsed data has a linked field set to true."
+        },
+        {
+          "order": 4,
+          "content": "Extract and validate the code, language, file path, dirty status, last pushed timestamp, and last synced timestamp from the parsed data."
+        },
+        {
+          "order": 5,
+          "content": "Parse and validate the proposed edit data if present."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed envelope data or null if parsing fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_affda657",
+      "name": "fileStemFromPath",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the file name from the file path by splitting on forward slashes."
+        },
+        {
+          "order": 2,
+          "content": "Find the last occurrence of a dot in the file name."
+        },
+        {
+          "order": 3,
+          "content": "If a dot is found and it's not at the beginning or end of the file name, return the substring before the dot."
+        },
+        {
+          "order": 4,
+          "content": "Otherwise, return the entire file name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_086ce804",
+      "name": "buildLinkedSnippetRefs",
+      "enclosing_class": null,
+      "normalized_params": "(snippets: Array<{ id: string; content: string | undefined }>): { id: string; filePath: string }[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to store the results."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each snippet in the input array."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to parse the snippet content as JSON."
+        },
+        {
+          "order": 4,
+          "content": "Check if the parsed data indicates a linked file and has a valid file path."
+        },
+        {
+          "order": 5,
+          "content": "If conditions are met, add the snippet ID and file path to the results array."
+        },
+        {
+          "order": 6,
+          "content": "Return the array of linked snippet references."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b360304",
+      "name": "CodeEditor",
+      "enclosing_class": null,
+      "normalized_params": "(props: CodeEditorProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state variables for editor functionality including pushing, syncing, conflict detection, flash messages, and modal visibility."
+        },
+        {
+          "order": 2,
+          "content": "Set up refs for snippets, session, snippet ID, navigation history, and editor view to maintain stable identities for callbacks."
+        },
+        {
+          "order": 3,
+          "content": "Parse the linked envelope from the snippet content using a memoized approach."
+        },
+        {
+          "order": 4,
+          "content": "Load functions for jump dropdown using pseudo-db lookup and fallback to regex extraction."
+        },
+        {
+          "order": 5,
+          "content": "Set up callbacks for symbol click and go-to-definition navigation with proper session and file path handling."
+        },
+        {
+          "order": 6,
+          "content": "Handle editor ready state and jump to line functionality with stable refs."
+        },
+        {
+          "order": 7,
+          "content": "Implement navigation history handling for back button functionality."
+        },
+        {
+          "order": 8,
+          "content": "Set up effect to consume pending jumps when editor is ready."
+        },
+        {
+          "order": 9,
+          "content": "Build merged toolbar controls combining editor actions with SnippetEditor's own controls."
+        },
+        {
+          "order": 10,
+          "content": "Render the appropriate UI based on whether the snippet is linked or not."
+        },
+        {
+          "order": 11,
+          "content": "Display proposed edit review banner if a proposed edit exists."
+        },
+        {
+          "order": 12,
+          "content": "Show conflict banner if a conflict is detected and provide options to resolve it."
+        },
+        {
+          "order": 13,
+          "content": "Render SnippetEditor component with appropriate props and controls."
+        },
+        {
+          "order": 14,
+          "content": "Display file path and timestamps in the footer."
+        },
+        {
+          "order": 15,
+          "content": "Show diff modal for push confirmation or standalone preview."
+        },
+        {
+          "order": 16,
+          "content": "Render references popover when a symbol is clicked."
+        },
+        {
+          "order": 17,
+          "content": "Display definition picker popover for multiple candidate definitions."
+        },
+        {
+          "order": 18,
+          "content": "Show link-and-navigate dialog for feature B navigation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_168707b0",
+      "name": "handleSymbolClick",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(symbol: string, rect: DOMRect): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the file path from the envelope reference."
+        },
+        {
+          "order": 2,
+          "content": "Check if the current session and file path are available."
+        },
+        {
+          "order": 3,
+          "content": "Extract the file stem from the file path."
+        },
+        {
+          "order": 4,
+          "content": "Fetch pseudo-references for the symbol in the current file."
+        },
+        {
+          "order": 5,
+          "content": "If references are found, set the popover state with symbol, references, and rectangle."
+        },
+        {
+          "order": 6,
+          "content": "Silently ignore zero-result lookups."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_24061f1c",
+      "name": "handleGoToDefinition",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(symbol: string, rect: DOMRect): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session and file path from refs."
+        },
+        {
+          "order": 2,
+          "content": "Check if the session and file path are available."
+        },
+        {
+          "order": 3,
+          "content": "Extract the file stem from the file path."
+        },
+        {
+          "order": 4,
+          "content": "Fetch source link candidates for the symbol in the current file."
+        },
+        {
+          "order": 5,
+          "content": "Build linked snippet references from the current snippets."
+        },
+        {
+          "order": 6,
+          "content": "Resolve the definition using the candidates and linked snippets."
+        },
+        {
+          "order": 7,
+          "content": "If definition is not found, return early."
+        },
+        {
+          "order": 8,
+          "content": "If definition is found and linked, navigate to the snippet or jump to line within the same snippet."
+        },
+        {
+          "order": 9,
+          "content": "If definition requires linking, set the link dialog state."
+        },
+        {
+          "order": 10,
+          "content": "If definition requires picker, set the picker state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_563b2c11",
+      "name": "handleLinkAndNavigate",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session from refs."
+        },
+        {
+          "order": 2,
+          "content": "Check if the session and link dialog state are available."
+        },
+        {
+          "order": 3,
+          "content": "Extract the candidate from the link dialog."
+        },
+        {
+          "order": 4,
+          "content": "Link the file using the project and source file path."
+        },
+        {
+          "order": 5,
+          "content": "Record the current editor position in navigation history."
+        },
+        {
+          "order": 6,
+          "content": "Set the pending jump store with the new snippet ID and line."
+        },
+        {
+          "order": 7,
+          "content": "Select the new snippet."
+        },
+        {
+          "order": 8,
+          "content": "Clear the link dialog state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_416eb40b",
+      "name": "handleSnippetToolbarControls",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(controls: React.ReactNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the toolbar controls received from SnippetEditor in state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6f9fb345",
+      "name": "handleEditorReady",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(view: EditorView | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the editor view reference with the provided view."
+        },
+        {
+          "order": 2,
+          "content": "Set the editor ready state to true when the view is not null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a4bf60db",
+      "name": "jumpToLine",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(line: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the editor view from the ref."
+        },
+        {
+          "order": 2,
+          "content": "Check if the editor view is available."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the safe line number within document bounds."
+        },
+        {
+          "order": 4,
+          "content": "Get the position from the line start."
+        },
+        {
+          "order": 5,
+          "content": "Dispatch a selection update to scroll to the line and focus the editor."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f0834828",
+      "name": "handleBack",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the navigation history entry from the back stack."
+        },
+        {
+          "order": 2,
+          "content": "Check if the entry is available."
+        },
+        {
+          "order": 3,
+          "content": "If the entry snippet ID matches the current snippet ID, jump to the line in the current snippet."
+        },
+        {
+          "order": 4,
+          "content": "Otherwise, set the pending jump store and select the snippet from the navigation history."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_21e96507",
+      "name": "refreshSnippet",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the full snippet from the API using project, session name, and snippet ID."
+        },
+        {
+          "order": 3,
+          "content": "If the snippet content is available, update the snippet in the store with the new content and last modified timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Handle any errors during the refresh process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_50072c4c",
+      "name": "actualPush",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available and if pushing is already in progress."
+        },
+        {
+          "order": 2,
+          "content": "Set the pushing state to true."
+        },
+        {
+          "order": 3,
+          "content": "Push the code to the file using the API."
+        },
+        {
+          "order": 4,
+          "content": "Set a flash message indicating success or failure."
+        },
+        {
+          "order": 5,
+          "content": "Clear any conflict state."
+        },
+        {
+          "order": 6,
+          "content": "Refresh the snippet after the push operation."
+        },
+        {
+          "order": 7,
+          "content": "Handle any errors during the push process."
+        },
+        {
+          "order": 8,
+          "content": "Reset the pushing state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b7d9210",
+      "name": "handlePush",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available and if pushing is already in progress or if the snippet is not dirty."
+        },
+        {
+          "order": 2,
+          "content": "Open the diff modal for confirmation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82b6bc50",
+      "name": "handlePreview",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Open the diff modal for preview without confirmation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_346160d2",
+      "name": "handleDeprecate",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available."
+        },
+        {
+          "order": 2,
+          "content": "Set the snippet as deprecated using the API."
+        },
+        {
+          "order": 3,
+          "content": "Update the snippet in the store with the deprecated status and last modified timestamp."
+        },
+        {
+          "order": 4,
+          "content": "Set a flash message indicating success or failure."
+        },
+        {
+          "order": 5,
+          "content": "Refresh the snippet after the deprecation."
+        },
+        {
+          "order": 6,
+          "content": "Handle any errors during the deprecation process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_35eb4bc1",
+      "name": "handleDelete",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available."
+        },
+        {
+          "order": 2,
+          "content": "Delete the snippet using the API."
+        },
+        {
+          "order": 3,
+          "content": "Remove the snippet from the store."
+        },
+        {
+          "order": 4,
+          "content": "Set a flash message indicating success or failure."
+        },
+        {
+          "order": 5,
+          "content": "Handle any errors during the deletion process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc5dca51",
+      "name": "handleSync",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available and if syncing is already in progress."
+        },
+        {
+          "order": 2,
+          "content": "Set the syncing state to true."
+        },
+        {
+          "order": 3,
+          "content": "Sync the code from disk using the API."
+        },
+        {
+          "order": 4,
+          "content": "If there is a conflict, set the conflict state."
+        },
+        {
+          "order": 5,
+          "content": "If the disk changed but there is no conflict, set a flash message indicating synced."
+        },
+        {
+          "order": 6,
+          "content": "If the disk did not change, set a flash message indicating up to date."
+        },
+        {
+          "order": 7,
+          "content": "Refresh the snippet after the sync operation."
+        },
+        {
+          "order": 8,
+          "content": "Handle any errors during the sync process."
+        },
+        {
+          "order": 9,
+          "content": "Reset the syncing state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ac70f99f",
+      "name": "handleAcceptProposal",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available."
+        },
+        {
+          "order": 2,
+          "content": "Accept the proposed edit using the API."
+        },
+        {
+          "order": 3,
+          "content": "Set a flash message indicating success or failure."
+        },
+        {
+          "order": 4,
+          "content": "Refresh the snippet after accepting the proposal."
+        },
+        {
+          "order": 5,
+          "content": "Handle any errors during the acceptance process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e32b3525",
+      "name": "handleRejectProposal",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available."
+        },
+        {
+          "order": 2,
+          "content": "Reject the proposed edit using the API."
+        },
+        {
+          "order": 3,
+          "content": "Set a flash message indicating success or failure."
+        },
+        {
+          "order": 4,
+          "content": "Refresh the snippet after rejecting the proposal."
+        },
+        {
+          "order": 5,
+          "content": "Handle any errors during the rejection process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b27356c",
+      "name": "handleKeepMine",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the conflict state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f49331bb",
+      "name": "handleTakeDisk",
+      "enclosing_class": "CodeEditor",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the current session is available."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the full snippet from the API."
+        },
+        {
+          "order": 3,
+          "content": "Parse the snippet content as JSON."
+        },
+        {
+          "order": 4,
+          "content": "If the snippet is linked and has disk code, update the code and dirty status."
+        },
+        {
+          "order": 5,
+          "content": "Update the snippet content using the API."
+        },
+        {
+          "order": 6,
+          "content": "Clear the conflict state."
+        },
+        {
+          "order": 7,
+          "content": "Set a flash message indicating success or failure."
+        },
+        {
+          "order": 8,
+          "content": "Refresh the snippet after taking the disk version."
+        },
+        {
+          "order": 9,
+          "content": "Handle any errors during the process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

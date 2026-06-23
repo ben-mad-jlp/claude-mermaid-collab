@@ -1,0 +1,243 @@
+{
+  "schema_version": 3,
+  "file": "codex/src/services/topic-service.ts",
+  "title": "Topic database service with CRUD operations",
+  "purpose": "Provides database operations for managing topic records including creation, retrieval, updates, and deletion.",
+  "module_context": "Exports a TopicService class that manages topic records in a SQLite database with prepared statements for performance.",
+  "methods": [
+    {
+      "id": "m_965fd61b",
+      "name": "constructor",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(db: Database.Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the database connection in a private property."
+        },
+        {
+          "order": 2,
+          "content": "Prepare all SQL statements for database operations."
+        },
+        {
+          "order": 3,
+          "content": "Initialize the statements object with prepared queries for getByName, create, updateVerified, updateModified, list, setHasDraft, updateConfidence, and delete."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_91540049",
+      "name": "rowToRecord",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(row: TopicRow): TopicRecord",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert a database row to a TopicRecord with proper type conversion."
+        },
+        {
+          "order": 2,
+          "content": "Map the has_draft field from number to boolean."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_684e8215",
+      "name": "getByName",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(name: string): TopicRecord | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared getByName statement with the provided topic name."
+        },
+        {
+          "order": 2,
+          "content": "IF a row is returned, convert it to a TopicRecord."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return null if no matching topic is found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6964aaf1",
+      "name": "create",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(name: string): TopicRecord",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared create statement with the topic name."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the newly created topic by name."
+        },
+        {
+          "order": 3,
+          "content": "IF the topic cannot be retrieved, throw an error indicating creation failure."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return the created topic record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4ae3b293",
+      "name": "updateVerified",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared updateVerified statement with the topic name."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the topic was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b606f0b2",
+      "name": "updateModified",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(name: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared updateModified statement with the topic name."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the topic was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0934508f",
+      "name": "list",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(): TopicRecord[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared list statement to retrieve all topics."
+        },
+        {
+          "order": 2,
+          "content": "Convert each returned row to a TopicRecord."
+        },
+        {
+          "order": 3,
+          "content": "Return the array of converted topic records."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_420014a5",
+      "name": "setHasDraft",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(name: string, hasDraft: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared setHasDraft statement with the draft flag and topic name."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the topic was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6e1a6902",
+      "name": "updateConfidence",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(name: string, confidence: ConfidenceTier): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared updateConfidence statement with the confidence tier and topic name."
+        },
+        {
+          "order": 2,
+          "content": "IF no rows are affected by the update, throw an error indicating the topic was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_acfce2b4",
+      "name": "delete",
+      "enclosing_class": "TopicService",
+      "normalized_params": "(name: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the prepared delete statement with the topic name."
+        },
+        {
+          "order": 2,
+          "content": "IF the number of affected rows is greater than zero, return true indicating successful deletion."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false indicating the topic was not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

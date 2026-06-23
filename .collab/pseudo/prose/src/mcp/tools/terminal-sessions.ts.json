@@ -1,0 +1,226 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/terminal-sessions.ts",
+  "title": "Terminal session management tools for collab sessions",
+  "purpose": "Provides functions to create, list, kill, rename, and reorder terminal sessions within collaborative development environments.",
+  "module_context": "Exports multiple terminal session management functions and tool schemas for MCP registration. Includes input validation and integration with terminal manager service for tmux session handling.",
+  "methods": [
+    {
+      "id": "m_bade26c4",
+      "name": "terminalCreateSession",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, name?: string): Promise<CreateSessionResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project and session parameters are non-empty strings."
+        },
+        {
+          "order": 2,
+          "content": "Read the current sessions state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Determine an appropriate display name for the new session."
+        },
+        {
+          "order": 4,
+          "content": "Generate a unique tmux session name for the new session."
+        },
+        {
+          "order": 5,
+          "content": "Create a new tmux session in the project directory."
+        },
+        {
+          "order": 6,
+          "content": "Construct a new session record with generated ID and metadata."
+        },
+        {
+          "order": 7,
+          "content": "Add the new session to the sessions array."
+        },
+        {
+          "order": 8,
+          "content": "Write the updated sessions state back to storage."
+        },
+        {
+          "order": 9,
+          "content": "Return the result containing session ID and connection details."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_30014c50",
+      "name": "terminalListSessions",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<ListSessionsResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project and session parameters are non-empty strings."
+        },
+        {
+          "order": 2,
+          "content": "Read the current sessions state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Sort the sessions by their order field in ascending order."
+        },
+        {
+          "order": 4,
+          "content": "Return the sorted list of sessions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_304dc2da",
+      "name": "terminalKillSession",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string): Promise<KillSessionResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project, session, and id parameters are non-empty strings."
+        },
+        {
+          "order": 2,
+          "content": "Read the current sessions state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Find the session to kill by its ID."
+        },
+        {
+          "order": 4,
+          "content": "IF the session is not found, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Kill the tmux process associated with the session."
+        },
+        {
+          "order": 6,
+          "content": "Remove the session from the sessions array."
+        },
+        {
+          "order": 7,
+          "content": "Recompute the order field for all remaining sessions."
+        },
+        {
+          "order": 8,
+          "content": "Write the updated sessions state back to storage."
+        },
+        {
+          "order": 9,
+          "content": "Return a success result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a61a3f9",
+      "name": "terminalRenameSession",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, id: string, name: string): Promise<RenameSessionResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project, session, id, and name parameters meet required criteria."
+        },
+        {
+          "order": 2,
+          "content": "Read the current sessions state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Find the session to rename by its ID."
+        },
+        {
+          "order": 4,
+          "content": "IF the session is not found, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Trim whitespace from the new name and default to 'Terminal' if empty."
+        },
+        {
+          "order": 6,
+          "content": "Update the name field of the session."
+        },
+        {
+          "order": 7,
+          "content": "Write the updated sessions state back to storage."
+        },
+        {
+          "order": 8,
+          "content": "Return a success result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ce92490b",
+      "name": "terminalReorderSessions",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, orderedIds: string[]): Promise<ReorderSessionsResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project, session, and orderedIds parameters meet required criteria."
+        },
+        {
+          "order": 2,
+          "content": "Read the current sessions state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Validate that orderedIds contains all session IDs and no extras."
+        },
+        {
+          "order": 4,
+          "content": "IF validation fails, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "Reorder the sessions array according to the provided ordered IDs."
+        },
+        {
+          "order": 6,
+          "content": "Update the order field for each session in the new order."
+        },
+        {
+          "order": 7,
+          "content": "Write the updated sessions state back to storage."
+        },
+        {
+          "order": 8,
+          "content": "Return a success result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

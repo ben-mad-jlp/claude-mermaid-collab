@@ -1,0 +1,77 @@
+{
+  "schema_version": 3,
+  "file": "codex/src/services/index.ts",
+  "title": "Exports all core service modules for topic, flag, access, and confidence management",
+  "purpose": "Provides a centralized export point for all service modules used in the codex application, making them easily importable by other parts of the system.",
+  "module_context": "Exports TopicService, FlagService, AccessService, and ConfidenceService modules along with their respective type definitions for topic records, flag status and records, access counts, and confidence records.",
+  "methods": [
+    {
+      "id": "m_39e0e59e",
+      "name": "TopicService",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the TopicService class for managing topic-related operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1ece3cc8",
+      "name": "FlagService",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the FlagService class for managing flag-related operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2cb73e8c",
+      "name": "AccessService",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the AccessService class for managing access-related operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ebb08663",
+      "name": "ConfidenceService",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ConfidenceService class for managing confidence-related operations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,179 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/pseudo-api.ts",
+  "title": "Pseudo API route handler with file listing, searching, and graph analysis",
+  "purpose": "Provides REST API endpoints for reading and searching .pseudo files, including file listings, content retrieval, search, references, call graphs, and impact analysis.",
+  "module_context": "Exports a main handler function for pseudo API requests and several internal helper functions for specific routes and error handling.",
+  "methods": [
+    {
+      "id": "m_f0716147",
+      "name": "handlePseudoAPI",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the request URL to extract the path and query parameters."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the required project parameter is present."
+        },
+        {
+          "order": 3,
+          "content": "Route the request based on the path and HTTP method to the appropriate handler."
+        },
+        {
+          "order": 4,
+          "content": "For file listing, search, references, call graph, exports, impact analysis, orphans, coverage, source link, functions for source, stats, directories, and diagram endpoints, delegate to specific handler functions."
+        },
+        {
+          "order": 5,
+          "content": "Return appropriate error responses for missing parameters or unsupported paths."
+        },
+        {
+          "order": 6,
+          "content": "Handle unexpected errors by logging them and returning a generic internal server error response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e602a2e5",
+      "name": "handleListFiles",
+      "enclosing_class": "handlePseudoAPI",
+      "normalized_params": "(project: string): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the pseudo database instance for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Fetch the list of files from the database."
+        },
+        {
+          "order": 3,
+          "content": "Return the file list in a JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a9eda0f2",
+      "name": "handleGetFile",
+      "enclosing_class": "handlePseudoAPI",
+      "normalized_params": "(project: string, file: string): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the pseudo database instance for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to retrieve the file content using the exact file path."
+        },
+        {
+          "order": 3,
+          "content": "IF the exact path fails, attempt to retrieve the file using the file stem."
+        },
+        {
+          "order": 4,
+          "content": "IF no file is found, return a not found error."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the file content in a JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7d3492fa",
+      "name": "handleSearch",
+      "enclosing_class": "handlePseudoAPI",
+      "normalized_params": "(project: string, query: string): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the pseudo database instance for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Perform a search in the database using the provided query."
+        },
+        {
+          "order": 3,
+          "content": "Return the search results in a JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_318fe4bb",
+      "name": "handleGetReferences",
+      "enclosing_class": "handlePseudoAPI",
+      "normalized_params": "(project: string, functionName: string, fileStem: string): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the pseudo database instance for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Fetch references for the specified function name and file stem."
+        },
+        {
+          "order": 3,
+          "content": "Return the references in a JSON response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a704a94d",
+      "name": "jsonError",
+      "enclosing_class": "handlePseudoAPI",
+      "normalized_params": "(message: string, status: number): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a JSON response object containing the error message."
+        },
+        {
+          "order": 2,
+          "content": "Set the HTTP status code on the response."
+        },
+        {
+          "order": 3,
+          "content": "Return the formatted error response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

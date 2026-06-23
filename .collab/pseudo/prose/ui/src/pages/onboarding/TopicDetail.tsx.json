@@ -1,0 +1,215 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/TopicDetail.tsx",
+  "title": "Onboarding topic detail page with markdown tabs and related files sidebar",
+  "purpose": "Displays detailed information about a specific topic in the onboarding flow, including markdown content, related files, and onboarding features like progress tracking and notes.",
+  "module_context": "Exports a React component that handles topic detail display with markdown rendering, tab navigation, progress tracking, note management, and related file linking.",
+  "methods": [
+    {
+      "id": "m_498e2ce6",
+      "name": "TopicDetail",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the topic name from URL parameters."
+        },
+        {
+          "order": 2,
+          "content": "Access project, mode, and current user data from onboarding context."
+        },
+        {
+          "order": 3,
+          "content": "Initialize state for topic data, active tab, loading status, progress, notes, and new note input."
+        },
+        {
+          "order": 4,
+          "content": "Fetch topic data from API when project and name are available."
+        },
+        {
+          "order": 5,
+          "content": "Parse related topics from the fetched content."
+        },
+        {
+          "order": 6,
+          "content": "Fetch user progress and notes when in onboarding mode."
+        },
+        {
+          "order": 7,
+          "content": "Render loading or not found state while fetching data."
+        },
+        {
+          "order": 8,
+          "content": "Display topic header with name and file path."
+        },
+        {
+          "order": 9,
+          "content": "Show progress tracking buttons when in onboarding mode."
+        },
+        {
+          "order": 10,
+          "content": "Render tab navigation for overview, functions, and dependencies."
+        },
+        {
+          "order": 11,
+          "content": "Display markdown content for the active tab."
+        },
+        {
+          "order": 12,
+          "content": "Show notes section with add and delete functionality when in onboarding mode."
+        },
+        {
+          "order": 13,
+          "content": "Render sidebar with related files links."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9756e9c9",
+      "name": "handleMark",
+      "enclosing_class": "TopicDetail",
+      "normalized_params": "(status: 'explored' | 'skipped'): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project, topic name, and current user are available."
+        },
+        {
+          "order": 2,
+          "content": "Mark the topic progress in the API with the specified status."
+        },
+        {
+          "order": 3,
+          "content": "Update local progress state with the new progress entry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f43bcb0b",
+      "name": "handleUndo",
+      "enclosing_class": "TopicDetail",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project, topic name, and current user are available."
+        },
+        {
+          "order": 2,
+          "content": "Delete the progress entry from the API."
+        },
+        {
+          "order": 3,
+          "content": "Clear local progress state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ef818699",
+      "name": "handleAddNote",
+      "enclosing_class": "TopicDetail",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project, topic name, current user, and note content are available."
+        },
+        {
+          "order": 2,
+          "content": "Add the new note to the API."
+        },
+        {
+          "order": 3,
+          "content": "Update local notes state by prepending the new note."
+        },
+        {
+          "order": 4,
+          "content": "Clear the new note input field."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_119d93a3",
+      "name": "handleDeleteNote",
+      "enclosing_class": "TopicDetail",
+      "normalized_params": "(noteId: number): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project is available."
+        },
+        {
+          "order": 2,
+          "content": "Delete the note from the API using its ID."
+        },
+        {
+          "order": 3,
+          "content": "Update local notes state by filtering out the deleted note."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7a799268",
+      "name": "parseRelatedLinks",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return empty array if content is empty."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an array to collect related topic links."
+        },
+        {
+          "order": 3,
+          "content": "Extract markdown links using regex pattern matching."
+        },
+        {
+          "order": 4,
+          "content": "Extract bolded topic names using regex pattern matching."
+        },
+        {
+          "order": 5,
+          "content": "Ensure no duplicate topic names are added to the results."
+        },
+        {
+          "order": 6,
+          "content": "Return the collected list of related topic names."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

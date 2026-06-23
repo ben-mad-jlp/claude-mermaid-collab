@@ -1,0 +1,59 @@
+{
+  "id": "collab-sidebar-tabs",
+  "name": "collab-sidebar-tabs",
+  "definition": {
+    "url": "http://localhost:3002/collab/session?session=codex&project=/srv/codebase/open-collab",
+    "steps": [
+      {
+        "wait": 3000
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar-tab-items\"]') ? 'found' : 'missing'",
+        "as": "itemsTab"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar-tab-code\"]') ? 'found' : 'missing'",
+        "as": "codeTab"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar-search\"]') ? 'found' : 'missing'",
+        "as": "search"
+      },
+      {
+        "click": {
+          "selector": "[data-testid=\"sidebar-tab-code\"]"
+        }
+      },
+      {
+        "wait": 500
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar-tab-code\"]')?.getAttribute('aria-selected') || document.querySelector('[data-testid=\"sidebar-tab-code\"]')?.className",
+        "as": "codeTabState"
+      },
+      {
+        "click": {
+          "selector": "[data-testid=\"sidebar-tab-items\"]"
+        }
+      },
+      {
+        "wait": 500
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"sidebar-search\"]') ? 'found' : 'missing'",
+        "as": "searchAfterTabSwitch"
+      }
+    ]
+  },
+  "createdAt": "2026-04-25T19:52:22.542Z",
+  "updatedAt": "2026-04-25T19:52:22.542Z"
+}

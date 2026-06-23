@@ -1,0 +1,106 @@
+{
+  "schema_version": 3,
+  "file": "vitest.setup.ts",
+  "title": "Vitest setup file with external mocks and database wrapper",
+  "purpose": "Configures Vitest test environment by mocking external dependencies like mermaid and bun:sqlite to enable isolated testing.",
+  "module_context": "Sets up global mocks for testing environment including mermaid and bun:sqlite database wrapper.",
+  "methods": [
+    {
+      "id": "m_76b7c07c",
+      "name": "default",
+      "enclosing_class": "DatabaseWrapper",
+      "normalized_params": "(filepath: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the underlying better-sqlite3 database with the provided file path."
+        },
+        {
+          "order": 2,
+          "content": "Store the database instance for use in query methods."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_da181a48",
+      "name": "query",
+      "enclosing_class": "DatabaseWrapper",
+      "normalized_params": "(sql: string): { get: (...params: any[]) => any; all: (...params: any[]) => any; run: (...params: any[]) => any }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare a SQL statement using the underlying database."
+        },
+        {
+          "order": 2,
+          "content": "Return an object with methods to execute the prepared statement with different result types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0efd7624",
+      "name": "run",
+      "enclosing_class": "DatabaseWrapper",
+      "normalized_params": "(sql: string, ...params: any[]): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare a SQL statement using the underlying database."
+        },
+        {
+          "order": 2,
+          "content": "Execute the prepared statement with the provided parameters."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dae20c06",
+      "name": "exec",
+      "enclosing_class": "DatabaseWrapper",
+      "normalized_params": "(sql: string): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute the provided SQL statement directly on the underlying database."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7575738",
+      "name": "close",
+      "enclosing_class": "DatabaseWrapper",
+      "normalized_params": "(): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the underlying database connection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

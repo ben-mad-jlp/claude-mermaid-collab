@@ -1,0 +1,1163 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/sessionStore.ts",
+  "title": "Session store for managing session, diagrams, documents, and related state",
+  "purpose": "Centralized state management for session data including diagrams, documents, designs, spreadsheets, snippets, embeds, images, and todos. Provides reactive updates and selection state for various file types.",
+  "module_context": "Exports a Zustand store named useSessionStore that manages session state with actions for all file types and selection management. Includes initial state definition and comprehensive CRUD operations for each file type.",
+  "methods": [
+    {
+      "id": "m_6ab13466",
+      "name": "setSessions",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(sessions: Session[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of available sessions in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7be96843",
+      "name": "setCurrentSession",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(session: Session | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the current session to the provided session."
+        },
+        {
+          "order": 2,
+          "content": "IF the session is changing, clear all related state including diagrams, documents, designs, spreadsheets, snippets, embeds, images, and todos."
+        },
+        {
+          "order": 3,
+          "content": "IF a new session is being set, fetch session todos for that session."
+        },
+        {
+          "order": 4,
+          "content": "IF fetching todos succeeds, update the store with the fetched todos."
+        },
+        {
+          "order": 5,
+          "content": "IF fetching todos fails, log the error and continue."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_069b04e7",
+      "name": "setLoading",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(loading: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the loading state to the provided boolean value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4fd48a70",
+      "name": "setError",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(error: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the error state to the provided error message or null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6ef4957a",
+      "name": "setDiagrams",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(diagrams: Diagram[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of diagrams in the store."
+        },
+        {
+          "order": 2,
+          "content": "IF a diagram was selected and it's no longer in the new list, clear the selected diagram."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f2289a46",
+      "name": "addDiagram",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(diagram: Diagram): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided diagram to the list of diagrams."
+        },
+        {
+          "order": 2,
+          "content": "IF a diagram with the same ID already exists, do not add it again."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1bf58a91",
+      "name": "updateDiagram",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string, updates: Partial<Diagram>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the diagram with the matching ID and update its properties with the provided updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84afba94",
+      "name": "removeDiagram",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the diagram with the matching ID from the list of diagrams."
+        },
+        {
+          "order": 2,
+          "content": "IF the removed diagram was selected, clear the selected diagram."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c81df685",
+      "name": "selectDiagram",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the diagram with the matching ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the diagram does not exist and is not null, do not select it."
+        },
+        {
+          "order": 3,
+          "content": "IF a diagram is selected, clear all other selection states including document, design, spreadsheet, snippet, embed, image, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_da64acd1",
+      "name": "getSelectedDiagram",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): Diagram | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the currently selected diagram from the list of diagrams."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_caab3c4c",
+      "name": "setDocuments",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(documents: Document[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of documents in the store."
+        },
+        {
+          "order": 2,
+          "content": "IF a document was selected and it's no longer in the new list, clear the selected document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_86108d12",
+      "name": "addDocument",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(document: Document): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided document to the list of documents."
+        },
+        {
+          "order": 2,
+          "content": "IF a document with the same ID already exists, do not add it again."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e087c64",
+      "name": "updateDocument",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string, updates: Partial<Document>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the document with the matching ID and update its properties with the provided updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c68ac724",
+      "name": "removeDocument",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the document with the matching ID from the list of documents."
+        },
+        {
+          "order": 2,
+          "content": "IF the removed document was selected, clear the selected document."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f974c94c",
+      "name": "selectDocument",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the document with the matching ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the document does not exist and is not null, do not select it."
+        },
+        {
+          "order": 3,
+          "content": "IF a document is selected, clear all other selection states including diagram, design, spreadsheet, snippet, embed, image, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59cc3868",
+      "name": "getSelectedDocument",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): Document | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the currently selected document from the list of documents."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dcd8cca5",
+      "name": "setDesigns",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(designs: Design[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of designs in the store."
+        },
+        {
+          "order": 2,
+          "content": "IF a design was selected and it's no longer in the new list, clear the selected design."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2e6b839c",
+      "name": "addDesign",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(design: Design): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided design to the list of designs."
+        },
+        {
+          "order": 2,
+          "content": "IF a design with the same ID already exists, do not add it again."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_602a4f6e",
+      "name": "updateDesign",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string, updates: Partial<Design>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the design with the matching ID and update its properties with the provided updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_22bdf68a",
+      "name": "removeDesign",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the design with the matching ID from the list of designs."
+        },
+        {
+          "order": 2,
+          "content": "IF the removed design was selected, clear the selected design."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2dd1df5a",
+      "name": "selectDesign",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the design with the matching ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the design does not exist and is not null, do not select it."
+        },
+        {
+          "order": 3,
+          "content": "IF a design is selected, clear all other selection states including diagram, document, spreadsheet, snippet, embed, image, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9e8e048e",
+      "name": "getSelectedDesign",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): Design | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the currently selected design from the list of designs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78de0ebf",
+      "name": "setSpreadsheets",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(spreadsheets: Spreadsheet[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of spreadsheets in the store."
+        },
+        {
+          "order": 2,
+          "content": "IF a spreadsheet was selected and it's no longer in the new list, clear the selected spreadsheet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_729726bb",
+      "name": "addSpreadsheet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(spreadsheet: Spreadsheet): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided spreadsheet to the list of spreadsheets."
+        },
+        {
+          "order": 2,
+          "content": "IF a spreadsheet with the same ID already exists, do not add it again."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e956e020",
+      "name": "updateSpreadsheet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string, updates: Partial<Spreadsheet>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the spreadsheet with the matching ID and update its properties with the provided updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5eaa0538",
+      "name": "removeSpreadsheet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the spreadsheet with the matching ID from the list of spreadsheets."
+        },
+        {
+          "order": 2,
+          "content": "IF the removed spreadsheet was selected, clear the selected spreadsheet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5ee486bd",
+      "name": "selectSpreadsheet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the spreadsheet with the matching ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the spreadsheet does not exist and is not null, do not select it."
+        },
+        {
+          "order": 3,
+          "content": "IF a spreadsheet is selected, clear all other selection states including diagram, document, design, snippet, embed, image, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ede2b8a8",
+      "name": "getSelectedSpreadsheet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): Spreadsheet | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the currently selected spreadsheet from the list of spreadsheets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bdd6152b",
+      "name": "setSnippets",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(snippets: Snippet[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of snippets in the store."
+        },
+        {
+          "order": 2,
+          "content": "IF a snippet was selected and it's no longer in the new list, clear the selected snippet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1525ed90",
+      "name": "addSnippet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(snippet: Snippet): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided snippet to the list of snippets."
+        },
+        {
+          "order": 2,
+          "content": "IF a snippet with the same ID already exists, do not add it again."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7ba5c79a",
+      "name": "updateSnippet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string, updates: Partial<Snippet>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the snippet with the matching ID and update its properties with the provided updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b43039fa",
+      "name": "removeSnippet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the snippet with the matching ID from the list of snippets."
+        },
+        {
+          "order": 2,
+          "content": "IF the removed snippet was selected, clear the selected snippet."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d07eca3",
+      "name": "selectSnippet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the snippet with the matching ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the snippet does not exist and is not null, do not select it."
+        },
+        {
+          "order": 3,
+          "content": "IF a snippet is selected, clear all other selection states including diagram, document, design, spreadsheet, embed, image, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_99f9c24d",
+      "name": "getSelectedSnippet",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): Snippet | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the currently selected snippet from the list of snippets."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cb934bf2",
+      "name": "setEmbeds",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(embeds: Embed[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of embeds in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e28bd5d0",
+      "name": "addEmbed",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(embed: Embed): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided embed to the list of embeds."
+        },
+        {
+          "order": 2,
+          "content": "IF an embed with the same ID already exists, do not add it again."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7d2b46ad",
+      "name": "removeEmbed",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the embed with the matching ID from the list of embeds."
+        },
+        {
+          "order": 2,
+          "content": "IF the removed embed was selected, clear the selected embed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16d8ca42",
+      "name": "selectEmbed",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the embed with the matching ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the embed does not exist and is not null, do not select it."
+        },
+        {
+          "order": 3,
+          "content": "IF an embed is selected, clear all other selection states including diagram, document, design, spreadsheet, snippet, image, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_94ad6840",
+      "name": "getSelectedEmbed",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): Embed | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the currently selected embed from the list of embeds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_57ca1fb6",
+      "name": "setImages",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(images: Image[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of images in the store."
+        },
+        {
+          "order": 2,
+          "content": "IF an image was selected and it's no longer in the new list, clear the selected image."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_81087080",
+      "name": "addImage",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(image: Image): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the provided image to the list of images."
+        },
+        {
+          "order": 2,
+          "content": "IF an image with the same ID already exists, do not add it again."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7b2f64d",
+      "name": "updateImage",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string, updates: Partial<Image>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the image with the matching ID and update its properties with the provided updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_981e7af1",
+      "name": "removeImage",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the image with the matching ID from the list of images."
+        },
+        {
+          "order": 2,
+          "content": "IF the removed image was selected, clear the selected image."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d84e6802",
+      "name": "selectImage",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the image with the matching ID."
+        },
+        {
+          "order": 2,
+          "content": "IF the image does not exist and is not null, do not select it."
+        },
+        {
+          "order": 3,
+          "content": "IF an image is selected, clear all other selection states including diagram, document, design, spreadsheet, snippet, embed, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bfa05816",
+      "name": "getSelectedImage",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): Image | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the currently selected image from the list of images."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3c54bc8c",
+      "name": "selectPseudoPath",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(path: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the selected pseudo file path to the provided path."
+        },
+        {
+          "order": 2,
+          "content": "Clear all other selection states including diagram, document, design, spreadsheet, snippet, embed, image, and task graph selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc554f3b",
+      "name": "setCollabState",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(state: CollabState | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the collaborative state to the provided value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ca657cff",
+      "name": "selectTaskGraph",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Mark that the task graph is selected."
+        },
+        {
+          "order": 2,
+          "content": "Clear all other selection states including diagram, document, design, spreadsheet, snippet, embed, image, and pseudo path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d4bbc614",
+      "name": "clearTaskGraphSelection",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the task graph selection state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb314ad5",
+      "name": "setSessionTodos",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(todos: SessionTodo[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the list of session todos in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d961879",
+      "name": "upsertSessionTodo",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(todo: SessionTodo): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find an existing todo with the same ID and update it with the provided todo."
+        },
+        {
+          "order": 2,
+          "content": "IF no existing todo is found, add the provided todo to the list of todos."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1b02a678",
+      "name": "removeSessionTodoLocal",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(id: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the session todo with the matching ID from the list of todos."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f9b58714",
+      "name": "setSessionTodosList",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(todos: SessionTodo[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace the current list of session todos with the provided list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c51511b3",
+      "name": "setSessionTodosShowCompleted",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(value: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the flag to show completed session todos to the provided boolean value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_68f6b78a",
+      "name": "setPendingDiff",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(diff: DiffState | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the pending diff state to the provided diff or null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8824e1ba",
+      "name": "clearPendingDiff",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the pending diff state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ba250b45",
+      "name": "clearSession",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all session data including current session, diagrams, documents, designs, spreadsheets, snippets, embeds, images, todos, and collab state."
+        },
+        {
+          "order": 2,
+          "content": "Reset selection states to null for all file types and clear error state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_93b192db",
+      "name": "reset",
+      "enclosing_class": "useSessionStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the entire store to its initial state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

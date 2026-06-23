@@ -1,0 +1,162 @@
+{
+  "schema_version": 3,
+  "file": "src/services/terminal-ws-server.ts",
+  "title": "WebSocket terminal server using Bun's PTY support with tmux integration",
+  "purpose": "Provides terminal connections via WebSocket using Bun's native PTY support and tmux sessions, enabling terminal emulation and forwarding of data between clients and tmux processes.",
+  "module_context": "Exports functions to manage terminal WebSocket connections, including handling connections, messages, and disconnections, with active terminal sessions stored in a Map.",
+  "methods": [
+    {
+      "id": "m_8923f34c",
+      "name": "parseMessage",
+      "enclosing_class": null,
+      "normalized_params": "(data: string | Buffer): TerminalMessage | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the input data as JSON."
+        },
+        {
+          "order": 2,
+          "content": "IF parsing succeeds and the message is a resize type with valid columns and rows, return the parsed resize message."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF parsing succeeds and the message is a data type with valid data string, return the parsed data message."
+        },
+        {
+          "order": 4,
+          "content": "ELSE treat the input as raw terminal data and return a data message with the input string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c367e532",
+      "name": "handleTerminalConnection",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<unknown>, tmuxSession: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Log the new terminal WebSocket connection for the specified tmux session."
+        },
+        {
+          "order": 2,
+          "content": "Determine the tmux executable path by checking predefined locations."
+        },
+        {
+          "order": 3,
+          "content": "Ensure the tmux session exists by checking if it has a session, creating it if needed, and enabling mouse mode."
+        },
+        {
+          "order": 4,
+          "content": "Capture scrollback history from the tmux session and send it to the WebSocket client."
+        },
+        {
+          "order": 5,
+          "content": "Spawn a tmux attach process with PTY terminal support and configure data and exit handlers."
+        },
+        {
+          "order": 6,
+          "content": "Store the active terminal session in the global map with process, terminal, and tmux session information."
+        },
+        {
+          "order": 7,
+          "content": "Handle process exit by closing the WebSocket and removing the session from the global map."
+        },
+        {
+          "order": 8,
+          "content": "IF an error occurs during setup, send an error message to the client and close the WebSocket."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_616ca035",
+      "name": "handleTerminalMessage",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<unknown>, message: string | Buffer): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the active terminal session associated with the WebSocket."
+        },
+        {
+          "order": 2,
+          "content": "IF no active session exists, log a warning and return."
+        },
+        {
+          "order": 3,
+          "content": "Parse the incoming message using the parseMessage function."
+        },
+        {
+          "order": 4,
+          "content": "IF parsing fails, return without further action."
+        },
+        {
+          "order": 5,
+          "content": "IF the message is a resize type, attempt to resize the terminal with the specified dimensions."
+        },
+        {
+          "order": 6,
+          "content": "ELSE IF the message is a data type, write the data to the terminal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8bde836a",
+      "name": "handleTerminalDisconnection",
+      "enclosing_class": null,
+      "normalized_params": "(ws: ServerWebSocket<unknown>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the active terminal session associated with the WebSocket."
+        },
+        {
+          "order": 2,
+          "content": "IF an active session exists, close the terminal and kill the process."
+        },
+        {
+          "order": 3,
+          "content": "Remove the session from the global map of active terminals."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a26cd31c",
+      "name": "getActiveTerminalCount",
+      "enclosing_class": null,
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the number of active terminal connections stored in the global map."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

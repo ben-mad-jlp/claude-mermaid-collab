@@ -1,0 +1,335 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-ctags.ts",
+  "title": "Pseudo Ctags scanner for Go/Rust/Java/Kotlin/Ruby with graceful fallback",
+  "purpose": "Scans source files using universal-ctags to extract structural method information for supported languages, with fallback behavior when ctags is unavailable.",
+  "module_context": "Exports CtagsAvailability and CtagsScanOptions interfaces, defines constants for supported extensions, languages, timeouts, and batch limits. Includes FUNCTION_KINDS set for filtering method types.",
+  "methods": [
+    {
+      "id": "m_60afcc68",
+      "name": "detectCtags",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<CtagsAvailability>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Spawn a process to execute ctags --version command."
+        },
+        {
+          "order": 2,
+          "content": "Set up timeout to kill the process if it takes longer than DETECT_TIMEOUT_MS."
+        },
+        {
+          "order": 3,
+          "content": "Capture stdout and stderr from the ctags process."
+        },
+        {
+          "order": 4,
+          "content": "IF the process fails to start, resolve with unavailable status and error message."
+        },
+        {
+          "order": 5,
+          "content": "IF the process exits with non-zero code, resolve with unavailable status and error details."
+        },
+        {
+          "order": 6,
+          "content": "ELSE parse the version string from stdout to determine if it's Universal Ctags and extract version number."
+        },
+        {
+          "order": 7,
+          "content": "Resolve with available status, isUniversal flag, and version information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_174d3ac8",
+      "name": "scanFilesWithCtags",
+      "enclosing_class": null,
+      "normalized_params": "(absPaths: string[], opts?: CtagsScanOptions): Promise<Map<string, StructuralMethod[]>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter input file paths to only include those with supported extensions."
+        },
+        {
+          "order": 2,
+          "content": "IF no files match the extensions, return an empty result map."
+        },
+        {
+          "order": 3,
+          "content": "IF the abort signal is already triggered, return an empty result map."
+        },
+        {
+          "order": 4,
+          "content": "Process files in batches of MAX_FILES_PER_BATCH to avoid exceeding system limits."
+        },
+        {
+          "order": 5,
+          "content": "IF the abort signal is triggered during processing, stop and return current results."
+        },
+        {
+          "order": 6,
+          "content": "Run ctags on each batch and merge results into the final map."
+        },
+        {
+          "order": 7,
+          "content": "IF a batch fails, log warning and continue with remaining batches."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0cc48013",
+      "name": "runCtagsBatch",
+      "enclosing_class": "scanFilesWithCtags",
+      "normalized_params": "(paths: string[], signal?: AbortSignal): Promise<Map<string, StructuralMethod[]>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Spawn a ctags process with JSON output format and specified languages."
+        },
+        {
+          "order": 2,
+          "content": "Set up timeout to kill the process if it takes longer than SCAN_TIMEOUT_MS."
+        },
+        {
+          "order": 3,
+          "content": "Set up abort listener to terminate process if signal is triggered."
+        },
+        {
+          "order": 4,
+          "content": "Accumulate stdout data and parse JSON lines as they arrive."
+        },
+        {
+          "order": 5,
+          "content": "IF the process fails to start, reject with the error."
+        },
+        {
+          "order": 6,
+          "content": "IF the process exits with non-zero code, reject with error message from stderr."
+        },
+        {
+          "order": 7,
+          "content": "ELSE resolve with the parsed structural methods grouped by file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_77711846",
+      "name": "ingestLine",
+      "enclosing_class": "runCtagsBatch",
+      "normalized_params": "(line: string, out: Map<string, StructuralMethod[]>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the JSON line from ctags output."
+        },
+        {
+          "order": 2,
+          "content": "IF parsing fails or the line is not a tag, return early."
+        },
+        {
+          "order": 3,
+          "content": "IF the tag lacks name or path, return early."
+        },
+        {
+          "order": 4,
+          "content": "IF the tag kind is not a function type, return early."
+        },
+        {
+          "order": 5,
+          "content": "Convert the ctags JSON tag to a StructuralMethod object."
+        },
+        {
+          "order": 6,
+          "content": "Add the method to the output map under its file path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_caf1ad31",
+      "name": "jsonTagToStructuralMethod",
+      "enclosing_class": "ingestLine",
+      "normalized_params": "(json: CtagsJsonTag): StructuralMethod",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract start and end line numbers from the JSON tag."
+        },
+        {
+          "order": 2,
+          "content": "Parse the raw signature string to extract parameter types."
+        },
+        {
+          "order": 3,
+          "content": "Determine if the method is exported based on access or language-specific rules."
+        },
+        {
+          "order": 4,
+          "content": "Build and return a StructuralMethod object with all parsed information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_927138cc",
+      "name": "parseSignature",
+      "enclosing_class": "jsonTagToStructuralMethod",
+      "normalized_params": "(sig: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the signature string and remove outer parentheses."
+        },
+        {
+          "order": 2,
+          "content": "Split the signature into segments at top-level commas."
+        },
+        {
+          "order": 3,
+          "content": "Extract type tokens from each segment."
+        },
+        {
+          "order": 4,
+          "content": "Join the extracted types with commas and return the normalized parameter string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_243e4679",
+      "name": "splitTopLevel",
+      "enclosing_class": "parseSignature",
+      "normalized_params": "(input: string, delim: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize tracking variables for parsing nested structures."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each character in the input string."
+        },
+        {
+          "order": 3,
+          "content": "Track nesting depth for brackets and parentheses."
+        },
+        {
+          "order": 4,
+          "content": "Track string literals to avoid splitting inside quoted content."
+        },
+        {
+          "order": 5,
+          "content": "IF a delimiter is found at top level, extract and store the segment."
+        },
+        {
+          "order": 6,
+          "content": "Return the list of parsed segments."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a55f3fa7",
+      "name": "extractTypeToken",
+      "enclosing_class": "parseSignature",
+      "normalized_params": "(segment: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the colon separator in the segment to extract type information."
+        },
+        {
+          "order": 2,
+          "content": "IF a colon exists, return the part after it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE split the segment by whitespace and return the last part."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_723acd2d",
+      "name": "deriveIsExported",
+      "enclosing_class": "jsonTagToStructuralMethod",
+      "normalized_params": "(json: CtagsJsonTag): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF access information is present, return true if it's public or default."
+        },
+        {
+          "order": 2,
+          "content": "ELSE IF the language is Go, check if the first character is uppercase."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return true as default exported status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4c14f3c8",
+      "name": "isFunctionKind",
+      "enclosing_class": "ingestLine",
+      "normalized_params": "(kind: string | undefined): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the kind is undefined, return false."
+        },
+        {
+          "order": 2,
+          "content": "ELSE check if the kind is in the set of function kinds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

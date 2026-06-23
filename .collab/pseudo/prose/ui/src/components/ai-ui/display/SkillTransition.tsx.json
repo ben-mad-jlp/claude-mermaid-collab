@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/SkillTransition.tsx",
+  "title": "Skill transition display component with arrow indicator",
+  "purpose": "Renders a visually distinct skill transition element with prominent skill name, optional description, and arrow indicator.",
+  "module_context": "Exports a React functional component named SkillTransition that accepts skill name, description, and optional CSS class name as props.",
+  "methods": [
+    {
+      "id": "m_5810f808",
+      "name": "SkillTransition",
+      "enclosing_class": null,
+      "normalized_params": "(props: SkillTransitionProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a flex container with blue background and border."
+        },
+        {
+          "order": 2,
+          "content": "Display an arrow indicator on the left side with blue color."
+        },
+        {
+          "order": 3,
+          "content": "Show the skill name in prominent bold text."
+        },
+        {
+          "order": 4,
+          "content": "IF a description is provided, render it in smaller gray text below the skill name."
+        },
+        {
+          "order": 5,
+          "content": "Apply additional CSS classes from the props to customize appearance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,663 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/worktree-manager.ts",
+  "title": "Git worktree manager with session tracking and PR creation capabilities",
+  "purpose": "Manages Git worktrees for collaborative sessions, handles creation, cleanup, and Git operations like committing and pushing changes with PR creation.",
+  "module_context": "Exports a WorktreeManager class that manages Git worktrees for sessions, tracks them in JSON metadata, and provides methods for Git operations including commit/push/PR creation.",
+  "methods": [
+    {
+      "id": "m_9e7ce119",
+      "name": "ensure",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): Promise<SessionWorktree>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a worktree is already being ensured for this session."
+        },
+        {
+          "order": 2,
+          "content": "IF a pending ensure exists, return the existing promise."
+        },
+        {
+          "order": 3,
+          "content": "ELSE begin a new ensure process and store the promise."
+        },
+        {
+          "order": 4,
+          "content": "Once the ensure completes, remove the stored promise."
+        },
+        {
+          "order": 5,
+          "content": "Return the result of the ensure process."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6178144f",
+      "name": "_ensureInner",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): Promise<SessionWorktree>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to read a cached worktree record for this session."
+        },
+        {
+          "order": 2,
+          "content": "IF a cached record exists and the directory is valid, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE delete the stale record and proceed to create a new worktree."
+        },
+        {
+          "order": 4,
+          "content": "Check if the project root is a Git repository."
+        },
+        {
+          "order": 5,
+          "content": "IF not a Git repository, return a non-git fallback."
+        },
+        {
+          "order": 6,
+          "content": "Detect the base branch for the worktree."
+        },
+        {
+          "order": 7,
+          "content": "Generate a branch name and path for the new worktree."
+        },
+        {
+          "order": 8,
+          "content": "Handle path collisions by appending a random suffix."
+        },
+        {
+          "order": 9,
+          "content": "Ensure the base directory exists for worktrees."
+        },
+        {
+          "order": 10,
+          "content": "Attempt to create the worktree with Git."
+        },
+        {
+          "order": 11,
+          "content": "IF the first attempt fails, clean up and retry once."
+        },
+        {
+          "order": 12,
+          "content": "IF the retry also fails, throw an error with details."
+        },
+        {
+          "order": 13,
+          "content": "Write the new worktree record to persistent storage."
+        },
+        {
+          "order": 14,
+          "content": "Return the newly created worktree information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_52a8eecd",
+      "name": "remove",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the worktree record for this session."
+        },
+        {
+          "order": 2,
+          "content": "IF no record exists, return immediately."
+        },
+        {
+          "order": 3,
+          "content": "Attempt to remove the worktree directory from Git."
+        },
+        {
+          "order": 4,
+          "content": "IF the removal fails, check if the error is benign."
+        },
+        {
+          "order": 5,
+          "content": "IF the error is not benign, attempt to remove the directory using filesystem operations."
+        },
+        {
+          "order": 6,
+          "content": "Delete the persistent record for this session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5aceee58",
+      "name": "isDirty",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the worktree record for this session."
+        },
+        {
+          "order": 2,
+          "content": "IF no record exists, return false."
+        },
+        {
+          "order": 3,
+          "content": "Check if the worktree directory exists."
+        },
+        {
+          "order": 4,
+          "content": "IF the directory does not exist, return false."
+        },
+        {
+          "order": 5,
+          "content": "Run Git status to check for uncommitted changes."
+        },
+        {
+          "order": 6,
+          "content": "IF the Git command fails, return false."
+        },
+        {
+          "order": 7,
+          "content": "Return true if there are uncommitted changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_032f64e5",
+      "name": "currentBranch",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): Promise<string | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the worktree record for this session."
+        },
+        {
+          "order": 2,
+          "content": "IF no record exists, return null."
+        },
+        {
+          "order": 3,
+          "content": "Check if the worktree directory exists."
+        },
+        {
+          "order": 4,
+          "content": "IF the directory does not exist, return null."
+        },
+        {
+          "order": 5,
+          "content": "Run Git symbolic-ref to get the current branch name."
+        },
+        {
+          "order": 6,
+          "content": "IF the Git command fails, return null."
+        },
+        {
+          "order": 7,
+          "content": "Return the branch name if it is not empty."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aaf4326a",
+      "name": "list",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(): Promise<WorktreeInfo[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the directory path for worktree records."
+        },
+        {
+          "order": 2,
+          "content": "Read all files in the records directory."
+        },
+        {
+          "order": 3,
+          "content": "IF the directory does not exist, return an empty list."
+        },
+        {
+          "order": 4,
+          "content": "For each file, check if it has a JSON extension."
+        },
+        {
+          "order": 5,
+          "content": "Read and parse the JSON content of each file."
+        },
+        {
+          "order": 6,
+          "content": "Validate the parsed content as a worktree info object."
+        },
+        {
+          "order": 7,
+          "content": "Add valid worktree info objects to the output list."
+        },
+        {
+          "order": 8,
+          "content": "Return the list of valid worktree info objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ea7e950b",
+      "name": "commitPushPR",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string, opts: CommitPushPROpts): Promise<PRResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the worktree record for this session."
+        },
+        {
+          "order": 2,
+          "content": "IF no record exists, throw an error."
+        },
+        {
+          "order": 3,
+          "content": "Check if there are uncommitted changes or unpushed commits."
+        },
+        {
+          "order": 4,
+          "content": "IF there are no changes to commit, throw an error."
+        },
+        {
+          "order": 5,
+          "content": "IF there are changes, add all files to Git."
+        },
+        {
+          "order": 6,
+          "content": "Commit the changes with the provided title and body."
+        },
+        {
+          "order": 7,
+          "content": "Record the commit SHA if the commit is successful."
+        },
+        {
+          "order": 8,
+          "content": "Push the changes to the remote repository."
+        },
+        {
+          "order": 9,
+          "content": "IF GitHub CLI is available, create a pull request."
+        },
+        {
+          "order": 10,
+          "content": "Return the result including branch, commit SHA, PR URL, and push status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b5138efe",
+      "name": "readRecord",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): Promise<WorktreeInfo | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the file path for the worktree record."
+        },
+        {
+          "order": 2,
+          "content": "Read the JSON file at the generated path."
+        },
+        {
+          "order": 3,
+          "content": "IF the file does not exist, return null."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON content into a worktree info object."
+        },
+        {
+          "order": 5,
+          "content": "Return the parsed worktree info object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_38d2f503",
+      "name": "writeRecord",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(info: WorktreeInfo): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the directory for worktree records exists."
+        },
+        {
+          "order": 2,
+          "content": "Generate the file path for the worktree record."
+        },
+        {
+          "order": 3,
+          "content": "Write the worktree info object to the JSON file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4106e8e0",
+      "name": "deleteRecord",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate the file path for the worktree record."
+        },
+        {
+          "order": 2,
+          "content": "Delete the JSON file at the generated path."
+        },
+        {
+          "order": 3,
+          "content": "IF the file does not exist, ignore the error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_08418f7e",
+      "name": "isGitRepo",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Run Git rev-parse to check if the project root is a Git repository."
+        },
+        {
+          "order": 2,
+          "content": "IF the Git command succeeds, return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_473c4fd8",
+      "name": "ghAvailable",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the GitHub CLI is available by running its version command."
+        },
+        {
+          "order": 2,
+          "content": "IF the CLI is not available, return false."
+        },
+        {
+          "order": 3,
+          "content": "Check if the user is authenticated with GitHub CLI."
+        },
+        {
+          "order": 4,
+          "content": "IF the user is not authenticated, return false."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9e9b092a",
+      "name": "detectBaseBranch",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Run Git symbolic-ref to get the current branch name."
+        },
+        {
+          "order": 2,
+          "content": "IF the command succeeds and returns a branch name, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE run Git rev-parse to get the current commit hash."
+        },
+        {
+          "order": 4,
+          "content": "IF the command succeeds, return the commit hash."
+        },
+        {
+          "order": 5,
+          "content": "ELSE throw an error indicating the base branch cannot be determined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ceb4531",
+      "name": "slug",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(sessionId: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the session ID to lowercase."
+        },
+        {
+          "order": 2,
+          "content": "Replace non-alphanumeric characters with hyphens."
+        },
+        {
+          "order": 3,
+          "content": "Trim leading and trailing hyphens."
+        },
+        {
+          "order": 4,
+          "content": "Limit the length to 48 characters."
+        },
+        {
+          "order": 5,
+          "content": "IF the result is empty, return 'session'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_de9dd8ae",
+      "name": "timestamp",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current date and time."
+        },
+        {
+          "order": 2,
+          "content": "Format the date as YYYYMMDD."
+        },
+        {
+          "order": 3,
+          "content": "Format the time as HHMM."
+        },
+        {
+          "order": 4,
+          "content": "Combine the date and time with a hyphen separator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9ff2e485",
+      "name": "pathExists",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(p: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to access the file or directory at the given path."
+        },
+        {
+          "order": 2,
+          "content": "IF the access succeeds, return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3714797f",
+      "name": "runGit",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(cwd: string, args: string[], timeoutMs?: number, onProgress?: CommitPushPROpts['onProgress']): Promise<SpawnResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare the Git command with the working directory."
+        },
+        {
+          "order": 2,
+          "content": "Call the spawn function to execute the Git command."
+        },
+        {
+          "order": 3,
+          "content": "Set up a timeout to kill the process if it takes too long."
+        },
+        {
+          "order": 4,
+          "content": "Read the stdout and stderr streams from the process."
+        },
+        {
+          "order": 5,
+          "content": "Wait for the process to exit and collect the exit code."
+        },
+        {
+          "order": 6,
+          "content": "Return the result including code, stdout, and stderr."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_346c1daa",
+      "name": "runCmd",
+      "enclosing_class": "WorktreeManager",
+      "normalized_params": "(bin: string, cwd: string, args: string[], timeoutMs?: number, onProgress?: CommitPushPROpts['onProgress']): Promise<SpawnResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare the command with the working directory."
+        },
+        {
+          "order": 2,
+          "content": "Call the spawn function to execute the command."
+        },
+        {
+          "order": 3,
+          "content": "Set up a timeout to kill the process if it takes too long."
+        },
+        {
+          "order": 4,
+          "content": "Read the stdout and stderr streams from the process."
+        },
+        {
+          "order": 5,
+          "content": "Wait for the process to exit and collect the exit code."
+        },
+        {
+          "order": 6,
+          "content": "Return the result including code, stdout, and stderr."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

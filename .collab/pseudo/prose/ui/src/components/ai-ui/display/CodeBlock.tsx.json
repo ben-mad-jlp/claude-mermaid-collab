@@ -1,0 +1,79 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/CodeBlock.tsx",
+  "title": "Syntax-highlighted code block component with copy functionality",
+  "purpose": "Displays code with syntax highlighting, line numbers, and copy-to-clipboard capabilities in either light or dark theme.",
+  "module_context": "Exports a React functional component named CodeBlock that accepts various props for customization including language, theme, and copy button visibility.",
+  "methods": [
+    {
+      "id": "m_988b2c51",
+      "name": "CodeBlock",
+      "enclosing_class": null,
+      "normalized_params": "(props: CodeBlockProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state to track whether the code has been copied."
+        },
+        {
+          "order": 2,
+          "content": "Create a reference to the code container element for DOM access."
+        },
+        {
+          "order": 3,
+          "content": "Define a handler function to copy the code to the clipboard when invoked."
+        },
+        {
+          "order": 4,
+          "content": "Determine if dark mode is active based on the theme prop."
+        },
+        {
+          "order": 5,
+          "content": "Select the appropriate syntax highlighting theme based on the dark mode setting."
+        },
+        {
+          "order": 6,
+          "content": "Render the code block with language header, copy button, and syntax-highlighted code."
+        },
+        {
+          "order": 7,
+          "content": "Include accessibility elements for screen readers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cdc15ecf",
+      "name": "handleCopy",
+      "enclosing_class": "CodeBlock",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to write the code content to the clipboard."
+        },
+        {
+          "order": 2,
+          "content": "IF the copy operation succeeds, update the copied state to true."
+        },
+        {
+          "order": 3,
+          "content": "Set a timeout to reset the copied state after two seconds."
+        },
+        {
+          "order": 4,
+          "content": "IF the copy operation fails, log an error to the console."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

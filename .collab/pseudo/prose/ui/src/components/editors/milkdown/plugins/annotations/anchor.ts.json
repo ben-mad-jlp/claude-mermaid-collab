@@ -1,0 +1,145 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/annotations/anchor.ts",
+  "title": "ProseMirror anchor resolution with checksum validation",
+  "purpose": "Provides utilities to create and resolve position-resilient anchors for annotations that can recover from document changes using checksums and text scanning.",
+  "module_context": "Exports helper functions for computing checksums and creating/resolving anchors in ProseMirror documents.",
+  "methods": [
+    {
+      "id": "m_ff90e9da",
+      "name": "computeChecksum",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a 32-bit hash value with a fixed seed."
+        },
+        {
+          "order": 2,
+          "content": "For each character in the input text, XOR the hash with the character code."
+        },
+        {
+          "order": 3,
+          "content": "Multiply the hash by a 32-bit FNV prime using integer multiplication."
+        },
+        {
+          "order": 4,
+          "content": "Convert the final hash to an 8-character hexadecimal string with zero padding."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_84fefc71",
+      "name": "createAnchor",
+      "enclosing_class": null,
+      "normalized_params": "(doc: ProseMirrorNode, from: number, to: number): Annotation['anchor']",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the text content between the given positions in the document."
+        },
+        {
+          "order": 2,
+          "content": "Compute a checksum for the extracted text."
+        },
+        {
+          "order": 3,
+          "content": "Return an anchor object containing the positions, text, and checksum."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_97002069",
+      "name": "resolveAnchor",
+      "enclosing_class": null,
+      "normalized_params": "(doc: ProseMirrorNode, anchor: Annotation['anchor']): { from: number; to: number } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate the cached range coordinates against document boundaries."
+        },
+        {
+          "order": 2,
+          "content": "IF the cached range is valid, extract the text and verify its checksum."
+        },
+        {
+          "order": 3,
+          "content": "IF the checksum matches, return the cached range."
+        },
+        {
+          "order": 4,
+          "content": "ELSE scan the full document text for the anchor text."
+        },
+        {
+          "order": 5,
+          "content": "IF the text is not found, return null."
+        },
+        {
+          "order": 6,
+          "content": "ELSE map the string offset back to ProseMirror positions using text node traversal."
+        },
+        {
+          "order": 7,
+          "content": "Return the resolved positions or null if mapping fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_adfd45ea",
+      "name": "mapTextOffsetToPos",
+      "enclosing_class": "resolveAnchor",
+      "normalized_params": "(doc: ProseMirrorNode, offset: number): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize tracking variables for consumed text length and result position."
+        },
+        {
+          "order": 2,
+          "content": "Walk through document nodes to accumulate text lengths and locate the target offset."
+        },
+        {
+          "order": 3,
+          "content": "For textblock nodes, account for block separators when calculating position."
+        },
+        {
+          "order": 4,
+          "content": "For text nodes, advance the consumed length and check if the target offset is reached."
+        },
+        {
+          "order": 5,
+          "content": "For leaf nodes, treat them as single-character separators and advance the consumed length."
+        },
+        {
+          "order": 6,
+          "content": "IF the target offset exactly matches the consumed length at document end, return the document size."
+        },
+        {
+          "order": 7,
+          "content": "Return the calculated position or null if not found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useSnippet.ts",
+  "title": "React hook for managing snippets in session state",
+  "purpose": "Provides React integration for accessing and manipulating snippet data within the current session, including CRUD operations and selection management.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_399e9350",
+      "name": "useSnippet",
+      "enclosing_class": null,
+      "normalized_params": "(): UseSnippetReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract snippet state and operations from the session store using shallow equality for performance."
+        },
+        {
+          "order": 2,
+          "content": "Derive the currently selected snippet from the list of snippets and the selected snippet ID."
+        },
+        {
+          "order": 3,
+          "content": "Create a memoized function to find a snippet by its ID."
+        },
+        {
+          "order": 4,
+          "content": "Create a memoized function to check if a snippet exists by its ID."
+        },
+        {
+          "order": 5,
+          "content": "Create a memoized async function to update a snippet's content via API and update local state."
+        },
+        {
+          "order": 6,
+          "content": "Return all snippet state and operation methods as a consolidated object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_001a63f8",
+      "name": "getSnippetById",
+      "enclosing_class": "useSnippet",
+      "normalized_params": "(id: string): Snippet | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Search through the list of snippets for one matching the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "Return the found snippet or undefined if no match exists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c75a09e2",
+      "name": "hasSnippet",
+      "enclosing_class": "useSnippet",
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if any snippet in the list matches the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "Return true if a match is found, otherwise return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9a0cbdf2",
+      "name": "updateSnippet",
+      "enclosing_class": "useSnippet",
+      "normalized_params": "(id: string, content: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF no current session is available, exit the function."
+        },
+        {
+          "order": 2,
+          "content": "Attempt to update the snippet's content via the API using session project and name."
+        },
+        {
+          "order": 3,
+          "content": "IF the API update succeeds, update the local snippet state with new content and timestamp."
+        },
+        {
+          "order": 4,
+          "content": "IF the API update fails, log the error and re-throw it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

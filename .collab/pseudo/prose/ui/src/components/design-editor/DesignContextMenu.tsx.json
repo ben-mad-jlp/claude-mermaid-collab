@@ -1,0 +1,101 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/design-editor/DesignContextMenu.tsx",
+  "title": "Design editor canvas context menu component with keyboard and position handling",
+  "purpose": "Provides a right-click context menu for the design editor canvas with actions for selection manipulation, grouping, alignment, and distribution. Handles mouse and keyboard events to manage menu visibility and position.",
+  "module_context": "Exports a React functional component named DesignContextMenu that manages its own state through a zustand store and handles global event listeners for menu dismissal.",
+  "methods": [
+    {
+      "id": "m_79a05fbf",
+      "name": "DesignContextMenu",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Subscribe to context menu and selected IDs from the design editor store."
+        },
+        {
+          "order": 2,
+          "content": "Set up global click and keyboard event listeners to dismiss the menu."
+        },
+        {
+          "order": 3,
+          "content": "Calculate and clamp menu position to viewport boundaries."
+        },
+        {
+          "order": 4,
+          "content": "Build the menu item list based on selection state and node types."
+        },
+        {
+          "order": 5,
+          "content": "Render the menu UI with appropriate styling and item handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0d73b007",
+      "name": "handleClick",
+      "enclosing_class": "DesignContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the context menu state in the store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0241a2d9",
+      "name": "handleKeyDown",
+      "enclosing_class": "DesignContextMenu",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the escape key is pressed, stop event propagation and clear the context menu state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ca8380c4",
+      "name": "clampMenuPosition",
+      "enclosing_class": "DesignContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the current menu bounding rectangle."
+        },
+        {
+          "order": 2,
+          "content": "IF the menu extends beyond the right viewport edge, adjust x position to fit."
+        },
+        {
+          "order": 3,
+          "content": "IF the menu extends beyond the bottom viewport edge, adjust y position to fit."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

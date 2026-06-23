@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/ReadView.tsx",
+  "title": "Tool call read view component with input parameters and output display",
+  "purpose": "Displays tool call information including input parameters and output results in a structured format with monospace font for file paths.",
+  "module_context": "Exports a React functional component named ReadView that accepts an AgentToolCallItem prop and renders input parameters in a grid layout followed by an OutputPanel component.",
+  "methods": [
+    {
+      "id": "m_55fc64b9",
+      "name": "ReadView",
+      "enclosing_class": null,
+      "normalized_params": "(props: ReadViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract input parameters from the tool call item and cast to expected structure."
+        },
+        {
+          "order": 2,
+          "content": "Build an array of rows containing input parameter labels and values, skipping undefined values."
+        },
+        {
+          "order": 3,
+          "content": "IF input parameters exist, render them in a grid layout with labels and values."
+        },
+        {
+          "order": 4,
+          "content": "Extract tool use ID from the item or fall back to the item ID."
+        },
+        {
+          "order": 5,
+          "content": "Determine the output format based on whether the output is a string."
+        },
+        {
+          "order": 6,
+          "content": "Render an OutputPanel component with tool use ID, status, stdout, stderr, output, error, and format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

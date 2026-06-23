@@ -1,0 +1,149 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/Minimap.tsx",
+  "title": "Minimap component with annotation markers and viewport indicator",
+  "purpose": "Provides a visual overview of document content with colored annotation markers and a draggable viewport indicator for scrolling.",
+  "module_context": "Exports a Minimap component that renders annotation markers and a viewport indicator, along with helper functions for extracting markers from content and determining marker colors.",
+  "methods": [
+    {
+      "id": "m_bdac4fd4",
+      "name": "getMarkerColor",
+      "enclosing_class": null,
+      "normalized_params": "(type: MinimapMarker['type']): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the Tailwind color class corresponding to the marker type."
+        },
+        {
+          "order": 2,
+          "content": "Map comment type to blue-400 color."
+        },
+        {
+          "order": 3,
+          "content": "Map propose type to yellow-400 color."
+        },
+        {
+          "order": 4,
+          "content": "Map approve type to green-400 color."
+        },
+        {
+          "order": 5,
+          "content": "Map reject type to red-400 color."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c0729308",
+      "name": "extractMarkers",
+      "enclosing_class": null,
+      "normalized_params": "(content: string): MinimapMarker[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect markers."
+        },
+        {
+          "order": 2,
+          "content": "Split the content into individual lines."
+        },
+        {
+          "order": 3,
+          "content": "Define regular expression patterns for each marker type."
+        },
+        {
+          "order": 4,
+          "content": "Iterate through each line of content."
+        },
+        {
+          "order": 5,
+          "content": "For each line, test against all marker patterns."
+        },
+        {
+          "order": 6,
+          "content": "IF a pattern matches, create a marker with line number and type."
+        },
+        {
+          "order": 7,
+          "content": "Add the marker to the collection and break to avoid duplicate markers."
+        },
+        {
+          "order": 8,
+          "content": "Return the array of extracted markers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fc9f0e98",
+      "name": "Minimap",
+      "enclosing_class": null,
+      "normalized_params": "(props: MinimapProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract annotation markers from the document content."
+        },
+        {
+          "order": 2,
+          "content": "Set up a click handler to calculate scroll position from click coordinates."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the vertical position and height of the viewport indicator."
+        },
+        {
+          "order": 4,
+          "content": "Render the minimap container with background and cursor styling."
+        },
+        {
+          "order": 5,
+          "content": "For each marker, render a colored indicator at the appropriate vertical position."
+        },
+        {
+          "order": 6,
+          "content": "Render the viewport indicator with blue styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a2cccd61",
+      "name": "handleClick",
+      "enclosing_class": "Minimap",
+      "normalized_params": "(e: React.MouseEvent<HTMLDivElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the vertical position of the click relative to the minimap."
+        },
+        {
+          "order": 2,
+          "content": "Convert the click position to a scroll fraction between 0 and 1."
+        },
+        {
+          "order": 3,
+          "content": "Invoke the scroll-to callback with the calculated position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

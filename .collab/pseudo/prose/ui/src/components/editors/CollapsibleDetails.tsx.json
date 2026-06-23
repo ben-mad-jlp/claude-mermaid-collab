@@ -1,0 +1,155 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/CollapsibleDetails.tsx",
+  "title": "Collapsible details component with smooth animations and theme support",
+  "purpose": "Provides a reusable React component that renders expandable/collapsible sections with smooth CSS transitions, chevron icon rotation, and theme-aware styling for both light and dark modes.",
+  "module_context": "Exports two components: ChevronIcon for rendering the toggle icon, CollapsibleSummary for defining summary content, and CollapsibleDetails which is the main component implementing the collapsible behavior with animation and accessibility features.",
+  "methods": [
+    {
+      "id": "m_a12cfdba",
+      "name": "ChevronIcon",
+      "enclosing_class": null,
+      "normalized_params": "(isOpen: boolean): React.FC<{ isOpen: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render an SVG chevron icon element."
+        },
+        {
+          "order": 2,
+          "content": "Apply CSS classes for size, transition, and rotation based on the open state."
+        },
+        {
+          "order": 3,
+          "content": "Set ARIA attributes for accessibility."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59ac8848",
+      "name": "CollapsibleSummary",
+      "enclosing_class": null,
+      "normalized_params": "(props: CollapsibleSummaryProps): React.FC<CollapsibleSummaryProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept and return the children prop directly without modification."
+        },
+        {
+          "order": 2,
+          "content": "Set the component's display name to 'CollapsibleSummary'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dcb332a7",
+      "name": "CollapsibleDetails",
+      "enclosing_class": null,
+      "normalized_params": "(props: CollapsibleDetailsProps): React.FC<CollapsibleDetailsProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking open/closed state, measured height, and transition status."
+        },
+        {
+          "order": 2,
+          "content": "Set up a callback to update the measured height of the content area."
+        },
+        {
+          "order": 3,
+          "content": "Use a resize observer to monitor changes in content area dimensions."
+        },
+        {
+          "order": 4,
+          "content": "Handle click events on the summary button to toggle the open state."
+        },
+        {
+          "order": 5,
+          "content": "Extract summary content and child elements from the component's children."
+        },
+        {
+          "order": 6,
+          "content": "Render the summary button with chevron icon and appropriate styling."
+        },
+        {
+          "order": 7,
+          "content": "Render the collapsible content area with dynamic height and transition effects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2574c8b0",
+      "name": "handleToggle",
+      "enclosing_class": "CollapsibleDetails",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the transitioning state to true to trigger animation."
+        },
+        {
+          "order": 2,
+          "content": "Toggle the open state of the component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_88ce9c56",
+      "name": "updateHeight",
+      "enclosing_class": "CollapsibleDetails",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Measure and update the scroll height of the content area."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3476ebaa",
+      "name": "handleTransitionEnd",
+      "enclosing_class": "CollapsibleDetails",
+      "normalized_params": "(e: React.TransitionEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the transition event target is the component's root element."
+        },
+        {
+          "order": 2,
+          "content": "IF the event target matches the component, set transitioning state to false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,382 @@
+{
+  "schema_version": 3,
+  "file": "src/websocket/handler.ts",
+  "title": "WebSocket handler for managing connections and broadcasting messages",
+  "purpose": "Handles WebSocket connections, manages subscriptions, and broadcasts messages to connected clients based on item IDs or channels.",
+  "module_context": "Exports a WebSocketHandler class that maintains a set of active connections and manages agent command dispatching. Defines various message types for different project item updates and notifications.",
+  "methods": [
+    {
+      "id": "m_518f258f",
+      "name": "setAgentDispatcher",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(dispatcher: AgentDispatcherLike): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the provided agent dispatcher for later use in handling agent commands."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_eaa5a781",
+      "name": "handleConnection",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the WebSocket data with an empty set of subscriptions."
+        },
+        {
+          "order": 2,
+          "content": "Add the WebSocket connection to the set of active connections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_53b32159",
+      "name": "handleDisconnection",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Remove the WebSocket connection from the set of active connections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c8fe9b98",
+      "name": "handleMessage",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(ws: ServerWebSocket<{ subscriptions: Set<string> }>, message: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to parse the incoming message as JSON."
+        },
+        {
+          "order": 2,
+          "content": "IF the message is a subscription request, add the subscription ID or channel to the WebSocket's subscriptions."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF the message is an unsubscription request, remove the subscription ID or channel from the WebSocket's subscriptions."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the message is an agent command, forward it to the agent dispatcher if one is registered."
+        },
+        {
+          "order": 5,
+          "content": "IF an agent command is received but no dispatcher is registered, log an error."
+        },
+        {
+          "order": 6,
+          "content": "IF parsing fails, log the error and continue processing other messages."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0a5d4a96",
+      "name": "broadcast",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(message: WSMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the message to a JSON string for transmission."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all active connections and attempt to send the message."
+        },
+        {
+          "order": 3,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 4,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8644fe40",
+      "name": "broadcastToDiagram",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(id: string, message: WSMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the message to a JSON string for transmission."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all active connections and check if they are subscribed to the specified diagram ID."
+        },
+        {
+          "order": 3,
+          "content": "IF a connection is subscribed, attempt to send the message."
+        },
+        {
+          "order": 4,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 5,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b7c0a732",
+      "name": "broadcastToDocument",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(id: string, message: WSMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the message to a JSON string for transmission."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all active connections and check if they are subscribed to the specified document ID."
+        },
+        {
+          "order": 3,
+          "content": "IF a connection is subscribed, attempt to send the message."
+        },
+        {
+          "order": 4,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 5,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7e9d27dc",
+      "name": "broadcastToSpreadsheet",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(id: string, message: WSMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the message to a JSON string for transmission."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all active connections and check if they are subscribed to the specified spreadsheet ID."
+        },
+        {
+          "order": 3,
+          "content": "IF a connection is subscribed, attempt to send the message."
+        },
+        {
+          "order": 4,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 5,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5a647af5",
+      "name": "broadcastToSnippet",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(id: string, message: WSMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the message to a JSON string for transmission."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through all active connections and check if they are subscribed to the specified snippet ID."
+        },
+        {
+          "order": 3,
+          "content": "IF a connection is subscribed, attempt to send the message."
+        },
+        {
+          "order": 4,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 5,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e11678c",
+      "name": "broadcastToChannel",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(channel: string, message: WSMessage): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the message to a JSON string for transmission."
+        },
+        {
+          "order": 2,
+          "content": "Generate a subscription key for the channel."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through all active connections and check if they are subscribed to the specified channel."
+        },
+        {
+          "order": 4,
+          "content": "IF a connection is subscribed, attempt to send the message."
+        },
+        {
+          "order": 5,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 6,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51ebd054",
+      "name": "broadcastNotification",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(notificationData: NotificationData): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a notification message using the provided data."
+        },
+        {
+          "order": 2,
+          "content": "Convert the notification message to a JSON string for transmission."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through all active connections and attempt to send the notification."
+        },
+        {
+          "order": 4,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 5,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_18e266e1",
+      "name": "broadcastStatus",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(status: 'working' | 'waiting' | 'idle', message?: string, lastActivity?: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a status change message with the provided status and optional details."
+        },
+        {
+          "order": 2,
+          "content": "Convert the status message to a JSON string for transmission."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through all active connections and attempt to send the status update."
+        },
+        {
+          "order": 4,
+          "content": "IF sending fails, track the connection as dead for cleanup."
+        },
+        {
+          "order": 5,
+          "content": "Remove all dead connections from the active set to prevent memory leaks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ec82f9ae",
+      "name": "getConnectionCount",
+      "enclosing_class": "WebSocketHandler",
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the current count of active WebSocket connections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

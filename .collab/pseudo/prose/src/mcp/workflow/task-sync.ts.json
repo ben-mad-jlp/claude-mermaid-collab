@@ -1,0 +1,355 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/workflow/task-sync.ts",
+  "title": "Task synchronization from task-graph.md to collab state",
+  "purpose": "Synchronizes task definitions from blueprint documents into collab state, building execution batches and managing task dependencies.",
+  "module_context": "Exports interfaces for task graph structure and functions for parsing, building batches, detecting cycles, and syncing tasks from documents to session state.",
+  "methods": [
+    {
+      "id": "m_303cc12a",
+      "name": "parseTaskGraph",
+      "enclosing_class": null,
+      "normalized_params": "(documentContent: string): TaskGraph",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the YAML content block from the document."
+        },
+        {
+          "order": 2,
+          "content": "IF no YAML block is found, throw an error indicating missing content."
+        },
+        {
+          "order": 3,
+          "content": "Initialize an array to collect parsed tasks and a temporary task object."
+        },
+        {
+          "order": 4,
+          "content": "Process each line of the YAML content to build task definitions."
+        },
+        {
+          "order": 5,
+          "content": "Identify new task entries by lines starting with '- id:' and store previous task."
+        },
+        {
+          "order": 6,
+          "content": "Parse task fields like files, tests, description, parallel, and depends-on from YAML lines."
+        },
+        {
+          "order": 7,
+          "content": "Ensure the final task is added to the collection after processing all lines."
+        },
+        {
+          "order": 8,
+          "content": "Return the parsed task graph containing all extracted tasks."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3155558e",
+      "name": "buildBatches",
+      "enclosing_class": null,
+      "normalized_params": "(tasks: TaskGraphTask[]): TaskBatch[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Detect any circular dependencies in the task graph."
+        },
+        {
+          "order": 2,
+          "content": "IF a cycle is detected, throw an error with the cycle details."
+        },
+        {
+          "order": 3,
+          "content": "Perform topological sorting of tasks to determine execution order."
+        },
+        {
+          "order": 4,
+          "content": "Convert the sorted waves into batch structures with status and dependencies."
+        },
+        {
+          "order": 5,
+          "content": "Return the array of execution batches."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b8f899b1",
+      "name": "topologicalSort",
+      "enclosing_class": null,
+      "normalized_params": "(tasks: TaskGraphTask[]): TaskGraphTask[][]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize data structures to track task relationships and in-degrees."
+        },
+        {
+          "order": 2,
+          "content": "Build adjacency list and count in-degrees for each task based on dependencies."
+        },
+        {
+          "order": 3,
+          "content": "Iteratively process tasks with zero in-degrees to form execution waves."
+        },
+        {
+          "order": 4,
+          "content": "Update in-degrees of dependent tasks after processing each wave."
+        },
+        {
+          "order": 5,
+          "content": "Continue until all tasks are processed into waves."
+        },
+        {
+          "order": 6,
+          "content": "Return the array of task waves representing the topological order."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd14e8ca",
+      "name": "detectCycles",
+      "enclosing_class": null,
+      "normalized_params": "(tasks: TaskGraphTask[]): string[] | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize tracking sets for visiting and visited nodes and a path array."
+        },
+        {
+          "order": 2,
+          "content": "For each task, perform a depth-first search to detect cycles."
+        },
+        {
+          "order": 3,
+          "content": "IF a cycle is found during DFS, return the cycle path."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return null indicating no cycles detected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_88e02921",
+      "name": "generateTaskGraphYaml",
+      "enclosing_class": null,
+      "normalized_params": "(tasks: TaskGraphTask[]): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an array to collect YAML lines."
+        },
+        {
+          "order": 2,
+          "content": "Add the tasks header to the YAML content."
+        },
+        {
+          "order": 3,
+          "content": "For each task, add its properties to the YAML lines."
+        },
+        {
+          "order": 4,
+          "content": "Return the complete YAML string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_76fbbbbc",
+      "name": "generateTaskGraphMermaid",
+      "enclosing_class": null,
+      "normalized_params": "(tasks: TaskGraphTask[], batches: TaskBatch[]): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an array to collect Mermaid diagram lines."
+        },
+        {
+          "order": 2,
+          "content": "Add graph definition and node definitions for each task."
+        },
+        {
+          "order": 3,
+          "content": "Add edges between tasks based on their dependencies."
+        },
+        {
+          "order": 4,
+          "content": "Apply styles to nodes based on their execution wave."
+        },
+        {
+          "order": 5,
+          "content": "Return the complete Mermaid diagram string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8619825a",
+      "name": "getDocumentsPath",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct and return the path to the documents directory for a session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6356c6a6",
+      "name": "fileExists",
+      "enclosing_class": null,
+      "normalized_params": "(path: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to access the file at the specified path."
+        },
+        {
+          "order": 2,
+          "content": "IF access succeeds, return true indicating the file exists."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false indicating the file does not exist."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fad5e00f",
+      "name": "createConsolidatedTaskGraph",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, tasks: TaskGraphTask[]): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build execution batches from the provided tasks."
+        },
+        {
+          "order": 2,
+          "content": "Generate YAML content for the task graph."
+        },
+        {
+          "order": 3,
+          "content": "Generate Mermaid diagram content for task dependencies."
+        },
+        {
+          "order": 4,
+          "content": "Create a summary of execution waves."
+        },
+        {
+          "order": 5,
+          "content": "Construct the complete markdown document with summary, YAML, Mermaid, and task details."
+        },
+        {
+          "order": 6,
+          "content": "Write the consolidated task graph document to the appropriate location."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d5f2d055",
+      "name": "syncTasksFromTaskGraph",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string): Promise<TaskBatch[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect all tasks."
+        },
+        {
+          "order": 2,
+          "content": "Determine the path to the documents directory for the session."
+        },
+        {
+          "order": 3,
+          "content": "Initialize metadata manager to identify active blueprint documents."
+        },
+        {
+          "order": 4,
+          "content": "Find all blueprint documents that are not deprecated."
+        },
+        {
+          "order": 5,
+          "content": "Read each active blueprint document and extract tasks."
+        },
+        {
+          "order": 6,
+          "content": "IF tasks are found, create a consolidated task graph document."
+        },
+        {
+          "order": 7,
+          "content": "IF no tasks are found, throw an error indicating no active blueprints."
+        },
+        {
+          "order": 8,
+          "content": "Build execution batches from all collected tasks."
+        },
+        {
+          "order": 9,
+          "content": "Load the current session state to preserve completed tasks."
+        },
+        {
+          "order": 10,
+          "content": "Calculate pending tasks as the difference between all tasks and completed tasks."
+        },
+        {
+          "order": 11,
+          "content": "Update the session state with the new batches and pending tasks."
+        },
+        {
+          "order": 12,
+          "content": "Return the built execution batches."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

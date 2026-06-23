@@ -1,0 +1,239 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/shared/ProjectSelector.tsx",
+  "title": "Project selector dropdown component with add/remove functionality",
+  "purpose": "Provides a reusable dropdown interface for selecting, adding, and removing projects with full keyboard navigation and accessibility support.",
+  "module_context": "Exports a React functional component ProjectSelector that manages project selection state and integrates with a project store for data access.",
+  "methods": [
+    {
+      "id": "m_8628f13d",
+      "name": "getBasename",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(path: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the final segment of the provided path string."
+        },
+        {
+          "order": 2,
+          "content": "Return the extracted segment as the basename."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9f484be3",
+      "name": "getDisplayName",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a project is selected."
+        },
+        {
+          "order": 2,
+          "content": "IF no project is selected, return the default placeholder text."
+        },
+        {
+          "order": 3,
+          "content": "ELSE find the project object matching the selected path."
+        },
+        {
+          "order": 4,
+          "content": "IF the project object exists, return its name property."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return the basename of the selected path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cc3101e6",
+      "name": "handleClickOutside",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked element is outside the dropdown container."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, close the dropdown menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2b8a41e3",
+      "name": "handleEscape",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(event: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for escape key press events."
+        },
+        {
+          "order": 2,
+          "content": "IF the escape key is pressed, close the dropdown menu."
+        },
+        {
+          "order": 3,
+          "content": "IF the escape key is pressed, clear any active remove confirmation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ed6722c0",
+      "name": "handleToggleDropdown",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if project loading is in progress."
+        },
+        {
+          "order": 2,
+          "content": "IF loading is in progress, do nothing."
+        },
+        {
+          "order": 3,
+          "content": "ELSE toggle the dropdown menu open state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_383e9c8e",
+      "name": "handleSelectProject",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the selected project to the provided path."
+        },
+        {
+          "order": 2,
+          "content": "Close the dropdown menu after selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8214f972",
+      "name": "handleAddProjectClick",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the dropdown menu."
+        },
+        {
+          "order": 2,
+          "content": "Trigger the add project callback if provided."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_361ac452",
+      "name": "handleRemoveClick",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(e: React.MouseEvent, path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Stop event propagation to prevent parent handlers from firing."
+        },
+        {
+          "order": 2,
+          "content": "Set the path of the project to be removed in the confirmation state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9fc1a067",
+      "name": "handleRemoveProjectConfirm",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(path: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initiate the removal of the project with the specified path."
+        },
+        {
+          "order": 2,
+          "content": "IF the removal is successful, clear the confirmation state."
+        },
+        {
+          "order": 3,
+          "content": "IF the removal is successful, close the dropdown menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_209f7312",
+      "name": "handleRemoveProjectCancel",
+      "enclosing_class": "ProjectSelector",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the project removal confirmation state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

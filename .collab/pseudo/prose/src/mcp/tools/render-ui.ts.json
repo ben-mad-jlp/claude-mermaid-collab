@@ -1,0 +1,137 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/render-ui.ts",
+  "title": "MCP UI rendering tool with browser broadcast and user interaction handling",
+  "purpose": "Renders JSON UI definitions to browser clients via WebSocket and manages user interactions, supporting both blocking and non-blocking modes.",
+  "module_context": "Exports UI validation function, render tool implementation, response handler, test utility, and tool schema definition for MCP protocol.",
+  "methods": [
+    {
+      "id": "m_a8342650",
+      "name": "validateUIStructure",
+      "enclosing_class": null,
+      "normalized_params": "(ui: any): asserts ui is UIComponent",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Verify that the UI definition is a non-null object."
+        },
+        {
+          "order": 2,
+          "content": "Confirm that the UI has a valid type property (non-empty string)."
+        },
+        {
+          "order": 3,
+          "content": "Ensure that the UI has a props property that is a valid object."
+        },
+        {
+          "order": 4,
+          "content": "IF children exist in the UI, validate that they are an array of UI components."
+        },
+        {
+          "order": 5,
+          "content": "IF actions exist in the UI, validate that they are an array with valid id and label properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_759c5c80",
+      "name": "renderUI",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, ui: any, blocking: boolean, wsHandler: WebSocketHandler): Promise<RenderUIResponse>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that project and session parameters are non-empty strings."
+        },
+        {
+          "order": 2,
+          "content": "Validate the structure of the UI component using the validation function."
+        },
+        {
+          "order": 3,
+          "content": "Generate a unique identifier for this UI render operation."
+        },
+        {
+          "order": 4,
+          "content": "Broadcast the UI definition to connected browser clients via WebSocket."
+        },
+        {
+          "order": 5,
+          "content": "IF not in blocking mode, return a completion response immediately."
+        },
+        {
+          "order": 6,
+          "content": "ELSE set up a promise that waits indefinitely for a user response."
+        },
+        {
+          "order": 7,
+          "content": "Register a temporary handler to process incoming UI responses for this specific UI."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_960d4c5c",
+      "name": "handleUIResponse",
+      "enclosing_class": null,
+      "normalized_params": "(wsHandler: WebSocketHandler, response: UIResponse): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the incoming response is a non-null object."
+        },
+        {
+          "order": 2,
+          "content": "Look up the registered handler for this UI component ID."
+        },
+        {
+          "order": 3,
+          "content": "IF a handler exists and is callable, execute it with the response data."
+        },
+        {
+          "order": 4,
+          "content": "Remove the handler from the registry after execution."
+        },
+        {
+          "order": 5,
+          "content": "IF execution fails, log the error but continue processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2b2fc0c2",
+      "name": "createUIResponse",
+      "enclosing_class": null,
+      "normalized_params": "(uiId: string, actionId: string, data?: Record<string, any>): UIResponse",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a UI response object with the provided component ID, action ID, and optional data."
+        },
+        {
+          "order": 2,
+          "content": "Set the timestamp on the response to the current time."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

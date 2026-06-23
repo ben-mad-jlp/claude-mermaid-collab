@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/Spinner.tsx",
+  "title": "Spinner component with configurable size and label",
+  "purpose": "Provides a reusable animated spinner UI element that can be customized with size, label, and styling options.",
+  "module_context": "Exports a Spinner component with predefined size classes and a display name. The component accepts props for size, label, and additional CSS classes.",
+  "methods": [
+    {
+      "id": "m_59538f71",
+      "name": "Spinner",
+      "enclosing_class": null,
+      "normalized_params": "(props: SpinnerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a container div with flex layout and gap spacing."
+        },
+        {
+          "order": 2,
+          "content": "Apply animation and color classes to the SVG spinner element."
+        },
+        {
+          "order": 3,
+          "content": "Set the SVG viewBox and stroke properties for the spinner animation."
+        },
+        {
+          "order": 4,
+          "content": "Conditionally render a label text element if provided."
+        },
+        {
+          "order": 5,
+          "content": "Include screen reader text with the label or default 'Loading...' message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/LiveRegion.tsx",
+  "title": "Screen reader announcement component for accessibility",
+  "purpose": "Provides a screen reader-only live region that announces messages to assistive technology with configurable politeness level.",
+  "module_context": "Exports a functional React component named LiveRegion that accepts a message string and optional politeness level, and renders a hidden div with aria-live attributes.",
+  "methods": [
+    {
+      "id": "m_4cecb55e",
+      "name": "LiveRegion",
+      "enclosing_class": null,
+      "normalized_params": "({ message, level }: LiveRegionProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept a message string and optional level prop with default value 'polite'."
+        },
+        {
+          "order": 2,
+          "content": "Render a div element with screen reader only styling."
+        },
+        {
+          "order": 3,
+          "content": "Set the aria-live attribute to the provided level value."
+        },
+        {
+          "order": 4,
+          "content": "Set the aria-atomic attribute to true for complete message announcement."
+        },
+        {
+          "order": 5,
+          "content": "Display the provided message content inside the live region."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

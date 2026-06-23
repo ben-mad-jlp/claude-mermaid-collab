@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/api/embeds.ts",
+  "title": "Embeds API client for session management",
+  "purpose": "Provides HTTP methods to fetch and delete embeds associated with sessions, handling API communication and error cases.",
+  "module_context": "Exports a singleton object 'embedsApi' containing async methods for embed operations using relative URLs.",
+  "methods": [
+    {
+      "id": "m_e70c89da",
+      "name": "fetchEmbeds",
+      "enclosing_class": "embedsApi",
+      "normalized_params": "(session: string, project: string): Promise<Embed[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the API endpoint URL with encoded session and project parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a GET request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "IF the response indicates failure, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Parse the JSON response body."
+        },
+        {
+          "order": 5,
+          "content": "Extract and return the embeds array from the parsed data."
+        },
+        {
+          "order": 6,
+          "content": "IF parsing fails or no embeds are present, return an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_945b060a",
+      "name": "deleteEmbed",
+      "enclosing_class": "embedsApi",
+      "normalized_params": "(session: string, id: string, project: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the API endpoint URL for the specific embed with encoded session and project parameters."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to the constructed URL."
+        },
+        {
+          "order": 3,
+          "content": "IF the response indicates failure, throw an error with the status text."
+        },
+        {
+          "order": 4,
+          "content": "Return successfully if the delete operation completes without error."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

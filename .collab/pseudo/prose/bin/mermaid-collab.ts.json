@@ -1,0 +1,329 @@
+{
+  "schema_version": 3,
+  "file": "bin/mermaid-collab.ts",
+  "title": "Mermaid collaboration server CLI with start/stop/status commands",
+  "purpose": "Provides command-line interface to manage a Mermaid collaboration server, including starting, stopping, and checking server status with process management and logging.",
+  "module_context": "Defines constants for data directory, PID file, log file, server script path, UI distribution directory, and default port. Sets up command-line argument parsing and dispatches to appropriate handler functions based on the command provided.",
+  "methods": [
+    {
+      "id": "m_f941b112",
+      "name": "ensureDataDir",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create the data directory if it does not exist."
+        },
+        {
+          "order": 2,
+          "content": "Ensure the directory is created recursively."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3eac87b0",
+      "name": "buildUI",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the UI directory exists."
+        },
+        {
+          "order": 2,
+          "content": "IF the UI directory does not exist, log an error and return false."
+        },
+        {
+          "order": 3,
+          "content": "Log that the UI build process is starting."
+        },
+        {
+          "order": 4,
+          "content": "Execute the build command for the UI using Bun."
+        },
+        {
+          "order": 5,
+          "content": "IF the build command fails, log an error and return false."
+        },
+        {
+          "order": 6,
+          "content": "Log that the UI build is complete and return true."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b2d75f9a",
+      "name": "readPid",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<number | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the PID file exists."
+        },
+        {
+          "order": 2,
+          "content": "IF the PID file does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Read the content of the PID file."
+        },
+        {
+          "order": 4,
+          "content": "Parse the content as an integer."
+        },
+        {
+          "order": 5,
+          "content": "IF the parsed value is not a valid number, return null."
+        },
+        {
+          "order": 6,
+          "content": "Return the parsed PID value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0856bbbb",
+      "name": "isProcessRunning",
+      "enclosing_class": null,
+      "normalized_params": "(pid: number): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to send a signal 0 to the process with the given PID."
+        },
+        {
+          "order": 2,
+          "content": "IF the signal is successfully sent, return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_de2c38bb",
+      "name": "waitForServer",
+      "enclosing_class": null,
+      "normalized_params": "(maxWaitMs: number): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Record the start time for the wait period."
+        },
+        {
+          "order": 2,
+          "content": "Construct the URL to check for server readiness."
+        },
+        {
+          "order": 3,
+          "content": "Loop while the elapsed time is less than the maximum wait time."
+        },
+        {
+          "order": 4,
+          "content": "Attempt to fetch the server URL."
+        },
+        {
+          "order": 5,
+          "content": "IF the fetch succeeds with a successful or 404 status, return true."
+        },
+        {
+          "order": 6,
+          "content": "ELSE wait for 200 milliseconds before checking again."
+        },
+        {
+          "order": 7,
+          "content": "IF the maximum wait time is exceeded, return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_78619966",
+      "name": "start",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the data directory exists."
+        },
+        {
+          "order": 2,
+          "content": "Read the existing PID from the file."
+        },
+        {
+          "order": 3,
+          "content": "IF a PID exists and the process is running, log that the server is already running."
+        },
+        {
+          "order": 4,
+          "content": "ELSE check if the server script exists."
+        },
+        {
+          "order": 5,
+          "content": "IF the server script does not exist, log an error and exit."
+        },
+        {
+          "order": 6,
+          "content": "Check if the UI distribution directory exists."
+        },
+        {
+          "order": 7,
+          "content": "IF the UI distribution directory does not exist, attempt to build the UI."
+        },
+        {
+          "order": 8,
+          "content": "IF the UI build fails, log a warning but continue."
+        },
+        {
+          "order": 9,
+          "content": "Spawn a detached child process to run the server script."
+        },
+        {
+          "order": 10,
+          "content": "Pipe the stdout and stderr of the child process to the log file."
+        },
+        {
+          "order": 11,
+          "content": "Write the PID of the spawned process to the PID file."
+        },
+        {
+          "order": 12,
+          "content": "Log that the server is starting."
+        },
+        {
+          "order": 13,
+          "content": "Wait for the server to become ready."
+        },
+        {
+          "order": 14,
+          "content": "IF the server becomes ready, log the success message and location."
+        },
+        {
+          "order": 15,
+          "content": "ELSE log an error and exit with failure code."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5919f13c",
+      "name": "stop",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the PID from the file."
+        },
+        {
+          "order": 2,
+          "content": "IF no PID is found, log that the server is not running."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if the process with the PID is running."
+        },
+        {
+          "order": 4,
+          "content": "IF the process is not running, remove the stale PID file."
+        },
+        {
+          "order": 5,
+          "content": "ELSE send a SIGTERM signal to the process to initiate graceful shutdown."
+        },
+        {
+          "order": 6,
+          "content": "Wait for up to 3 seconds for the process to shut down gracefully."
+        },
+        {
+          "order": 7,
+          "content": "IF the process is still running after the wait period, send a SIGKILL signal to force shutdown."
+        },
+        {
+          "order": 8,
+          "content": "Remove the PID file after stopping the process."
+        },
+        {
+          "order": 9,
+          "content": "Log that the server has been stopped."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_375b5103",
+      "name": "status",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the PID from the file."
+        },
+        {
+          "order": 2,
+          "content": "IF no PID is found, log that the server is stopped."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if the process with the PID is running."
+        },
+        {
+          "order": 4,
+          "content": "IF the process is running, log that the server is running with PID and URL."
+        },
+        {
+          "order": 5,
+          "content": "ELSE log that the server is stopped due to a stale PID file."
+        },
+        {
+          "order": 6,
+          "content": "Remove the stale PID file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

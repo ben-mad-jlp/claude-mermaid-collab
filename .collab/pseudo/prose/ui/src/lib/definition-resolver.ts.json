@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/definition-resolver.ts",
+  "title": "Resolves source link candidates to navigation decisions based on linked snippets",
+  "purpose": "Determines the appropriate navigation action when resolving a symbol's definition by evaluating source-link candidates against currently linked snippets in the session.",
+  "module_context": "Exports types for navigation decisions including found-linked, needs-link, needs-link-picker, and not-found. Defines the resolveDefinition function that implements the core navigation logic.",
+  "methods": [
+    {
+      "id": "m_a7416672",
+      "name": "resolveDefinition",
+      "enclosing_class": null,
+      "normalized_params": "(candidates: SourceLinkCandidate[], linkedSnippets: LinkedSnippetRef[]): ResolveDecision",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there are no candidates and return not-found if true."
+        },
+        {
+          "order": 2,
+          "content": "Build a mapping from file paths to snippet IDs for fast lookup of linked snippets."
+        },
+        {
+          "order": 3,
+          "content": "If there is exactly one candidate, check if it is linked and return found-linked or needs-link accordingly."
+        },
+        {
+          "order": 4,
+          "content": "If there are multiple candidates, determine if they all point to the same source path."
+        },
+        {
+          "order": 5,
+          "content": "IF all candidates point to the same path and that path is linked, return found-linked with the first matching candidate."
+        },
+        {
+          "order": 6,
+          "content": "ELSE if all candidates point to the same path but it is not linked, return needs-link with the first candidate."
+        },
+        {
+          "order": 7,
+          "content": "IF candidates point to different paths, return needs-link-picker with all candidates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

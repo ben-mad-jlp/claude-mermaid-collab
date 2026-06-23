@@ -1,0 +1,244 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/design-editor/DesignToolbar.tsx",
+  "title": "Design toolbar with tool selection, zoom controls, and undo/redo functionality",
+  "purpose": "Provides a horizontal toolbar for design editor with tool selection buttons, undo/redo controls, export options, and zoom management.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_b1cf2249",
+      "name": "DesignToolbar",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the design editor store state with active tool, zoom, and scene version."
+        },
+        {
+          "order": 2,
+          "content": "Set up undo and redo handlers that call the store's undoAction and redoAction methods."
+        },
+        {
+          "order": 3,
+          "content": "Define zoom in and zoom out handlers that apply zoom changes centered on the window."
+        },
+        {
+          "order": 4,
+          "content": "Re-evaluate the component on scene version changes to update button states after edits."
+        },
+        {
+          "order": 5,
+          "content": "Create export PNG handler that renders the current scene to an image and downloads it."
+        },
+        {
+          "order": 6,
+          "content": "Create copy PNG handler that renders the current scene to an image and copies it to clipboard."
+        },
+        {
+          "order": 7,
+          "content": "Render the toolbar UI with tool buttons, undo/redo controls, export buttons, and zoom controls."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8fcfbd2e",
+      "name": "handleUndo",
+      "enclosing_class": "DesignToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the undoAction method from the design editor store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fd0b876a",
+      "name": "handleRedo",
+      "enclosing_class": "DesignToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Call the redoAction method from the design editor store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b3b0104",
+      "name": "handleZoomIn",
+      "enclosing_class": "DesignToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current store state."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the center coordinates of the window."
+        },
+        {
+          "order": 3,
+          "content": "Apply a positive zoom change centered on the calculated coordinates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a917907d",
+      "name": "handleZoomOut",
+      "enclosing_class": "DesignToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current store state."
+        },
+        {
+          "order": 2,
+          "content": "Calculate the center coordinates of the window."
+        },
+        {
+          "order": 3,
+          "content": "Apply a negative zoom change centered on the calculated coordinates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_59a91248",
+      "name": "handleExportPng",
+      "enclosing_class": "DesignToolbar",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the canvas kit, renderer, and graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "IF canvas kit or renderer is not available, return early."
+        },
+        {
+          "order": 3,
+          "content": "Get the current page ID from the store."
+        },
+        {
+          "order": 4,
+          "content": "Retrieve the page node from the graph."
+        },
+        {
+          "order": 5,
+          "content": "IF page is not found or has no children, return early."
+        },
+        {
+          "order": 6,
+          "content": "Render the page nodes to image data using the specified scale and format."
+        },
+        {
+          "order": 7,
+          "content": "IF rendering fails, return early."
+        },
+        {
+          "order": 8,
+          "content": "Create a blob from the image data."
+        },
+        {
+          "order": 9,
+          "content": "Generate a URL for the blob."
+        },
+        {
+          "order": 10,
+          "content": "Create a download link element and set its properties."
+        },
+        {
+          "order": 11,
+          "content": "Trigger the download by clicking the link."
+        },
+        {
+          "order": 12,
+          "content": "Revoke the object URL to free memory."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0f4c6f4d",
+      "name": "handleCopyPng",
+      "enclosing_class": "DesignToolbar",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the canvas kit, renderer, and graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "IF canvas kit or renderer is not available, return early."
+        },
+        {
+          "order": 3,
+          "content": "Get the current page ID from the store."
+        },
+        {
+          "order": 4,
+          "content": "Retrieve the page node from the graph."
+        },
+        {
+          "order": 5,
+          "content": "IF page is not found or has no children, return early."
+        },
+        {
+          "order": 6,
+          "content": "Render the page nodes to image data using the specified scale and format."
+        },
+        {
+          "order": 7,
+          "content": "IF rendering fails, return early."
+        },
+        {
+          "order": 8,
+          "content": "Create a blob from the image data."
+        },
+        {
+          "order": 9,
+          "content": "Write the blob to the clipboard using the clipboard API."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

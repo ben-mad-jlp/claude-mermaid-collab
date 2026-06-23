@@ -1,0 +1,100 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/pseudo/RenameWarningsList.tsx",
+  "title": "Rename warnings list component with approval and dismissal actions",
+  "purpose": "Displays a list of rename warnings with options to approve or dismiss each warning individually or all at once.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_d018207c",
+      "name": "RenameWarningsList",
+      "enclosing_class": null,
+      "normalized_params": "(props: RenameWarningsListProps): JSX.Element",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking busy individual warnings and bulk operations."
+        },
+        {
+          "order": 2,
+          "content": "Define a handler for individual actions that updates busy state and calls the provided callback."
+        },
+        {
+          "order": 3,
+          "content": "Define a handler for bulk approval that updates bulk busy state and calls the approve all callback."
+        },
+        {
+          "order": 4,
+          "content": "Render empty message if no warnings are present."
+        },
+        {
+          "order": 5,
+          "content": "Render header with warning count and bulk approve button."
+        },
+        {
+          "order": 6,
+          "content": "Render list of warnings with metadata, messages, and suggestions."
+        },
+        {
+          "order": 7,
+          "content": "Render action buttons for each warning to approve or dismiss."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_29c0b75b",
+      "name": "handleAction",
+      "enclosing_class": "RenameWarningsList",
+      "normalized_params": "(warning: RenameWarning, fn: (warning: RenameWarning) => Promise<void>): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the warning ID to the busy set to indicate it is being processed."
+        },
+        {
+          "order": 2,
+          "content": "Execute the provided function with the warning as argument."
+        },
+        {
+          "order": 3,
+          "content": "Remove the warning ID from the busy set after processing completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_edcbefbf",
+      "name": "handleBulk",
+      "enclosing_class": "RenameWarningsList",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the bulk busy state to indicate the operation is in progress."
+        },
+        {
+          "order": 2,
+          "content": "Call the approve all callback with the list of warnings."
+        },
+        {
+          "order": 3,
+          "content": "Clear the bulk busy state after the operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/notifications/Toast.tsx",
+  "title": "Toast notification component with animated display and type-specific styling",
+  "purpose": "Displays individual notifications with appropriate icons, colors, and animations based on notification type, and handles user dismissal.",
+  "module_context": "Exports a Toast component that renders notifications with type-specific styling, icons, and animations. Includes several SVG icon components for different toast types and a close button.",
+  "methods": [
+    {
+      "id": "m_7f603c41",
+      "name": "Toast",
+      "enclosing_class": null,
+      "normalized_params": "(props: ToastProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the visual styling for the toast based on its type."
+        },
+        {
+          "order": 2,
+          "content": "Select the appropriate icon component for the toast type."
+        },
+        {
+          "order": 3,
+          "content": "Render the toast container with appropriate classes and animation."
+        },
+        {
+          "order": 4,
+          "content": "Display the icon on the left side of the toast."
+        },
+        {
+          "order": 5,
+          "content": "Show the title and optional message in the center."
+        },
+        {
+          "order": 6,
+          "content": "Render a dismiss button on the right side with hover effects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a24907b5",
+      "name": "getTypeStyles",
+      "enclosing_class": "Toast",
+      "normalized_params": "(): { container: string; icon: string; title: string; message: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Evaluate the toast type to determine appropriate styling classes."
+        },
+        {
+          "order": 2,
+          "content": "Return container, icon, title, and message styles based on the toast type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_463b8d79",
+      "name": "getIcon",
+      "enclosing_class": "Toast",
+      "normalized_params": "(): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Select the correct icon component based on the toast type."
+        },
+        {
+          "order": 2,
+          "content": "Apply appropriate styling to the selected icon."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ca46cba0",
+      "name": "handleDismiss",
+      "enclosing_class": "Toast",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trigger the dismiss callback with the toast's unique identifier."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

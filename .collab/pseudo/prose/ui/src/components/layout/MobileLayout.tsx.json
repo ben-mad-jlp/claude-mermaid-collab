@@ -1,0 +1,84 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/MobileLayout.tsx",
+  "title": "Mobile layout component with tabbed preview and chat views",
+  "purpose": "Provides a mobile-optimized layout with header, tabbed content area, and bottom navigation bar. Manages tab state and preserves component state across tab switches.",
+  "module_context": "Exports MobileLayout component with TypeScript interfaces for props and handlers. Uses React hooks for state management and session store integration.",
+  "methods": [
+    {
+      "id": "m_22526877",
+      "name": "MobileLayout",
+      "enclosing_class": null,
+      "normalized_params": "(props: MobileLayoutProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize active tab state to preview tab."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve current session from the session store."
+        },
+        {
+          "order": 3,
+          "content": "Set up callback handler for tab changes from the bottom navigation."
+        },
+        {
+          "order": 4,
+          "content": "Set up callback handler for auto-switching to chat tab when AI UI arrives."
+        },
+        {
+          "order": 5,
+          "content": "Render the mobile layout container with header, session badge, tab content area, and bottom tab bar."
+        },
+        {
+          "order": 6,
+          "content": "Display the preview tab content when active tab is preview."
+        },
+        {
+          "order": 7,
+          "content": "Display the chat tab content when active tab is chat."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5b302ec",
+      "name": "handleTabChange",
+      "enclosing_class": "MobileLayout",
+      "normalized_params": "(tab: MobileTab): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the active tab state to the selected tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8bd22fe5",
+      "name": "handleAutoSwitchToChat",
+      "enclosing_class": "MobileLayout",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the active tab state to chat tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

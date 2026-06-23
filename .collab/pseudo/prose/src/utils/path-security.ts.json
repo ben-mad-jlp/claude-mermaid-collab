@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "file": "src/utils/path-security.ts",
+  "title": "Path validation and binary file detection utilities",
+  "purpose": "Provides functions to validate file paths are within a project root and to detect if a file is binary by checking for null bytes.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_e57f651b",
+      "name": "validatePathUnderRoot",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string, projectRoot: string): Promise<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the provided file path and project root to absolute paths."
+        },
+        {
+          "order": 2,
+          "content": "Verify that the resolved file path starts with the resolved project root or equals it."
+        },
+        {
+          "order": 3,
+          "content": "IF the path does not start with the project root, throw an error indicating path escape."
+        },
+        {
+          "order": 4,
+          "content": "Resolve the real path of the file to handle symbolic links."
+        },
+        {
+          "order": 5,
+          "content": "Verify that the real path starts with the resolved project root or equals it."
+        },
+        {
+          "order": 6,
+          "content": "IF the real path does not start with the project root, throw an error indicating path escape."
+        },
+        {
+          "order": 7,
+          "content": "Return the resolved real path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f3580ca9",
+      "name": "isBinaryFile",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string): Promise<boolean>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Open the file for reading using a file handle."
+        },
+        {
+          "order": 2,
+          "content": "Read up to 8KB of data from the file into a buffer."
+        },
+        {
+          "order": 3,
+          "content": "IF the file is empty, return false indicating it's not binary."
+        },
+        {
+          "order": 4,
+          "content": "Search for null bytes within the read data."
+        },
+        {
+          "order": 5,
+          "content": "IF null bytes are found, return true indicating the file is binary."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return false indicating the file is not binary."
+        },
+        {
+          "order": 7,
+          "content": "Close the file handle in the finally block to ensure cleanup."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

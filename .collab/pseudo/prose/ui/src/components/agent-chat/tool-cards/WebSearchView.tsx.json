@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/WebSearchView.tsx",
+  "title": "Web search results display component for agent chat",
+  "purpose": "Renders web search tool call results in a structured format with query, results list, and error handling.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_0d9c27ea",
+      "name": "WebSearchView",
+      "enclosing_class": null,
+      "normalized_params": "(props: WebSearchViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the input query from the tool call item."
+        },
+        {
+          "order": 2,
+          "content": "Parse and normalize the raw output into a results array."
+        },
+        {
+          "order": 3,
+          "content": "Render the query as a code block if present."
+        },
+        {
+          "order": 4,
+          "content": "IF results exist, display them in a list with title, URL, and snippet."
+        },
+        {
+          "order": 5,
+          "content": "IF an error exists on the tool call, display it in red text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

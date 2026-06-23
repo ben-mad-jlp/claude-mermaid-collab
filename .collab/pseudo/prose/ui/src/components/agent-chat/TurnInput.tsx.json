@@ -1,0 +1,303 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/TurnInput.tsx",
+  "title": "Agent chat input component with command picker and attachment support",
+  "purpose": "Provides a text input area for agent communication with slash command completion, file mention support, and attachment handling capabilities.",
+  "module_context": "Exports a TurnInput React component that manages user input state, handles keyboard shortcuts, and integrates with agent stores for message history and attachments.",
+  "methods": [
+    {
+      "id": "m_e1cfd6cb",
+      "name": "computeMentionQuery",
+      "enclosing_class": null,
+      "normalized_params": "(value: string, caret: number): { query: string; start: number } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the caret position is valid for mention detection."
+        },
+        {
+          "order": 2,
+          "content": "Search backwards from the caret position to find the nearest '@' character."
+        },
+        {
+          "order": 3,
+          "content": "Verify that the '@' is preceded by whitespace or is at the start of the string."
+        },
+        {
+          "order": 4,
+          "content": "Extract the partial path following the '@' character up to the caret position."
+        },
+        {
+          "order": 5,
+          "content": "Validate that the extracted path contains only word-like characters."
+        },
+        {
+          "order": 6,
+          "content": "Return the mention query information if valid, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_23717814",
+      "name": "updateFromValue",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(next: string, nextCaret: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the component's internal text value state."
+        },
+        {
+          "order": 2,
+          "content": "Update the component's internal caret position state."
+        },
+        {
+          "order": 3,
+          "content": "Determine if the slash command picker should be open based on whether the input starts with '/'."
+        },
+        {
+          "order": 4,
+          "content": "Check if the mention picker should be open by analyzing the current text and caret position for valid mention tokens."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4db0ffa2",
+      "name": "handleChange",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(e: React.ChangeEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the new text value and caret position from the change event."
+        },
+        {
+          "order": 2,
+          "content": "Update the component state with the new value and caret position."
+        },
+        {
+          "order": 3,
+          "content": "Reset the message history recall index."
+        },
+        {
+          "order": 4,
+          "content": "Dynamically adjust the textarea height based on its content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4d9d56b5",
+      "name": "handleSelect",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(e: React.SyntheticEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the current caret position from the selection event."
+        },
+        {
+          "order": 2,
+          "content": "Determine if the mention picker should be open based on the current text and caret position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ed9d9cdc",
+      "name": "handleSend",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the current input text and check if it's empty or if the component is disabled."
+        },
+        {
+          "order": 2,
+          "content": "If the input is valid, call the send handler with the trimmed text."
+        },
+        {
+          "order": 3,
+          "content": "Store the message in the user message history."
+        },
+        {
+          "order": 4,
+          "content": "Clear the input text and reset the caret position."
+        },
+        {
+          "order": 5,
+          "content": "Close the slash and mention pickers."
+        },
+        {
+          "order": 6,
+          "content": "Reset the message history recall index."
+        },
+        {
+          "order": 7,
+          "content": "Reset the textarea height to its default."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f7cb385b",
+      "name": "handleKeyDown",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(e: React.KeyboardEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Handle arrow up key press for message history recall."
+        },
+        {
+          "order": 2,
+          "content": "Handle arrow down key press for navigating forward through message history."
+        },
+        {
+          "order": 3,
+          "content": "Prevent default behavior for picker navigation keys when either picker is open."
+        },
+        {
+          "order": 4,
+          "content": "Handle enter key press for sending messages, respecting modifier keys."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_969e47eb",
+      "name": "handleSlashSelect",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(cmd: { name: string }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the input text to the selected slash command name."
+        },
+        {
+          "order": 2,
+          "content": "Position the caret at the end of the command name."
+        },
+        {
+          "order": 3,
+          "content": "Close the slash command picker."
+        },
+        {
+          "order": 4,
+          "content": "Focus the textarea element."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_73185ea2",
+      "name": "handleMentionSelect",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Determine the current mention query based on the input text and caret position."
+        },
+        {
+          "order": 2,
+          "content": "If no valid mention is found, close the mention picker."
+        },
+        {
+          "order": 3,
+          "content": "Replace the mention token with the selected file path."
+        },
+        {
+          "order": 4,
+          "content": "Update the input text with the new content."
+        },
+        {
+          "order": 5,
+          "content": "Position the caret after the inserted mention."
+        },
+        {
+          "order": 6,
+          "content": "Close the mention picker."
+        },
+        {
+          "order": 7,
+          "content": "Focus the textarea and set the caret position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1a68f82e",
+      "name": "handleAttachmentUpload",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "(a: { id: string; url: string; mimeType: string; name: string }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a session ID is available for the attachment."
+        },
+        {
+          "order": 2,
+          "content": "If session ID exists, add the attachment to the agent store."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ff5f45e2",
+      "name": "useAgentShortcuts",
+      "enclosing_class": "TurnInput",
+      "normalized_params": "({ onSend; onCancel; onFocus; onSlash; onMention }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Register keyboard shortcuts for sending messages, canceling, focusing, opening slash commands, and inserting mentions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

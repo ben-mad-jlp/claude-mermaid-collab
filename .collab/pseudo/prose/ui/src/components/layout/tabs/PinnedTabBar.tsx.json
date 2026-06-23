@@ -1,0 +1,133 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/tabs/PinnedTabBar.tsx",
+  "title": "Pinned tab bar component with context menu and tab management",
+  "purpose": "Displays pinned tabs in a horizontal bar with context menu functionality for managing tab visibility and navigation.",
+  "module_context": "Exports a React functional component named PinnedTabBar that manages pinned tabs using Zustand stores and renders them with Tab components and a context menu.",
+  "methods": [
+    {
+      "id": "m_d1358d3d",
+      "name": "PinnedTabBar",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the list of tabs and active tab ID from the session tabs store."
+        },
+        {
+          "order": 2,
+          "content": "Get functions to set active tab, close tabs, unpin tabs, and promote tabs to permanent status from the tabs store."
+        },
+        {
+          "order": 3,
+          "content": "Initialize state for tracking context menu position and target tab."
+        },
+        {
+          "order": 4,
+          "content": "Filter and sort pinned tabs by their order."
+        },
+        {
+          "order": 5,
+          "content": "If no pinned tabs exist, return null to render nothing."
+        },
+        {
+          "order": 6,
+          "content": "Render each pinned tab with appropriate click and context menu handlers."
+        },
+        {
+          "order": 7,
+          "content": "If a context menu is active, render the TabContextMenu component with appropriate actions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f662fec2",
+      "name": "activateTab",
+      "enclosing_class": "PinnedTabBar",
+      "normalized_params": "(tab: TabDescriptor): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the active tab ID in the tabs store."
+        },
+        {
+          "order": 2,
+          "content": "Get the current session store state."
+        },
+        {
+          "order": 3,
+          "content": "IF the tab is an embed kind, select the corresponding artifact in the session store."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF the tab is a code-file kind, select the corresponding pseudo path in the session store."
+        },
+        {
+          "order": 5,
+          "content": "ELSE IF the tab is an artifact kind with a type, route to the appropriate selection method based on artifact type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bab9c692",
+      "name": "handleCloseOthers",
+      "enclosing_class": "PinnedTabBar",
+      "normalized_params": "(tab: TabDescriptor): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all pinned tabs."
+        },
+        {
+          "order": 2,
+          "content": "IF a tab is not the target tab, close it."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe64e4c1",
+      "name": "handleCloseToRight",
+      "enclosing_class": "PinnedTabBar",
+      "normalized_params": "(tab: TabDescriptor): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the index of the target tab in the pinned tabs list."
+        },
+        {
+          "order": 2,
+          "content": "IF the tab is not found, return without taking action."
+        },
+        {
+          "order": 3,
+          "content": "Slice the pinned tabs list starting from the next tab."
+        },
+        {
+          "order": 4,
+          "content": "Close each tab in the sliced list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

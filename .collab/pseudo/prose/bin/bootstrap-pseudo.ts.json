@@ -1,0 +1,187 @@
+{
+  "schema_version": 3,
+  "file": "bin/bootstrap-pseudo.ts",
+  "title": "Bulk pseudocode generator for source files without manual/LLM prose",
+  "purpose": "Automatically generates LLM-based pseudocode for source files that lack existing manual or LLM prose, using the ollama-coding-mcp toolchain and persists the results in-memory.",
+  "module_context": "Initializes a pseudo database, determines target files lacking prose, and orchestrates concurrent processing of these files using a create pseudocode tool with a no-op collab client.",
+  "methods": [
+    {
+      "id": "m_6f205443",
+      "name": "noopCollabClient",
+      "enclosing_class": null,
+      "normalized_params": "(): { hasExistingProse: () => Promise<boolean>; upsertProse: () => Promise<unknown> }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return an object with a no-op implementation of hasExistingProse that always returns false."
+        },
+        {
+          "order": 2,
+          "content": "Return an object with a no-op implementation of upsertProse that always returns a successful response."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aa6b8735",
+      "name": "pickTargets",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for files that have no methods with prose_origin in ('llm','manual')."
+        },
+        {
+          "order": 2,
+          "content": "Order the results by inbound method count descending and file path ascending."
+        },
+        {
+          "order": 3,
+          "content": "Return an array of file paths that meet the criteria."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_44470eb1",
+      "name": "proseFilePathFor",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, absOrRelFile: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert the absolute or relative file path to a relative POSIX path."
+        },
+        {
+          "order": 2,
+          "content": "Generate a file path for the pseudocode JSON by joining the project path, '.collab/pseudo/prose', and the escaped relative path with a '.json' extension."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_001ad4a3",
+      "name": "persistResult",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, result: HandlerOutput): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the result contains pseudocode."
+        },
+        {
+          "order": 2,
+          "content": "Transform the pseudocode data into a format suitable for upserting."
+        },
+        {
+          "order": 3,
+          "content": "Persist the transformed pseudocode data using the pseudo_upsert_prose function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_79fac258",
+      "name": "main",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo database for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Determine the list of target files that lack existing prose."
+        },
+        {
+          "order": 3,
+          "content": "Filter out targets that already have a prose JSON file on disk."
+        },
+        {
+          "order": 4,
+          "content": "Limit the number of targets to process based on the BOOTSTRAP_LIMIT environment variable."
+        },
+        {
+          "order": 5,
+          "content": "Create a tool instance for generating pseudocode with a no-op collab client."
+        },
+        {
+          "order": 6,
+          "content": "Process the targets concurrently using a worker pool."
+        },
+        {
+          "order": 7,
+          "content": "Log progress and statistics during processing."
+        },
+        {
+          "order": 8,
+          "content": "Dispose of the database handle after processing is complete."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_309518bf",
+      "name": "worker",
+      "enclosing_class": "main",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Process targets from the list until all are handled."
+        },
+        {
+          "order": 2,
+          "content": "Invoke the pseudocode generation tool for each target file."
+        },
+        {
+          "order": 3,
+          "content": "Parse the tool's response to extract the pseudocode result."
+        },
+        {
+          "order": 4,
+          "content": "IF the result is successful and contains pseudocode, persist it to the database."
+        },
+        {
+          "order": 5,
+          "content": "IF the result indicates skipping, increment the skip counter."
+        },
+        {
+          "order": 6,
+          "content": "IF the result indicates failure, increment the failure counter."
+        },
+        {
+          "order": 7,
+          "content": "Log progress updates at regular intervals."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

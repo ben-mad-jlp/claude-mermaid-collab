@@ -1,0 +1,54 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/diff.ts",
+  "title": "Computes line-by-line differences between two strings using LCS algorithm",
+  "purpose": "Compares two string inputs and generates a detailed diff showing added, deleted, and unchanged lines with their line numbers.",
+  "module_context": "Exports a DiffLine interface and a computeLineDiff function that implements the longest common subsequence algorithm to determine line-level differences between strings.",
+  "methods": [
+    {
+      "id": "m_a9309e69",
+      "name": "computeLineDiff",
+      "enclosing_class": null,
+      "normalized_params": "(oldStr: string, newStr: string): DiffLine[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the two input strings are identical, return all lines as unchanged with corresponding line numbers."
+        },
+        {
+          "order": 2,
+          "content": "Split both input strings into arrays of lines."
+        },
+        {
+          "order": 3,
+          "content": "Initialize a dynamic programming table to store longest common subsequence values."
+        },
+        {
+          "order": 4,
+          "content": "Fill the dynamic programming table by comparing lines from both arrays."
+        },
+        {
+          "order": 5,
+          "content": "Traverse the dynamic programming table to build the diff output by comparing lines."
+        },
+        {
+          "order": 6,
+          "content": "Process remaining lines from the old string as deletions."
+        },
+        {
+          "order": 7,
+          "content": "Process remaining lines from the new string as additions."
+        },
+        {
+          "order": 8,
+          "content": "Return the complete diff array with all line changes and their types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/workflow/types.ts",
+  "title": "Type definitions for vibe task graph execution",
+  "purpose": "Defines the interface types for task batches and individual tasks used in vibe workflow execution.",
+  "module_context": "Exports two interface type definitions: TaskBatch for batch execution phases and BatchTask for individual tasks within those batches.",
+  "methods": [
+    {
+      "id": "m_0f312c0f",
+      "name": "TaskBatch",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a task batch including its unique identifier."
+        },
+        {
+          "order": 2,
+          "content": "Specify the collection of tasks contained within this batch."
+        },
+        {
+          "order": 3,
+          "content": "Establish the status of the batch with possible values of pending, in_progress, or completed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d82f33e",
+      "name": "BatchTask",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for an individual task within a batch."
+        },
+        {
+          "order": 2,
+          "content": "Include the unique identifier for this task."
+        },
+        {
+          "order": 3,
+          "content": "Set the status of the task with possible values of pending, in_progress, completed, or failed."
+        },
+        {
+          "order": 4,
+          "content": "Specify the list of task identifiers that this task depends on."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schema_version": 3,
+  "file": "ui/vite.config.ts",
+  "title": "Vite configuration for UI development server with proxy and plugin setup",
+  "purpose": "Configures the Vite development server for the UI application, including proxy settings, plugins, aliases, and build optimizations.",
+  "module_context": "Defines a Vite configuration with a custom plugin for patching milkdown theme CSS layers and standard React plugin integration.",
+  "methods": [
+    {
+      "id": "m_e78c349b",
+      "name": "patchMilkdownThemeNord",
+      "enclosing_class": null,
+      "normalized_params": "(): Plugin",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a plugin that intercepts CSS files from milkdown theme nord."
+        },
+        {
+          "order": 2,
+          "content": "Replace Tailwind-reserved layer names with custom prefixed names to avoid compilation errors."
+        },
+        {
+          "order": 3,
+          "content": "Return transformed code with renamed CSS layers for proper cascade handling."
+        },
+        {
+          "order": 4,
+          "content": "Skip transformation for non-milkdown CSS files."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7f6fdd33",
+      "name": "transform",
+      "enclosing_class": "patchMilkdownThemeNord",
+      "normalized_params": "(code: string, id: string): { code: string; map: null } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the file path from the identifier by removing query parameters."
+        },
+        {
+          "order": 2,
+          "content": "Check if the file path contains milkdown theme nord and ends with CSS extension."
+        },
+        {
+          "order": 3,
+          "content": "If the conditions match, replace Tailwind layer directives with custom prefixed names."
+        },
+        {
+          "order": 4,
+          "content": "Return the transformed code with renamed layers and null source map."
+        },
+        {
+          "order": 5,
+          "content": "If conditions don't match, return null to skip transformation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

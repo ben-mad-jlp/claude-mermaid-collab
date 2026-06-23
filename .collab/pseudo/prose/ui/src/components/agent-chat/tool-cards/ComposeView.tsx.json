@@ -1,0 +1,58 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/ComposeView.tsx",
+  "title": "Compose view component for displaying tool call results and progress",
+  "purpose": "Renders a structured view of tool call data including title, body, progress text, and output details like branch, commit, and PR information.",
+  "module_context": "Exports a React functional component named ComposeView that accepts an item prop of type AgentToolCallItem and displays various parts of the tool call data based on its status and content.",
+  "methods": [
+    {
+      "id": "m_29a0207a",
+      "name": "ComposeView",
+      "enclosing_class": null,
+      "normalized_params": "(props: ComposeViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the input data from the tool call item and initialize default values for title, body, and draft flags."
+        },
+        {
+          "order": 2,
+          "content": "Join all progress chunks into a single text string for display."
+        },
+        {
+          "order": 3,
+          "content": "Parse and validate the tool call output if the status is not running."
+        },
+        {
+          "order": 4,
+          "content": "Extract and format the commit SHA for display if present."
+        },
+        {
+          "order": 5,
+          "content": "Render the title section if a title exists, including draft indicator."
+        },
+        {
+          "order": 6,
+          "content": "Render the body section if body content exists."
+        },
+        {
+          "order": 7,
+          "content": "Render the progress text section if progress exists."
+        },
+        {
+          "order": 8,
+          "content": "Render the output details section including branch, commit, and PR information if output exists."
+        },
+        {
+          "order": 9,
+          "content": "Render the error message section if an error exists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

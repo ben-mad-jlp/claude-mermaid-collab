@@ -1,0 +1,397 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDesignTextEdit.ts",
+  "title": "Text editing hook for design canvas with IME support",
+  "purpose": "Manages an invisible textarea for text input during design editing, handling IME composition, caret blinking, keyboard navigation, and formatting shortcuts.",
+  "module_context": "Exports a React hook useDesignTextEdit that manages text input state and interactions for editing text nodes in a design canvas.",
+  "methods": [
+    {
+      "id": "m_8ee70ada",
+      "name": "useDesignTextEdit",
+      "enclosing_class": null,
+      "normalized_params": "(canvasRef: React.RefObject<HTMLCanvasElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize refs for textarea, composition state, and blink timer."
+        },
+        {
+          "order": 2,
+          "content": "Subscribe to editing text ID from the design editor store."
+        },
+        {
+          "order": 3,
+          "content": "Create and configure a hidden textarea element when text editing begins."
+        },
+        {
+          "order": 4,
+          "content": "Set up event listeners for input, composition, and keyboard events on the textarea."
+        },
+        {
+          "order": 5,
+          "content": "Attach a mouse down handler to the canvas to focus the textarea when clicked."
+        },
+        {
+          "order": 6,
+          "content": "Start the caret blinking timer and clean up event listeners on unmount."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85dec0f8",
+      "name": "getEditingNode",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(): SceneNode | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current editing text ID from the store."
+        },
+        {
+          "order": 2,
+          "content": "IF no editing ID exists, return null immediately."
+        },
+        {
+          "order": 3,
+          "content": "Look up the node in the scene graph using the editing ID."
+        },
+        {
+          "order": 4,
+          "content": "Return the node if found, otherwise return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_32dc4c12",
+      "name": "resetBlink",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the text editor reference from the editor refs."
+        },
+        {
+          "order": 2,
+          "content": "Set the caret visibility to true in the text editor."
+        },
+        {
+          "order": 3,
+          "content": "Clear any existing blink interval timer."
+        },
+        {
+          "order": 4,
+          "content": "Set a new interval timer to toggle caret visibility."
+        },
+        {
+          "order": 5,
+          "content": "Request a repaint to update the visual caret state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a5380c9",
+      "name": "syncText",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(nodeId: string, text: string, runs?: SceneNode['styleRuns']): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prepare changes object with updated text and style runs."
+        },
+        {
+          "order": 2,
+          "content": "Update the node in the scene graph with the new text and runs."
+        },
+        {
+          "order": 3,
+          "content": "Request a render update to reflect the text changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85680111",
+      "name": "insertText",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(text: string, node: SceneNode): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the text editor reference from the editor refs."
+        },
+        {
+          "order": 2,
+          "content": "IF no text editor exists, return early."
+        },
+        {
+          "order": 3,
+          "content": "Get the current selection range from the text editor."
+        },
+        {
+          "order": 4,
+          "content": "Adjust style runs for deletion and insertion based on the selection."
+        },
+        {
+          "order": 5,
+          "content": "Insert the text into the text editor."
+        },
+        {
+          "order": 6,
+          "content": "Sync the updated text and runs to the scene graph."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5ef11211",
+      "name": "deleteText",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(node: SceneNode, forward: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the text editor reference from the editor refs."
+        },
+        {
+          "order": 2,
+          "content": "IF no text editor exists, return early."
+        },
+        {
+          "order": 3,
+          "content": "Get the current selection range from the text editor."
+        },
+        {
+          "order": 4,
+          "content": "Adjust style runs for deletion based on the selection or cursor position."
+        },
+        {
+          "order": 5,
+          "content": "Delete or backspace text in the text editor based on direction."
+        },
+        {
+          "order": 6,
+          "content": "Sync the updated text and runs to the scene graph."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cecb5fee",
+      "name": "applyFormatting",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(nodeId: string, changes: Partial<SceneNode>, label: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the node with undo capability using the provided changes."
+        },
+        {
+          "order": 2,
+          "content": "Rebuild the paragraph in the text editor for the updated node."
+        },
+        {
+          "order": 3,
+          "content": "Request a render update to reflect the formatting changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4cde114a",
+      "name": "onCompositionStart",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the composition state to true to indicate IME input is active."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_01ab10f8",
+      "name": "onCompositionEnd",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(e: CompositionEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set the composition state to false to indicate IME input has ended."
+        },
+        {
+          "order": 2,
+          "content": "IF no composition data exists, return early."
+        },
+        {
+          "order": 3,
+          "content": "Get the current editing node from the store."
+        },
+        {
+          "order": 4,
+          "content": "IF no editing node exists, return early."
+        },
+        {
+          "order": 5,
+          "content": "Insert the composition text into the editing node."
+        },
+        {
+          "order": 6,
+          "content": "Clear the textarea value and reset the caret blink."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7e516aaf",
+      "name": "onInput",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF composition is active or no textarea ref exists, return early."
+        },
+        {
+          "order": 2,
+          "content": "Get the input text from the textarea."
+        },
+        {
+          "order": 3,
+          "content": "IF no text exists, return early."
+        },
+        {
+          "order": 4,
+          "content": "Clear the textarea value."
+        },
+        {
+          "order": 5,
+          "content": "Get the current editing node from the store."
+        },
+        {
+          "order": 6,
+          "content": "IF no editing node exists, return early."
+        },
+        {
+          "order": 7,
+          "content": "Insert the input text into the editing node."
+        },
+        {
+          "order": 8,
+          "content": "Reset the caret blink after text insertion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe213102",
+      "name": "onKeyDown",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF composition is active, return early to avoid processing key events."
+        },
+        {
+          "order": 2,
+          "content": "Access the text editor reference from the editor refs."
+        },
+        {
+          "order": 3,
+          "content": "Get the current editing node from the store."
+        },
+        {
+          "order": 4,
+          "content": "IF no text editor or editing node exists, return early."
+        },
+        {
+          "order": 5,
+          "content": "Determine if the meta key is pressed for modifier combinations."
+        },
+        {
+          "order": 6,
+          "content": "Process the key based on its type and modifiers."
+        },
+        {
+          "order": 7,
+          "content": "IF text was changed, request a render update and reset the caret blink."
+        },
+        {
+          "order": 8,
+          "content": "Prevent default behavior for handled keys to avoid browser interference."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4359fac1",
+      "name": "onCanvasMouseDown",
+      "enclosing_class": "useDesignTextEdit",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if text editing is active and textarea ref exists."
+        },
+        {
+          "order": 2,
+          "content": "IF both conditions are met, schedule a focus on the textarea in the next animation frame."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/worktree-diff.ts",
+  "title": "Git worktree diff handler with porcelain parsing",
+  "purpose": "Provides an API endpoint to compute and return file changes in a git worktree, including new, modified, or deleted files with their respective diffs.",
+  "module_context": "Exports a factory function to create a worktree diff handler and a default handler instance. Includes helper functions for error responses, running git commands, and parsing git status output.",
+  "methods": [
+    {
+      "id": "m_57b65c65",
+      "name": "jsonError",
+      "enclosing_class": null,
+      "normalized_params": "(message: string, status: number): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct a JSON-formatted error response with the provided message and status code."
+        },
+        {
+          "order": 2,
+          "content": "Set the content type header to application/json."
+        },
+        {
+          "order": 3,
+          "content": "Return the constructed response object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_61c206db",
+      "name": "run",
+      "enclosing_class": null,
+      "normalized_params": "(cmd: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Spawn a subprocess with the provided command and working directory."
+        },
+        {
+          "order": 2,
+          "content": "Capture the stdout and stderr streams from the subprocess."
+        },
+        {
+          "order": 3,
+          "content": "Await the completion of the subprocess and retrieve its exit code."
+        },
+        {
+          "order": 4,
+          "content": "Return the exit code, stdout, and stderr as a structured result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ea296dc3",
+      "name": "defaultLookupWorktreePath",
+      "enclosing_class": null,
+      "normalized_params": "(sessionId: string): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Construct the path to the worktrees directory based on the current working directory."
+        },
+        {
+          "order": 2,
+          "content": "If the worktrees directory does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Iterate through the files in the worktrees directory."
+        },
+        {
+          "order": 4,
+          "content": "For each file ending in .json, attempt to parse its contents as JSON."
+        },
+        {
+          "order": 5,
+          "content": "If the parsed record matches the provided session ID and contains a valid path, return that path."
+        },
+        {
+          "order": 6,
+          "content": "If no matching record is found, return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cced51eb",
+      "name": "parsePorcelain",
+      "enclosing_class": null,
+      "normalized_params": "(output: string): Array<{ path: string; status: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the input output string by null characters to extract individual entries."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through the split entries to process each one."
+        },
+        {
+          "order": 3,
+          "content": "Skip empty or malformed entries that are too short."
+        },
+        {
+          "order": 4,
+          "content": "Extract the status code and file path from each entry."
+        },
+        {
+          "order": 5,
+          "content": "Map the status code to a standard status indicator."
+        },
+        {
+          "order": 6,
+          "content": "For rename or copy operations, advance the index by two entries."
+        },
+        {
+          "order": 7,
+          "content": "Return the list of parsed entries with their paths and statuses."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_16c48f64",
+      "name": "createWorktreeDiffHandler",
+      "enclosing_class": null,
+      "normalized_params": "(options: WorktreeDiffOptions): (req: Request) => Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the worktree path lookup function from options or use the default."
+        },
+        {
+          "order": 2,
+          "content": "Return an async function that handles the worktree diff API request."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d97a024c",
+      "name": "handleWorktreeDiffAPI",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the session ID from the request URL query parameters."
+        },
+        {
+          "order": 2,
+          "content": "If no session ID is provided, return a JSON error response."
+        },
+        {
+          "order": 3,
+          "content": "Look up the worktree path for the given session ID."
+        },
+        {
+          "order": 4,
+          "content": "If no worktree path is found, return an empty JSON array."
+        },
+        {
+          "order": 5,
+          "content": "Execute git status with porcelain format to get file changes."
+        },
+        {
+          "order": 6,
+          "content": "If the git status command fails, return a JSON error response."
+        },
+        {
+          "order": 7,
+          "content": "Parse the porcelain output to extract file paths and statuses."
+        },
+        {
+          "order": 8,
+          "content": "For each file entry, compute the diff based on its status."
+        },
+        {
+          "order": 9,
+          "content": "Return a JSON response containing the file changes and their diffs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

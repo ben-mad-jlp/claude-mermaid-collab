@@ -1,0 +1,140 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/workflow/task-status.ts",
+  "title": "Task status management and graph visualization for MCP workflow",
+  "purpose": "Provides functions to update task statuses, retrieve task graphs, and broadcast updates via WebSocket for real-time collaboration.",
+  "module_context": "Exports type definitions for task status management including interfaces for parameters and responses, and three main functions: updateTaskStatus, getTaskGraph, and updateTasksStatus.",
+  "methods": [
+    {
+      "id": "m_14e5b913",
+      "name": "updateTaskStatus",
+      "enclosing_class": null,
+      "normalized_params": "(params: UpdateTaskStatusParams, wsHandler?: { broadcast: (msg: any) => void }): Promise<TaskGraphResponse>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that all required parameters are present and the status is valid."
+        },
+        {
+          "order": 2,
+          "content": "Load the current session state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Locate the specified task and update its status within the batches."
+        },
+        {
+          "order": 4,
+          "content": "Recalculate the arrays of completed and pending tasks."
+        },
+        {
+          "order": 5,
+          "content": "Update the status of the containing batch if all tasks are complete or in progress."
+        },
+        {
+          "order": 6,
+          "content": "Save the updated state back to storage."
+        },
+        {
+          "order": 7,
+          "content": "Generate a new Mermaid diagram representing the updated task graph."
+        },
+        {
+          "order": 8,
+          "content": "Broadcast the updated task graph to connected WebSocket clients."
+        },
+        {
+          "order": 9,
+          "content": "Return a response containing the diagram and updated state, or a minimal success response if requested."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b2904a27",
+      "name": "getTaskGraph",
+      "enclosing_class": null,
+      "normalized_params": "(params: GetTaskGraphParams): Promise<TaskGraphResponse>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that required parameters are present."
+        },
+        {
+          "order": 2,
+          "content": "Load the current session state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Generate a Mermaid diagram from the current task batches."
+        },
+        {
+          "order": 4,
+          "content": "Return a response containing the diagram and current state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_33303a6b",
+      "name": "updateTasksStatus",
+      "enclosing_class": null,
+      "normalized_params": "(params: UpdateTasksStatusParams, wsHandler?: { broadcast: (msg: any) => void }): Promise<TaskGraphResponse>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that all required parameters are present and updates are valid."
+        },
+        {
+          "order": 2,
+          "content": "Load the current session state from storage."
+        },
+        {
+          "order": 3,
+          "content": "Create a map of task IDs to new statuses for efficient lookup."
+        },
+        {
+          "order": 4,
+          "content": "Update all specified tasks in a single pass through the batches."
+        },
+        {
+          "order": 5,
+          "content": "Recalculate the arrays of completed and pending tasks."
+        },
+        {
+          "order": 6,
+          "content": "Update the status of each batch based on its tasks."
+        },
+        {
+          "order": 7,
+          "content": "Save the updated state back to storage."
+        },
+        {
+          "order": 8,
+          "content": "Generate a new Mermaid diagram representing the updated task graph."
+        },
+        {
+          "order": 9,
+          "content": "Broadcast the updated task graph to connected WebSocket clients."
+        },
+        {
+          "order": 10,
+          "content": "Return a response containing the diagram and updated state, or a minimal success response with update details if requested."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

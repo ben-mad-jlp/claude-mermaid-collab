@@ -1,0 +1,80 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/question.ts",
+  "title": "Question management core types",
+  "purpose": "Defines the fundamental data structures for representing questions, answers, and submission states in the Claude question management system.",
+  "module_context": "Exports three core interface types: Question for representing questions with id, text, optional context, and timestamp; QuestionResponse for answer responses with questionId, answer text, and timestamp; and QuestionSubmitState for tracking submission progress with loading status, error messages, and success indicators.",
+  "methods": [
+    {
+      "id": "m_ebe8cd44",
+      "name": "Question",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a question with required id and text fields."
+        },
+        {
+          "order": 2,
+          "content": "Include optional context field for additional question details."
+        },
+        {
+          "order": 3,
+          "content": "Add required timestamp field for question creation tracking."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e428f366",
+      "name": "QuestionResponse",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a question response with required questionId and answer fields."
+        },
+        {
+          "order": 2,
+          "content": "Add required timestamp field for response creation tracking."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e4a31dcf",
+      "name": "QuestionSubmitState",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for tracking question submission state with loading status."
+        },
+        {
+          "order": 2,
+          "content": "Include optional error field for storing error messages."
+        },
+        {
+          "order": 3,
+          "content": "Add success field for indicating submission completion status."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/vitest.config.ts",
+  "title": "Vitest configuration for UI project with React and coverage reporting",
+  "purpose": "Configures the test environment, plugins, and coverage settings for a React-based UI project using Vitest.",
+  "module_context": "Exports a default configuration object for Vitest that includes React plugin, jsdom environment, global test setup, coverage reporting, and path aliases for project modules.",
+  "methods": [
+    {
+      "id": "m_fc3f2412",
+      "name": "default",
+      "enclosing_class": null,
+      "normalized_params": "(): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Configure the Vite project with React plugin support."
+        },
+        {
+          "order": 2,
+          "content": "Set up test environment with global variables and jsdom."
+        },
+        {
+          "order": 3,
+          "content": "Specify the test setup file to be loaded before tests."
+        },
+        {
+          "order": 4,
+          "content": "Enable code coverage reporting using v8 provider."
+        },
+        {
+          "order": 5,
+          "content": "Define path aliases for project modules including components, hooks, stores, and lib directories."
+        },
+        {
+          "order": 6,
+          "content": "Set browser build alias for mermaid-wireframe to avoid Node.js dependencies."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

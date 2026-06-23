@@ -1,0 +1,25 @@
+{
+  "id": "milkdown-open-doc2",
+  "name": "milkdown-open-doc2",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1200
+      },
+      {
+        "eval": "(()=>{const els=Array.from(document.querySelectorAll('*')); const match=els.find(e=>e.childNodes.length<=3 && (e.textContent||'').trim().startsWith('design-chat-parity-gaps') && (e.getBoundingClientRect().width>0)); if(match){match.click(); return {clicked:true, tag:match.tagName, cls:match.className};} return {clicked:false};})()",
+        "as": "clickResult"
+      },
+      {
+        "wait": 1500
+      },
+      {
+        "eval": "({editorCount: document.querySelectorAll('.ProseMirror').length, milkdownCount: document.querySelectorAll('[class*=milkdown]').length, innerText: (document.querySelector('.ProseMirror')?.innerText||'').slice(0,500), bodyHead: document.body.innerText.slice(0,500)})",
+        "as": "editorState"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:35:50.481Z",
+  "updatedAt": "2026-04-18T18:35:50.481Z"
+}

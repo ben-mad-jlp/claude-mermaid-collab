@@ -1,0 +1,42 @@
+{
+  "id": "open-collab-collab-routes",
+  "name": "open-collab-collab-routes",
+  "description": "Smoke check for /collab and /collab/session routes in the open-collab fork",
+  "tags": [
+    "smoke",
+    "open-collab"
+  ],
+  "definition": {
+    "url": "http://localhost:3002/collab",
+    "steps": [
+      {
+        "wait": 4000
+      },
+      {
+        "screenshot": "collab-dashboard"
+      },
+      {
+        "eval": "document.title",
+        "as": "title"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"dashboard\"]') ? 'FOUND' : 'MISSING'",
+        "as": "dashboard_el"
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('[data-testid]')).map(e => e.dataset.testid).join(', ')",
+        "as": "all_test_ids"
+      },
+      {
+        "eval": "document.body.innerText.slice(0,500)",
+        "as": "body_text"
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('h1,h2,h3')).map(e=>e.innerText).join(' | ')",
+        "as": "headings"
+      }
+    ]
+  },
+  "createdAt": "2026-04-25T19:41:14.411Z",
+  "updatedAt": "2026-04-25T19:41:14.411Z"
+}

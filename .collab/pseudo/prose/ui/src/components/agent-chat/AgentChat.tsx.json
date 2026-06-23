@@ -1,0 +1,187 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/AgentChat.tsx",
+  "title": "Agent chat component with session management and UI rendering",
+  "purpose": "Manages the agent chat interface, handling session state, message display, input handling, and UI components like typing indicators and tool drawers.",
+  "module_context": "Exports a React functional component AgentChat that renders the complete agent chat interface with message list, input area, and various UI elements. Uses multiple custom hooks and stores for state management.",
+  "methods": [
+    {
+      "id": "m_cd7a799a",
+      "name": "AgentChat",
+      "enclosing_class": null,
+      "normalized_params": "(props: AgentChatProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize session and store hooks to access agent state and actions."
+        },
+        {
+          "order": 2,
+          "content": "Set up scroll anchor for automatic message scrolling behavior."
+        },
+        {
+          "order": 3,
+          "content": "Configure local UI state for drawers and modals."
+        },
+        {
+          "order": 4,
+          "content": "Define handlers for sending messages and canceling turns."
+        },
+        {
+          "order": 5,
+          "content": "Compute derived values for live region messages, typing state, and turn rail items."
+        },
+        {
+          "order": 6,
+          "content": "Render the complete chat interface including header, message list, input area, and floating elements."
+        },
+        {
+          "order": 7,
+          "content": "Display appropriate UI elements based on session state like error banners, pending prompts, and fatal errors."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cdae827d",
+      "name": "handleSend",
+      "enclosing_class": "AgentChat",
+      "normalized_params": "(text: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Forward the input text to the session send function."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe5ae0db",
+      "name": "handleCancel",
+      "enclosing_class": "AgentChat",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Cancel the current turn if one is active."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3a8b4081",
+      "name": "liveMessage",
+      "enclosing_class": "AgentChat",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through timeline items in reverse order to find the latest relevant message."
+        },
+        {
+          "order": 2,
+          "content": "IF a permission request is found, return its description."
+        },
+        {
+          "order": 3,
+          "content": "ELSE IF a tool is running, return its name."
+        },
+        {
+          "order": 4,
+          "content": "ELSE IF an assistant message is found, return its text."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return an empty string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_449b2f96",
+      "name": "typingState",
+      "enclosing_class": "AgentChat",
+      "normalized_params": "(): 'thinking' | 'streaming' | 'running_tools' | 'idle'",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if any tool calls are currently running."
+        },
+        {
+          "order": 2,
+          "content": "IF tool calls are running, return 'running_tools'."
+        },
+        {
+          "order": 3,
+          "content": "ELSE check if a message is currently streaming."
+        },
+        {
+          "order": 4,
+          "content": "IF a message is streaming, return 'streaming'."
+        },
+        {
+          "order": 5,
+          "content": "ELSE check if a turn is in progress."
+        },
+        {
+          "order": 6,
+          "content": "IF a turn is in progress, return 'thinking'."
+        },
+        {
+          "order": 7,
+          "content": "ELSE return 'idle'."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_db8d2235",
+      "name": "turnRailItems",
+      "enclosing_class": "AgentChat",
+      "normalized_params": "(): Array<{ id: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a set to track seen turn IDs and an output array."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through timeline items to extract turn IDs."
+        },
+        {
+          "order": 3,
+          "content": "IF a turn ID is found and not yet seen, add it to the output array."
+        },
+        {
+          "order": 4,
+          "content": "Return the array of unique turn items."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,523 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-query.ts",
+  "title": "Pseudo-query service for V6 database with file and method metadata",
+  "purpose": "Provides query interfaces to access file and method metadata from a V6 SQLite database, supporting search, references, call graphs, coverage analysis, and statistics.",
+  "module_context": "Defines constants for coverage extensions and excludes, and utility functions for file stem derivation and filesystem walking.",
+  "methods": [
+    {
+      "id": "m_a27e8291",
+      "name": "isCoverageTestFile",
+      "enclosing_class": null,
+      "normalized_params": "(name: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the file name includes '.test.' or '.spec.'."
+        },
+        {
+          "order": 2,
+          "content": "IF the file name ends with '.d.ts', return true."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return false."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d174fa1e",
+      "name": "deriveFileStem",
+      "enclosing_class": null,
+      "normalized_params": "(filePath: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the base name from the file path."
+        },
+        {
+          "order": 2,
+          "content": "Determine the file extension."
+        },
+        {
+          "order": 3,
+          "content": "IF an extension exists, remove it from the base name."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return the base name as-is."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_686ec0e6",
+      "name": "listFiles",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): PseudoFileSummary[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for file metadata and method counts."
+        },
+        {
+          "order": 2,
+          "content": "Group results by file path and aggregate method and export counts."
+        },
+        {
+          "order": 3,
+          "content": "Map database rows to pseudo-file summary objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f717a327",
+      "name": "getFile",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, filePath: string): PseudoFileWithMethods | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the file row from the database using the file path."
+        },
+        {
+          "order": 2,
+          "content": "IF the file does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "Query the database for methods associated with the file."
+        },
+        {
+          "order": 4,
+          "content": "For each method, retrieve its steps and calls from the database."
+        },
+        {
+          "order": 5,
+          "content": "Map database rows to pseudo-method objects with metadata."
+        },
+        {
+          "order": 6,
+          "content": "Build and return a pseudo-file with methods."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bd4995aa",
+      "name": "getFileByStem",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, fileStem: string): PseudoFileWithMethods | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for all file paths."
+        },
+        {
+          "order": 2,
+          "content": "For each file path, derive its stem and compare with the requested stem."
+        },
+        {
+          "order": 3,
+          "content": "IF a matching file is found, retrieve its full metadata."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return null."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9e1d158",
+      "name": "search",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, query: string, limit?: number): SearchResult[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim the search query and return empty results if it is empty."
+        },
+        {
+          "order": 2,
+          "content": "Escape special characters in the query for full-text search."
+        },
+        {
+          "order": 3,
+          "content": "Execute a full-text search against the pseudo-fts table."
+        },
+        {
+          "order": 4,
+          "content": "IF the search fails, return empty results."
+        },
+        {
+          "order": 5,
+          "content": "Map search results to pseudo-search result objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_716d0d09",
+      "name": "getReferences",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, name: string, fileStem?: string): Array<{ filePath: string; methodName: string; line: number }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build a SQL query to find methods that call the specified function."
+        },
+        {
+          "order": 2,
+          "content": "IF a file stem is provided, filter results by file path pattern."
+        },
+        {
+          "order": 3,
+          "content": "Execute the query and map results to reference objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9f635276",
+      "name": "getCallGraph",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): { nodes: GraphNode[]; edges: GraphEdge[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for all methods to build graph nodes."
+        },
+        {
+          "order": 2,
+          "content": "Map method rows to graph node objects."
+        },
+        {
+          "order": 3,
+          "content": "Query the database for method call relationships to build graph edges."
+        },
+        {
+          "order": 4,
+          "content": "Map call rows to graph edge objects."
+        },
+        {
+          "order": 5,
+          "content": "Return the constructed graph with nodes and edges."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8404adcd",
+      "name": "getExports",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): PseudoMethodWithMeta[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for all exported methods."
+        },
+        {
+          "order": 2,
+          "content": "For each exported method, retrieve its steps and calls from the database."
+        },
+        {
+          "order": 3,
+          "content": "Map database rows to pseudo-method objects with metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66a443c8",
+      "name": "getImpactAnalysis",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, name: string, fileStem?: string): { direct: AffectedItem[]; transitive: AffectedItem[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build a recursive SQL query to find methods that call the specified function."
+        },
+        {
+          "order": 2,
+          "content": "IF a file stem is provided, filter results by file path pattern."
+        },
+        {
+          "order": 3,
+          "content": "Execute the query and process results to separate direct and transitive impacts."
+        },
+        {
+          "order": 4,
+          "content": "Map results to affected item objects with depth information."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1e01c892",
+      "name": "getOrphanFunctions",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): PseudoMethodWithMeta[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for methods that are not exported and have no callers."
+        },
+        {
+          "order": 2,
+          "content": "For each orphaned method, retrieve its steps and calls from the database."
+        },
+        {
+          "order": 3,
+          "content": "Map database rows to pseudo-method objects with metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0e3653de",
+      "name": "getCoverage",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, project: string): CoverageReport",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the project directory exists."
+        },
+        {
+          "order": 2,
+          "content": "IF the directory does not exist, return empty coverage report."
+        },
+        {
+          "order": 3,
+          "content": "Recursively walk the project directory to collect all source files."
+        },
+        {
+          "order": 4,
+          "content": "Query the database for all indexed file paths."
+        },
+        {
+          "order": 5,
+          "content": "Compare source files with indexed files to count coverage."
+        },
+        {
+          "order": 6,
+          "content": "Calculate coverage percentage and return the report."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cd0a47a5",
+      "name": "walkSync",
+      "enclosing_class": null,
+      "normalized_params": "(dir: string, out: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read directory entries and handle read errors."
+        },
+        {
+          "order": 2,
+          "content": "Skip entries in the exclude list or named '__tests__'."
+        },
+        {
+          "order": 3,
+          "content": "Skip hidden entries except the current directory."
+        },
+        {
+          "order": 4,
+          "content": "For each entry, determine if it is a directory or file."
+        },
+        {
+          "order": 5,
+          "content": "Recursively walk directories."
+        },
+        {
+          "order": 6,
+          "content": "For files, check if they match coverage extensions and are not test files."
+        },
+        {
+          "order": 7,
+          "content": "Add matching files to the output array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_daa01516",
+      "name": "getSourceLink",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, name: string, fileStem?: string): SourceLinkCandidate[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Build a SQL query to find methods with the specified name and line numbers."
+        },
+        {
+          "order": 2,
+          "content": "IF a file stem is provided, filter results by file path pattern."
+        },
+        {
+          "order": 3,
+          "content": "Execute the query and map results to source link candidate objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_15da8f97",
+      "name": "getFunctionsForSource",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, filePath: string): FunctionForSource[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for methods in the specified file."
+        },
+        {
+          "order": 2,
+          "content": "Order methods by line number."
+        },
+        {
+          "order": 3,
+          "content": "Map database rows to function objects with source metadata."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_90c76c6a",
+      "name": "getStats",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): StatsReport",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for counts of files, methods, and exported methods."
+        },
+        {
+          "order": 2,
+          "content": "Map database row to statistics report object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1903d8ae",
+      "name": "getFilesByDirectory",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, dir: string): PseudoFileSummary[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for files under the specified directory."
+        },
+        {
+          "order": 2,
+          "content": "Group results by file path and aggregate method and export counts."
+        },
+        {
+          "order": 3,
+          "content": "Map database rows to pseudo-file summary objects."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_acee379e",
+      "name": "getMethodLocation",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, methodId: string): { filePath: string; line: number } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for the file path and line number of the method."
+        },
+        {
+          "order": 2,
+          "content": "IF the method does not exist, return null."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return the file path and line number."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

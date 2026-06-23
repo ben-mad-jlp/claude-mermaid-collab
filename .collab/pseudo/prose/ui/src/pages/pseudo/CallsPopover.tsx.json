@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/pseudo/CallsPopover.tsx",
+  "title": "CallsPopover component for displaying module call information",
+  "purpose": "Displays a fixed-positioned popover card with module information including file stem, title, purpose, and exported functions when a module is called.",
+  "module_context": "Exports a default React component named CallsPopover that accepts props for file data, positioning, visibility, and navigation callbacks.",
+  "methods": [
+    {
+      "id": "m_f3c21cde",
+      "name": "CallsPopover",
+      "enclosing_class": null,
+      "normalized_params": "(props: CallsPopoverProps): JSX.Element | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract all relevant props from the input object."
+        },
+        {
+          "order": 2,
+          "content": "Compute the fixed position for the popover using either provided position or anchor rectangle."
+        },
+        {
+          "order": 3,
+          "content": "IF the visible flag is explicitly false, return null to hide the popover."
+        },
+        {
+          "order": 4,
+          "content": "Extract exported functions from the file data using memoization for performance."
+        },
+        {
+          "order": 5,
+          "content": "Build the popover content JSX with file stem, title, purpose, and exported functions."
+        },
+        {
+          "order": 6,
+          "content": "Render the popover content inside a React portal attached to the document body."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ddeb2c95",
+      "name": "computedPosition",
+      "enclosing_class": "CallsPopover",
+      "normalized_params": "(): { top: number; left: number }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a fixed position is provided, use it directly."
+        },
+        {
+          "order": 2,
+          "content": "ELSE IF an anchor rectangle is provided, calculate position below and aligned with the rectangle."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return default zero position."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ddb0bae8",
+      "name": "exportedFunctions",
+      "enclosing_class": "CallsPopover",
+      "normalized_params": "(): { name: string; isExported: boolean }[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the methods from file data to include only those marked as exported."
+        },
+        {
+          "order": 2,
+          "content": "Return empty array if no methods exist in file data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

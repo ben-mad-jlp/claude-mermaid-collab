@@ -1,0 +1,267 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dialogs/FileBrowserDialog.tsx",
+  "title": "Modal file browser dialog with lazy directory loading and filtering",
+  "purpose": "Provides a modal interface for browsing project files and directories, supporting lazy loading, filtering, and file size restrictions.",
+  "module_context": "Exports a React functional component FileBrowserDialog that manages file browsing state including directory expansion, file selection, filtering, and loading indicators. Uses API calls to fetch project file listings and handles keyboard events for closing the dialog.",
+  "methods": [
+    {
+      "id": "m_c5c04690",
+      "name": "ChevronIcon",
+      "enclosing_class": null,
+      "normalized_params": "(props: { isOpen: boolean }): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a chevron SVG icon that rotates based on the open state."
+        },
+        {
+          "order": 2,
+          "content": "Apply CSS transform to rotate the icon 0 degrees when open or -90 degrees when closed."
+        },
+        {
+          "order": 3,
+          "content": "Add a smooth transition effect to the rotation transform."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b71c6f4",
+      "name": "FolderIcon",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a folder SVG icon with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3e3f8ee0",
+      "name": "FileIcon",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a file SVG icon with appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_acc55907",
+      "name": "SpinnerIcon",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a spinning SVG icon with animation class for loading states."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d29f193b",
+      "name": "formatSize",
+      "enclosing_class": null,
+      "normalized_params": "(bytes?: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Convert byte values to human-readable size strings with appropriate units."
+        },
+        {
+          "order": 2,
+          "content": "Return empty string if bytes is null or undefined."
+        },
+        {
+          "order": 3,
+          "content": "Format bytes less than 1024 as bytes with 'B' suffix."
+        },
+        {
+          "order": 4,
+          "content": "Format bytes between 1024 and 1048576 as kilobytes with 'KB' suffix."
+        },
+        {
+          "order": 5,
+          "content": "Format bytes greater than or equal to 1048576 as megabytes with 'MB' suffix."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5d4035c8",
+      "name": "loadDirectory",
+      "enclosing_class": "FileBrowserDialog",
+      "normalized_params": "(dirPath: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if directory entries are already cached before proceeding."
+        },
+        {
+          "order": 2,
+          "content": "Add directory path to loading set to indicate loading state."
+        },
+        {
+          "order": 3,
+          "content": "Fetch directory contents from the API using project and directory path."
+        },
+        {
+          "order": 4,
+          "content": "Transform API response into standardized file entry objects."
+        },
+        {
+          "order": 5,
+          "content": "Store fetched entries in the entries map under the directory path key."
+        },
+        {
+          "order": 6,
+          "content": "On API failure, store an empty array to prevent retry on subsequent renders."
+        },
+        {
+          "order": 7,
+          "content": "Remove directory path from loading set after operation completes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_36ebe9fe",
+      "name": "toggleDir",
+      "enclosing_class": "FileBrowserDialog",
+      "normalized_params": "(dirPath: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Toggle directory expansion state in the expandedDirs set."
+        },
+        {
+          "order": 2,
+          "content": "If directory is being expanded and not yet loaded, trigger lazy loading."
+        },
+        {
+          "order": 3,
+          "content": "If directory is being collapsed, remove it from expandedDirs set."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0fc23a0e",
+      "name": "handleLink",
+      "enclosing_class": "FileBrowserDialog",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If a file is selected, invoke the onSelect callback with the selected file path."
+        },
+        {
+          "order": 2,
+          "content": "Close the dialog after selecting a file."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_12d30fcc",
+      "name": "matchesFilter",
+      "enclosing_class": "FileBrowserDialog",
+      "normalized_params": "(entry: FileEntry): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if filter is empty and return true if so."
+        },
+        {
+          "order": 2,
+          "content": "Perform case-insensitive substring matching of entry name against filter."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a08ca3e9",
+      "name": "renderEntries",
+      "enclosing_class": "FileBrowserDialog",
+      "normalized_params": "(dirPath: string, level: number): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve directory entries from the entries map using the directory path."
+        },
+        {
+          "order": 2,
+          "content": "Filter entries based on the current filter value."
+        },
+        {
+          "order": 3,
+          "content": "Sort filtered entries with directories first, then files, both alphabetically."
+        },
+        {
+          "order": 4,
+          "content": "Render directory entries with expand/collapse controls and chevron icons."
+        },
+        {
+          "order": 5,
+          "content": "Render file entries with size information and appropriate styling."
+        },
+        {
+          "order": 6,
+          "content": "Apply visual styling to selected files and disabled large files."
+        },
+        {
+          "order": 7,
+          "content": "Recursively render child directory contents when expanded."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

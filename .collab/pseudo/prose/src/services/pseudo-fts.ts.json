@@ -1,0 +1,318 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-fts.ts",
+  "title": "Pseudo FTS5 virtual table helper functions for file path mapping and search",
+  "purpose": "Provides utilities to manage and query a pseudo-full-text search table that maps file paths to content for efficient searching and indexing.",
+  "module_context": "Exports functions to ensure table setup, upsert file content, delete file entries, clear all entries, and perform searches using FTS5 with sanitized queries and result mapping.",
+  "methods": [
+    {
+      "id": "m_e75ebfd6",
+      "name": "ensureFtsMapTable",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the database has already been initialized with FTS tables."
+        },
+        {
+          "order": 2,
+          "content": "IF not initialized, create the pseudo_fts_rowid table and its index."
+        },
+        {
+          "order": 3,
+          "content": "Mark the database as initialized to prevent duplicate setup."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1039d8f9",
+      "name": "resolveRowid",
+      "enclosing_class": "ensureFtsMapTable",
+      "normalized_params": "(db: Database, file_path: string, createIfMissing: boolean): number | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the pseudo_fts_rowid table for an existing rowid associated with the file path."
+        },
+        {
+          "order": 2,
+          "content": "IF a rowid is found, return it immediately."
+        },
+        {
+          "order": 3,
+          "content": "IF no rowid is found and creation is not requested, return null."
+        },
+        {
+          "order": 4,
+          "content": "ELSE insert a new row into the pseudo_fts_rowid table with the file path."
+        },
+        {
+          "order": 5,
+          "content": "Return the newly inserted rowid."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7f922cb",
+      "name": "upsertFileFts",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, row: { file_path: string; title: string; purpose: string; step_content: string; method_names: string }): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the FTS mapping table is initialized for the database."
+        },
+        {
+          "order": 2,
+          "content": "Begin a database transaction to ensure atomicity."
+        },
+        {
+          "order": 3,
+          "content": "Resolve or create the rowid for the file path."
+        },
+        {
+          "order": 4,
+          "content": "Delete any existing FTS entry for the resolved rowid."
+        },
+        {
+          "order": 5,
+          "content": "Insert or update the FTS entry with the provided content."
+        },
+        {
+          "order": 6,
+          "content": "Commit the transaction to finalize changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_52ab1925",
+      "name": "deleteFileFts",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, file_path: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the FTS mapping table is initialized for the database."
+        },
+        {
+          "order": 2,
+          "content": "Begin a database transaction to ensure atomicity."
+        },
+        {
+          "order": 3,
+          "content": "Resolve the rowid for the file path."
+        },
+        {
+          "order": 4,
+          "content": "IF no rowid is found, exit without further action."
+        },
+        {
+          "order": 5,
+          "content": "Delete the FTS entry associated with the rowid."
+        },
+        {
+          "order": 6,
+          "content": "Delete the rowid mapping from the pseudo_fts_rowid table."
+        },
+        {
+          "order": 7,
+          "content": "Commit the transaction to finalize changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b32da35b",
+      "name": "clearFts",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the FTS mapping table is initialized for the database."
+        },
+        {
+          "order": 2,
+          "content": "Begin a database transaction to ensure atomicity."
+        },
+        {
+          "order": 3,
+          "content": "Delete all entries from the pseudo_fts table."
+        },
+        {
+          "order": 4,
+          "content": "Delete all entries from the pseudo_fts_rowid table."
+        },
+        {
+          "order": 5,
+          "content": "Commit the transaction to finalize changes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7b6219ab",
+      "name": "sanitizeFtsQuery",
+      "enclosing_class": "searchFts",
+      "normalized_params": "(raw: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Trim whitespace from the raw query string."
+        },
+        {
+          "order": 2,
+          "content": "IF the trimmed string is empty, return an empty string."
+        },
+        {
+          "order": 3,
+          "content": "IF the query contains special FTS5 characters, return it as-is."
+        },
+        {
+          "order": 4,
+          "content": "ELSE wrap the query in double quotes and escape any existing double quotes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f861e62d",
+      "name": "runFtsSelect",
+      "enclosing_class": "searchFts",
+      "normalized_params": "(db: Database, matchExpr: string, limit: number): FtsSearchResult[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Execute a query against the pseudo_fts table using the match expression."
+        },
+        {
+          "order": 2,
+          "content": "Join with the pseudo_fts_rowid table to retrieve file paths."
+        },
+        {
+          "order": 3,
+          "content": "Calculate a rank using the bm25 function for relevance scoring."
+        },
+        {
+          "order": 4,
+          "content": "Generate snippets for title and purpose fields using the snippet function."
+        },
+        {
+          "order": 5,
+          "content": "IF the query fails, log a warning and return an empty result set."
+        },
+        {
+          "order": 6,
+          "content": "Map the query results to the expected FtsSearchResult format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_517bf4d1",
+      "name": "searchFts",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, query: string, limit?: number): FtsSearchResult[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the FTS mapping table is initialized for the database."
+        },
+        {
+          "order": 2,
+          "content": "Sanitize the raw query string for FTS5 compatibility."
+        },
+        {
+          "order": 3,
+          "content": "IF the sanitized query is empty, return an empty result set."
+        },
+        {
+          "order": 4,
+          "content": "Execute the sanitized query against the FTS table with the specified limit."
+        },
+        {
+          "order": 5,
+          "content": "Return the search results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_164a81f5",
+      "name": "findFunctionFts",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, name: string, limit?: number): FtsSearchResult[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the FTS mapping table is initialized for the database."
+        },
+        {
+          "order": 2,
+          "content": "Trim whitespace from the function name."
+        },
+        {
+          "order": 3,
+          "content": "IF the trimmed name is empty, return an empty result set."
+        },
+        {
+          "order": 4,
+          "content": "Escape any double quotes in the function name."
+        },
+        {
+          "order": 5,
+          "content": "Construct a match expression targeting the method_names field."
+        },
+        {
+          "order": 6,
+          "content": "Execute the match expression against the FTS table with the specified limit."
+        },
+        {
+          "order": 7,
+          "content": "Return the search results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/CreateNodeDialog.tsx",
+  "title": "Flowchart node creation dialog with type selection and preview",
+  "purpose": "Provides a modal interface for users to create new nodes in a flowchart diagram with label input, type selection, and live preview.",
+  "module_context": "Exports a CreateNodeDialog component that manages form state for node creation, handles keyboard shortcuts, and renders a modal with input fields, radio buttons, and a live preview of the node shape.",
+  "methods": [
+    {
+      "id": "m_906d1670",
+      "name": "NodePreview",
+      "enclosing_class": null,
+      "normalized_params": "(props: NodePreviewProps): React.FC<NodePreviewProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the node style string to extract fill and stroke colors."
+        },
+        {
+          "order": 2,
+          "content": "Determine the CSS classes for node shape based on the node type."
+        },
+        {
+          "order": 3,
+          "content": "Render a diamond shape for decision nodes using CSS transforms."
+        },
+        {
+          "order": 4,
+          "content": "Render other node types as rectangles with rounded corners and appropriate styling."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5da3d909",
+      "name": "CreateNodeDialog",
+      "enclosing_class": null,
+      "normalized_params": "(props: CreateNodeDialogProps): React.FC<CreateNodeDialogProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize form state for node label and type."
+        },
+        {
+          "order": 2,
+          "content": "Set up effect to reset form and focus input when dialog opens."
+        },
+        {
+          "order": 3,
+          "content": "Set up keyboard event listener to close dialog on Escape key."
+        },
+        {
+          "order": 4,
+          "content": "Handle form submission to create node with validated label and type."
+        },
+        {
+          "order": 5,
+          "content": "Handle backdrop clicks to close the dialog."
+        },
+        {
+          "order": 6,
+          "content": "Render the dialog overlay and form with input fields, radio buttons, and preview."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_52ecbecf",
+      "name": "handleSubmit",
+      "enclosing_class": "CreateNodeDialog",
+      "normalized_params": "(e: React.FormEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default form submission behavior."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the label is not empty or whitespace."
+        },
+        {
+          "order": 3,
+          "content": "IF the label is valid, call the onCreate prop with the label and type."
+        },
+        {
+          "order": 4,
+          "content": "Close the dialog after successful creation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_439a0eda",
+      "name": "handleBackdropClick",
+      "enclosing_class": "CreateNodeDialog",
+      "normalized_params": "(e: React.MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click target is the backdrop element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is on the backdrop, call the onClose prop to close the dialog."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

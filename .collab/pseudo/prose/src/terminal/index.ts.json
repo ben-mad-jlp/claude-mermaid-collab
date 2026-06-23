@@ -1,0 +1,60 @@
+{
+  "schema_version": 3,
+  "file": "src/terminal/index.ts",
+  "title": "Terminal module exports for PTY management and ring buffer utilities",
+  "purpose": "Provides exports for PTY session management and a ring buffer implementation used in terminal applications.",
+  "module_context": "Exports the RingBuffer class and PTYManager singleton along with related type definitions for terminal session handling.",
+  "methods": [
+    {
+      "id": "m_17e4cf63",
+      "name": "RingBuffer",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Expose the RingBuffer class for fixed-size data storage with overwrite behavior."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e7fb62dd",
+      "name": "PTYManager",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Expose the PTYManager class for managing terminal sessions and processes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0f322bfa",
+      "name": "ptyManager",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Expose the singleton instance of PTYManager for global terminal session access."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

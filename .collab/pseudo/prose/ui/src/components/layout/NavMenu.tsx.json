@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/NavMenu.tsx",
+  "title": "Navigation menu component with dropdown and route highlighting",
+  "purpose": "Provides a hamburger menu that toggles a dropdown list of top-level routes, highlighting the active route and handling outside clicks to close the menu.",
+  "module_context": "Defines a constant array of route objects with their properties including path, label, icon, and exact match flag. Exports a functional component that manages menu state and renders the toggle button and dropdown.",
+  "methods": [
+    {
+      "id": "m_b2216244",
+      "name": "NavMenu",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the menu open state to false."
+        },
+        {
+          "order": 2,
+          "content": "Create a reference to the menu container element."
+        },
+        {
+          "order": 3,
+          "content": "Track the current location using the routing library."
+        },
+        {
+          "order": 4,
+          "content": "Set up an event listener for outside clicks to close the menu."
+        },
+        {
+          "order": 5,
+          "content": "Define a function to determine if a route is active based on the current location."
+        },
+        {
+          "order": 6,
+          "content": "Render the menu toggle button with an image icon."
+        },
+        {
+          "order": 7,
+          "content": "IF the menu is open, render the dropdown with route links."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5b8d7bb7",
+      "name": "handler",
+      "enclosing_class": "NavMenu",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the click occurred outside the menu container."
+        },
+        {
+          "order": 2,
+          "content": "IF the click was outside, close the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_145b6e53",
+      "name": "isActive",
+      "enclosing_class": "NavMenu",
+      "normalized_params": "(route: typeof routes[0]): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compare the current path with the route path for exact matches when specified."
+        },
+        {
+          "order": 2,
+          "content": "ELSE check if the current path starts with the route path for non-exact matches."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

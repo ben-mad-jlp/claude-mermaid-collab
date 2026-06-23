@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/tool-cards/WebFetchView.tsx",
+  "title": "Web fetch tool card component with excerpt and output display",
+  "purpose": "Displays web fetch tool call results with URL link, prompt quote, and formatted output excerpt or error state.",
+  "module_context": "React functional component that renders tool call data with conditional display logic for URL, prompt, and output content.",
+  "methods": [
+    {
+      "id": "m_2e0a3675",
+      "name": "WebFetchView",
+      "enclosing_class": null,
+      "normalized_params": "(props: WebFetchViewProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the tool call item from the component props."
+        },
+        {
+          "order": 2,
+          "content": "Parse the input to extract URL and prompt if present."
+        },
+        {
+          "order": 3,
+          "content": "Format the output text into an excerpt if available, truncating long content."
+        },
+        {
+          "order": 4,
+          "content": "Render a link to the fetched URL if present."
+        },
+        {
+          "order": 5,
+          "content": "Render a quoted prompt if present."
+        },
+        {
+          "order": 6,
+          "content": "Display the formatted excerpt in an output panel if available."
+        },
+        {
+          "order": 7,
+          "content": "Display an error panel if the tool call failed and no excerpt exists."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

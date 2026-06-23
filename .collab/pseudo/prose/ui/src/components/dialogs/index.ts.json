@@ -1,0 +1,81 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dialogs/index.ts",
+  "title": "Dialog component re-exports for UI module",
+  "purpose": "Provides unified exports for various dialog components used in the application's user interface.",
+  "module_context": "Exports multiple dialog components and a type definition for session cleanup actions.",
+  "methods": [
+    {
+      "id": "m_984d138c",
+      "name": "SessionCleanupDialog",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the SessionCleanupDialog component."
+        },
+        {
+          "order": 2,
+          "content": "Export the CleanupAction type definition."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82e6b29e",
+      "name": "CreateSessionDialog",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the CreateSessionDialog component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aa26da23",
+      "name": "ConfirmClearCompletedDialog",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ConfirmClearCompletedDialog component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_db881487",
+      "name": "ConfirmDialog",
+      "enclosing_class": null,
+      "normalized_params": "",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the ConfirmDialog component."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

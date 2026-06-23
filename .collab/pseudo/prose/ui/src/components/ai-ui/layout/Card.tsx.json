@@ -1,0 +1,79 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/layout/Card.tsx",
+  "title": "AI UI Card component with collapsible sections and customizable styling",
+  "purpose": "Provides a reusable card container with optional title, subtitle, footer, and collapsible functionality. Supports customization of border color, background, elevation, and dark mode styling.",
+  "module_context": "Exports a Card component that accepts various props for content, styling, and behavior. Includes helper function for determining elevation shadow classes and uses React state for managing collapsible state.",
+  "methods": [
+    {
+      "id": "m_610dd778",
+      "name": "getElevationClasses",
+      "enclosing_class": null,
+      "normalized_params": "(elevation?: number): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the elevation number to a corresponding Tailwind shadow class."
+        },
+        {
+          "order": 2,
+          "content": "Return the appropriate shadow class based on the elevation value."
+        },
+        {
+          "order": 3,
+          "content": "Default to 'shadow' class when elevation is not provided or invalid."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a3028763",
+      "name": "Card",
+      "enclosing_class": null,
+      "normalized_params": "(props: CardComponentProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the collapsed state using the initialCollapsed prop."
+        },
+        {
+          "order": 2,
+          "content": "Return null if the hidden prop is true."
+        },
+        {
+          "order": 3,
+          "content": "Construct custom style objects for border and background colors."
+        },
+        {
+          "order": 4,
+          "content": "Determine the elevation shadow class based on the elevation prop."
+        },
+        {
+          "order": 5,
+          "content": "Render the card header with title and subtitle if present."
+        },
+        {
+          "order": 6,
+          "content": "Render the collapse button in the header when collapsible is enabled."
+        },
+        {
+          "order": 7,
+          "content": "Render the card content section when not collapsed."
+        },
+        {
+          "order": 8,
+          "content": "Render the card footer when footer content is provided and not collapsed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

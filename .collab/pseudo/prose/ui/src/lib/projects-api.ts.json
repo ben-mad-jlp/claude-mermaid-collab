@@ -1,0 +1,100 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/projects-api.ts",
+  "title": "Projects API client for managing registered projects",
+  "purpose": "Provides HTTP fetch methods to list, register, and unregister projects with the backend API.",
+  "module_context": "Exports a projectsApi object with three async methods for project management operations.",
+  "methods": [
+    {
+      "id": "m_994b0177",
+      "name": "list",
+      "enclosing_class": "projectsApi",
+      "normalized_params": "(): Promise<Project[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a GET request to the projects endpoint."
+        },
+        {
+          "order": 2,
+          "content": "IF the response indicates failure, throw an error with the status text."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "Extract and return the projects array from the response data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1233ea53",
+      "name": "register",
+      "enclosing_class": "projectsApi",
+      "normalized_params": "(path: string): Promise<{ success: boolean; project?: Project; error?: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Send a POST request to the projects endpoint with the project path in the body."
+        },
+        {
+          "order": 2,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 3,
+          "content": "IF the response indicates failure, return a failure result with the error message."
+        },
+        {
+          "order": 4,
+          "content": "ELSE return a success result with the registered project data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_66b816cc",
+      "name": "unregister",
+      "enclosing_class": "projectsApi",
+      "normalized_params": "(path: string): Promise<{ success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Encode the project path for use in a URL query parameter."
+        },
+        {
+          "order": 2,
+          "content": "Send a DELETE request to the projects endpoint with the path as a query parameter."
+        },
+        {
+          "order": 3,
+          "content": "Parse the JSON response from the server."
+        },
+        {
+          "order": 4,
+          "content": "IF the response indicates failure, return a failure result."
+        },
+        {
+          "order": 5,
+          "content": "ELSE return a success result based on the server's success indicator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

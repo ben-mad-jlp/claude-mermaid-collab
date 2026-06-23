@@ -1,0 +1,194 @@
+{
+  "schema_version": 3,
+  "file": "src/services/alias-generator.ts",
+  "title": "Semantic alias generator for topics with keyword extraction and expansion",
+  "purpose": "Extracts and expands keywords from topic titles and content to generate semantic aliases, supporting synonym and abbreviation expansion.",
+  "module_context": "Exports types and constants for topic content and alias generation options, along with functions for keyword extraction, synonym expansion, abbreviation expansion, and main alias generation pipeline.",
+  "methods": [
+    {
+      "id": "m_4994c274",
+      "name": "extractTitleKeywords",
+      "enclosing_class": null,
+      "normalized_params": "(title: string, minLength: number): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Normalize the title to lowercase."
+        },
+        {
+          "order": 2,
+          "content": "Split the normalized title on word boundaries and punctuation."
+        },
+        {
+          "order": 3,
+          "content": "Filter out words that are shorter than the minimum length."
+        },
+        {
+          "order": 4,
+          "content": "Filter out words that are stop words."
+        },
+        {
+          "order": 5,
+          "content": "Return the unique keywords as a sorted array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb325e68",
+      "name": "extractContentKeywords",
+      "enclosing_class": null,
+      "normalized_params": "(content: TopicContent, limit: number): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Combine the conceptual and technical sections of the content."
+        },
+        {
+          "order": 2,
+          "content": "Handle empty content by returning an empty array."
+        },
+        {
+          "order": 3,
+          "content": "Normalize the combined text to lowercase and split on word boundaries."
+        },
+        {
+          "order": 4,
+          "content": "Count the frequency of each word that is at least three characters long."
+        },
+        {
+          "order": 5,
+          "content": "Filter out words that are stop words during frequency counting."
+        },
+        {
+          "order": 6,
+          "content": "Sort the words by frequency in descending order."
+        },
+        {
+          "order": 7,
+          "content": "Return the top N words based on the specified limit."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0c801175",
+      "name": "expandWithSynonyms",
+      "enclosing_class": null,
+      "normalized_params": "(keywords: string[]): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a set with the input keywords."
+        },
+        {
+          "order": 2,
+          "content": "Iteratively expand the keyword set with synonyms until no new keywords are added."
+        },
+        {
+          "order": 3,
+          "content": "For each key in the synonym mapping, if it exists in the current set, add all its synonyms."
+        },
+        {
+          "order": 4,
+          "content": "For each keyword in the current set, check if it matches any synonym value and add the corresponding key."
+        },
+        {
+          "order": 5,
+          "content": "Return the expanded keywords as a sorted array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6d4e3adb",
+      "name": "expandWithAbbreviations",
+      "enclosing_class": null,
+      "normalized_params": "(keywords: string[]): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a set with the input keywords."
+        },
+        {
+          "order": 2,
+          "content": "For each keyword, if it has a corresponding abbreviation, add the abbreviation to the set."
+        },
+        {
+          "order": 3,
+          "content": "For each abbreviation in the mapping, if it matches a keyword in the set, add the long form to the set."
+        },
+        {
+          "order": 4,
+          "content": "Return the expanded keywords as a sorted array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_884dadb9",
+      "name": "generateAliases",
+      "enclosing_class": null,
+      "normalized_params": "(name: string, title: string, content: TopicContent, options: AliasGeneratorOptions): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Resolve the options with default values for max aliases, minimum alias length, and inclusion flags."
+        },
+        {
+          "order": 2,
+          "content": "Initialize a set to store the aliases."
+        },
+        {
+          "order": 3,
+          "content": "Extract keywords from the title and add them to the aliases set."
+        },
+        {
+          "order": 4,
+          "content": "If synonym expansion is enabled, expand the aliases with synonyms and update the set."
+        },
+        {
+          "order": 5,
+          "content": "If abbreviation expansion is enabled, expand the aliases with abbreviations and update the set."
+        },
+        {
+          "order": 6,
+          "content": "If content keyword extraction is enabled, extract keywords from the content and add them to the aliases set."
+        },
+        {
+          "order": 7,
+          "content": "Remove the canonical name from the aliases set."
+        },
+        {
+          "order": 8,
+          "content": "Filter the aliases by the minimum alias length."
+        },
+        {
+          "order": 9,
+          "content": "Limit the aliases to the maximum number and sort them."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

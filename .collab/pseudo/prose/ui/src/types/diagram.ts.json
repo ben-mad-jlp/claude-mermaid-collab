@@ -1,0 +1,75 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/diagram.ts",
+  "title": "Diagram data structure definitions",
+  "purpose": "Defines the core data types for representing diagrams and their validation results in the application.",
+  "module_context": "Exports two interface types: Diagram for diagram entities and DiagramValidation for validation outcomes.",
+  "methods": [
+    {
+      "id": "m_a6d86ae5",
+      "name": "Diagram",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for a diagram entity with unique identifier, name, content, and metadata."
+        },
+        {
+          "order": 2,
+          "content": "Include timestamp for last modification."
+        },
+        {
+          "order": 3,
+          "content": "Add optional folder path for organization."
+        },
+        {
+          "order": 4,
+          "content": "Add optional locking status to prevent modifications."
+        },
+        {
+          "order": 5,
+          "content": "Add optional deprecated flag to mark obsolete diagrams."
+        },
+        {
+          "order": 6,
+          "content": "Add optional pinning status for frequently used diagrams."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_de830873",
+      "name": "DiagramValidation",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the structure for validation results of diagram content."
+        },
+        {
+          "order": 2,
+          "content": "Include boolean flag indicating if the diagram is valid."
+        },
+        {
+          "order": 3,
+          "content": "Add optional error message for invalid diagrams."
+        },
+        {
+          "order": 4,
+          "content": "Add optional line number where validation error occurred."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

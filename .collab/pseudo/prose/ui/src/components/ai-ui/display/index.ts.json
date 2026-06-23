@@ -1,0 +1,94 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/display/index.ts",
+  "title": "AI UI display component exports",
+  "purpose": "Exports various UI components for displaying AI-related content including tables, code blocks, diffs, JSON, and markdown.",
+  "module_context": "Exports multiple display components and their respective type definitions for use in AI user interfaces.",
+  "methods": [
+    {
+      "id": "m_136300da",
+      "name": "Table",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Table component for rendering tabular data."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b8e4d565",
+      "name": "CodeBlock",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the CodeBlock component for displaying code with syntax highlighting."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_94c7b432",
+      "name": "DiffView",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the DiffView component for displaying differences between code or text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_733a3540",
+      "name": "JsonViewer",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the JsonViewer component for displaying JSON data in an interactive format."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d726f233",
+      "name": "Markdown",
+      "enclosing_class": null,
+      "normalized_params": "()",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Export the Markdown component for rendering markdown content."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

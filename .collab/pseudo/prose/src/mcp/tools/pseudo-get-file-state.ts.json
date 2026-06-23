@@ -1,0 +1,58 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-get-file-state.ts",
+  "title": "Pseudo file state generator with overlay warnings",
+  "purpose": "Generates v6 file state objects with method details and overlay warnings from a pseudo-database.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_3944f794",
+      "name": "pseudo_get_file_state",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, filePath: string): Promise<FileStateV6 | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo-database handle for the given project."
+        },
+        {
+          "order": 2,
+          "content": "Query the database for the file row matching the provided file path."
+        },
+        {
+          "order": 3,
+          "content": "IF no file row is found, return null."
+        },
+        {
+          "order": 4,
+          "content": "Query the database for all method rows associated with the file path."
+        },
+        {
+          "order": 5,
+          "content": "Prepare a statement to fetch steps for each method."
+        },
+        {
+          "order": 6,
+          "content": "Map each method row to a method state object including its steps."
+        },
+        {
+          "order": 7,
+          "content": "Extract method IDs from the method rows."
+        },
+        {
+          "order": 8,
+          "content": "Query the database for overlay warnings associated with the method IDs."
+        },
+        {
+          "order": 9,
+          "content": "Construct and return the complete file state object with methods and warnings."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/TextArea.tsx",
+  "title": "Accessible textarea component with validation and error handling",
+  "purpose": "Provides a customizable textarea input with built-in validation, error display, and accessibility features including ARIA labels and proper focus management.",
+  "module_context": "Exports a React functional component named TextArea that accepts various props for configuration and implements controlled component behavior with internal state management.",
+  "methods": [
+    {
+      "id": "m_827eceae",
+      "name": "TextArea",
+      "enclosing_class": null,
+      "normalized_params": "(props: TextAreaProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate unique IDs for the textarea and associated accessibility elements."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state for the textarea value and error message."
+        },
+        {
+          "order": 3,
+          "content": "Synchronize internal state with the provided value prop when it changes."
+        },
+        {
+          "order": 4,
+          "content": "Define and return the textarea element with all configured props and event handlers."
+        },
+        {
+          "order": 5,
+          "content": "Render the label, textarea, error message, and character counter elements when needed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7eabd3b2",
+      "name": "handleChange",
+      "enclosing_class": "TextArea",
+      "normalized_params": "(e: React.ChangeEvent<HTMLTextAreaElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the new value from the change event."
+        },
+        {
+          "order": 2,
+          "content": "Update the internal state with the new value."
+        },
+        {
+          "order": 3,
+          "content": "Notify the parent component of the value change via the onChange prop."
+        },
+        {
+          "order": 4,
+          "content": "Validate the new value if a validation function is provided."
+        },
+        {
+          "order": 5,
+          "content": "Update the error state based on validation results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_025867bb",
+      "name": "handleBlur",
+      "enclosing_class": "TextArea",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate the current internal value if a validation function is provided."
+        },
+        {
+          "order": 2,
+          "content": "Update the error state based on validation results."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

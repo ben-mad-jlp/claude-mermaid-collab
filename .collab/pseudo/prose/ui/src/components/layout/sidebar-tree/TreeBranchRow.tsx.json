@@ -1,0 +1,71 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/layout/sidebar-tree/TreeBranchRow.tsx",
+  "title": "Sidebar tree branch row component with collapsible section",
+  "purpose": "Provides a reusable UI component for displaying collapsible sections in a sidebar tree structure with chevron icons and item counts.",
+  "module_context": "Exports a ChevronIcon component and a SectionBranchRow component that renders a collapsible tree branch with styling and click handling.",
+  "methods": [
+    {
+      "id": "m_28085d11",
+      "name": "ChevronIcon",
+      "enclosing_class": null,
+      "normalized_params": "(props: { isDown: boolean }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render an SVG chevron icon element."
+        },
+        {
+          "order": 2,
+          "content": "Set the icon rotation based on the isDown prop value."
+        },
+        {
+          "order": 3,
+          "content": "Apply smooth transition effect to the rotation transform."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e72f856b",
+      "name": "SectionBranchRow",
+      "enclosing_class": null,
+      "normalized_params": "(props: SectionBranchRowProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a div element with test identifier and dynamic padding."
+        },
+        {
+          "order": 2,
+          "content": "Apply styling for flex layout, spacing, text appearance, and hover effects."
+        },
+        {
+          "order": 3,
+          "content": "Attach click handler to the div that triggers the onToggle callback."
+        },
+        {
+          "order": 4,
+          "content": "Render the chevron icon with rotation based on collapsed state."
+        },
+        {
+          "order": 5,
+          "content": "Display the section title text."
+        },
+        {
+          "order": 6,
+          "content": "IF a count is provided and greater than zero, render the count in parentheses."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

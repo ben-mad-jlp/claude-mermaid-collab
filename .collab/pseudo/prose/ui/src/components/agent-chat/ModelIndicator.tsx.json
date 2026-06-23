@@ -1,0 +1,88 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/ModelIndicator.tsx",
+  "title": "Model indicator component with dropdown selection",
+  "purpose": "Displays a compact model selection button that expands into a dropdown list of available models, allowing users to switch between different models.",
+  "module_context": "Exports a React functional component named ModelIndicator that accepts model, onChange, and models props. Defines a default set of models and handles click events to toggle dropdown visibility and select models.",
+  "methods": [
+    {
+      "id": "m_6ce0b336",
+      "name": "ModelIndicator",
+      "enclosing_class": null,
+      "normalized_params": "(props: ModelIndicatorProps): React.FC<ModelIndicatorProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking dropdown open/closed status."
+        },
+        {
+          "order": 2,
+          "content": "Create a ref to track the container element for click handling."
+        },
+        {
+          "order": 3,
+          "content": "Determine the list of available models to display, using provided models or falling back to default models."
+        },
+        {
+          "order": 4,
+          "content": "Set up a document click handler to close the dropdown when clicking outside."
+        },
+        {
+          "order": 5,
+          "content": "Define a handler function to process model selection and update state."
+        },
+        {
+          "order": 6,
+          "content": "Render the button showing the current model and the dropdown list when open."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9b2f4b46",
+      "name": "onDocClick",
+      "enclosing_class": "ModelIndicator",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the container reference is valid."
+        },
+        {
+          "order": 2,
+          "content": "IF the clicked target is outside the container, close the dropdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_82a86822",
+      "name": "handlePick",
+      "enclosing_class": "ModelIndicator",
+      "normalized_params": "(m: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Close the dropdown after a model is selected."
+        },
+        {
+          "order": 2,
+          "content": "IF the selected model differs from the current model, invoke the change handler."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

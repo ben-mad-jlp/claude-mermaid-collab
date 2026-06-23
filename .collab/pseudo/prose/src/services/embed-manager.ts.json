@@ -1,0 +1,233 @@
+{
+  "schema_version": 3,
+  "file": "src/services/embed-manager.ts",
+  "title": "Manages embed definitions and their persistence in JSON files",
+  "purpose": "Provides methods to create, read, list, and delete embed definitions stored as JSON files in a directory structure. Used to maintain a registry of embed configurations.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_fde91f05",
+      "name": "initialize",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Ensure the base directory exists for storing embed files."
+        },
+        {
+          "order": 2,
+          "content": "Read all files from the base directory."
+        },
+        {
+          "order": 3,
+          "content": "For each file ending in .json, attempt to parse and load its embed data."
+        },
+        {
+          "order": 4,
+          "content": "IF parsing fails due to corruption, skip that file and continue with others."
+        },
+        {
+          "order": 5,
+          "content": "IF the directory doesn't exist, initialize an empty index and continue."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_057cd096",
+      "name": "create",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(params: { name: string; url: string; subtype?: 'storybook'; width?: string; height?: string; storybook?: { storyId: string; port: number } }): Promise<Embed>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the provided URL starts with http:// or https://."
+        },
+        {
+          "order": 2,
+          "content": "Generate a unique ID for the embed based on its name, ensuring it's URL-safe."
+        },
+        {
+          "order": 3,
+          "content": "IF the generated ID already exists, append a numeric suffix to make it unique."
+        },
+        {
+          "order": 4,
+          "content": "Construct the embed object with the provided parameters and current timestamp."
+        },
+        {
+          "order": 5,
+          "content": "Write the embed data to a JSON file in the base directory."
+        },
+        {
+          "order": 6,
+          "content": "Update the in-memory index with the new embed metadata."
+        },
+        {
+          "order": 7,
+          "content": "Return the created embed object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aef628ab",
+      "name": "list",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(): Promise<Embed[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Iterate through all entries in the in-memory index."
+        },
+        {
+          "order": 2,
+          "content": "For each entry, retrieve the corresponding embed data from disk."
+        },
+        {
+          "order": 3,
+          "content": "If retrieval succeeds, add the embed to the results list."
+        },
+        {
+          "order": 4,
+          "content": "Sort the list of embeds by creation date in descending order."
+        },
+        {
+          "order": 5,
+          "content": "Return the sorted list of embeds."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f6bd51ec",
+      "name": "get",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(id: string): Promise<Embed | null>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the embed metadata in the in-memory index by ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, return null immediately."
+        },
+        {
+          "order": 3,
+          "content": "ELSE read the embed data from the file path stored in the metadata."
+        },
+        {
+          "order": 4,
+          "content": "IF reading fails due to file corruption or deletion, return null."
+        },
+        {
+          "order": 5,
+          "content": "ELSE parse the file content as JSON and return the embed object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1ba4e7c6",
+      "name": "delete",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(id: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the embed metadata in the in-memory index by ID."
+        },
+        {
+          "order": 2,
+          "content": "IF no metadata is found, throw an error indicating the embed was not found."
+        },
+        {
+          "order": 3,
+          "content": "ELSE delete the corresponding file from disk."
+        },
+        {
+          "order": 4,
+          "content": "Remove the embed entry from the in-memory index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e4183408",
+      "name": "hasEmbed",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the provided ID exists in the in-memory index."
+        },
+        {
+          "order": 2,
+          "content": "Return true if the ID is found, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d37297ad",
+      "name": "getIndexSize",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return the total number of entries in the in-memory index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3477fc07",
+      "name": "reset",
+      "enclosing_class": "EmbedManager",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear all entries from the in-memory index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

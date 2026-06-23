@@ -1,0 +1,555 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/designEditorStore.ts",
+  "title": "Design editor store with undo/redo, layout, and selection management",
+  "purpose": "Manages the state and behavior of the design editor UI including selection, tool states, node operations, layout computation, and undo/redo functionality.",
+  "module_context": "Exports a Zustand store for design editor state management with references to scene graph, renderer, and undo manager from designEditorRefs module.",
+  "methods": [
+    {
+      "id": "m_6a7fa4ca",
+      "name": "runLayoutForNode",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get the node with the specified ID from the graph."
+        },
+        {
+          "order": 3,
+          "content": "IF the node exists and has a non-NONE layout mode, compute layout for that node."
+        },
+        {
+          "order": 4,
+          "content": "Traverse up the node's parent hierarchy and compute layout for each parent with non-NONE layout mode."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_abd11997",
+      "name": "syncIfInsideComponent",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(nodeId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get the node with the specified ID from the graph."
+        },
+        {
+          "order": 3,
+          "content": "Traverse up the node's parent hierarchy to find a COMPONENT node."
+        },
+        {
+          "order": 4,
+          "content": "IF a COMPONENT node is found, synchronize its instances."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a7fc30ae",
+      "name": "requestRender",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Increment the render version in the store state."
+        },
+        {
+          "order": 2,
+          "content": "Increment the scene version in the store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6eb9143a",
+      "name": "requestRepaint",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Increment the render version in the store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2eb37e94",
+      "name": "setTool",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(tool: Tool): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the active tool in the store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d499c8b9",
+      "name": "select",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(ids: string[], additive?: boolean): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF additive flag is true, merge new IDs with existing selected IDs."
+        },
+        {
+          "order": 2,
+          "content": "IF additive flag is false, replace existing selected IDs with new IDs."
+        },
+        {
+          "order": 3,
+          "content": "Update the selected IDs in the store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_977a76c6",
+      "name": "updateNode",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(id: string, updates: Partial<SceneNode>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Update the specified node with the provided updates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8d0ddf6b",
+      "name": "computeLayout",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(graph: SceneGraph, id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compute layout for the specified node in the scene graph."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_99b90e84",
+      "name": "computeAllLayouts",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(graph: SceneGraph): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compute layouts for all nodes in the scene graph."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f43d5a8f",
+      "name": "initFromGraph",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get the root node from the scene graph."
+        },
+        {
+          "order": 3,
+          "content": "IF root node exists, get the first child as the page ID."
+        },
+        {
+          "order": 4,
+          "content": "Compute layouts for all frames in the scene graph."
+        },
+        {
+          "order": 5,
+          "content": "Update the current page ID in the store state."
+        },
+        {
+          "order": 6,
+          "content": "Clear selected IDs in the store state."
+        },
+        {
+          "order": 7,
+          "content": "Clear editing text ID in the store state."
+        },
+        {
+          "order": 8,
+          "content": "Increment both render version and scene version in the store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1169e40a",
+      "name": "zoomToFit",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(viewportWidth: number, viewportHeight: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get the current page node from the scene graph."
+        },
+        {
+          "order": 3,
+          "content": "IF page node exists, compute bounding box of page content."
+        },
+        {
+          "order": 4,
+          "content": "IF no children exist, center on the page frame itself with padding."
+        },
+        {
+          "order": 5,
+          "content": "IF children exist, compute bounding box of all children and page frame."
+        },
+        {
+          "order": 6,
+          "content": "Calculate zoom factor to fit content within viewport with padding."
+        },
+        {
+          "order": 7,
+          "content": "Calculate pan values to center the content within the viewport."
+        },
+        {
+          "order": 8,
+          "content": "Update zoom, panX, and panY in the store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6017b808",
+      "name": "alignNodes",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(direction: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get selected nodes from the store state."
+        },
+        {
+          "order": 3,
+          "content": "IF less than 2 nodes are selected, return early."
+        },
+        {
+          "order": 4,
+          "content": "Capture original positions of selected nodes for undo."
+        },
+        {
+          "order": 5,
+          "content": "Compute bounding box using absolute positions of selected nodes."
+        },
+        {
+          "order": 6,
+          "content": "Align nodes based on the specified direction."
+        },
+        {
+          "order": 7,
+          "content": "Compute final positions of nodes after alignment."
+        },
+        {
+          "order": 8,
+          "content": "Push alignment operation to undo stack."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d35f04f",
+      "name": "distributeNodes",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(axis: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get selected nodes from the store state."
+        },
+        {
+          "order": 3,
+          "content": "IF less than 3 nodes are selected, return early."
+        },
+        {
+          "order": 4,
+          "content": "Capture original positions of selected nodes for undo."
+        },
+        {
+          "order": 5,
+          "content": "Sort nodes based on absolute positions along the specified axis."
+        },
+        {
+          "order": 6,
+          "content": "Calculate distribution gaps between nodes."
+        },
+        {
+          "order": 7,
+          "content": "Update positions of nodes to achieve even distribution."
+        },
+        {
+          "order": 8,
+          "content": "Compute final positions of nodes after distribution."
+        },
+        {
+          "order": 9,
+          "content": "Push distribution operation to undo stack."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7edd88ef",
+      "name": "flipSelected",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(axis: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get selected nodes from the store state."
+        },
+        {
+          "order": 3,
+          "content": "IF no nodes are selected, return early."
+        },
+        {
+          "order": 4,
+          "content": "Capture original positions of selected nodes for undo."
+        },
+        {
+          "order": 5,
+          "content": "Compute bounding box of selected nodes."
+        },
+        {
+          "order": 6,
+          "content": "Flip nodes horizontally or vertically based on specified axis."
+        },
+        {
+          "order": 7,
+          "content": "Compute final positions of nodes after flipping."
+        },
+        {
+          "order": 8,
+          "content": "Push flip operation to undo stack."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a24ed86b",
+      "name": "zoomToSelection",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(viewportWidth: number, viewportHeight: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get selected nodes from the store state."
+        },
+        {
+          "order": 3,
+          "content": "IF no nodes are selected, return early."
+        },
+        {
+          "order": 4,
+          "content": "Compute bounding box of selected nodes."
+        },
+        {
+          "order": 5,
+          "content": "Calculate zoom factor to fit selected content within viewport with padding."
+        },
+        {
+          "order": 6,
+          "content": "Calculate pan values to center the selected content within the viewport."
+        },
+        {
+          "order": 7,
+          "content": "Update zoom, panX, and panY in the store state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d95dbd1",
+      "name": "getSelectedNodes",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(): SceneNode[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get selected IDs from the store state."
+        },
+        {
+          "order": 3,
+          "content": "For each selected ID, retrieve the corresponding node from the scene graph."
+        },
+        {
+          "order": 4,
+          "content": "Return array of selected nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_558b2f5d",
+      "name": "getSelectedNode",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(): SceneNode | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get selected nodes using getSelectedNodes method."
+        },
+        {
+          "order": 2,
+          "content": "IF exactly one node is selected, return that node."
+        },
+        {
+          "order": 3,
+          "content": "IF zero or multiple nodes are selected, return undefined."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0f7a6ada",
+      "name": "getLayerTree",
+      "enclosing_class": "useDesignEditorStore",
+      "normalized_params": "(): { id: string; depth: number }[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the scene graph from editor references."
+        },
+        {
+          "order": 2,
+          "content": "Get current page ID from the store state."
+        },
+        {
+          "order": 3,
+          "content": "Flatten the tree structure starting from the current page ID."
+        },
+        {
+          "order": 4,
+          "content": "Return flattened tree structure."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

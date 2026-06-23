@@ -1,0 +1,270 @@
+{
+  "schema_version": 3,
+  "file": "src/services/pseudo-orphan.ts",
+  "title": "Pseudo orphan detection service for identifying unused prose files",
+  "purpose": "Analyzes pseudo prose files to detect orphaned files that are no longer referenced in the current source set, providing fuzzy suggestions for potential matches.",
+  "module_context": "Exports interfaces for orphan suggestions and reports, constants for directory paths and default settings, and the main function to run orphan detection with database integration.",
+  "methods": [
+    {
+      "id": "m_9ef942ab",
+      "name": "runOrphanDetection",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database, project: string, opts: OrphanOptions): Promise<OrphanReport>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Load the current source set from the database."
+        },
+        {
+          "order": 2,
+          "content": "List all prose files in the designated directory."
+        },
+        {
+          "order": 3,
+          "content": "Collect recent files from git history within the specified time window."
+        },
+        {
+          "order": 4,
+          "content": "Process each prose file to determine if it's an orphan."
+        },
+        {
+          "order": 5,
+          "content": "For each orphan, check if it's a cross-branch orphan and insert into the database accordingly."
+        },
+        {
+          "order": 6,
+          "content": "For actual orphans, generate fuzzy suggestions and insert them into the database."
+        },
+        {
+          "order": 7,
+          "content": "Return a structured report containing cross-branch orphans and actual orphans with suggestions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dc00fa45",
+      "name": "checkAbort",
+      "enclosing_class": null,
+      "normalized_params": "(signal?: AbortSignal): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the provided abort signal has been triggered."
+        },
+        {
+          "order": 2,
+          "content": "If aborted, throw an error with the AbortError name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1656146b",
+      "name": "normPath",
+      "enclosing_class": null,
+      "normalized_params": "(p: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Replace all backslashes in the path with forward slashes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5ad6c105",
+      "name": "loadCurrentSourceSet",
+      "enclosing_class": null,
+      "normalized_params": "(db: Database): Set<string>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Query the database for all file paths where stub is 0."
+        },
+        {
+          "order": 2,
+          "content": "Normalize each file path and add it to a set for efficient lookup."
+        },
+        {
+          "order": 3,
+          "content": "Return the set of normalized file paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e1aace70",
+      "name": "listProseFiles",
+      "enclosing_class": null,
+      "normalized_params": "(proseRoot: string): string[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect prose file paths."
+        },
+        {
+          "order": 2,
+          "content": "Check if the prose root directory exists."
+        },
+        {
+          "order": 3,
+          "content": "Use a stack-based approach to traverse directories recursively."
+        },
+        {
+          "order": 4,
+          "content": "For each file entry, check if it's a JSON file and not the path map file."
+        },
+        {
+          "order": 5,
+          "content": "Add matching file paths to the output array."
+        },
+        {
+          "order": 6,
+          "content": "Return the collected prose file paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_022aa0c1",
+      "name": "collectRecentFiles",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, sinceDays: number, signal?: AbortSignal): Promise<Set<string>>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Spawn a git log process to collect recent file changes."
+        },
+        {
+          "order": 2,
+          "content": "Set up event listeners to handle abort signals and process data streams."
+        },
+        {
+          "order": 3,
+          "content": "Parse the output from git log to extract file paths."
+        },
+        {
+          "order": 4,
+          "content": "Normalize each file path and add it to a set."
+        },
+        {
+          "order": 5,
+          "content": "Return the set of recent file paths."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a07a84b1",
+      "name": "levenshtein",
+      "enclosing_class": null,
+      "normalized_params": "(a: string, b: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize matrices to compute the edit distance between two strings."
+        },
+        {
+          "order": 2,
+          "content": "Fill the matrices using dynamic programming to calculate the minimum edit distance."
+        },
+        {
+          "order": 3,
+          "content": "Return the computed edit distance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_116a1cc0",
+      "name": "nameSimilarity",
+      "enclosing_class": null,
+      "normalized_params": "(a: string, b: string): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Calculate the Levenshtein distance between two strings."
+        },
+        {
+          "order": 2,
+          "content": "Normalize the distance by the maximum length of the two strings."
+        },
+        {
+          "order": 3,
+          "content": "Return the similarity score as 1 minus the normalized distance."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d9e402c8",
+      "name": "fuzzyMatchSameDirectory",
+      "enclosing_class": null,
+      "normalized_params": "(sourcePath: string, currentSourceSet: Set<string>, topN: number): OrphanSuggestion[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the directory and base name of the source path."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through the current source set to find candidates in the same directory."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the similarity between the base names of the source and candidate files."
+        },
+        {
+          "order": 4,
+          "content": "Compute a weighted score for each candidate based on similarity."
+        },
+        {
+          "order": 5,
+          "content": "Sort candidates by score in descending order."
+        },
+        {
+          "order": 6,
+          "content": "Return the top N candidates with their scores and reasons."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

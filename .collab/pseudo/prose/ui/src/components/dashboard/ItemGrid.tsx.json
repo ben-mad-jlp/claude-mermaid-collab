@@ -1,0 +1,109 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dashboard/ItemGrid.tsx",
+  "title": "Responsive grid component for displaying diagrams, documents, and designs",
+  "purpose": "Displays a responsive grid of items with search filtering, loading states, and error handling. Integrates with session management for item selection and display.",
+  "module_context": "Exports a React functional component ItemGrid that accepts various props for configuration including items to display, search functionality, loading states, and selection handling. Uses React hooks for state management and memoization.",
+  "methods": [
+    {
+      "id": "m_ef49dd2b",
+      "name": "ItemGrid",
+      "enclosing_class": null,
+      "normalized_params": "(props: ItemGridProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize local state for search query."
+        },
+        {
+          "order": 2,
+          "content": "Filter items based on the current search query using memoization."
+        },
+        {
+          "order": 3,
+          "content": "Define a callback handler for item clicks that delegates to the provided onItemClick prop."
+        },
+        {
+          "order": 4,
+          "content": "Define a callback handler for search input changes that updates the local search query state."
+        },
+        {
+          "order": 5,
+          "content": "Render loading state with spinner and message if data is loading."
+        },
+        {
+          "order": 6,
+          "content": "Render error state with icon and message if an error is present."
+        },
+        {
+          "order": 7,
+          "content": "Render empty state with icon and message if no items exist."
+        },
+        {
+          "order": 8,
+          "content": "Render the main grid layout including search bar, items grid, and footer with item count."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c7583f86",
+      "name": "filteredItems",
+      "enclosing_class": "ItemGrid",
+      "normalized_params": "(): GridItem[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return all items if search query is empty."
+        },
+        {
+          "order": 2,
+          "content": "Filter items by matching search query against item name or type."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_56610126",
+      "name": "handleItemClick",
+      "enclosing_class": "ItemGrid",
+      "normalized_params": "(item: GridItem): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the onItemClick prop callback with the clicked item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8ff7ed29",
+      "name": "handleSearchChange",
+      "enclosing_class": "ItemGrid",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the local search query state with the input value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

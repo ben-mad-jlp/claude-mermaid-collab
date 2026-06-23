@@ -1,0 +1,79 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/annotations/migrator.ts",
+  "title": "Legacy inline annotation marker migrator to structured annotations",
+  "purpose": "Converts legacy HTML comment-based annotation markers in markdown into structured Annotation records and cleans up the markdown.",
+  "module_context": "Defines regex patterns for legacy annotation markers and exports functions to detect and migrate annotations.",
+  "methods": [
+    {
+      "id": "m_578900cb",
+      "name": "hasLegacyAnnotations",
+      "enclosing_class": null,
+      "normalized_params": "(markdown: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Test the input markdown against each legacy pattern in the collection."
+        },
+        {
+          "order": 2,
+          "content": "Return true if any pattern matches the markdown."
+        },
+        {
+          "order": 3,
+          "content": "Return false if no patterns match the markdown."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9ff5705d",
+      "name": "migrateInlineAnnotations",
+      "enclosing_class": null,
+      "normalized_params": "(markdown: string): { cleanedMarkdown: string; annotations: Annotation[] }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an empty array to collect extracted annotations."
+        },
+        {
+          "order": 2,
+          "content": "Copy the input markdown to a working variable."
+        },
+        {
+          "order": 3,
+          "content": "Process comment-start/end markers and extract comment annotations."
+        },
+        {
+          "order": 4,
+          "content": "Process propose/approve-start/end markers and extract proposed/approved annotations."
+        },
+        {
+          "order": 5,
+          "content": "Process reject-start/end markers and extract rejected annotations with reasons."
+        },
+        {
+          "order": 6,
+          "content": "Remove standalone comment and status markers from the markdown."
+        },
+        {
+          "order": 7,
+          "content": "Collapse multiple consecutive blank lines into double line breaks."
+        },
+        {
+          "order": 8,
+          "content": "Return the cleaned markdown and extracted annotations."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

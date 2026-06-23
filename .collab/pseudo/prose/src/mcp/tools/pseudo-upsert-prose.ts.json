@@ -1,0 +1,119 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-upsert-prose.ts",
+  "title": "MCP tool for upserting prose documentation with diff sanity checks",
+  "purpose": "Writes prose documentation to JSON files and ensures method drop thresholds are not exceeded during updates.",
+  "module_context": "Exports the pseudo_upsert_prose tool function and defines input/output interfaces for upsert operations.",
+  "methods": [
+    {
+      "id": "m_371e3d6c",
+      "name": "withFileLock",
+      "enclosing_class": null,
+      "normalized_params": "(key: string, fn: () => Promise<T>): Promise<T>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Acquire a lock for the specified file key."
+        },
+        {
+          "order": 2,
+          "content": "Wait for any previous operations on this file to complete."
+        },
+        {
+          "order": 3,
+          "content": "Execute the provided function while holding the lock."
+        },
+        {
+          "order": 4,
+          "content": "Release the lock after the function completes."
+        },
+        {
+          "order": 5,
+          "content": "Clean up the lock entry if no other operations are pending."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fcbc1a9c",
+      "name": "pseudo_upsert_prose",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, input: UpsertProseInput): Promise<UpsertProseResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the origin is either 'manual' or 'llm'."
+        },
+        {
+          "order": 2,
+          "content": "Ensure that the file path is provided."
+        },
+        {
+          "order": 3,
+          "content": "Confirm that the methods array is present."
+        },
+        {
+          "order": 4,
+          "content": "Normalize the file path to a relative POSIX format."
+        },
+        {
+          "order": 5,
+          "content": "Escape the file path for use in the prose file name."
+        },
+        {
+          "order": 6,
+          "content": "Construct the full path to the prose file."
+        },
+        {
+          "order": 7,
+          "content": "Acquire a file lock for the prose file."
+        },
+        {
+          "order": 8,
+          "content": "Read the existing prose file if it exists."
+        },
+        {
+          "order": 9,
+          "content": "Build a mapping of existing method IDs to their definitions."
+        },
+        {
+          "order": 10,
+          "content": "Process each new method to compute its ID and normalize its properties."
+        },
+        {
+          "order": 11,
+          "content": "IF an existing file has 4 or more methods and the new payload drops more than 50%, reject the update."
+        },
+        {
+          "order": 12,
+          "content": "Identify methods from the existing file that are not present in the new payload and preserve them."
+        },
+        {
+          "order": 13,
+          "content": "Construct the new prose file content with updated metadata and methods."
+        },
+        {
+          "order": 14,
+          "content": "Write the updated prose file to disk."
+        },
+        {
+          "order": 15,
+          "content": "Trigger a re-indexing of the source file if possible."
+        },
+        {
+          "order": 16,
+          "content": "Return the result including file path and counts of written and preserved methods."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

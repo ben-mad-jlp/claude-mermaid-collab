@@ -1,0 +1,105 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/components/topics/TopicBrowser.tsx",
+  "title": "Topic browser component with filtering, sorting, and loading states",
+  "purpose": "Displays a list of topics with filtering and sorting capabilities, handling loading, error, and empty states.",
+  "module_context": "Exports a TopicBrowser React component that manages topic filtering and sorting state, fetches topics via a custom hook, and renders a filter bar and topic rows.",
+  "methods": [
+    {
+      "id": "m_ea63c699",
+      "name": "TopicBrowser",
+      "enclosing_class": null,
+      "normalized_params": "(props: TopicBrowserProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize filter and sort state for topic display."
+        },
+        {
+          "order": 2,
+          "content": "Fetch topics using a custom hook with current filters and sorting."
+        },
+        {
+          "order": 3,
+          "content": "Render a filter bar component with handlers for filter, sort by, and sort order changes."
+        },
+        {
+          "order": 4,
+          "content": "Display loading spinner while topics are being fetched."
+        },
+        {
+          "order": 5,
+          "content": "Display error message with retry button if topic fetching fails."
+        },
+        {
+          "order": 6,
+          "content": "Display empty state message when no topics match current filters."
+        },
+        {
+          "order": 7,
+          "content": "Render topic rows for each fetched topic with selection handling."
+        },
+        {
+          "order": 8,
+          "content": "Show results count below the topic list."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_76923364",
+      "name": "handleFiltersChange",
+      "enclosing_class": "TopicBrowser",
+      "normalized_params": "(newFilters: TopicFilters): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the filter state with the new filter values."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42b5af02",
+      "name": "handleSortByChange",
+      "enclosing_class": "TopicBrowser",
+      "normalized_params": "(newSortBy: TopicSortBy): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the sort by state with the new sorting criterion."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ba363b36",
+      "name": "handleSortOrderChange",
+      "enclosing_class": "TopicBrowser",
+      "normalized_params": "(newSortOrder: SortOrder): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update the sort order state with the new sorting direction."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

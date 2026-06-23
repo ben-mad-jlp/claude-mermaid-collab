@@ -1,0 +1,154 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/EmbedViewer.tsx",
+  "title": "Embed viewer component with responsive viewport controls",
+  "purpose": "Displays embedded content in iframes with customizable viewports and error handling for storybook embeds.",
+  "module_context": "Exports a React component EmbedViewer that renders embedded content with viewport controls and validation for storybook embeds.",
+  "methods": [
+    {
+      "id": "m_5350ce3f",
+      "name": "EmbedViewer",
+      "enclosing_class": null,
+      "normalized_params": "(props: EmbedViewerProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for loading status, error state, viewport mode, custom dimensions, and storybook validation."
+        },
+        {
+          "order": 2,
+          "content": "Set up a callback to refresh the iframe content by reloading its source."
+        },
+        {
+          "order": 3,
+          "content": "Validate storybook embeds when the component mounts or when storybook parameters change."
+        },
+        {
+          "order": 4,
+          "content": "Determine if the embed is a storybook and whether it should be framed based on viewport selection."
+        },
+        {
+          "order": 5,
+          "content": "Generate CSS styles for the iframe container based on the selected viewport or custom dimensions."
+        },
+        {
+          "order": 6,
+          "content": "Render the title bar with viewport controls and refresh button."
+        },
+        {
+          "order": 7,
+          "content": "Display validation error message if the storybook story is not found."
+        },
+        {
+          "order": 8,
+          "content": "Show custom input fields for width and height when custom viewport is selected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_83ff3c90",
+      "name": "handleRefresh",
+      "enclosing_class": "EmbedViewer",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset loading and error states."
+        },
+        {
+          "order": 2,
+          "content": "Reload the iframe source by setting its src attribute to its current value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_07d6e79e",
+      "name": "useEffect",
+      "enclosing_class": "EmbedViewer",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Abort previous validation request if component unmounts."
+        },
+        {
+          "order": 2,
+          "content": "Fetch validation status for storybook embeds using the port and story ID."
+        },
+        {
+          "order": 3,
+          "content": "Update validation state with the response data."
+        },
+        {
+          "order": 4,
+          "content": "Set error message if validation fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0e2099cb",
+      "name": "getFrameStyle",
+      "enclosing_class": "EmbedViewer",
+      "normalized_params": "(): { width: number; height: number; radius: string; border: number } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Return custom dimensions if viewport is set to custom."
+        },
+        {
+          "order": 2,
+          "content": "Return preset dimensions for mobile, tablet, or desktop viewports."
+        },
+        {
+          "order": 3,
+          "content": "Return null if viewport is set to full screen."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b146613b",
+      "name": "ViewportButton",
+      "enclosing_class": "EmbedViewer",
+      "normalized_params": "(props: { mode: ViewportMode; title: string; children: React.ReactNode }): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a button with styling that changes based on whether it's the active viewport."
+        },
+        {
+          "order": 2,
+          "content": "Set viewport mode to custom or toggle between preset modes when clicked."
+        },
+        {
+          "order": 3,
+          "content": "Show custom input fields when custom viewport is selected."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

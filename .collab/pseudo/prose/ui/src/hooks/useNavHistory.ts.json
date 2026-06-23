@@ -1,0 +1,129 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useNavHistory.ts",
+  "title": "Navigation history hook with bounded stack and ref synchronization",
+  "purpose": "Maintains a bounded stack of navigation entries for cross-file navigation, allowing users to jump to new locations and backtrack through recent entries with a maximum limit of 20 entries.",
+  "module_context": "Exports a NavEntry interface for navigation history entries and a NavHistory interface defining the hook's API. Uses a default maximum entry count of 20.",
+  "methods": [
+    {
+      "id": "m_3da54fcb",
+      "name": "useNavHistory",
+      "enclosing_class": null,
+      "normalized_params": "(maxEntries: number): NavHistory",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the navigation history state with an empty array of entries."
+        },
+        {
+          "order": 2,
+          "content": "Create a ref mirror to maintain synchronous access to the current navigation stack."
+        },
+        {
+          "order": 3,
+          "content": "Synchronize the ref mirror with the state whenever the state changes."
+        },
+        {
+          "order": 4,
+          "content": "Return an object containing the current entries, push, back, clear, and canGoBack properties."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0b82b3b8",
+      "name": "push",
+      "enclosing_class": "useNavHistory",
+      "normalized_params": "(entry: NavEntry): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Add the new navigation entry to the existing entries."
+        },
+        {
+          "order": 2,
+          "content": "Trim the entries array to the maximum allowed count by removing the oldest entries."
+        },
+        {
+          "order": 3,
+          "content": "Update the ref mirror synchronously to reflect the new entries."
+        },
+        {
+          "order": 4,
+          "content": "Update the state with the new entries."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_5d7731f5",
+      "name": "back",
+      "enclosing_class": "useNavHistory",
+      "normalized_params": "(): NavEntry | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Read the current navigation entries from the ref mirror."
+        },
+        {
+          "order": 2,
+          "content": "IF the entries array is empty, return null."
+        },
+        {
+          "order": 3,
+          "content": "Extract the most recent entry from the entries array."
+        },
+        {
+          "order": 4,
+          "content": "Create a new entries array without the most recent entry."
+        },
+        {
+          "order": 5,
+          "content": "Update the ref mirror synchronously to reflect the new entries."
+        },
+        {
+          "order": 6,
+          "content": "Update the state with the new entries."
+        },
+        {
+          "order": 7,
+          "content": "Return the most recent entry."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_10d0ab37",
+      "name": "clear",
+      "enclosing_class": "useNavHistory",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Clear the ref mirror by setting it to an empty array."
+        },
+        {
+          "order": 2,
+          "content": "Clear the state by setting it to an empty array."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

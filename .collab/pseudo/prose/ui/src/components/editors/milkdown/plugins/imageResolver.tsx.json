@@ -1,0 +1,71 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/imageResolver.tsx",
+  "title": "Milkdown image resolver plugin with dynamic source resolution",
+  "purpose": "Resolves image sources dynamically based on project and session context, and renders images with proper attributes and styling in a Milkdown editor.",
+  "module_context": "Exports a default function that creates a Milkdown view plugin for handling image nodes, along with a React component that resolves image sources and renders the image with appropriate attributes.",
+  "methods": [
+    {
+      "id": "m_b5f89ae3",
+      "name": "ImageResolverView",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access the node attributes from the context provided by the editor."
+        },
+        {
+          "order": 2,
+          "content": "Retrieve the project and session data from the context."
+        },
+        {
+          "order": 3,
+          "content": "Extract the source, alt text, and title from the node attributes."
+        },
+        {
+          "order": 4,
+          "content": "Attempt to resolve the image source using the project and session data."
+        },
+        {
+          "order": 5,
+          "content": "IF source resolution fails, fall back to the original source."
+        },
+        {
+          "order": 6,
+          "content": "Render an image element with the resolved source and extracted attributes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ad23be75",
+      "name": "imageResolverView",
+      "enclosing_class": null,
+      "normalized_params": "(nodeViewFactory: NodeViewFactory): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept a node view factory function as input."
+        },
+        {
+          "order": 2,
+          "content": "Return a Milkdown view configuration for the image schema node."
+        },
+        {
+          "order": 3,
+          "content": "Use the provided factory to create a component view for the ImageResolverView."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

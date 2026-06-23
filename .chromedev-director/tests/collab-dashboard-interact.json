@@ -1,0 +1,41 @@
+{
+  "id": "collab-dashboard-interact",
+  "name": "collab-dashboard-interact",
+  "definition": {
+    "url": "http://localhost:3002/collab",
+    "steps": [
+      {
+        "wait": 2500
+      },
+      {
+        "screenshot": true
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"split-pane\"]') ? 'found' : 'missing'",
+        "as": "splitPane"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"split-pane-handle\"]') ? 'found' : 'missing'",
+        "as": "splitPaneHandle"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"dashboard-sessions-list\"]')?.children.length ?? -1",
+        "as": "sessionCount"
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('[data-testid^=\"session-card-\"]')).map(el => el.dataset.testid).join(', ') || 'none'",
+        "as": "sessionCards"
+      },
+      {
+        "eval": "document.querySelector('[data-testid=\"collab-header\"]') ? 'found' : 'missing'",
+        "as": "collabHeader"
+      },
+      {
+        "eval": "Array.from(document.querySelectorAll('[data-testid]')).map(el => el.dataset.testid).join(', ')",
+        "as": "allTestids"
+      }
+    ]
+  },
+  "createdAt": "2026-04-25T19:53:17.851Z",
+  "updatedAt": "2026-04-25T19:53:17.851Z"
+}

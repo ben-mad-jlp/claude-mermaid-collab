@@ -1,0 +1,20 @@
+{
+  "id": "2026-04-18T22-43-07-889Z-19",
+  "testId": "chat-full-verification",
+  "status": "failed",
+  "result": {
+    "status": "failed",
+    "failed_step": -1,
+    "step_definition": {
+      "wait": 4000
+    },
+    "error": "Failed to get DOM snapshot: Error: WebSocket is not open: readyState 3 (CLOSED)",
+    "console_errors": [],
+    "duration_ms": 390459,
+    "console_log": [],
+    "network_log": []
+  },
+  "startedAt": "2026-04-18T22:43:07.889Z",
+  "completedAt": "2026-04-18T22:43:07.889Z",
+  "duration_ms": 390459
+}

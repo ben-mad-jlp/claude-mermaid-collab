@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/dialogs/SessionCleanupDialog.tsx",
+  "title": "Session cleanup dialog component with archive, delete, keep, and archive-continue options",
+  "purpose": "Provides a UI dialog for users to choose how to handle a collab session, offering options to archive, delete, keep, or archive and continue with the session.",
+  "module_context": "Exports a React functional component SessionCleanupDialog that accepts session data, action handlers, and processing state to render a dialog with four cleanup options and a confirmation flow.",
+  "methods": [
+    {
+      "id": "m_6704d38b",
+      "name": "SessionCleanupDialog",
+      "enclosing_class": null,
+      "normalized_params": "(props: SessionCleanupDialogProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the selected action state to null."
+        },
+        {
+          "order": 2,
+          "content": "Define the confirm handler that triggers the action callback with the selected action."
+        },
+        {
+          "order": 3,
+          "content": "Create an array of action objects with labels, descriptions, and icons for each cleanup option."
+        },
+        {
+          "order": 4,
+          "content": "Render a modal dialog with session name header, action buttons, and footer controls."
+        },
+        {
+          "order": 5,
+          "content": "Display each action button with visual selection state and appropriate styling."
+        },
+        {
+          "order": 6,
+          "content": "Render a footer with cancel and confirm buttons, disabling them during processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

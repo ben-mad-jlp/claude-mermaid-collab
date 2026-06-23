@@ -1,0 +1,161 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/milkdown/plugins/diagramEmbed.ts",
+  "title": "Milkdown plugin for diagram embed handling with remark and node schema",
+  "purpose": "Provides a Milkdown plugin that processes diagram embeds in markdown, converting them into custom nodes and handling their serialization and parsing.",
+  "module_context": "Exports a remark plugin for processing diagram embeds, a node schema definition for rendering them, and a utility function for splitting text by embed patterns.",
+  "methods": [
+    {
+      "id": "m_8842524e",
+      "name": "splitTextByEmbed",
+      "enclosing_class": null,
+      "normalized_params": "(text: string): Segment[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "If the input text is empty, return a single text segment with an empty value."
+        },
+        {
+          "order": 2,
+          "content": "Initialize an empty array to collect text and embed segments."
+        },
+        {
+          "order": 3,
+          "content": "Create a regular expression from the global embed pattern to find all matches in the text."
+        },
+        {
+          "order": 4,
+          "content": "Iterate through all matches in the text, extracting segments between matches as text and matches as embeds."
+        },
+        {
+          "order": 5,
+          "content": "If there are remaining text after the last match, add it as a final text segment."
+        },
+        {
+          "order": 6,
+          "content": "If no segments were found, return the original text as a single text segment."
+        },
+        {
+          "order": 7,
+          "content": "Return the collected segments."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_171f52c1",
+      "name": "remarkDiagramEmbed",
+      "enclosing_class": null,
+      "normalized_params": "(): Plugin<[], Root>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a remark plugin that processes paragraph nodes in the markdown AST."
+        },
+        {
+          "order": 2,
+          "content": "For each paragraph, initialize arrays to collect new nodes and current phrasing content."
+        },
+        {
+          "order": 3,
+          "content": "Process each child node in the paragraph, splitting text nodes by embed patterns."
+        },
+        {
+          "order": 4,
+          "content": "If a text node contains embeds, split it into segments and add text segments to current phrasing content."
+        },
+        {
+          "order": 5,
+          "content": "If a segment is an embed, flush the current phrasing content and add the embed as a new diagramEmbed node."
+        },
+        {
+          "order": 6,
+          "content": "After processing all children, flush any remaining phrasing content to a paragraph node."
+        },
+        {
+          "order": 7,
+          "content": "If no embeds were found, skip modifying the paragraph."
+        },
+        {
+          "order": 8,
+          "content": "Replace the original paragraph with the new nodes and return the updated index."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b03de2dd",
+      "name": "flushParagraph",
+      "enclosing_class": "remarkDiagramEmbed",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if there are any phrasing content items in the current phrasing array."
+        },
+        {
+          "order": 2,
+          "content": "If there are items, determine if any contain non-whitespace content."
+        },
+        {
+          "order": 3,
+          "content": "If non-whitespace content exists, add the current phrasing content as a paragraph node to the new nodes array."
+        },
+        {
+          "order": 4,
+          "content": "Reset the current phrasing array to empty."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e3762dfe",
+      "name": "diagramEmbedNode",
+      "enclosing_class": null,
+      "normalized_params": "(): any",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a node schema for diagram embeds with block group, atom, selectable, draggable, and isolating properties."
+        },
+        {
+          "order": 2,
+          "content": "Set default attributes for kind and refId on the node."
+        },
+        {
+          "order": 3,
+          "content": "Define how to parse DOM elements into nodes, extracting kind and refId from data attributes."
+        },
+        {
+          "order": 4,
+          "content": "Define how to render nodes to DOM elements with appropriate data attributes."
+        },
+        {
+          "order": 5,
+          "content": "Define how to parse markdown into nodes, matching diagramEmbed type and extracting attributes."
+        },
+        {
+          "order": 6,
+          "content": "Define how to serialize nodes to markdown, wrapping the embed in a paragraph with a text node containing the embed syntax."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

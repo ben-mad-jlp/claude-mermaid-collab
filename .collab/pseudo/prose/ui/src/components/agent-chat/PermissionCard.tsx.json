@@ -1,0 +1,67 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/agent-chat/PermissionCard.tsx",
+  "title": "Permission card component for agent tool access requests",
+  "purpose": "Displays tool access requests with status, input details, and permission controls. Shows danger warnings for bash commands and allows users to approve or deny requests.",
+  "module_context": "Exports a PermissionCard React component that renders tool access requests with status badges, input previews, danger detection for bash commands, and permission action buttons.",
+  "methods": [
+    {
+      "id": "m_d1b13f5b",
+      "name": "StatusBadge",
+      "enclosing_class": "PermissionCard",
+      "normalized_params": "(props: { status: AgentPermissionItem['status'] }): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the status value to a corresponding color class for light and dark themes."
+        },
+        {
+          "order": 2,
+          "content": "Render a span element with the appropriate styling and status text."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b0f1291e",
+      "name": "PermissionCard",
+      "enclosing_class": null,
+      "normalized_params": "(props: Props): React.ReactNode",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the remaining time countdown based on the deadline."
+        },
+        {
+          "order": 2,
+          "content": "Set up a timer to update the remaining time every 500 milliseconds while the status is pending."
+        },
+        {
+          "order": 3,
+          "content": "Extract the bash command from the input if the tool name is Bash."
+        },
+        {
+          "order": 4,
+          "content": "Detect if the bash command is dangerous using the danger detection library."
+        },
+        {
+          "order": 5,
+          "content": "Determine the deny reason from available fields in the item."
+        },
+        {
+          "order": 6,
+          "content": "Render the card with status badge, input preview, and appropriate action controls."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/lib/importArtifact.ts",
+  "title": "Artifact import utility with type detection and API integration",
+  "purpose": "Provides functionality to import files as various artifact types by detecting their extension and calling appropriate API endpoints.",
+  "module_context": "Exports type definitions for ArtifactType and ForcedType, and constants for image extensions. Includes helper functions for filename processing and the main importArtifact function.",
+  "methods": [
+    {
+      "id": "m_c597742e",
+      "name": "detectType",
+      "enclosing_class": null,
+      "normalized_params": "(filename: string): { type: ArtifactType; name: string }",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the filename ends with .design.json and return design type."
+        },
+        {
+          "order": 2,
+          "content": "Check if the filename ends with .spreadsheet.json and return spreadsheet type."
+        },
+        {
+          "order": 3,
+          "content": "Check if the filename ends with .mmd and return diagram type."
+        },
+        {
+          "order": 4,
+          "content": "Check if the filename ends with .md and return document type."
+        },
+        {
+          "order": 5,
+          "content": "Extract the file extension and check if it's an image extension."
+        },
+        {
+          "order": 6,
+          "content": "IF the extension is an image extension, return image type."
+        },
+        {
+          "order": 7,
+          "content": "ELSE return snippet type with the full filename."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f3571e88",
+      "name": "stripKnownExt",
+      "enclosing_class": null,
+      "normalized_params": "(filename: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the filename ends with .design.json and remove the extension."
+        },
+        {
+          "order": 2,
+          "content": "Check if the filename ends with .spreadsheet.json and remove the extension."
+        },
+        {
+          "order": 3,
+          "content": "Check if the filename ends with .mmd and remove the extension."
+        },
+        {
+          "order": 4,
+          "content": "Check if the filename ends with .md and remove the extension."
+        },
+        {
+          "order": 5,
+          "content": "IF none of the known extensions match, return the filename unchanged."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cb007df0",
+      "name": "getExt",
+      "enclosing_class": null,
+      "normalized_params": "(filename: string): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Split the filename by dots and take the last part."
+        },
+        {
+          "order": 2,
+          "content": "Convert the extension to lowercase."
+        },
+        {
+          "order": 3,
+          "content": "IF there is no extension, return an empty string."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_039cf854",
+      "name": "importArtifact",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, session: string, file: File, opts?: { forcedType?: ForcedType }): Promise<ImportResult>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF a forced type is specified, process the file according to that type."
+        },
+        {
+          "order": 2,
+          "content": "IF the forced type is image, validate the extension and upload the file to the image endpoint."
+        },
+        {
+          "order": 3,
+          "content": "IF the forced type is design, validate the extension and upload the file to the design endpoint."
+        },
+        {
+          "order": 4,
+          "content": "IF the forced type is spreadsheet, validate the extension and upload the file to the spreadsheet endpoint."
+        },
+        {
+          "order": 5,
+          "content": "IF the forced type is diagram, document, or snippet, upload the file to the corresponding endpoint."
+        },
+        {
+          "order": 6,
+          "content": "IF the forced type is code-file, attempt to create a linked snippet and fall back to regular snippet if that fails."
+        },
+        {
+          "order": 7,
+          "content": "ELSE detect the artifact type from the filename and process accordingly."
+        },
+        {
+          "order": 8,
+          "content": "IF the detected type is image, upload the file to the image endpoint."
+        },
+        {
+          "order": 9,
+          "content": "ELSE read the file content and parse JSON for design and spreadsheet types."
+        },
+        {
+          "order": 10,
+          "content": "Upload the file content to the appropriate API endpoint based on the detected type."
+        },
+        {
+          "order": 11,
+          "content": "Return the created artifact's type and server-assigned id."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

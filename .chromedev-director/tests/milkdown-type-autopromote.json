@@ -1,0 +1,75 @@
+{
+  "id": "milkdown-type-autopromote",
+  "name": "milkdown-type-autopromote",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 1200
+      },
+      {
+        "eval": "(()=>{const tree=document.querySelector('[data-testid=artifact-tree]'); const w=document.createTreeWalker(tree,NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()){ if((n.textContent||'').trim()==='design-chat-parity-gaps'){ let p=n.parentElement; while(p&&p!==tree){ if((p.className||'').includes('cursor-pointer')){p.click(); return true;} p=p.parentElement;}}} return false;})()",
+        "as": "open"
+      },
+      {
+        "wait": 1800
+      },
+      {
+        "eval": "(()=>{const pm=document.querySelector('.ProseMirror'); if(!pm) return 'NO PM'; pm.focus(); const r=document.createRange(); r.selectNodeContents(pm); r.collapse(false); const s=window.getSelection(); s.removeAllRanges(); s.addRange(r); return 'focused:'+document.activeElement.className.slice(0,60);})()",
+        "as": "focus"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "type_text": "# AutoPromoteHeading"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "type_text": "- list item one"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "type_text": "list item two"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "type_text": "a link: https://example.com and [named](https://a.b)"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "type_text": "```js"
+      },
+      {
+        "press_key": "Enter"
+      },
+      {
+        "type_text": "console.log(1);"
+      },
+      {
+        "wait": 800
+      },
+      {
+        "eval": "(()=>{const pm=document.querySelector('.ProseMirror'); return {html: pm.innerHTML.slice(-2500), hasH1:!!pm.querySelector('h1:last-of-type'), hasH: Array.from(pm.querySelectorAll('h1,h2')).slice(-3).map(h=>h.innerText), hasList:!!pm.querySelector('ul,ol'), lastListTexts: Array.from(pm.querySelectorAll('ul li, ol li')).slice(-4).map(l=>l.innerText), hasCode:!!pm.querySelector('pre code, pre'), codeText: (pm.querySelector('pre')?.innerText||'').slice(0,100), hasLink:!!pm.querySelector('a'), links: Array.from(pm.querySelectorAll('a')).slice(-3).map(a=>({text:a.innerText, href:a.href}))};})()",
+        "as": "typed"
+      },
+      {
+        "eval": "window.__lastConsoleErrors || (window.__lastConsoleErrors=[], (function(){const oe=console.error; console.error=function(...a){window.__lastConsoleErrors.push(a.map(String).join(' '));oe.apply(console,a);};})(), window.__lastConsoleErrors)",
+        "as": "errs"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:37:34.609Z",
+  "updatedAt": "2026-04-18T18:37:34.609Z"
+}

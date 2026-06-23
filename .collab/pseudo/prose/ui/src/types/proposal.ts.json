@@ -1,0 +1,176 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/types/proposal.ts",
+  "title": "Proposal type definitions for collaborative workflow",
+  "purpose": "Defines the structure and state management interfaces for collaborative proposals in a code review or editing system.",
+  "module_context": "Exports type definitions for ProposalType, ProposalAuthor, Proposal interface, and ProposalState interface which includes methods for managing proposals by item ID.",
+  "methods": [
+    {
+      "id": "m_c4b34357",
+      "name": "addProposal",
+      "enclosing_class": "ProposalState",
+      "normalized_params": "(itemId: string, proposal: Omit<Proposal, 'id' | 'timestamp'>): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique identifier for the new proposal."
+        },
+        {
+          "order": 2,
+          "content": "Assign the current timestamp to the proposal."
+        },
+        {
+          "order": 3,
+          "content": "Store the proposal in the proposals record under the specified item ID."
+        },
+        {
+          "order": 4,
+          "content": "Return the unique identifier of the newly added proposal."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1cf30aca",
+      "name": "updateProposal",
+      "enclosing_class": "ProposalState",
+      "normalized_params": "(itemId: string, proposalId: string, updates: Partial<Proposal>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Locate the proposal within the proposals record by item ID and proposal ID."
+        },
+        {
+          "order": 2,
+          "content": "Apply the provided updates to the existing proposal properties."
+        },
+        {
+          "order": 3,
+          "content": "Ensure the updated proposal is stored back in the proposals record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51255694",
+      "name": "removeProposal",
+      "enclosing_class": "ProposalState",
+      "normalized_params": "(itemId: string, proposalId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify the proposal to be removed using the item ID and proposal ID."
+        },
+        {
+          "order": 2,
+          "content": "Delete the proposal from the proposals record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f4afda80",
+      "name": "approveProposal",
+      "enclosing_class": "ProposalState",
+      "normalized_params": "(itemId: string, proposalId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Find the proposal by item ID and proposal ID."
+        },
+        {
+          "order": 2,
+          "content": "Update the proposal's type to 'approved'."
+        },
+        {
+          "order": 3,
+          "content": "Ensure the updated proposal is stored back in the proposals record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a6fc49a1",
+      "name": "rejectProposal",
+      "enclosing_class": "ProposalState",
+      "normalized_params": "(itemId: string, proposalId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Locate the proposal using the item ID and proposal ID."
+        },
+        {
+          "order": 2,
+          "content": "Change the proposal's type to 'rejected'."
+        },
+        {
+          "order": 3,
+          "content": "Store the updated proposal back in the proposals record."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c9219f85",
+      "name": "clearProposals",
+      "enclosing_class": "ProposalState",
+      "normalized_params": "(itemId: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Identify the collection of proposals associated with the specified item ID."
+        },
+        {
+          "order": 2,
+          "content": "Remove all proposals from the collection for that item ID."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_381efda1",
+      "name": "getProposalsForItem",
+      "enclosing_class": "ProposalState",
+      "normalized_params": "(itemId: string): Proposal[]",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the list of proposals associated with the specified item ID."
+        },
+        {
+          "order": 2,
+          "content": "Return the retrieved list of proposals."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

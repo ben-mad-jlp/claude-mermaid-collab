@@ -1,0 +1,87 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/onboarding-api.ts",
+  "title": "Onboarding API route handler with CRUD operations for config, users, progress, notes, and team",
+  "purpose": "Provides REST API endpoints for managing onboarding data including configuration, directories, graph, search, users, progress tracking, notes, and team information.",
+  "module_context": "Exports a single async function handleOnboardingAPI that processes HTTP requests and routes them to appropriate service methods based on path and method.",
+  "methods": [
+    {
+      "id": "m_7dd447c1",
+      "name": "handleOnboardingAPI",
+      "enclosing_class": null,
+      "normalized_params": "(req: Request): Promise<Response>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the request URL and extract the path and project parameter."
+        },
+        {
+          "order": 2,
+          "content": "Validate that the project parameter is present."
+        },
+        {
+          "order": 3,
+          "content": "Initialize the OnboardingManager and OnboardingDbService with the project."
+        },
+        {
+          "order": 4,
+          "content": "Route GET requests to config, directories, or graph endpoints to the manager."
+        },
+        {
+          "order": 5,
+          "content": "Route GET requests to files endpoints to the pseudo database."
+        },
+        {
+          "order": 6,
+          "content": "Route GET requests to search endpoint to the database service with query parameters."
+        },
+        {
+          "order": 7,
+          "content": "Route GET and POST requests to users endpoints to the database service."
+        },
+        {
+          "order": 8,
+          "content": "Route GET, POST, PUT, and DELETE requests to progress and notes endpoints to the database service."
+        },
+        {
+          "order": 9,
+          "content": "Route GET requests to team endpoint to the database service."
+        },
+        {
+          "order": 10,
+          "content": "IF no matching route is found, return a 404 error."
+        },
+        {
+          "order": 11,
+          "content": "IF an error occurs during processing, log it and return a 500 error."
+        },
+        {
+          "order": 12,
+          "content": "Ensure the database service connection is closed after processing."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f029a4c9",
+      "name": "jsonError",
+      "enclosing_class": null,
+      "normalized_params": "(message: string, status: number): Response",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create and return a JSON response containing the error message with the specified HTTP status code."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

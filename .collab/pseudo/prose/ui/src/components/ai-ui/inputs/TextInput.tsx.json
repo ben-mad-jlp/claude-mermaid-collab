@@ -1,0 +1,100 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/TextInput.tsx",
+  "title": "Text input component with validation and accessibility features",
+  "purpose": "Provides a reusable text input field with support for controlled/uncontrolled values, validation, accessibility attributes, and error messaging.",
+  "module_context": "Exports a React functional component named TextInput that accepts various props for customization and handles internal state management for uncontrolled inputs.",
+  "methods": [
+    {
+      "id": "m_8bd86972",
+      "name": "TextInput",
+      "enclosing_class": null,
+      "normalized_params": "(props: TextInputProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate unique IDs for the input and associated labels/descriptions."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state for tracking the input value and validation errors."
+        },
+        {
+          "order": 3,
+          "content": "Determine the current value, using either the controlled prop or internal state."
+        },
+        {
+          "order": 4,
+          "content": "Define the change handler to update internal state, notify parent, and validate input."
+        },
+        {
+          "order": 5,
+          "content": "Define the blur handler to perform validation when the input loses focus."
+        },
+        {
+          "order": 6,
+          "content": "Render the input element with appropriate attributes and styling based on validation state."
+        },
+        {
+          "order": 7,
+          "content": "Display error message below the input if validation fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_074eb5d0",
+      "name": "handleChange",
+      "enclosing_class": "TextInput",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the new value from the change event."
+        },
+        {
+          "order": 2,
+          "content": "Update the internal state with the new value."
+        },
+        {
+          "order": 3,
+          "content": "Notify the parent component of the value change."
+        },
+        {
+          "order": 4,
+          "content": "IF validation function is provided, run it against the new value and update error state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f124d01d",
+      "name": "handleBlur",
+      "enclosing_class": "TextInput",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF validation function is provided, run it against the current input value."
+        },
+        {
+          "order": 2,
+          "content": "Update the error state with any validation result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

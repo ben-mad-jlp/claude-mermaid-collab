@@ -1,0 +1,50 @@
+{
+  "schema_version": 3,
+  "file": "ui/tailwind.config.js",
+  "title": "Tailwind CSS configuration with custom theme extensions",
+  "purpose": "Configures Tailwind CSS with custom color palette, fonts, shadows, animations, and typography settings for the UI.",
+  "module_context": "Exports a default configuration object for Tailwind CSS that defines content paths, theme extensions, dark mode settings, and plugins.",
+  "methods": [
+    {
+      "id": "m_c4a3e8c5",
+      "name": "default",
+      "enclosing_class": null,
+      "normalized_params": "(): import('tailwindcss').Config",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define the content paths that Tailwind should scan for class names."
+        },
+        {
+          "order": 2,
+          "content": "Extend the default theme with custom accent colors, font families, and shadow definitions."
+        },
+        {
+          "order": 3,
+          "content": "Register custom keyframe animations for fade and slide effects."
+        },
+        {
+          "order": 4,
+          "content": "Configure animation durations and easing functions for the custom keyframes."
+        },
+        {
+          "order": 5,
+          "content": "Set up typography configuration to disable default prose styling for code elements."
+        },
+        {
+          "order": 6,
+          "content": "Enable dark mode using the class strategy."
+        },
+        {
+          "order": 7,
+          "content": "Load required Tailwind CSS plugins for forms and typography."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

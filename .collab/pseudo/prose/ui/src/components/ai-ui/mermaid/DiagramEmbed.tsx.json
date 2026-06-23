@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/mermaid/DiagramEmbed.tsx",
+  "title": "Mermaid diagram embed component with theme support and error handling",
+  "purpose": "Renders Mermaid diagrams inline with responsive sizing, theme support, and error handling for invalid syntax.",
+  "module_context": "Exports a DiagramEmbed React component that handles Mermaid diagram rendering with loading states, error display, and node click handlers. Uses useTheme hook for dark/light mode support and initializeMermaid for configuration.",
+  "methods": [
+    {
+      "id": "m_3357130d",
+      "name": "DiagramEmbed",
+      "enclosing_class": null,
+      "normalized_params": "(props: DiagramEmbedProps): React.FC<DiagramEmbedProps>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept diagram content and optional callbacks for render and error handling."
+        },
+        {
+          "order": 2,
+          "content": "Initialize state for loading and error tracking."
+        },
+        {
+          "order": 3,
+          "content": "Set up a callback ref to detect when the container is mounted."
+        },
+        {
+          "order": 4,
+          "content": "Initialize Mermaid with the current theme."
+        },
+        {
+          "order": 5,
+          "content": "Define a render function that clears previous content and renders the diagram."
+        },
+        {
+          "order": 6,
+          "content": "Add click event listeners to diagram nodes if a node click handler is provided."
+        },
+        {
+          "order": 7,
+          "content": "Re-render the diagram when content, theme, or ref changes and Mermaid is ready."
+        },
+        {
+          "order": 8,
+          "content": "Render loading indicator, error message, or diagram based on current state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_81ac23b3",
+      "name": "setContainerRef",
+      "enclosing_class": "DiagramEmbed",
+      "normalized_params": "(node: HTMLDivElement | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Store the container reference when the ref is set."
+        },
+        {
+          "order": 2,
+          "content": "Mark the ref as ready when the container is mounted."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_794075b8",
+      "name": "renderDiagram",
+      "enclosing_class": "DiagramEmbed",
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the container and content are available for rendering."
+        },
+        {
+          "order": 2,
+          "content": "Clear any previous diagram content from the container."
+        },
+        {
+          "order": 3,
+          "content": "Render the Mermaid diagram with a unique identifier."
+        },
+        {
+          "order": 4,
+          "content": "IF a node click handler is provided, add click listeners to diagram nodes."
+        },
+        {
+          "order": 5,
+          "content": "Update the loading state to false after successful rendering."
+        },
+        {
+          "order": 6,
+          "content": "IF rendering fails, capture the error and update the error state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

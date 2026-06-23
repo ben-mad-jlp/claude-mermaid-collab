@@ -1,0 +1,155 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/pages/onboarding/OnboardingLayout.tsx",
+  "title": "Onboarding layout component with context provider and navigation",
+  "purpose": "Provides a consistent layout for onboarding pages with sidebar navigation, header controls, and shared context for mode, user, and project data.",
+  "module_context": "Exports OnboardingContext for sharing state across onboarding pages, provides useOnboarding hook for consuming context, defines navItems for sidebar navigation, and implements the main OnboardingLayout component with theme handling, project selection, and WebSocket connection status.",
+  "methods": [
+    {
+      "id": "m_26ca07d3",
+      "name": "useOnboarding",
+      "enclosing_class": null,
+      "normalized_params": "(): OnboardingContextValue",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access and return the current onboarding context value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1fe7cbb4",
+      "name": "OnboardingLayout",
+      "enclosing_class": null,
+      "normalized_params": "(): React.FC",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for mode, user, config, and search query."
+        },
+        {
+          "order": 2,
+          "content": "Apply theme to document element based on current theme value."
+        },
+        {
+          "order": 3,
+          "content": "Fetch projects on component mount."
+        },
+        {
+          "order": 4,
+          "content": "Fetch configuration when selected project changes."
+        },
+        {
+          "order": 5,
+          "content": "Handle mode toggle between browse and onboard modes."
+        },
+        {
+          "order": 6,
+          "content": "Handle search form submission and navigation."
+        },
+        {
+          "order": 7,
+          "content": "Filter navigation items based on current mode."
+        },
+        {
+          "order": 8,
+          "content": "Provide context value to child components through context provider."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ef1917d2",
+      "name": "handleRefresh",
+      "enclosing_class": "OnboardingLayout",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Refresh project list from store."
+        },
+        {
+          "order": 2,
+          "content": "Fetch configuration for selected project if available."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bb96cda5",
+      "name": "handleModeToggle",
+      "enclosing_class": "OnboardingLayout",
+      "normalized_params": "(newMode: 'browse' | 'onboard'): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Update mode state to new value."
+        },
+        {
+          "order": 2,
+          "content": "Navigate to welcome page if switching to onboard mode and no user is set."
+        },
+        {
+          "order": 3,
+          "content": "Navigate to main onboarding page if switching to browse mode."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b8df742",
+      "name": "handleSearch",
+      "enclosing_class": "OnboardingLayout",
+      "normalized_params": "(e: React.FormEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prevent default form submission behavior."
+        },
+        {
+          "order": 2,
+          "content": "Navigate to search results page with encoded search query."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c7d4ac8e",
+      "name": "isActive",
+      "enclosing_class": "OnboardingLayout",
+      "normalized_params": "(path: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if current location path matches or starts with provided path."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

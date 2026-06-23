@@ -1,0 +1,126 @@
+{
+  "schema_version": 3,
+  "file": "src/terminal/RingBuffer.ts",
+  "title": "Circular buffer for terminal output with fixed line limit",
+  "purpose": "Maintains a fixed-size buffer of terminal output for reconnect replay, automatically evicting oldest lines when full.",
+  "module_context": "Exports a RingBuffer class that manages terminal output with a maximum line limit and handles partial lines correctly.",
+  "methods": [
+    {
+      "id": "m_61bf1abf",
+      "name": "constructor",
+      "enclosing_class": "RingBuffer",
+      "normalized_params": "(maxLines: number): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the internal lines array to empty."
+        },
+        {
+          "order": 2,
+          "content": "Set the maximum line limit for the buffer."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0b0a20ff",
+      "name": "write",
+      "enclosing_class": "RingBuffer",
+      "normalized_params": "(data: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the input data is empty, return immediately without processing."
+        },
+        {
+          "order": 2,
+          "content": "Split the input data into parts using newline as delimiter."
+        },
+        {
+          "order": 3,
+          "content": "Process all complete lines from the split data, adding them to the buffer."
+        },
+        {
+          "order": 4,
+          "content": "IF adding a complete line causes the buffer to exceed maximum lines, remove the oldest line."
+        },
+        {
+          "order": 5,
+          "content": "Handle the last part of the split data, which may be a partial line without trailing newline."
+        },
+        {
+          "order": 6,
+          "content": "IF the last part is not empty, append it to the last line in buffer or create a new partial line."
+        },
+        {
+          "order": 7,
+          "content": "IF the buffer exceeds maximum lines after adding the partial line, remove the oldest line."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_898b0461",
+      "name": "getContents",
+      "enclosing_class": "RingBuffer",
+      "normalized_params": "(): string",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Join all buffered lines into a single string with no separator."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_0b4217fc",
+      "name": "clear",
+      "enclosing_class": "RingBuffer",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Reset the internal lines array to empty."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4c0fcc32",
+      "name": "lineCount",
+      "enclosing_class": "RingBuffer",
+      "normalized_params": "(): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Filter the buffered lines to include only those ending with newline character."
+        },
+        {
+          "order": 2,
+          "content": "Return the count of filtered lines."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

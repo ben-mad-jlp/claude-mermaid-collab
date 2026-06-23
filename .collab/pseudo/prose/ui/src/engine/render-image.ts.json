@@ -1,0 +1,210 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/engine/render-image.ts",
+  "title": "Image rendering utilities for scene graph nodes and thumbnails",
+  "purpose": "Provides functions to render specific nodes or entire pages from a scene graph into image formats like PNG, JPG, or WEBP using Skia rendering.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_9a34d5a4",
+      "name": "computeContentBounds",
+      "enclosing_class": null,
+      "normalized_params": "(graph: SceneGraph, nodeIds: string[]): { minX: number; minY: number; maxX: number; maxY: number } | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize bounding coordinates to infinity and negative infinity."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each node ID to compute the overall bounding box."
+        },
+        {
+          "order": 3,
+          "content": "Skip nodes that are not found or not visible."
+        },
+        {
+          "order": 4,
+          "content": "Update the minimum and maximum coordinates based on node position and dimensions."
+        },
+        {
+          "order": 5,
+          "content": "Return null if no valid nodes were processed."
+        },
+        {
+          "order": 6,
+          "content": "Return the computed bounding box coordinates."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_07dc2d03",
+      "name": "ckImageFormat",
+      "enclosing_class": null,
+      "normalized_params": "(ck: CanvasKit, format: ExportFormat): import('canvaskit-wasm').ImageFormat",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Map the export format to the corresponding CanvasKit image format."
+        },
+        {
+          "order": 2,
+          "content": "Return JPEG format for JPG export."
+        },
+        {
+          "order": 3,
+          "content": "Return WEBP format for WEBP export."
+        },
+        {
+          "order": 4,
+          "content": "Return PNG format for all other cases including PNG."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_10c80438",
+      "name": "renderToSurface",
+      "enclosing_class": null,
+      "normalized_params": "(ck: CanvasKit, renderer: SkiaRenderer, graph: SceneGraph, pageId: string, width: number, height: number, format: ExportFormat, quality: number, setup: (canvas: import('canvaskit-wasm').Canvas) => void): Uint8Array | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Create a surface with specified dimensions."
+        },
+        {
+          "order": 2,
+          "content": "Return null if surface creation fails."
+        },
+        {
+          "order": 3,
+          "content": "Obtain the canvas from the surface."
+        },
+        {
+          "order": 4,
+          "content": "Execute the setup function to configure the canvas."
+        },
+        {
+          "order": 5,
+          "content": "Render the scene to the canvas using the provided renderer."
+        },
+        {
+          "order": 6,
+          "content": "Flush the surface to ensure all drawing operations are completed."
+        },
+        {
+          "order": 7,
+          "content": "Take a snapshot of the surface as an image."
+        },
+        {
+          "order": 8,
+          "content": "Encode the image to bytes using the specified format and quality."
+        },
+        {
+          "order": 9,
+          "content": "Clean up the image and surface resources."
+        },
+        {
+          "order": 10,
+          "content": "Return the encoded image bytes or null if encoding fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7267ef90",
+      "name": "renderNodesToImage",
+      "enclosing_class": null,
+      "normalized_params": "(ck: CanvasKit, renderer: SkiaRenderer, graph: SceneGraph, pageId: string, nodeIds: string[], options: RenderOptions): Uint8Array | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Compute the bounding box of the specified nodes."
+        },
+        {
+          "order": 2,
+          "content": "Return null if no valid bounding box could be computed."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the pixel dimensions based on the bounding box and scale factor."
+        },
+        {
+          "order": 4,
+          "content": "Return null if calculated pixel dimensions are invalid."
+        },
+        {
+          "order": 5,
+          "content": "Determine the quality setting based on the export format."
+        },
+        {
+          "order": 6,
+          "content": "Render the nodes to a surface using the computed dimensions and setup."
+        },
+        {
+          "order": 7,
+          "content": "Return the rendered image bytes or null if rendering fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c72d4fb5",
+      "name": "renderThumbnail",
+      "enclosing_class": null,
+      "normalized_params": "(ck: CanvasKit, renderer: SkiaRenderer, graph: SceneGraph, pageId: string, width: number, height: number): Uint8Array | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the page node and verify it has child nodes."
+        },
+        {
+          "order": 2,
+          "content": "Return null if the page is not found or has no children."
+        },
+        {
+          "order": 3,
+          "content": "Compute the bounding box of the page's child nodes."
+        },
+        {
+          "order": 4,
+          "content": "Return null if no valid bounding box could be computed."
+        },
+        {
+          "order": 5,
+          "content": "Calculate the scale factor to fit the content within the thumbnail dimensions."
+        },
+        {
+          "order": 6,
+          "content": "Render the thumbnail to a surface using the calculated scale and offset."
+        },
+        {
+          "order": 7,
+          "content": "Return the rendered thumbnail bytes or null if rendering fails."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

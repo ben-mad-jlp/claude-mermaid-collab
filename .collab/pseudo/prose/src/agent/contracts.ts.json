@@ -1,0 +1,660 @@
+{
+  "schema_version": 3,
+  "file": "src/agent/contracts.ts",
+  "title": "Agent event and command contract definitions for phase 1",
+  "purpose": "Defines the TypeScript types for all agent events and commands used in phase 1 of the agent system. These types describe the structure and possible values for events like user messages, tool calls, permissions, and session management.",
+  "module_context": "Exports multiple type definitions including AgentEventKind union, PermissionMode and PermissionDecision types, BaseEvent interface, various event interfaces, SessionWorktree type, ToolName type, AgentEvent union, AgentCommand union, and ProjectionCtx interface.",
+  "methods": [
+    {
+      "id": "m_1ca3dc80",
+      "name": "AgentEventKind",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type representing all possible agent event kinds."
+        },
+        {
+          "order": 2,
+          "content": "Include event types for user messages, assistant responses, turns, sessions, errors, tool calls, permissions, worktree info, thinking, compaction, model changes, and attachment uploads."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_34248474",
+      "name": "PermissionMode",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type representing different permission modes for agent operations."
+        },
+        {
+          "order": 2,
+          "content": "Include modes for supervised, accept-edits, plan, and bypass permissions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_11a7db38",
+      "name": "PermissionDecision",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type representing possible permission decisions."
+        },
+        {
+          "order": 2,
+          "content": "Include decisions for allow_once, allow_session, and deny."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_bf462519",
+      "name": "BaseEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for base event properties shared by all events."
+        },
+        {
+          "order": 2,
+          "content": "Include sessionId and ts (timestamp) fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3b90260e",
+      "name": "WorktreeInfo",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for worktree information."
+        },
+        {
+          "order": 2,
+          "content": "Include sessionId, path, branch, baseBranch, and createdAt fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_54525a2a",
+      "name": "NonGitFallback",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for non-git project fallback information."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, sessionId, and path fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_53618e29",
+      "name": "SessionWorktree",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type for session worktree information."
+        },
+        {
+          "order": 2,
+          "content": "Include WorktreeInfo and NonGitFallback types."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_106291f2",
+      "name": "KnownToolName",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type for known Claude Code tool names."
+        },
+        {
+          "order": 2,
+          "content": "Include specific tool names like Read, Edit, Write, Bash, Grep, Glob, MultiEdit, NotebookEdit, WebFetch, WebSearch, TodoWrite, and Task."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8b87d0d3",
+      "name": "ToolName",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a type for tool names that includes known tools and forward-compatible strings."
+        },
+        {
+          "order": 2,
+          "content": "Allow KnownToolName union or arbitrary string for future compatibility."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_a2468d7a",
+      "name": "UserMessageEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for user message events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, messageId, and text fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_73674079",
+      "name": "TurnStartEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for turn start events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind and turnId fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_46f793cc",
+      "name": "AssistantDeltaEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for assistant delta events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, turnId, messageId, index, and text fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b5412c6",
+      "name": "AssistantMessageCompleteEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for assistant message complete events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, turnId, messageId, and text fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_98e31415",
+      "name": "TurnEndEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for turn end events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, turnId, and optional usage, stopReason, and canceled fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_85195547",
+      "name": "SessionStartedEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for session started events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, claudeSessionId, cwd, and resumed fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_64e0dc41",
+      "name": "SessionEndedEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for session ended events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, reason, and optional code fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e9a6eedc",
+      "name": "ErrorEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for error events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, where, message, and recoverable fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_3bae8b08",
+      "name": "ToolCallStartedEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for tool call started events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, turnId, messageId, toolUseId, name, input, index, and optional historical and parentTurnId fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_75b5f2d5",
+      "name": "ToolCallProgressEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for tool call progress events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, toolUseId, channel, chunk, seq, and optional parentTurnId fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_db5bb654",
+      "name": "ToolCallCompletedEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for tool call completed events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, toolUseId, status, optional output, error, durationMs, historical, and parentTurnId fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_284d2e54",
+      "name": "SubAgentTurnEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for sub-agent turn events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, turnId, parentTurnId, and optional name fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6bfc05be",
+      "name": "PermissionRequestedEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for permission requested events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, promptId, toolUseId, turnId, name, input, optional reason, suggestedDecision, deadlineMs, and optional historical fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_947664b2",
+      "name": "PermissionResolvedEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for permission resolved events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, promptId, decision, resolvedBy, and optional userLabel fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_15afaf96",
+      "name": "WorktreeInfoEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for worktree info events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, info (SessionWorktree), and dirty fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8a75a946",
+      "name": "AssistantThinkingEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for assistant thinking events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, turnId, text, and optional delta fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6676a0ac",
+      "name": "CompactionEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for compaction events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, tokensBefore, tokensAfter, and messagesRetained fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ca2cee83",
+      "name": "ModelChangeEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for model change events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, turnId, and model fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fcbe24b1",
+      "name": "AttachmentUploadedEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for attachment uploaded events."
+        },
+        {
+          "order": 2,
+          "content": "Include kind, attachmentId, mimeType, url, and sizeBytes fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_233141bc",
+      "name": "AgentEvent",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type for all agent events."
+        },
+        {
+          "order": 2,
+          "content": "Include all defined event interfaces in the union."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_e5bbe108",
+      "name": "AgentCommand",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define a union type for all agent commands."
+        },
+        {
+          "order": 2,
+          "content": "Include command types for agent start, send, cancel, resume, stop, delete session, permission resolve, set permission mode, and commit push PR."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_993a6723",
+      "name": "ProjectionCtx",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Define an interface for projection context."
+        },
+        {
+          "order": 2,
+          "content": "Include sessionId, currentTurnId, currentAssistantMessageId, nextDeltaIndex, optional historical, seenToolUseIds, completedToolUseIds, toolInputDeltas, subAgentParentMap, toolUseIdByBlockIndex, toolProgressSeq, thinkingDeltas, and turnIdByToolUseId fields."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

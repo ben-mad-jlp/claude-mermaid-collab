@@ -1,0 +1,165 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDiagram.ts",
+  "title": "React hook for managing diagram state and operations",
+  "purpose": "Provides React components with access to diagram data and operations through a Zustand store, including selection management and CRUD functionality.",
+  "module_context": "Exports a custom React hook 'useDiagram' that consumes a session store to manage diagram state and operations.",
+  "methods": [
+    {
+      "id": "m_189f15f6",
+      "name": "useDiagram",
+      "enclosing_class": null,
+      "normalized_params": "(): UseDiagramReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Access diagram state and operations from the session store using shallow comparison."
+        },
+        {
+          "order": 2,
+          "content": "Derive the selected diagram from the stored selected diagram ID."
+        },
+        {
+          "order": 3,
+          "content": "Create memoized helper functions to find diagrams by ID and check diagram existence."
+        },
+        {
+          "order": 4,
+          "content": "Return an object containing all diagram state, operations, and helper functions."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b37a4630",
+      "name": "getDiagramById",
+      "enclosing_class": "useDiagram",
+      "normalized_params": "(id: string): Diagram | undefined",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Search through the list of diagrams for one matching the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "Return the found diagram or undefined if no match is found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6ce6ee54",
+      "name": "hasDiagram",
+      "enclosing_class": "useDiagram",
+      "normalized_params": "(id: string): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if any diagram in the list matches the provided ID."
+        },
+        {
+          "order": 2,
+          "content": "Return true if a matching diagram exists, false otherwise."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c879047b",
+      "name": "addDiagram",
+      "enclosing_class": "useDiagram",
+      "normalized_params": "(diagram: Diagram): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate the addition of a new diagram to the session store's addDiagram operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ff689be9",
+      "name": "updateDiagram",
+      "enclosing_class": "useDiagram",
+      "normalized_params": "(id: string, updates: Partial<Diagram>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate the update of an existing diagram to the session store's updateDiagram operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4da3e59b",
+      "name": "removeDiagram",
+      "enclosing_class": "useDiagram",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate the removal of a diagram to the session store's removeDiagram operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_492c9587",
+      "name": "selectDiagram",
+      "enclosing_class": "useDiagram",
+      "normalized_params": "(id: string | null): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate the selection of a diagram to the session store's selectDiagram operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aa32f1be",
+      "name": "setDiagrams",
+      "enclosing_class": "useDiagram",
+      "normalized_params": "(diagrams: Diagram[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Delegate the replacement of all diagrams to the session store's setDiagrams operation."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

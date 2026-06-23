@@ -1,0 +1,67 @@
+{
+  "schema_version": 3,
+  "file": "codex/ui/src/pages/TopicBrowserPage.tsx",
+  "title": "Topic browser page with layout and header",
+  "purpose": "Displays a full page for browsing topics with filtering capabilities, including a header and navigation actions.",
+  "module_context": "Exports a React functional component named TopicBrowserPage that wraps the TopicBrowser component with layout and header elements, handling topic selection and navigation.",
+  "methods": [
+    {
+      "id": "m_ba2ad70e",
+      "name": "TopicBrowserPage",
+      "enclosing_class": null,
+      "normalized_params": "(props: TopicBrowserPageProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Accept props including optional topic selection callback and class name."
+        },
+        {
+          "order": 2,
+          "content": "Define a callback function to handle topic selection with default navigation behavior."
+        },
+        {
+          "order": 3,
+          "content": "Render the layout container with the provided class name."
+        },
+        {
+          "order": 4,
+          "content": "Display a header with title, subtitle, breadcrumbs, and a new topic action button."
+        },
+        {
+          "order": 5,
+          "content": "Render the topic browser component inside a scrollable container."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_ef352780",
+      "name": "handleTopicSelect",
+      "enclosing_class": "TopicBrowserPage",
+      "normalized_params": "(topic: TopicSummary): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if a topic selection callback is provided."
+        },
+        {
+          "order": 2,
+          "content": "IF a callback exists, invoke it with the topic name."
+        },
+        {
+          "order": 3,
+          "content": "ELSE navigate to the topic detail page using window location."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

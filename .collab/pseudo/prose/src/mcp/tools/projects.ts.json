@@ -1,0 +1,88 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/projects.ts",
+  "title": "MCP tools for project registration and management",
+  "purpose": "Provides tools to list, register, and unregister projects with validation for absolute paths and filesystem existence.",
+  "module_context": "Exports schemas and handlers for three project management tools: list_projects, register_project, and unregister_project. Uses projectRegistry service for all operations.",
+  "methods": [
+    {
+      "id": "m_75e73ff8",
+      "name": "handleListProjects",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<{ projects: Project[] }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the complete list of registered projects from the project registry."
+        },
+        {
+          "order": 2,
+          "content": "Return the list of projects in a structured response object."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_d84ed4ea",
+      "name": "handleRegisterProject",
+      "enclosing_class": null,
+      "normalized_params": "(args: { path: string }): Promise<{ success: boolean; project?: Project; error?: string }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Validate that the provided path is absolute."
+        },
+        {
+          "order": 2,
+          "content": "IF the path is not absolute, return a failure response with an error message."
+        },
+        {
+          "order": 3,
+          "content": "Register the project path with the project registry."
+        },
+        {
+          "order": 4,
+          "content": "Retrieve the updated list of projects from the registry."
+        },
+        {
+          "order": 5,
+          "content": "Find and return the registered project that matches the provided path."
+        },
+        {
+          "order": 6,
+          "content": "IF registration fails, catch the error and return a failure response with the error message."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_22387fdf",
+      "name": "handleUnregisterProject",
+      "enclosing_class": null,
+      "normalized_params": "(args: { path: string }): Promise<{ success: boolean }>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Attempt to remove the specified project path from the project registry."
+        },
+        {
+          "order": 2,
+          "content": "Return a success status indicating whether the project was successfully removed."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

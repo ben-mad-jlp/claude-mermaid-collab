@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "file": "src/routes/api.ts",
+  "title": "API Route Handler",
+  "purpose": "Main API route handler that processes incoming HTTP requests and routes them to appropriate handlers based on the request path and method",
+  "module_context": "This function is the core of the API routing system, handling all incoming requests and delegating to specific handlers for different resource types (diagrams, designs, documents, etc.)",
+  "methods": [
+    {
+      "id": "m_8f42e329",
+      "name": "handleRequest",
+      "enclosing_class": "Global",
+      "normalized_params": "req, res",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Parse the request URL to extract path and query parameters"
+        },
+        {
+          "order": 2,
+          "content": "Identify the request type (GET, POST, PUT, DELETE) and route to appropriate handler"
+        },
+        {
+          "order": 3,
+          "content": "Validate session parameters for resource-specific operations"
+        },
+        {
+          "order": 4,
+          "content": "Delegate to specific resource handlers (diagrams, designs, documents, etc.)"
+        },
+        {
+          "order": 5,
+          "content": "Handle errors and return appropriate HTTP responses"
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

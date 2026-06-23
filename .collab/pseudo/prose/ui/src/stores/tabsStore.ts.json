@@ -1,0 +1,426 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/stores/tabsStore.ts",
+  "title": "Tab management store with preview and permanent tab support",
+  "purpose": "Manages open tabs in the UI, supporting both preview and permanent tabs with pinning, reordering, and session-based storage.",
+  "module_context": "Exports a Zustand store with persistence middleware that manages tab state per session, including functions to open, close, pin, reorder, and set active tabs.",
+  "methods": [
+    {
+      "id": "m_e29e32f0",
+      "name": "currentKey",
+      "enclosing_class": null,
+      "normalized_params": "(): string | null",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the current session from the session store."
+        },
+        {
+          "order": 2,
+          "content": "IF the session is missing project or name, return null."
+        },
+        {
+          "order": 3,
+          "content": "ELSE construct and return the session key using project and name."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f3770076",
+      "name": "getEntry",
+      "enclosing_class": null,
+      "normalized_params": "(bySession: TabsMap, key: string): SessionTabsState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Look up the session entry in the bySession map."
+        },
+        {
+          "order": 2,
+          "content": "IF an entry exists for the key, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return an empty session state with no tabs and no active tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_41f30afb",
+      "name": "maxOrder",
+      "enclosing_class": null,
+      "normalized_params": "(tabs: TabDescriptor[]): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize an accumulator to -1."
+        },
+        {
+          "order": 2,
+          "content": "Iterate through each tab in the collection."
+        },
+        {
+          "order": 3,
+          "content": "IF the tab's order is greater than the accumulator, update the accumulator."
+        },
+        {
+          "order": 4,
+          "content": "Return the maximum order found."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_98711b1f",
+      "name": "openPreview",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(tab: TabInput): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "IF a tab with the same ID already exists, activate it."
+        },
+        {
+          "order": 5,
+          "content": "ELSE find the first preview tab and replace it with the new tab."
+        },
+        {
+          "order": 6,
+          "content": "ELSE create a new preview tab and add it to the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_360813dd",
+      "name": "openPermanent",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(tab: TabInput): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "IF a tab with the same ID already exists, convert it to permanent."
+        },
+        {
+          "order": 5,
+          "content": "ELSE create a new permanent tab and add it to the session."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f9affb5e",
+      "name": "promoteToPermanent",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "Find the tab with the matching ID and convert it to permanent."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7286163c",
+      "name": "pinTab",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "Find the tab with the matching ID and mark it as pinned."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_322c29ee",
+      "name": "unpinTab",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "Find the tab with the matching ID and mark it as not pinned."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_79500bb7",
+      "name": "closeTab",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "Find the tab with the matching ID and remove it from the collection."
+        },
+        {
+          "order": 5,
+          "content": "Determine the next active tab based on adjacent tabs."
+        },
+        {
+          "order": 6,
+          "content": "Update the session state with the new tab collection and active tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6d1559a8",
+      "name": "reorderTabs",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(ids: string[]): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "Filter the tabs to only those matching the provided IDs."
+        },
+        {
+          "order": 5,
+          "content": "IF the filtered tabs do not match the provided IDs, exit early."
+        },
+        {
+          "order": 6,
+          "content": "IF no tabs are provided, exit early."
+        },
+        {
+          "order": 7,
+          "content": "Verify all tabs are either pinned or not pinned."
+        },
+        {
+          "order": 8,
+          "content": "Rebuild the tab collection in the new order."
+        },
+        {
+          "order": 9,
+          "content": "Update the order property of each tab in the new sequence."
+        },
+        {
+          "order": 10,
+          "content": "Update the session state with the reordered tabs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4b96bfbf",
+      "name": "setActive",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(id: string): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session key."
+        },
+        {
+          "order": 2,
+          "content": "IF no key is available, exit early."
+        },
+        {
+          "order": 3,
+          "content": "Look up the existing session entry for the key."
+        },
+        {
+          "order": 4,
+          "content": "Update the active tab ID in the session state."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_464fa7db",
+      "name": "getSessionTabs",
+      "enclosing_class": "useTabsStore",
+      "normalized_params": "(key: string): SessionTabsState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Retrieve the session entry for the provided key from the store."
+        },
+        {
+          "order": 2,
+          "content": "IF an entry exists, return it."
+        },
+        {
+          "order": 3,
+          "content": "ELSE return an empty session state with no tabs and no active tab."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_1d9dc154",
+      "name": "useSessionTabs",
+      "enclosing_class": null,
+      "normalized_params": "(): SessionTabsState",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Get the current session from the session store."
+        },
+        {
+          "order": 2,
+          "content": "IF no session is available, return an empty state."
+        },
+        {
+          "order": 3,
+          "content": "Construct the session key using project and name."
+        },
+        {
+          "order": 4,
+          "content": "Look up the session tabs in the store using the constructed key."
+        },
+        {
+          "order": 5,
+          "content": "IF no tabs are found for the key, return an empty state."
+        },
+        {
+          "order": 6,
+          "content": "ELSE return the found session tabs."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

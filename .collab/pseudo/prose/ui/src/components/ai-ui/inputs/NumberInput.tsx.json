@@ -1,0 +1,157 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/ai-ui/inputs/NumberInput.tsx",
+  "title": "Number input component with increment/decrement controls",
+  "purpose": "Provides a number input field with built-in increment and decrement buttons, supporting min/max constraints and controlled/uncontrolled value states.",
+  "module_context": "Exports a React functional component named NumberInput that accepts various props for configuration and handles internal state management for uncontrolled inputs.",
+  "methods": [
+    {
+      "id": "m_078342c0",
+      "name": "NumberInput",
+      "enclosing_class": null,
+      "normalized_params": "(props: NumberInputProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Generate a unique ID for the input element."
+        },
+        {
+          "order": 2,
+          "content": "Initialize internal state for the input value, defaulting to the controlled value or empty string."
+        },
+        {
+          "order": 3,
+          "content": "Determine the current value to display, using the controlled value if provided, otherwise the internal state."
+        },
+        {
+          "order": 4,
+          "content": "Define a clamping function to constrain values within min/max bounds."
+        },
+        {
+          "order": 5,
+          "content": "Set up the change handler to update internal state and notify parent of changes."
+        },
+        {
+          "order": 6,
+          "content": "Set up the step handler to increment or decrement the value with clamping."
+        },
+        {
+          "order": 7,
+          "content": "Render the label, decrement button, input field, and increment button with appropriate styling and event handlers."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_7c7f856c",
+      "name": "clamp",
+      "enclosing_class": "NumberInput",
+      "normalized_params": "(val: number): number",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize result with the input value."
+        },
+        {
+          "order": 2,
+          "content": "IF a minimum value is defined and the result is below it, set the result to the minimum."
+        },
+        {
+          "order": 3,
+          "content": "IF a maximum value is defined and the result is above it, set the result to the maximum."
+        },
+        {
+          "order": 4,
+          "content": "Return the clamped result."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_933dca12",
+      "name": "handleChange",
+      "enclosing_class": "NumberInput",
+      "normalized_params": "(e: React.ChangeEvent<HTMLInputElement>): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the raw value from the input element."
+        },
+        {
+          "order": 2,
+          "content": "IF the raw value is empty, clear the internal state and notify parent with undefined."
+        },
+        {
+          "order": 3,
+          "content": "ELSE parse the raw value to a number."
+        },
+        {
+          "order": 4,
+          "content": "IF the parsed value is not a number, do nothing."
+        },
+        {
+          "order": 5,
+          "content": "ELSE clamp the parsed value within min/max bounds."
+        },
+        {
+          "order": 6,
+          "content": "Update internal state with the clamped value."
+        },
+        {
+          "order": 7,
+          "content": "Notify parent of the new clamped value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_51c29bd3",
+      "name": "handleStep",
+      "enclosing_class": "NumberInput",
+      "normalized_params": "(direction: 1 | -1): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the input is disabled, do nothing."
+        },
+        {
+          "order": 2,
+          "content": "Determine the current value, defaulting to zero if not a number."
+        },
+        {
+          "order": 3,
+          "content": "Calculate the new value by adding the step amount in the specified direction."
+        },
+        {
+          "order": 4,
+          "content": "Clamp the new value within min/max bounds."
+        },
+        {
+          "order": 5,
+          "content": "Update internal state with the clamped new value."
+        },
+        {
+          "order": 6,
+          "content": "Notify parent of the new clamped value."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

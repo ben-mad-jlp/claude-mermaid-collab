@@ -1,0 +1,58 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/server.ts",
+  "title": "Legacy stdio transport MCP server for Mermaid diagram management",
+  "purpose": "Provides a command-line interface server for Mermaid diagram management using the legacy stdio transport protocol. This server acts as a bridge between the Model Context Protocol and the Mermaid API server.",
+  "module_context": "Exports a main function that sets up and runs an MCP server over stdio transport. The server requires an HTTP API server to be running first and validates connectivity before starting.",
+  "methods": [
+    {
+      "id": "m_72578d52",
+      "name": "main",
+      "enclosing_class": null,
+      "normalized_params": "(): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Extract the API server port and host from environment variables with defaults."
+        },
+        {
+          "order": 2,
+          "content": "Construct the base URL for the API server using the extracted host and port."
+        },
+        {
+          "order": 3,
+          "content": "Send a health check request to the API server with a 2 second timeout."
+        },
+        {
+          "order": 4,
+          "content": "IF the API server responds with an error status, log an error and exit the process."
+        },
+        {
+          "order": 5,
+          "content": "IF the API server is unreachable or times out, log an error and exit the process."
+        },
+        {
+          "order": 6,
+          "content": "Initialize the MCP server by calling the setup function."
+        },
+        {
+          "order": 7,
+          "content": "Create a new stdio transport for the server."
+        },
+        {
+          "order": 8,
+          "content": "Connect the server to the stdio transport to start listening for requests."
+        },
+        {
+          "order": 9,
+          "content": "Log a message indicating the server is running with its version number."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

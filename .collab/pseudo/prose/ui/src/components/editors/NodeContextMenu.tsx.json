@@ -1,0 +1,259 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/editors/NodeContextMenu.tsx",
+  "title": "Diagram node context menu with type submenu and action handlers",
+  "purpose": "Provides a contextual menu for diagram nodes with options to edit label, change type, add transitions, and delete nodes. Includes a submenu for selecting node types.",
+  "module_context": "Exports a React component NodeContextMenu that renders a dropdown menu with menu items for editing node properties and actions. Includes supporting MenuItem, Divider, and TypeSubmenu components. Uses React hooks for state management and event handling.",
+  "methods": [
+    {
+      "id": "m_e44d7040",
+      "name": "MenuItem",
+      "enclosing_class": null,
+      "normalized_params": "(props: MenuItemProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a button element with provided click handler and styling."
+        },
+        {
+          "order": 2,
+          "content": "Apply default and custom CSS classes for consistent menu item appearance."
+        },
+        {
+          "order": 3,
+          "content": "Display the provided children content within the menu item."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_dda925ee",
+      "name": "Divider",
+      "enclosing_class": null,
+      "normalized_params": "(): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a horizontal divider element with appropriate styling."
+        },
+        {
+          "order": 2,
+          "content": "Apply border styling to visually separate menu sections."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_c288b5a3",
+      "name": "TypeSubmenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: TypeSubmenuProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Render a list of menu items for each available node type."
+        },
+        {
+          "order": 2,
+          "content": "Apply bold styling to the currently selected node type."
+        },
+        {
+          "order": 3,
+          "content": "Attach click handlers to each type menu item to trigger selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_758d54b0",
+      "name": "NodeContextMenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: NodeContextMenuProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for controlling the visibility of the type submenu."
+        },
+        {
+          "order": 2,
+          "content": "Create a reference to the menu element for outside click detection."
+        },
+        {
+          "order": 3,
+          "content": "Set up event listeners for clicks outside the menu and Escape key presses."
+        },
+        {
+          "order": 4,
+          "content": "Define handler for editing the node label with a prompt dialog."
+        },
+        {
+          "order": 5,
+          "content": "Define handler for selecting a new node type from the submenu."
+        },
+        {
+          "order": 6,
+          "content": "Define handler for initiating the add transition action."
+        },
+        {
+          "order": 7,
+          "content": "Define handler for deleting the node with confirmation dialog."
+        },
+        {
+          "order": 8,
+          "content": "Render the menu structure with menu items and conditional submenu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_2b7254c1",
+      "name": "handleClickOutside",
+      "enclosing_class": "NodeContextMenu",
+      "normalized_params": "(e: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked target is outside the menu element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, invoke the close callback to hide the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_6c712ccc",
+      "name": "handleEscape",
+      "enclosing_class": "NodeContextMenu",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for Escape key press events."
+        },
+        {
+          "order": 2,
+          "content": "IF the Escape key is pressed, invoke the close callback to hide the menu."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_fe29b796",
+      "name": "handleEditLabel",
+      "enclosing_class": "NodeContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Prompt the user to enter a new label for the node."
+        },
+        {
+          "order": 2,
+          "content": "IF a new label is provided and differs from the current label, update the node label."
+        },
+        {
+          "order": 3,
+          "content": "Close the context menu after handling the label edit."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_715b7ba8",
+      "name": "handleTypeSelect",
+      "enclosing_class": "NodeContextMenu",
+      "normalized_params": "(type: NodeType['name']): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the change type callback with the selected node type."
+        },
+        {
+          "order": 2,
+          "content": "Close the context menu after handling the type selection."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_42927941",
+      "name": "handleAddTransition",
+      "enclosing_class": "NodeContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the add transition callback to start the transition creation process."
+        },
+        {
+          "order": 2,
+          "content": "Close the context menu after initiating the add transition action."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_b1eece9a",
+      "name": "handleDelete",
+      "enclosing_class": "NodeContextMenu",
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Show a confirmation dialog to the user before deleting the node."
+        },
+        {
+          "order": 2,
+          "content": "IF the user confirms the deletion, invoke the delete callback."
+        },
+        {
+          "order": 3,
+          "content": "Close the context menu after handling the delete action."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

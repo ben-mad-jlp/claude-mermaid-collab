@@ -1,0 +1,19 @@
+{
+  "id": "milkdown-inspect",
+  "name": "milkdown-inspect",
+  "definition": {
+    "url": "http://localhost:5173",
+    "steps": [
+      {
+        "wait": 800,
+        "label": "wait"
+      },
+      {
+        "eval": "document.body.innerText.slice(0,3000)",
+        "as": "bodyText"
+      }
+    ]
+  },
+  "createdAt": "2026-04-18T18:35:23.357Z",
+  "updatedAt": "2026-04-18T18:35:23.357Z"
+}

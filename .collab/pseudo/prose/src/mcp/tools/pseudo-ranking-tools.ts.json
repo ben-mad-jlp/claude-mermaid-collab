@@ -1,0 +1,104 @@
+{
+  "schema_version": 3,
+  "file": "src/mcp/tools/pseudo-ranking-tools.ts",
+  "title": "Pseudo-ranking tools for hot files, heuristic files, and team ownership",
+  "purpose": "Provides database queries to retrieve ranked lists of files based on priority, touch counts, and team ownership for a given project.",
+  "module_context": "Exports three asynchronous functions for querying pseudo-database tables to retrieve hot files, heuristic files, and team ownership data.",
+  "methods": [
+    {
+      "id": "m_8df55c2f",
+      "name": "pseudo_hot_files",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, limit?: number): Promise<HotFile[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo-database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Execute a database query to fetch hot files ordered by priority in descending order."
+        },
+        {
+          "order": 3,
+          "content": "Limit the results to the specified number of entries."
+        },
+        {
+          "order": 4,
+          "content": "Return the retrieved hot file records."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_45c9a58e",
+      "name": "pseudo_list_heuristic_files",
+      "enclosing_class": null,
+      "normalized_params": "(project: string, opts?: { limit?: number; orderBy?: 'priority' | 'lines' | 'file_path' }): Promise<HeuristicFile[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo-database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Determine the sorting column and direction based on provided options."
+        },
+        {
+          "order": 3,
+          "content": "Execute a database query to fetch heuristic files matching the specified criteria."
+        },
+        {
+          "order": 4,
+          "content": "Apply the determined sorting and limit the results."
+        },
+        {
+          "order": 5,
+          "content": "Return the retrieved heuristic file records."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_8caee3ea",
+      "name": "pseudo_team_ownership",
+      "enclosing_class": null,
+      "normalized_params": "(project: string): Promise<TeamOwnership[]>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize the pseudo-database handle for the specified project."
+        },
+        {
+          "order": 2,
+          "content": "Execute a database query to aggregate file counts and touch totals by owner."
+        },
+        {
+          "order": 3,
+          "content": "Filter out files with null or empty owner values."
+        },
+        {
+          "order": 4,
+          "content": "Group the results by owner and order them by total touches in descending order."
+        },
+        {
+          "order": 5,
+          "content": "Return the aggregated team ownership records."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useAutoSave.ts",
+  "title": "Auto-save hook with debounce and async save handling",
+  "purpose": "Provides automatic saving functionality with debouncing for content editors, tracking save state and last saved timestamp.",
+  "module_context": "Exports a hook function useAutoSave that manages content change tracking, debounced save operations, and async error handling with cleanup.",
+  "methods": [
+    {
+      "id": "m_b60741eb",
+      "name": "useAutoSave",
+      "enclosing_class": null,
+      "normalized_params": "(content: string, onSave: (content: string) => Promise<void>, delay: number, key?: string | null): UseAutoSaveReturn",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize state for tracking save status including saving state, last saved timestamp, and unsaved changes flag."
+        },
+        {
+          "order": 2,
+          "content": "Set up refs to track original content, debounce timer, and component mount status."
+        },
+        {
+          "order": 3,
+          "content": "Create a stable reference to the save callback to prevent effect re-runs."
+        },
+        {
+          "order": 4,
+          "content": "Handle key changes to reset original content and clear pending save timers."
+        },
+        {
+          "order": 5,
+          "content": "Define the save operation that executes the save callback and updates state on success or failure."
+        },
+        {
+          "order": 6,
+          "content": "Watch for content changes and trigger debounced save operations."
+        },
+        {
+          "order": 7,
+          "content": "Set up cleanup effects to clear timers and update mount status on unmount."
+        },
+        {
+          "order": 8,
+          "content": "Return the current save status, last saved timestamp, and unsaved changes flag."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_9881e753",
+      "name": "performSave",
+      "enclosing_class": "useAutoSave",
+      "normalized_params": "(contentToSave: string): Promise<void>",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "IF the component is not mounted, return early to prevent state updates."
+        },
+        {
+          "order": 2,
+          "content": "Set the saving state to true before starting the save operation."
+        },
+        {
+          "order": 3,
+          "content": "Execute the save callback with the provided content."
+        },
+        {
+          "order": 4,
+          "content": "IF the component is still mounted after save, update the last saved timestamp and original content."
+        },
+        {
+          "order": 5,
+          "content": "IF the component is still mounted after save, clear the unsaved changes flag."
+        },
+        {
+          "order": 6,
+          "content": "IF the save operation fails, log the error but do not throw to allow consumer error handling."
+        },
+        {
+          "order": 7,
+          "content": "Ensure the saving state is reset to false in the finally block."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

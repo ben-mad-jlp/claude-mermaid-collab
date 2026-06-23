@@ -1,0 +1,109 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/components/diagram/ContextMenu.tsx",
+  "title": "Context menu component for diagram editing with dynamic options",
+  "purpose": "Provides a floating context menu that appears when users click on diagram elements, offering type-specific actions for editing, modifying, or deleting nodes and edges.",
+  "module_context": "Exports a React functional component ContextMenu that accepts various props for positioning, element type, and callback handlers. Includes a ref for menu element and useEffect for handling outside clicks and escape key events.",
+  "methods": [
+    {
+      "id": "m_34c02dcd",
+      "name": "ContextMenu",
+      "enclosing_class": null,
+      "normalized_params": "(props: ContextMenuProps): React.ReactElement",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Initialize a ref for the menu element."
+        },
+        {
+          "order": 2,
+          "content": "Set up event listeners for clicks outside the menu and escape key presses."
+        },
+        {
+          "order": 3,
+          "content": "Clean up event listeners when the component unmounts."
+        },
+        {
+          "order": 4,
+          "content": "Define a handler for menu item clicks that invokes the appropriate callback and closes the menu."
+        },
+        {
+          "order": 5,
+          "content": "Render the menu with position based on provided coordinates."
+        },
+        {
+          "order": 6,
+          "content": "Display different menu options depending on whether the clicked element is a node or edge."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_f7003e20",
+      "name": "handleClickOutside",
+      "enclosing_class": "ContextMenu",
+      "normalized_params": "(event: MouseEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the clicked target is outside the menu element."
+        },
+        {
+          "order": 2,
+          "content": "IF the click is outside, invoke the close callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_099630ba",
+      "name": "handleKeyDown",
+      "enclosing_class": "ContextMenu",
+      "normalized_params": "(event: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Listen for escape key presses."
+        },
+        {
+          "order": 2,
+          "content": "IF the escape key is pressed, invoke the close callback."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_4a05c0c8",
+      "name": "handleMenuItemClick",
+      "enclosing_class": "ContextMenu",
+      "normalized_params": "(callback: (id: string) => void): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Invoke the provided callback with the target element ID."
+        },
+        {
+          "order": 2,
+          "content": "Close the context menu after the callback execution."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}

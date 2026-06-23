@@ -1,0 +1,25 @@
+{
+  "id": "multiselect-preset",
+  "name": "multiselect-preset",
+  "definition": {
+    "url": "http://localhost:9002/",
+    "steps": [
+      {
+        "eval": "localStorage.setItem('selectedProject', '/srv/codebase/claude-mermaid-collab'); localStorage.setItem('lastSession', 'foundational-docs'); location.href",
+        "as": "set"
+      },
+      {
+        "navigate": "http://localhost:9002/"
+      },
+      {
+        "wait": 3500
+      },
+      {
+        "eval": "JSON.stringify({body: document.body.innerText.slice(0,400), hasTree: !!document.querySelector('[data-testid=artifact-tree]')})",
+        "as": "probe"
+      }
+    ]
+  },
+  "createdAt": "2026-04-20T18:11:06.161Z",
+  "updatedAt": "2026-04-20T18:11:06.161Z"
+}

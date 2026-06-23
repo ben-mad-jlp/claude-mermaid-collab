@@ -1,0 +1,112 @@
+{
+  "schema_version": 3,
+  "file": "ui/src/hooks/useDesignKeyboard.ts",
+  "title": "Keyboard shortcut handler for design editor",
+  "purpose": "Manages keyboard shortcuts for the design editor, including tool selection, undo/redo, grouping, zooming, and editing operations.",
+  "module_context": "",
+  "methods": [
+    {
+      "id": "m_430652d9",
+      "name": "useDesignKeyboard",
+      "enclosing_class": null,
+      "normalized_params": "(): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Set up a keyboard event listener for the window."
+        },
+        {
+          "order": 2,
+          "content": "Clean up the event listener when the component unmounts."
+        },
+        {
+          "order": 3,
+          "content": "Handle keydown events to process various editor shortcuts."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_cea794c5",
+      "name": "onKeyDown",
+      "enclosing_class": "useDesignKeyboard",
+      "normalized_params": "(e: KeyboardEvent): void",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Skip processing if the user is currently editing text in an input or textarea."
+        },
+        {
+          "order": 2,
+          "content": "Handle single key shortcuts for tool selection."
+        },
+        {
+          "order": 3,
+          "content": "Handle command or control key shortcuts for undo, redo, duplicate, select all, group, and ungroup operations."
+        },
+        {
+          "order": 4,
+          "content": "Handle shift key shortcuts for zoom to fit and zoom to selection."
+        },
+        {
+          "order": 5,
+          "content": "Handle shift key shortcut for toggling auto-layout on selected frame nodes."
+        },
+        {
+          "order": 6,
+          "content": "Handle bracket key shortcuts for bringing to front and sending to back."
+        },
+        {
+          "order": 7,
+          "content": "Handle delete and backspace key shortcuts for deleting selected items."
+        },
+        {
+          "order": 8,
+          "content": "Handle enter key shortcut for committing pen paths."
+        },
+        {
+          "order": 9,
+          "content": "Handle escape key shortcut for canceling context menus, pen states, text edits, and clearing selections."
+        },
+        {
+          "order": 10,
+          "content": "Handle arrow key shortcuts for nudging selected nodes."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    },
+    {
+      "id": "m_aa88ff48",
+      "name": "isEditing",
+      "enclosing_class": null,
+      "normalized_params": "(e: Event): boolean",
+      "body_fingerprint": "h_empty___",
+      "prose_origin": "llm",
+      "steps": [
+        {
+          "order": 1,
+          "content": "Check if the event target is an input element."
+        },
+        {
+          "order": 2,
+          "content": "Check if the event target is a textarea element."
+        },
+        {
+          "order": 3,
+          "content": "Return true if either of the above conditions is met."
+        }
+      ],
+      "tags": {
+        "deprecated": false
+      }
+    }
+  ]
+}
