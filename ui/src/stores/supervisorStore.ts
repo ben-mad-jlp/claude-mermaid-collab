@@ -531,6 +531,12 @@ interface SupervisorState {
    *  locally-resolved id. The single full REST read (replaces every
    *  per-component interval/useEffect). */
   hydrateOpenEscalations: (serverIds: string[]) => Promise<void>;
+  /** Defensive summaries hydrate: fetch the server's snapshot (GET
+   *  /api/supervisor/summaries — same payloads as the WS connect-snapshot) and
+   *  fold each into sessionSummaries. Runs on mount + per WS (re)connect to cover
+   *  cold start (before WS) and reconnects. Best-effort per server; the ingest is
+   *  monotonic-guarded so a stale snapshot can't clobber a newer live WS tick. */
+  hydrateSessionSummaries: (serverIds: string[]) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
   /** FBPE P4: the land click — land a green 'epic-ready-to-land' escalation onto
@@ -973,6 +979,38 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       const open = [...byId.values()];
       return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
     });
+  },
+  hydrateSessionSummaries: async (serverIds) => {
+    const ids = serverIds.length ? serverIds : ['local'];
+    const results = await Promise.all(
+      ids.map((id) => invoke(id, '/api/supervisor/summaries', 'GET')),
+    );
+    const ingest = get().ingestSessionSummary;
+    for (const res of results) {
+      if (!res?.ok) continue; // best-effort per server — keep prior on failure
+      for (const m of (res.body?.summaries ?? []) as Array<Record<string, unknown>>) {
+        if (typeof m.project !== 'string' || typeof m.session !== 'string') continue;
+        if (typeof m.progressState !== 'string') continue;
+        // Same validation as the WS ingest (useStatusSync); the monotonic guard in
+        // ingestSessionSummary discards any entry older than what we already hold.
+        ingest({
+          project: m.project,
+          session: m.session,
+          progressState: m.progressState as ProgressState,
+          paneSeenAt: typeof m.paneSeenAt === 'number' ? m.paneSeenAt : Date.now(),
+          updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt : Date.now(),
+          summaryText: typeof m.summaryText === 'string' ? m.summaryText : undefined,
+          firstClause: typeof m.firstClause === 'string' ? m.firstClause : undefined,
+          summaryUpdatedAt: typeof m.summaryUpdatedAt === 'number' ? m.summaryUpdatedAt : undefined,
+          paneHash: typeof m.paneHash === 'string' ? m.paneHash : undefined,
+          summaryPaneHash: typeof m.summaryPaneHash === 'string' ? m.summaryPaneHash : undefined,
+          refreshState:
+            m.refreshState === 'fresh' || m.refreshState === 'stale-failing' ? m.refreshState : undefined,
+          structured:
+            m.structured && typeof m.structured === 'object' ? (m.structured as ZenStructured) : undefined,
+        });
+      }
+    }
   },
 
   nudge: async (serverId, project, session, text) => {

@@ -24,8 +24,11 @@ import { useFreshnessStore } from '@/stores/freshnessStore';
  *        • claude_session_*    → left to the existing useWatchEvents handler
  *          (subscriptionStore) — NOT duplicated here.
  *
- *  (B) Bootstrap hydrate. hydrateOpenEscalations(serverIds) runs ONCE on mount and
- *      ONCE per WS (re)connect (never on an interval). The store action is
+ *  (B) Bootstrap hydrate. hydrateOpenEscalations(serverIds) AND
+ *      hydrateSessionSummaries(serverIds) run ONCE on mount and ONCE per WS
+ *      (re)connect (never on an interval) — summaries cover cold start before the
+ *      first WS tick and reconnect gaps; their ingest is monotonic-guarded so a
+ *      stale snapshot can't clobber a newer live tick. The escalation action is
  *      epoch-guarded (§2.1): it snapshots hydrateEpoch before its REST read and
  *      discards the result if a newer ingest/mutation/hydrate bumped the epoch
  *      meanwhile, so a slow reconnect snapshot can never clobber a newer WS upsert.
@@ -49,6 +52,9 @@ export function useStatusSync(serverIds: string[]) {
       if (cancelled) return;
       useFreshnessStore.getState().noteWsMessage();
       void useSupervisorStore.getState().hydrateOpenEscalations(serverIdsRef.current);
+      // Defensive summaries hydrate — covers cold start (before the first WS tick)
+      // and reconnects. Monotonic-guarded ingest, so it never clobbers live state.
+      void useSupervisorStore.getState().hydrateSessionSummaries(serverIdsRef.current);
     };
 
     hydrate(); // once on mount

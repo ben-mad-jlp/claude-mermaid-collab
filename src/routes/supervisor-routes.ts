@@ -51,6 +51,20 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     return Response.json({ projects: listWatchedProjects() });
   }
 
+  // SUMMARIES SNAPSHOT — the same per-session payloads the server pushes on WS
+  // connect (snapshotSummaryMessages), exposed for an explicit fetch-on-mount /
+  // reconnect hydrate. The UI's ingest is monotonic-guarded, so a (possibly
+  // older) snapshot can never clobber a newer live WS tick. Best-effort: if the
+  // summary-loop service isn't present yet, return an empty set rather than 500.
+  if (url.pathname === '/api/supervisor/summaries' && req.method === 'GET') {
+    try {
+      const { snapshotSummaryMessages } = await import('../services/session-summary-loop.ts');
+      return Response.json({ summaries: snapshotSummaryMessages() });
+    } catch {
+      return Response.json({ summaries: [] });
+    }
+  }
+
   // UNLANDED EPICS — deterministic git-tree drift readout (design-epic-landing P1):
   // collab/epic/* branches with commits NOT on master = accepted work stranded
   // off-master. Derived purely from `git rev-list master..<branch>` (not from land
