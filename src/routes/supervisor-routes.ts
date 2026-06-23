@@ -73,7 +73,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       const w = Number(url.searchParams.get('windowMs'));
       return Response.json(getSummaryHealth(Number.isFinite(w) && w > 0 ? { windowMs: w } : undefined));
     } catch {
-      return Response.json({ windowMs: 0, attempts: 0, successes: 0, successRate: 1, byReason: {}, p50Ms: 0, p95Ms: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, rateLimitBackoffMs: 0, recentFailures: [] });
+      return Response.json({ windowMs: 0, attempts: 0, successes: 0, successRate: 1, byReason: {}, p50Ms: 0, p95Ms: 0, inputTokens: 0, cachedInputTokens: 0, totalInputTokens: 0, outputTokens: 0, costUsd: 0, rateLimitBackoffMs: 0, recentFailures: [] });
     }
   }
 

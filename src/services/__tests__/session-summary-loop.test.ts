@@ -15,6 +15,7 @@ import {
   recordInterpretOutcome,
   getSummaryHealth,
   isInterpretRateLimited,
+  parseInterpretJson,
   type SummaryTickDeps,
   type InterpreterStructured,
 } from '../session-summary-loop.ts';
@@ -781,9 +782,35 @@ describe('interpret observability', () => {
     expect(h.p50Ms).toBeGreaterThan(0);
     expect(h.p95Ms).toBeGreaterThanOrEqual(h.p50Ms);
     expect(h.recentFailures.map((f) => f.session)).toEqual(['c', 'd']); // most-recent failure first
-    expect(h.inputTokens).toBe(1500);   // token burn summed over the window
+    expect(h.inputTokens).toBe(1500);   // NON-cached input summed over the window
     expect(h.outputTokens).toBe(300);
     expect(h.costUsd).toBeCloseTo(0.004, 6);
+  });
+
+  it('getSummaryHealth sums cached input tokens into totalInputTokens', () => {
+    const now = 3_000_000;
+    // Realistic shape: tiny non-cached input, big cache-read (the system prompt).
+    recordInterpretOutcome({ ts: now - 1000, project: P, session: 'a', ok: true, latencyMs: 100, inputTokens: 8, cacheReadTokens: 3500, cacheCreationTokens: 200, outputTokens: 400 });
+    recordInterpretOutcome({ ts: now - 500, project: P, session: 'b', ok: true, latencyMs: 120, inputTokens: 8, cacheReadTokens: 3500, outputTokens: 400 });
+    const h = getSummaryHealth({ now });
+    expect(h.inputTokens).toBe(16);                 // non-cached only
+    expect(h.cachedInputTokens).toBe(7200);         // 3500+200 + 3500
+    expect(h.totalInputTokens).toBe(7216);          // the real input volume
+    expect(h.outputTokens).toBe(800);
+  });
+
+  it('parseInterpretJson recovers JSON wrapped in prose or fences', () => {
+    const obj = '{"paragraph":"We are building.","status":"working"}';
+    // plain
+    expect(parseInterpretJson(obj)?.paragraph).toBe('We are building.');
+    // fenced
+    expect(parseInterpretJson('```json\n' + obj + '\n```')?.status).toBe('working');
+    // wrapped in prose (the failure mode that wasted ~39% of calls)
+    expect(parseInterpretJson('Sure! Here is the summary:\n' + obj + '\nLet me know.')?.paragraph).toBe('We are building.');
+    // genuinely unparseable → null
+    expect(parseInterpretJson('I could not produce JSON, sorry.')).toBeNull();
+    // valid JSON but missing required fields → null (coerce rejects)
+    expect(parseInterpretJson('{"foo":1}')).toBeNull();
   });
 
   it('a rate-limit outcome trips the fleet-wide backoff (and is reported)', () => {

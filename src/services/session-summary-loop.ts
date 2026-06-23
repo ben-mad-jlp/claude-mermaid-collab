@@ -238,7 +238,7 @@ export function classifyInterpretFailure(
   return 'error';                    // !ok with no marker (auth halt, unknown)
 }
 
-interface InterpretSample { ts: number; project: string; session: string; ok: boolean; reason?: SummaryFailureReason; latencyMs: number; inputTokens?: number; outputTokens?: number; costUsd?: number; }
+interface InterpretSample { ts: number; project: string; session: string; ok: boolean; reason?: SummaryFailureReason; latencyMs: number; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number; costUsd?: number; }
 const INTERPRET_SAMPLE_CAP = 500;
 const interpretSamples: InterpretSample[] = [];
 
@@ -268,8 +268,13 @@ export interface SummaryHealth {
   byReason: Record<string, number>;
   p50Ms: number;
   p95Ms: number;
-  /** Token + cost burn over the window — "what is this costing us". */
+  /** Token + cost burn over the window — "what is this costing us".
+   *  inputTokens = NON-cached input; cachedInputTokens = cache read+creation (the
+   *  bulk of a summary's input — the system prompt served from cache). totalInputTokens
+   *  is their sum (the real input volume). */
   inputTokens: number;
+  cachedInputTokens: number;
+  totalInputTokens: number;
   outputTokens: number;
   costUsd: number;
   /** ms until the fleet-wide rate-limit backoff lifts (0 = not backing off). */
@@ -293,6 +298,8 @@ export function getSummaryHealth(opts?: { windowMs?: number; now?: number }): Su
     .reverse()
     .map((x) => ({ project: x.project, session: x.session, reason: x.reason, ageMs: now - x.ts }));
   const sum = (f: (x: InterpretSample) => number | undefined) => win.reduce((a, x) => a + (f(x) ?? 0), 0);
+  const inputTokens = sum((x) => x.inputTokens);
+  const cachedInputTokens = sum((x) => x.cacheReadTokens) + sum((x) => x.cacheCreationTokens);
   return {
     windowMs,
     attempts: win.length,
@@ -301,7 +308,9 @@ export function getSummaryHealth(opts?: { windowMs?: number; now?: number }): Su
     byReason,
     p50Ms: pct(50),
     p95Ms: pct(95),
-    inputTokens: sum((x) => x.inputTokens),
+    inputTokens,
+    cachedInputTokens,
+    totalInputTokens: inputTokens + cachedInputTokens,
     outputTokens: sum((x) => x.outputTokens),
     costUsd: Math.round(sum((x) => x.costUsd) * 1e6) / 1e6,
     rateLimitBackoffMs: Math.max(0, rateLimitedUntil - now),
@@ -470,6 +479,30 @@ function coerceStructured(raw: unknown): InterpreterStructured | null {
   return out;
 }
 
+/**
+ * Robustly extract the interpreter's JSON object from model text. The model
+ * sometimes wraps the JSON in prose ("Here's the summary: {…}") or fences, which
+ * makes a bare `JSON.parse(stripFences(text))` throw → a wasted interpret. Try the
+ * stripped text directly, then fall back to the OUTERMOST {…} slice. Pure; exported
+ * for testing. Returns null only when no balanced object parses + coerces.
+ */
+export function parseInterpretJson(text: string): InterpreterStructured | null {
+  const stripped = stripFences(text).trim();
+  const tryOne = (s: string): InterpreterStructured | null => {
+    try {
+      return coerceStructured(JSON.parse(s));
+    } catch {
+      return null;
+    }
+  };
+  const direct = tryOne(stripped);
+  if (direct) return direct;
+  const first = stripped.indexOf('{');
+  const last = stripped.lastIndexOf('}');
+  if (first >= 0 && last > first) return tryOne(stripped.slice(first, last + 1));
+  return null;
+}
+
 async function interpretViaNode(args: {
   project: string;
   session: string;
@@ -481,38 +514,49 @@ async function interpretViaNode(args: {
   const userPrompt = args.pendingQuestion
     ? `${args.pane}\n\n[Pending question]: ${args.pendingQuestion}`
     : args.pane;
-  const t0 = Date.now();
-  const result = await invokeNode({
-    prompt: userPrompt,
-    model: args.model,
-    effort: args.effort,
-    allowedTools: '',
-    appendSystemPrompt: INTERPRETER_SYSTEM,
-    cwd: args.project,
-    permissionMode: 'bypassPermissions',
-    timeoutMs: INTERPRETER_TIMEOUT_MS,
-  });
-  let structured: InterpreterStructured | null = null;
-  if (result.ok && result.text) {
-    try {
-      structured = coerceStructured(JSON.parse(stripFences(result.text)));
-    } catch {
-      structured = null;
-    }
+
+  // One invoke + robust parse, recording the outcome (reason/latency/tokens incl.
+  // cache reads) for getSummaryHealth. Returns the structured + the failure reason
+  // so the caller can decide whether a retry is worthwhile.
+  const runOnce = async (): Promise<{ structured: InterpreterStructured | null; reason?: SummaryFailureReason }> => {
+    const t0 = Date.now();
+    const result = await invokeNode({
+      prompt: userPrompt,
+      model: args.model,
+      effort: args.effort,
+      allowedTools: '',
+      appendSystemPrompt: INTERPRETER_SYSTEM,
+      cwd: args.project,
+      permissionMode: 'bypassPermissions',
+      timeoutMs: INTERPRETER_TIMEOUT_MS,
+    });
+    const structured = result.ok && result.text ? parseInterpretJson(result.text) : null;
+    const reason = classifyInterpretFailure(result, !!structured);
+    recordInterpretOutcome({
+      ts: Date.now(),
+      project: args.project,
+      session: args.session,
+      ok: !!structured,
+      reason,
+      latencyMs: typeof result.durationMs === 'number' ? result.durationMs : Date.now() - t0,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+      cacheReadTokens: result.usage?.cacheReadTokens,
+      cacheCreationTokens: result.usage?.cacheCreationTokens,
+      costUsd: result.usage?.costUsd,
+    });
+    return { structured, reason };
+  };
+
+  const first = await runOnce();
+  if (first.structured) return first.structured;
+  // Retry ONCE, but ONLY on a parse failure (a transient model-formatting blip that a
+  // second roll usually fixes) — never on timeout (would burn another 60s) or rate-limit
+  // (must back off, not hammer). Skip if the 429 backoff is active.
+  if (first.reason === 'parse' && !isInterpretRateLimited(Date.now())) {
+    return (await runOnce()).structured;
   }
-  // Observability: record WHY it failed + how long it took, for getSummaryHealth.
-  recordInterpretOutcome({
-    ts: Date.now(),
-    project: args.project,
-    session: args.session,
-    ok: !!structured,
-    reason: classifyInterpretFailure(result, !!structured),
-    latencyMs: typeof result.durationMs === 'number' ? result.durationMs : Date.now() - t0,
-    inputTokens: result.usage?.inputTokens,
-    outputTokens: result.usage?.outputTokens,
-    costUsd: result.usage?.costUsd,
-  });
-  return structured;
+  return null;
 }
 
 function shouldSummarize(
