@@ -5,6 +5,7 @@ import {
   handleWorkerComplete,
   COORDINATOR_ID,
   DEFAULT_LEASE_MS,
+  byClaimPriority,
   type CoordinatorDeps,
 } from '../coordinator-daemon';
 
@@ -82,6 +83,32 @@ function makeDeps(overrides: Partial<CoordinatorDeps> = {}): CoordinatorDeps & {
     _completeCalls,
   };
 }
+
+describe('byClaimPriority (priority-ordered claiming)', () => {
+  test('sorts by priority ASC (0 first), null last, ord as tiebreak', () => {
+    const todos = [
+      makeTodo('c', { priority: null, order: 1 }),
+      makeTodo('a', { priority: 0, order: 9 }),
+      makeTodo('b', { priority: 2, order: 2 }),
+      makeTodo('d', { priority: null, order: 0 }),
+    ];
+    expect([...todos].sort(byClaimPriority).map((t) => t.id)).toEqual(['a', 'b', 'd', 'c']);
+  });
+});
+
+describe('runTick — priority-ordered claiming', () => {
+  test('claims the eligible set in priority order, not creation order', async () => {
+    // ord says [low, high, mid]; priority should reorder to [high(0), mid(1), low(3)].
+    const todos = [
+      makeTodo('low', { priority: 3, order: 0 }),
+      makeTodo('high', { priority: 0, order: 1 }),
+      makeTodo('mid', { priority: 1, order: 2 }),
+    ];
+    const deps = makeDeps({ listReadyTodos: () => todos });
+    const res = await runTick(deps, 'proj');
+    expect(res.claimed).toEqual(['high', 'mid', 'low']);
+  });
+});
 
 describe('runTick', () => {
   test('notifyTodosChanged fires when the daemon changes a todo status (exhausted→blocked)', async () => {
@@ -161,6 +188,47 @@ describe('runTick', () => {
     expect(result.spawned).not.toContain('b');
   });
 
+  test('concurrent dispatch: runs up to maxConcurrency leaves at once', async () => {
+    const todos = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => makeTodo(id));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const deps = makeDeps({
+      listReadyTodos: () => todos,
+      maxConcurrency: () => 3,
+      launchWorker: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 10));
+        inFlight -= 1;
+        return true;
+      },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(maxInFlight).toBe(3); // bounded by the pool size
+    expect(result.spawned.length).toBe(6); // all eventually dispatched
+    expect(deps._launchCalls.length).toBe(6);
+  });
+
+  test('default (no maxConcurrency) dispatches serially — at most 1 in flight', async () => {
+    const todos = ['a', 'b', 'c'].map((id) => makeTodo(id));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const deps = makeDeps({
+      listReadyTodos: () => todos,
+      // no maxConcurrency → defaults to 1 (prior serial behaviour)
+      launchWorker: async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight -= 1;
+        return true;
+      },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(maxInFlight).toBe(1);
+    expect(result.spawned.length).toBe(3);
+  });
+
   test('launchWorker throws for one todo → tick still completes, other todos processed', async () => {
     const todos = [makeTodo('a'), makeTodo('b')];
     const deps = makeDeps({
@@ -230,6 +298,25 @@ describe('runTick', () => {
     });
     await runTick(deps, 'proj');
     expect(stallCalls).toEqual(['proj']);
+  });
+
+  test('enforceBudgetCaps (P1 governance breaker) is invoked each tick', async () => {
+    const capCalls: string[] = [];
+    const deps = makeDeps({
+      listReadyTodos: () => [],
+      enforceBudgetCaps: async (project) => { capCalls.push(project); return ['parked-x']; },
+    });
+    await runTick(deps, 'proj');
+    expect(capCalls).toEqual(['proj']);
+  });
+
+  test('enforceBudgetCaps throwing does NOT abort the tick (ready todos still processed)', async () => {
+    const deps = makeDeps({
+      listReadyTodos: () => [makeTodo('a')],
+      enforceBudgetCaps: async () => { throw new Error('breaker blew up'); },
+    });
+    const result = await runTick(deps, 'proj');
+    expect(result.claimed).toEqual(['a']);
   });
 
   test('detectStalls throwing does NOT abort the tick (ready todos still processed)', async () => {

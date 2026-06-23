@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
 import { isClaimable, claimReason, derivedStatus, type ClaimReason } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
+import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
@@ -806,6 +807,16 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     } else if (existing.heldAt != null && heldAt == null) {
       fireOrchestratorKick(`unheld:${id.slice(0, 8)}`);
     }
+    // Auto-cleanup: a todo transitioning INTO a terminal status (done/dropped)
+    // expires any todo/epic subscriptions pointing at it, so a subscriber that
+    // was watching it doesn't accumulate a dead subscription. (completeTodo does
+    // the same for its path incl. rolled-up epics; the notification tick is the
+    // backstop for out-of-band terminal transitions.)
+    const wasTerminal = existing.status === 'done' || existing.status === 'dropped';
+    const nowTerminal = status === 'done' || status === 'dropped';
+    if (nowTerminal && !wasTerminal) {
+      try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
+    }
     return getTodo(project, id)!;
   });
 }
@@ -1288,6 +1299,15 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // (not only when the still-materialized fan-out promoted something — that fan-out
     // is removed in S4, leaving this kick as the sole dependent-wake signal).
     if (accept !== 'rejected') fireOrchestratorKick(`dep-terminal:${id.slice(0, 8)}`);
+    // Auto-cleanup: this todo (and any epics that rolled up to done above) just went
+    // terminal — expire subscriptions targeting them so watchers don't strand dead
+    // subs. A rejected completion is NOT terminal (it parks), so it keeps its subs.
+    if (accept !== 'rejected') {
+      try {
+        expireSubscriptionsForTarget(project, id);
+        for (const epicId of rolledUp) expireSubscriptionsForTarget(project, epicId);
+      } catch { /* best-effort cleanup */ }
+    }
     return { completed: getTodo(project, id)!, promoted, rolledUp };
   });
 }
@@ -1334,6 +1354,68 @@ export interface EpicSweepResult {
  * idempotent (a re-run on an already-rolled-up graph closes nothing) and bounded
  * (at most one pass per parent epic).
  */
+export interface SplitLeafResult {
+  parentId: string;
+  childIds: string[];
+}
+
+/**
+ * Worker-decomposition: split a too-big LEAF into one child leaf per file, UNDER the
+ * leaf itself. The leaf becomes a non-executable dependency-grouping CONTAINER — it owns
+ * NO git branch and triggers NO merge; its children commit to the same enclosing epic
+ * branch (resolveEpicId walks past this node) and complete as ordinary leaves, and
+ * {@link sweepEpicRollups} closes the container once they all settle. Dependents of the
+ * leaf keep pointing AT it and unblock when the rollup marks it done — so NO dependency
+ * repointing is needed, and the epic's [LAND] leaf stays the sole merge-to-master authority.
+ *
+ * Idempotent: a leaf that already has live (non-dropped) children is a no-op. Children are
+ * created FIRST, THEN the leaf's own claim is cleared and it is parked 'planned', so the
+ * container claim-guard (planCoordinatorTick) never re-claims it between the two writes.
+ */
+export async function splitLeafInto(
+  project: string,
+  leaf: Todo,
+  files: string[],
+): Promise<SplitLeafResult> {
+  const uniqueFiles = [...new Set(files.map((f) => f.trim()).filter(Boolean))];
+  // Re-entrancy: never re-split a leaf that already has live children.
+  const existing = listTodos(project, { includeCompleted: true })
+    .filter((t) => t.parentId === leaf.id && t.status !== 'dropped');
+  if (existing.length > 0) {
+    return { parentId: leaf.id, childIds: existing.map((t) => t.id) };
+  }
+  const childIds: string[] = [];
+  for (const file of uniqueFiles) {
+    const child = await createTodo(project, {
+      ownerSession: leaf.ownerSession ?? 'coordinator',
+      assigneeSession: leaf.assigneeSession ?? null,
+      assigneeKind: 'agent',
+      title: `${leaf.title ?? leaf.id} — ${file}`,
+      description:
+        `Split child of leaf ${leaf.id.slice(0, 8)} (auto-decomposed: too many files for one run).\n` +
+        `Implement ONLY this file: ${file}\n\n` +
+        `Parent leaf spec:\n${leaf.description ?? '(no description)'}`,
+      status: 'ready',
+      priority: leaf.priority,
+      parentId: leaf.id,
+      dependsOn: leaf.dependsOn ?? [],
+      type: leaf.type,
+      targetProject: leaf.targetProject ?? project,
+      sessionName: leaf.sessionName ?? null,
+    });
+    childIds.push(child.id);
+  }
+  // The leaf is now a container: clear its claim and park it non-terminal so the container
+  // claim-guard skips it and sweepEpicRollups rolls it up once all children are accepted.
+  await withLock(project, () => {
+    const db = openDb(project);
+    db.prepare(
+      `UPDATE todos SET status='planned', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+    ).run(nowIso(), leaf.id);
+  });
+  return { parentId: leaf.id, childIds };
+}
+
 export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
   return withLock(project, () => {
     assertProjectLocal(project);

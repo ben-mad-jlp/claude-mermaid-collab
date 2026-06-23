@@ -31,6 +31,14 @@ curl -s --connect-timeout 2 --max-time 3 -X POST http://localhost:9002/api/sessi
 COST=$(echo "$input"    | jq -r '.cost.total_cost_usd // 0')
 FIVE_H=$(echo "$input"  | jq -r '.rate_limits.five_hour.used_percentage // 0' | cut -d. -f1)
 SEVEN_D=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // 0' | cut -d. -f1)
+
+# Report account-wide rate-limit usage to the collab server (drives the Zen top bars),
+# mirroring the contextPercent post above. Account-global → no claudePid needed.
+curl -s --connect-timeout 2 --max-time 3 -X POST http://localhost:9002/api/usage-update \
+  -H 'Content-Type: application/json' \
+  -d "{\"fiveHourPercent\":$FIVE_H,\"sevenDayPercent\":$SEVEN_D}" \
+  >/dev/null 2>&1 &
+
 MODEL=$(echo "$input" | jq -r '.model.display_name // ""')
 EFFORT=$(echo "$input" | jq -r '.effort.level // ""')
 

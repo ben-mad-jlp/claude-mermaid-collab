@@ -158,7 +158,7 @@ const EscalationRow: React.FC<{ entry: Extract<EpicTimelineEntry, { type: 'escal
     </div>
     <p className="mt-1 text-2xs text-gray-700 dark:text-gray-200 line-clamp-2">{entry.questionText}</p>
     {entry.rationale && (
-      <p className="mt-0.5 text-3xs text-gray-500 dark:text-gray-400 italic">Grok: {entry.rationale}</p>
+      <p className="mt-0.5 text-3xs text-gray-500 dark:text-gray-400 italic">AI: {entry.rationale}</p>
     )}
     <div className="mt-1 flex items-center gap-2 text-3xs text-gray-400">
       {entry.resolutionActor && <span>by {entry.resolutionActor}</span>}

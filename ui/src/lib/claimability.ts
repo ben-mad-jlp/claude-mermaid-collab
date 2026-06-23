@@ -12,12 +12,26 @@
  */
 import type { SessionTodo } from '@/types/sessionTodo';
 
+/** Single source of Inbox identity (byte-mirror of backend claimability.ts).
+ *  The Inbox is a planning-only triage staging area: its children must NEVER be
+ *  auto-run — re-home to a real epic first. Title-based (the epic model is). */
+export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
+const isEpicTitle = (title: string | null | undefined): boolean =>
+  /^\s*\[EPIC\]/i.test(title ?? '');
+/** True iff this todo IS the Inbox epic itself (a top-level root, not a child). */
+export const isInboxEpic = (t: SessionTodo | undefined): boolean =>
+  !!t && isEpicTitle(t.title) && (t.title ?? '').trim() === INBOX_EPIC_TITLE;
+/** True iff this todo's PARENT is the Inbox epic (i.e. it is a triage child). */
+export const parentIsInbox = (t: SessionTodo, byId: Map<string, SessionTodo>): boolean =>
+  t.parentId != null && isInboxEpic(byId.get(t.parentId));
+
 export type ClaimReason =
   | 'claimable'       // fully unblocked, approved, agent → daemon-claimable
   | 'terminal'        // status done|dropped
   | 'in-flight'       // claim != null
   | 'rejected'        // this todo's OWN acceptanceStatus==='rejected' — ran but failed the gate; held for a human, never auto-reclaimed
   | 'human-assignee'  // fully-unblocked + approved HUMAN todo (incl. [GATE]) → actionable in HumanInbox, NOT daemon-claimed
+  | 'inbox-planning'  // parent is the [EPIC] Inbox — planning-only triage; re-home to a real epic to run
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
   | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable)
@@ -34,6 +48,10 @@ export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): Cla
   if (t.claim != null) return 'in-flight';
   // Self-rejected (gate failed) — held for a human, never auto-reclaimed (80f85190).
   if (t.acceptanceStatus === 'rejected') return 'rejected';
+  // Inbox = planning-only: a triage child of [EPIC] Inbox must NEVER be auto-run,
+  // regardless of approval. ABOVE the approval check so the hard reason surfaces
+  // even for approved-in-Inbox todos. The Inbox epic itself (root) is unaffected.
+  if (parentIsInbox(t, byId)) return 'inbox-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {

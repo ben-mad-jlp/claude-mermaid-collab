@@ -416,6 +416,13 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
 
       // Generate unique render ID with timestamp to avoid caching issues
       const renderId = `mermaid-${uniqueId}-${Date.now()}`;
+
+      // Validate BEFORE rendering. mermaid.parse() has no DOM side effects;
+      // mermaid.render() on invalid input injects an orphan "Syntax error" SVG
+      // into document.body that stays visible (10.9.5 has no
+      // suppressErrorRendering). Bail out cleanly on invalid content.
+      await mermaid.parse(content);
+
       const { svg } = await mermaid.render(renderId, content);
 
       // Check ref still exists after async operation
@@ -426,6 +433,13 @@ export const MermaidPreview: React.FC<MermaidPreviewProps> = ({
       setState({ isLoading: false, error: null });
       onRender?.();
     } catch (error) {
+      // Belt-and-suspenders: if render() threw mid-draw it may have left an
+      // orphan element under document.body — remove it so the bomb SVG never
+      // lingers on screen. renderId is recomputed here to match the one above.
+      const renderId = `mermaid-${uniqueId}`;
+      document
+        .querySelectorAll(`[id^="${renderId}-"], [id^="d${renderId}-"]`)
+        .forEach((el) => el.remove());
       const errorMessage =
         error instanceof Error ? error.message : 'Failed to render diagram';
       setState({ isLoading: false, error: errorMessage });

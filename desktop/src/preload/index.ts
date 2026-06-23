@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld('mc', {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   setZoomFactor: (factor: number) => ipcRenderer.invoke('mc:setZoomFactor', factor),
   probeServer: (host: string, port: number) => ipcRenderer.invoke('mc:probeServer', { host, port }),
+  // Native OS folder picker (Add Project / Add Watching). Resolves to the chosen
+  // absolute path, or null when cancelled. Absent in a plain browser → UI falls back
+  // to the in-app folder browser.
+  pickFolder: (opts?: { defaultPath?: string; title?: string }): Promise<string | null> =>
+    ipcRenderer.invoke('mc:pickFolder', opts),
   setWatchedServers: (ids: string[]) => ipcRenderer.invoke('mc:setWatchedServers', ids),
   listSessionsForServer: (serverId: string) => ipcRenderer.invoke('mc:listSessionsForServer', serverId),
   getServerCapabilities: (serverId: string) => ipcRenderer.invoke('mc:getServerCapabilities', serverId),

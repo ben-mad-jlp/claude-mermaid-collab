@@ -1,0 +1,40 @@
+name: MermaidCollab
+options:
+  bundleIdPrefix: com.mermaidcollab
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  MermaidCollab:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Zen
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Dev only: allow ws://localhost (cleartext) to the sidecar from the simulator.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        # Pairing deep link: the desktop "Phone access" QR encodes
+        # mermaidcollab://pair?host=…&token=… — scanning it in Camera opens the app.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.mermaidcollab.app.pair
+            CFBundleURLSchemes:
+              - mermaidcollab
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mermaidcollab.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: NO

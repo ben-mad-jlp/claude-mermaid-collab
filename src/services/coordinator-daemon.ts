@@ -7,6 +7,15 @@ import { resolveCompletion } from '../agent/completion-resolver';
  *  spawn, the tick scheduler, worker-completion + acceptance gate) is Phase 2c. */
 
 export const COORDINATOR_ID = 'coordinator';
+
+/** Claim-order comparator for the eligible (ready) set: by priority ASC (0 = highest;
+ *  null/unset → last), then by `ord` (creation order) as a stable tiebreak. Deps already
+ *  gated eligibility upstream — this only orders WHICH eligible todo is claimed first, so
+ *  a human can push work ahead via priority without inventing a fake dependency. */
+export function byClaimPriority(a: Todo, b: Todo): number {
+  const rank = (t: Todo) => (t.priority == null ? Number.POSITIVE_INFINITY : t.priority);
+  return (rank(a) - rank(b)) || ((a.order ?? 0) - (b.order ?? 0));
+}
 /** Claim lease before a worker's todo is reclaimable. 40 min by default — big
  *  multi-component todos (e.g. a UI command-center build) exceed a short lease
  *  and get falsely reclaimed mid-work. Override with MERMAID_CLAIM_LEASE_MIN. */
@@ -25,6 +34,11 @@ export interface CoordinatorDeps {
   releaseExpiredClaims: (project: string, now?: string) => Promise<{ released: string[]; exhausted: string[] }>;
   completeTodo: (project: string, id: string, acceptance?: 'pending' | 'accepted' | 'rejected') => Promise<{ completed: Todo; promoted: string[] }>;
   launchWorker: (project: string, todo: Todo) => Promise<boolean>;
+  /** Max leaves to dispatch CONCURRENTLY this tick (the per-project pool size). The
+   *  claim+launchWorker step awaits a full leaf run (minutes), so without this the
+   *  tick processes ready leaves strictly one-at-a-time. Returns the project's
+   *  concurrency budget; omitted ⇒ 1 (the prior serial behaviour). */
+  maxConcurrency?: (project: string) => number;
   /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
   escalateExhausted?: (project: string, todoId: string) => Promise<void>;
   /** P3 headless circuit-breaker exhaustion sweep: for any leaf paused on a rate cap
@@ -51,6 +65,13 @@ export interface CoordinatorDeps {
    *  awaiting input without filing an escalation — and surface them as escalations
    *  (DOGFOOD #6). Returns the stalled todo ids. Optional. */
   detectStalls?: (project: string) => Promise<string[]>;
+  /** P1 governance breaker (EPIC 01a1359f / 87452094): enforce per-lane HARD/soft
+   *  budget caps — iteration count, wall-clock, token budget — in pure deterministic
+   *  machinery (no LLM, no synthesized metric). On a HARD breach: park the lane
+   *  `blocked` (non-claimable → cannot re-spawn) + file a structured escalation +
+   *  fire a loud notification. A soft breach warns only. Returns the parked todo ids.
+   *  Optional — omitted ⇒ no budget enforcement. */
+  enforceBudgetCaps?: (project: string) => Promise<string[]>;
   /** Act on the supervisor decision queue (COORD handoff): apply resolved verdicts
    *  (escalate/nudge/resume/wait) and time-out unresolved requests to a fail-safe
    *  escalate, then mark them consumed. Returns the consumed decision ids. The
@@ -131,6 +152,13 @@ export async function runTick(
   if (deps.detectStalls) {
     try { await deps.detectStalls(project); } catch { /* stall detection must not abort the tick */ }
   }
+  // P1 governance breaker: per-lane budget/iteration/wall-clock caps → park BLOCKED
+  // (non-claimable, cannot re-spawn) + escalate + loud notify. Deterministic; runs
+  // right after stall detection, before claiming new work, so a runaway lane is
+  // parked this tick rather than spawning alongside it.
+  if (deps.enforceBudgetCaps) {
+    try { await deps.enforceBudgetCaps(project); } catch { /* breaker must not abort the tick */ }
+  }
   // P3: rate-cap exhaustion sweep — park leaves stuck paused past the 2h ceiling.
   if (deps.sweepExhaustedHeadless) {
     try { await deps.sweepExhaustedHeadless(project); } catch { /* sweep must not abort the tick */ }
@@ -144,19 +172,38 @@ export async function runTick(
   if (deps.claimGuard) {
     try { ready = await deps.claimGuard(project, ready); } catch { /* probe filter must not abort the tick */ }
   }
+  // Priority-ordered claiming: deps GATE eligibility; priority ORDERS the eligible set so a
+  // human can push work ahead without faking a dependency. Lower number = higher priority
+  // (0 first); null/unset sorts last; `ord` (creation order) is the stable tiebreak.
+  ready = [...ready].sort(byClaimPriority);
   const claimed: string[] = [];
   const spawned: string[] = [];
-  for (const t of ready) {
-    try {
-      const c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
-      if (!c) continue; // lost the race / already claimed
-      claimed.push(c.id);
-      const ok = await deps.launchWorker(project, c);
-      if (ok) spawned.push(c.id);
-    } catch {
-      // one bad todo must not abort the whole tick; the lease handles recovery
+  // Concurrent dispatch (bounded by the per-project pool size): launchWorker awaits a
+  // full headless leaf run (minutes), so a serial loop would run leaves one-at-a-time
+  // and block the whole tick on the first. Run up to `concurrency` runners that each
+  // pull the next ready todo, claim it, and await its launch. `next++` is atomic in
+  // single-threaded JS (no await between read and increment) so no todo is processed
+  // twice. concurrency=1 (the default when maxConcurrency is unwired) is byte-identical
+  // to the prior serial loop, including claim/launch ordering.
+  const concurrency = Math.max(1, deps.maxConcurrency?.(project) ?? 1);
+  let next = 0;
+  const runner = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= ready.length) return;
+      const t = ready[i];
+      try {
+        const c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
+        if (!c) continue; // lost the race / already claimed
+        claimed.push(c.id);
+        const ok = await deps.launchWorker(project, c);
+        if (ok) spawned.push(c.id);
+      } catch {
+        // one bad todo must not abort the whole tick; the lease handles recovery
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: concurrency }, () => runner()));
   // Push the daemon-driven status changes to the UI (reclaim/exhaust/claim) so the
   // Bridge doesn't show a stale in-flight card after a block/reclaim happened
   // entirely server-side (no MCP tool call to ride the existing broadcast).

@@ -184,6 +184,11 @@ export class ImageManager {
       'video/mp4': 'mp4',
       'video/webm': 'webm',
       'video/quicktime': 'mov',
+      'model/gltf-binary': 'glb',
+      'model/gltf+json': 'gltf',
+      'model/stl': 'stl',
+      'model/obj': 'obj',
+      'model/ply': 'ply',
     };
     return mimeToExt[mimeType] || 'bin';
   }

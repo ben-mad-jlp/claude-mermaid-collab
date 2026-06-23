@@ -105,6 +105,12 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
         containerRef.current.innerHTML = '';
       }
 
+      // Validate BEFORE rendering. mermaid.parse() has no DOM side effects,
+      // whereas mermaid.render() on invalid input injects an orphan "Syntax
+      // error" SVG into document.body that stays visible (10.9.5 has no
+      // suppressErrorRendering). Bail out cleanly on invalid content.
+      await mermaid.parse(content);
+
       // Validate and render with unique ID
       const { svg } = await mermaid.render(mermaidId, content);
 
@@ -135,6 +141,11 @@ export const DiagramEmbed: React.FC<DiagramEmbedProps> = (props) => {
       setState({ isLoading: false, error: null });
       onRender?.();
     } catch (error) {
+      // Belt-and-suspenders: if render() threw mid-draw it may have left an
+      // orphan element under document.body — remove it so the bomb SVG never
+      // lingers on screen.
+      document.getElementById(mermaidId)?.remove();
+      document.querySelector(`#d${mermaidId}`)?.remove();
       const errorMessage =
         error instanceof Error ? error.message : 'Failed to render diagram';
       setState({ isLoading: false, error: errorMessage });

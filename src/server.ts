@@ -9,9 +9,12 @@ import { existsSync } from 'fs';
 import { config } from './config';
 import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
 import { checkAuth } from './auth';
+import { handlePairRoutes } from './routes/pair-routes.js';
+import { migrateEnvAuthToken } from './services/config-file.js';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { writeLock, releaseLock, currentExePath, serverOwner } from './services/port-ownership';
 import { SERVER_VERSION } from './mcp/server';
+import { snapshotSummaryMessages } from './services/session-summary-loop';
 import { DiagramManager } from './services/diagram-manager';
 import { DocumentManager } from './services/document-manager';
 import { MetadataManager } from './services/metadata-manager';
@@ -444,8 +447,11 @@ const server = Bun.serve<WsData>({
     // mid-session. When a WS client is connected, idle is already cancelled.
     if (MERMAID_IDLE_SHUTDOWN_MS > 0 && wsHandler.getConnectionCount() === 0) armIdle();
 
-    // Auth gate — precedes WS upgrades, /mcp, and all /api routes.
-    const denied = checkAuth(req, url);
+    // Auth gate — precedes WS upgrades, /mcp, and all /api routes. The peer IP
+    // drives the loopback exemption: the desktop UI + local MCP (loopback) stay
+    // tokenless; a non-loopback peer (the phone over Tailscale) must present the
+    // token once MERMAID_AUTH_TOKEN is set and the server is bound beyond loopback.
+    const denied = checkAuth(req, url, server.requestIP(req)?.address);
     if (denied) return denied;
 
     // WebSocket upgrade for collaboration
@@ -510,6 +516,14 @@ const server = Bun.serve<WsData>({
 
     if (url.pathname.startsWith('/api/ide')) {
       const res = await handleIdeRoutes(req, url, wsHandler);
+      if (res) return res;
+    }
+
+    // Phone pairing (loopback-only) + the gated auth liveness probe. Mounted
+    // before the catch-all; checkAuth already ran (pairing routes 403 non-loopback
+    // themselves; /api/auth/check is gated normally).
+    if (url.pathname === '/api/pair' || url.pathname === '/api/pair/rotate' || url.pathname === '/api/auth/check') {
+      const res = handlePairRoutes(req, url, server.requestIP(req)?.address);
       if (res) return res;
     }
 
@@ -608,6 +622,13 @@ const server = Bun.serve<WsData>({
           type: 'connected',
           diagramCount: wsHandler.getConnectionCount(),
         }));
+        // Re-hydrate Zen session summaries: the loop change-gates broadcasts and
+        // summaries aren't persisted client-side, so a fresh/reconnected client would
+        // show "No summary yet" for every idle session until its pane next changes.
+        // Send the server's last-known summaries (incl. interpreter paragraphs) once.
+        try {
+          for (const msg of snapshotSummaryMessages()) ws.send(JSON.stringify(msg));
+        } catch { /* best-effort hydrate — never break the connection */ }
       }
     },
 
@@ -747,6 +768,15 @@ if (MERMAID_IDLE_SHUTDOWN_MS > 0) {
     if (n === 0) armIdle(); else cancelIdle();
   });
   armIdle(); // cover startup gap before any client connects
+}
+
+// One-time auth-token migration: make config.json the single source of truth so a
+// later rotate (config write) isn't shadowed by a stale launch-time env var. Env is
+// only a bootstrap mechanism (design: zen-phone-pairing-design).
+{
+  const m = migrateEnvAuthToken();
+  if (m === 'migrated') console.log('🔑 Auth token migrated from env → config.json (config is now authoritative)');
+  else if (m === 'diverged') console.warn('🔑 MERMAID_AUTH_TOKEN env differs from config.json — using the config value (rotate to change it)');
 }
 
 console.log(`mermaid-collab listening on :${actualPort}, advertised as ${sessionId}`);

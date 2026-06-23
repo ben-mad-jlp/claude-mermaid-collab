@@ -29,6 +29,10 @@ export interface EventStreamProps {
   collapsed?: boolean;
   /** Row / selection click — opens the DrillDock in the Bridge. */
   onSelectEvent?: (event: StreamEvent) => void;
+  /** Optional todoId→title map. When an event references a todo but has no detail line
+   *  (the thin lifecycle events — claimed/blocked/completed), its todo title fills the
+   *  detail slot so the row says WHAT it's about, not just the session. */
+  titleByTodoId?: Map<string, string>;
   className?: string;
 }
 
@@ -62,8 +66,11 @@ const EventRow: React.FC<{
   now: number;
   highlighted: boolean;
   onSelect?: (e: StreamEvent) => void;
-}> = ({ event, now, highlighted, onSelect }) => {
+  titleByTodoId?: Map<string, string>;
+}> = ({ event, now, highlighted, onSelect, titleByTodoId }) => {
   const interactive = !!onSelect;
+  // Enrich thin todo-lifecycle events: fall back to the todo's title when no detail.
+  const detail = event.detail || (event.todoId ? titleByTodoId?.get(event.todoId) : undefined);
   const highlightCls = highlighted
     ? event.severity === 'danger'
       ? 'bg-danger-50/70 dark:bg-danger-900/30'
@@ -81,7 +88,7 @@ const EventRow: React.FC<{
       disabled={!interactive}
       onClick={interactive ? () => onSelect?.(event) : undefined}
       data-testid={`stream-row-${event.id}`}
-      title={event.detail ?? event.title}
+      title={detail ?? event.title}
       className={`w-full flex items-start gap-1.5 px-2 py-1 text-left rounded transition-colors duration-700 ${highlightCls} ${
         interactive ? 'hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer' : 'cursor-default'
       }`}
@@ -93,9 +100,9 @@ const EventRow: React.FC<{
         <span className="block text-2xs leading-tight text-gray-800 dark:text-gray-200 truncate">
           {event.title}
         </span>
-        {event.detail && (
+        {detail && (
           <span className="block text-3xs leading-tight text-gray-500 dark:text-gray-400 truncate">
-            {event.detail}
+            {detail}
           </span>
         )}
       </span>
@@ -111,6 +118,7 @@ export const EventStream: React.FC<EventStreamProps> = ({
   filterSession,
   collapsed = false,
   onSelectEvent,
+  titleByTodoId,
   className = '',
 }) => {
   const [category, setCategory] = useState<StreamCategory | null>(null);
@@ -236,6 +244,7 @@ export const EventStream: React.FC<EventStreamProps> = ({
               now={now}
               highlighted={highlighted.has(e.id)}
               onSelect={onSelectEvent}
+              titleByTodoId={titleByTodoId}
             />
           ))
         )}

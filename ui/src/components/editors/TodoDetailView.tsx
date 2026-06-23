@@ -18,6 +18,7 @@ import { bucketTodo, STATUS_STYLE } from '@/components/supervisor/bridge/funnel'
 import { derivedStatus, buildById } from '@/lib/claimability';
 import { WorkerRunStrip } from '@/components/supervisor/bridge/WorkerRunStrip';
 import { LeafTranscript } from '@/components/supervisor/bridge/LeafTranscript';
+import { BlueprintGraph, type BlueprintManifest } from './BlueprintGraph';
 
 function shortSlug(blueprintId: string): string {
   const m = blueprintId.match(/^(?:Implementing|Archive)\/(?:[^/]+\/)?(.+)$/);
@@ -94,6 +95,21 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
       .catch(() => { /* picker just shows assign/unassign */ });
     return () => { cancelled = true; };
   }, [currentSession?.project]);
+
+  // The daemon's per-todo leaf blueprint (tasks → files), rendered as a React Flow graph.
+  // GET /api/leaf-executor/blueprint/:leafId returns { manifest } when the leaf ran + persisted one.
+  const [blueprint, setBlueprint] = useState<BlueprintManifest | null>(null);
+  const [showBlueprint, setShowBlueprint] = useState(true);
+  useEffect(() => {
+    const project = currentSession?.project;
+    if (!project || !todoId) { setBlueprint(null); return; }
+    let cancelled = false;
+    fetch(`/api/leaf-executor/blueprint/${encodeURIComponent(todoId)}?project=${encodeURIComponent(project)}`)
+      .then((r) => r.json())
+      .then((j: { manifest?: BlueprintManifest }) => { if (!cancelled) setBlueprint(j?.manifest ?? null); })
+      .catch(() => { if (!cancelled) setBlueprint(null); });
+    return () => { cancelled = true; };
+  }, [todoId, currentSession?.project]);
 
   const currentTitle = todo?.title ?? todo?.text ?? '';
   const currentDesc = todo?.description ?? '';
@@ -524,6 +540,29 @@ export const TodoDetailView: React.FC<TodoDetailViewProps> = ({ todoId }) => {
                   project={currentSession.project}
                   serverId={currentSession?.serverId ?? ''}
                 />
+              </div>
+            )}
+
+            {/* Blueprint graph — the daemon's decomposition for this leaf (tasks → files),
+                as a React Flow DAG. Only shown when the leaf ran + persisted a blueprint. */}
+            {blueprint && (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowBlueprint((v) => !v)}
+                  className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-300"
+                  title="The daemon's per-todo blueprint: tasks and the files each touches"
+                >
+                  Blueprint{showBlueprint ? ' ▾' : ' ▸'}
+                  <span className="ml-1 font-normal normal-case text-gray-400">
+                    · {blueprint.tasks.length} task{blueprint.tasks.length === 1 ? '' : 's'}, {blueprint.filesToCreate.length + blueprint.filesToEdit.length} file{blueprint.filesToCreate.length + blueprint.filesToEdit.length === 1 ? '' : 's'}
+                  </span>
+                </button>
+                {showBlueprint && (
+                  <div className="mt-2">
+                    <BlueprintGraph title={currentTitle || todo.id.slice(0, 8)} manifest={blueprint} />
+                  </div>
+                )}
               </div>
             )}
 

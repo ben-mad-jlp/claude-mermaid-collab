@@ -158,6 +158,17 @@ function openDb(): Database {
     const lic = db.query('PRAGMA table_info(leaf_inflight)').all() as Array<{ name: string }>;
     if (!lic.some((c) => c.name === 'epoch')) db.exec('ALTER TABLE leaf_inflight ADD COLUMN epoch TEXT');
   } catch { /* best-effort migration */ }
+  // DURABLE resume state (slice 1b) — survives process death (NOT epoch-reaped).
+  db.exec(`CREATE TABLE IF NOT EXISTS leaf_resume (
+    leafId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    nodesSpent INTEGER NOT NULL DEFAULT 0,
+    phase TEXT,
+    attempt INTEGER,
+    epicBaseSha TEXT,
+    merged INTEGER NOT NULL DEFAULT 0,
+    updatedAt INTEGER NOT NULL
+  )`);
   return db;
 }
 
@@ -313,6 +324,79 @@ export function reapStaleInflight(): number {
     const res = openDb().prepare('DELETE FROM leaf_inflight WHERE epoch IS NULL OR epoch != ?').run(LEDGER_EPOCH);
     return res.changes ?? 0;
   } catch { return 0; }
+}
+
+// --- DURABLE resume state (leaf-phase-checkpoint-design, slice 1b) ------------
+// Unlike leaf_inflight (cleared on node-finish, epoch-reaped on process death),
+// THIS table must SURVIVE a process death — it's how a hard kill (daemon crash /
+// hot-swap) recovers the budget already spent so a re-claim doesn't reset to 20
+// and re-run blueprint+implement from scratch. Written continuously (each node)
+// and cleared only on a terminal outcome. `merged`/`epicBaseSha` are recorded now
+// for the slice-2 reattach-on-resume (skip-to-gate after a post-merge kill); the
+// behavior change in slice 1b is the nodesSpent recovery alone.
+export interface LeafResumeEntry {
+  leafId: string;
+  project: string;
+  nodesSpent: number;
+  phase?: string | null;
+  attempt?: number | null;
+  /** Epic tip SHA at blueprint time — slice-2 guard so we never resume against a
+   *  moved base. Preserved across per-node writes (COALESCE). */
+  epicBaseSha?: string | null;
+}
+export interface LeafResumeRow extends LeafResumeEntry { merged: boolean; updatedAt: number }
+
+/** Upsert a leaf's durable resume state. Preserves an existing `merged` flag and a
+ *  previously-recorded `epicBaseSha`. Best-effort (telemetry must never break a run). */
+export function recordLeafResume(e: LeafResumeEntry, now: number = Date.now()): void {
+  try {
+    openDb().prepare(
+      `INSERT INTO leaf_resume (leafId, project, nodesSpent, phase, attempt, epicBaseSha, merged, updatedAt)
+       VALUES (?,?,?,?,?,?,0,?)
+       ON CONFLICT(leafId) DO UPDATE SET
+         project=excluded.project, nodesSpent=excluded.nodesSpent, phase=excluded.phase,
+         attempt=excluded.attempt,
+         epicBaseSha=COALESCE(excluded.epicBaseSha, leaf_resume.epicBaseSha),
+         updatedAt=excluded.updatedAt`,
+    ).run(e.leafId, e.project, e.nodesSpent, e.phase ?? null, e.attempt ?? null, e.epicBaseSha ?? null, now);
+  } catch { /* best-effort */ }
+}
+
+/** Flag a leaf as merged-to-epic (so a post-merge kill can skip straight to the
+ *  gate on resume — consumed in slice 2). No-op if no resume row exists yet. */
+export function markLeafMerged(leafId: string, now: number = Date.now()): void {
+  try {
+    openDb().prepare('UPDATE leaf_resume SET merged=1, updatedAt=? WHERE leafId=?').run(now, leafId);
+  } catch { /* best-effort */ }
+}
+
+/** Read a leaf's durable resume state (null if none). */
+export function getLeafResume(project: string, leafId: string): LeafResumeRow | null {
+  try {
+    const r = openDb().prepare('SELECT * FROM leaf_resume WHERE leafId=? AND project=?').get(leafId, project) as
+      | (LeafResumeEntry & { merged: number; updatedAt: number })
+      | undefined;
+    return r ? { ...r, merged: Boolean(r.merged) } : null;
+  } catch { return null; }
+}
+
+/** Clear a leaf's durable resume state — call on any TERMINAL outcome (the run is
+ *  done; a future claim is effectively fresh). Best-effort. */
+export function clearLeafResume(leafId: string): void {
+  try { openDb().prepare('DELETE FROM leaf_resume WHERE leafId=?').run(leafId); } catch { /* best-effort */ }
+}
+
+/** Most recent persisted output text for a leaf's node of the given kind (newest
+ *  first). Unlike getLeafRun this ignores run-gap scoping — the kill→re-claim gap
+ *  (~lease) far exceeds the 2-min run gap, so reattach must fetch the blueprint
+ *  plan directly. null if no such row. */
+export function getLatestNodeOutput(leafId: string, nodeKind: string): string | null {
+  try {
+    const r = openDb().query(
+      'SELECT outputText FROM worker_ledger WHERE leafId=? AND nodeKind=? AND outputText IS NOT NULL ORDER BY ts DESC, id DESC LIMIT 1',
+    ).get(leafId, nodeKind) as { outputText?: string } | undefined;
+    return r?.outputText ?? null;
+  } catch { return null; }
 }
 
 /** List currently-running leaves (newest-started first). Optional project filter. */

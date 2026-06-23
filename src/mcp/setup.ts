@@ -89,7 +89,7 @@ import { runtimeConfig } from '../services/runtime-config.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig, getSecret } from '../services/config-service.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
-import { makeCoordinatorDeps, landEpic } from '../services/coordinator-live.js';
+import { makeCoordinatorDeps, landEpic, diagnoseClaimSuppression } from '../services/coordinator-live.js';
 import { requestSelfDeploy } from '../services/deploy-service.js';
 import { awaitHumanDecision } from '../services/decision-relay.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
@@ -2164,6 +2164,9 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'await_human_decision', description: 'Block until a human posts a decision for the given escalation (via the decide endpoint), then return the chosen optionId + any note. Use after filing a structured escalation (escalation_create with options[]) to relay an A/B decision without ending the turn. Returns { timedOut: true } if no answer arrives within timeoutMs.', inputSchema: { type: 'object', properties: { escalationId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Max time to wait in ms (default 600000 = 10 min).' } }, required: ['escalationId'] } },
       { name: 'supervisor_next_decision', description: 'On-demand supervisor LLM poll: return the oldest PENDING ambiguous-stop decision request (id, workerSession, signal, snapshot) the watchdog daemon enqueued, or null when the queue is empty. Read the snapshot, JUDGE, then call supervisor_resolve_decision. The LLM never loops or acts — it only judges; the daemon acts on the verdict.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Optional project scope; omit for all watched projects.' } } } },
       { name: 'supervisor_resolve_decision', description: 'Write a verdict for a pending decision request (the supervisor LLM\'s one judgment). verdict: escalate (surface to the human), nudge/resume (push the worker to continue), or wait (leave it). EPOCH-GATED: pass supervisorEpoch; a superseded supervisor is rejected and performs no write. The daemon acts on the verdict on its next tick.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, verdict: { type: 'string', enum: ['escalate', 'nudge', 'resume', 'wait'] }, reason: { type: 'string', description: 'Short rationale for the verdict (recorded for provenance).' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected (superseded).' } }, required: ['id', 'verdict'] } },
+      { name: 'subscribe', description: 'Subscribe THIS registered collab session to notifications about a todo, an epic, or a whole project (nudge-to-pull). The notification router enqueues coalesced updates; a tiny tmux nudge then wakes the idle session, which drains them via the `inbox` tool and acts — so a steward session need not /loop or poll. scope=project omits targetId. Idempotent.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string', description: 'The collab session subscribing (must be registered).' }, scope: { type: 'string', enum: ['todo', 'epic', 'project'] }, targetId: { type: 'string', description: 'Todo or epic id (required for scope todo/epic; omit for project).' } }, required: ['project', 'session', 'scope'] } },
+      { name: 'unsubscribe', description: 'Remove a subscription for THIS session. Pass scope (+ targetId for todo/epic) to drop one, or all:true to drop every subscription for the session.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, scope: { type: 'string', enum: ['todo', 'epic', 'project'] }, targetId: { type: 'string' }, all: { type: 'boolean', description: 'Drop ALL of this session\'s subscriptions (ignores scope/targetId).' } }, required: ['project', 'session'] } },
+      { name: 'inbox', description: 'Drain THIS session\'s pending subscription notifications (the PULL half of nudge-to-pull). Returns + marks-seen every unseen update [{ scope, targetId, event, summary, payload, ts, tsLocal }] plus a top-level `servedAt` (epochMs/iso/local) stamping when you pulled. `tsLocal` is the human-readable wall-clock of each event; `ts` is its epoch ms. The FULL drain means a missed nudge self-heals on the next one. Call this when woken by a nudge (or any time) to see what changed on your subscribed todos/epics/projects, then act.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' } }, required: ['project', 'session'] } },
       { name: 'get_todo', description: "Read a single project work-graph todo by id (title, description/spec, status, dependsOn, sessionName). `status`/`derivedStatus` are the live-DERIVED state and `storedStatus` is the raw persisted value (an approved todo derives 'ready' while storedStatus stays 'planned'); also returns isClaimable + claimReason. Used by a worker to read its claimed todo.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project','todoId'] } },
       { name: 'complete_todo', description: 'Worker completion report: mark a project todo accepted or rejected (marks done + unblocks dependents).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, acceptance: { type: 'string', enum: ['accepted','rejected'] } }, required: ['project','todoId','acceptance'] } },
       { name: 'gate_status', description: "Read-only per-project acceptance-gate status. Returns the CONFIGURED gate command (the project's .collab/project.json `gateCommand`, the tsc/test invocation the completion gate runs) — or null + `gateConfigured:false` when the project uses the default worker change-set-scoped tsc+tests — plus the last N gate results per todo (from the durable supervisor audit trail): each carries { todoId, title, passed, acceptance, acceptanceStatus, ts, reason }. Lets the steward answer 'why is this todo blocked / how is the gate set up?' without spelunking the DB or manifest.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose gate config + recent results to report.' }, limit: { type: 'number', description: 'Max recent gate results to return (default 20, capped 200).' } }, required: ['project'] } },
@@ -3964,6 +3967,39 @@ IMPORTANT - Common pitfalls to avoid:
             const result = await awaitHumanDecision(escalationId, { timeoutMs });
             return JSON.stringify(result, null, 2);
           }
+          case 'subscribe': {
+            const { project, session, scope, targetId } = args as { project?: string; session?: string; scope?: string; targetId?: string };
+            if (!project || !session || !scope) throw new Error('Missing required: project, session, scope');
+            if (!['todo', 'epic', 'project'].includes(scope)) throw new Error(`Invalid scope "${scope}" (todo|epic|project)`);
+            const subs = await import('../services/session-subscriptions');
+            const sub = subs.addSubscription(project, session, scope as any, targetId);
+            return JSON.stringify({ ok: true, subscription: sub }, null, 2);
+          }
+          case 'unsubscribe': {
+            const { project, session, scope, targetId, all } = args as { project?: string; session?: string; scope?: string; targetId?: string; all?: boolean };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const subs = await import('../services/session-subscriptions');
+            if (all) return JSON.stringify({ ok: true, removed: subs.dropSubscriptionsForSession(project, session) }, null, 2);
+            if (!scope) throw new Error('Missing required: scope (or all:true)');
+            return JSON.stringify({ ok: true, removed: subs.removeSubscription(project, session, scope as any, targetId) }, null, 2);
+          }
+          case 'inbox': {
+            const { project, session } = args as { project?: string; session?: string };
+            if (!project || !session) throw new Error('Missing required: project, session');
+            const subs = await import('../services/session-subscriptions');
+            const items = subs.drainInbox(project, session);
+            // Wall-clock stamps (matches get_datetime's style): servedAt = when this drain
+            // ran; per-item tsLocal = human-readable form of each event's epoch `ts`. So a
+            // subscriber reading the response knows WHEN it pulled and WHEN each update fired
+            // without converting epochs by hand.
+            const fmt = (ms: number) => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'long' });
+            const now = Date.now();
+            return JSON.stringify({
+              count: items.length,
+              servedAt: { epochMs: now, iso: new Date(now).toISOString(), local: fmt(now) },
+              items: items.map((it) => ({ ...it, tsLocal: fmt(it.ts) })),
+            }, null, 2);
+          }
           case 'supervisor_next_decision': {
             // The on-demand supervisor LLM polls the oldest pending ambiguous-stop
             // request. Read-only; null when the queue is empty (nothing to judge).
@@ -4740,7 +4776,12 @@ IMPORTANT - Common pitfalls to avoid:
               elapsedMs: now - r.startedAt,
               stale: now - r.startedAt > STALE_MS,
             }));
-            return JSON.stringify({ now, inflight, breaker: { open: breakerOpen() } }, null, 2);
+            // Transparency: when scoped to a project, also report WHY ready leaves
+            // aren't being claimed (over-budget / breaker / probe-down / stranded-
+            // foundation / not-headless) — so "auto, ticking, 0 in_progress" is never
+            // an unexplained silence. Omitted for the all-projects view (no single set).
+            const claimSuppression = project ? await diagnoseClaimSuppression(project) : undefined;
+            return JSON.stringify({ now, inflight, breaker: { open: breakerOpen() }, ...(claimSuppression ? { claimSuppression } : {}) }, null, 2);
           }
           case 'leaf_inspect': {
             const { leafId, todoId, fullOutput } = args as { leafId?: string; todoId?: string; fullOutput?: boolean };

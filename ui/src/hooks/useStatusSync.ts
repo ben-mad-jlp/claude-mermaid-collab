@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
-import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { useSupervisorStore, type Escalation, type ProgressState, type ZenStructured } from '@/stores/supervisorStore';
 import { useDaemonPulse } from '@/stores/daemonPulseStore';
+import { useFreshnessStore } from '@/stores/freshnessStore';
 
 /**
  * useStatusSync — the single owner of status refresh
@@ -17,11 +18,17 @@ import { useDaemonPulse } from '@/stores/daemonPulseStore';
  *        • session_todos_updated → targeted loadProjectTodos(project) for the
  *          watched servers (already the Bridge behavior; centralized here so it is
  *          live app-wide, not only while the Bridge is mounted).
+ *        • session_summary_updated → ingestSessionSummary(s) — fold the structural
+ *          heartbeat (session-summary-loop.ts) into the sessionSummaries slice; the
+ *          WS payload is complete so NO REST reload.
  *        • claude_session_*    → left to the existing useWatchEvents handler
  *          (subscriptionStore) — NOT duplicated here.
  *
- *  (B) Bootstrap hydrate. hydrateOpenEscalations(serverIds) runs ONCE on mount and
- *      ONCE per WS (re)connect (never on an interval). The store action is
+ *  (B) Bootstrap hydrate. hydrateOpenEscalations(serverIds) AND
+ *      hydrateSessionSummaries(serverIds) run ONCE on mount and ONCE per WS
+ *      (re)connect (never on an interval) — summaries cover cold start before the
+ *      first WS tick and reconnect gaps; their ingest is monotonic-guarded so a
+ *      stale snapshot can't clobber a newer live tick. The escalation action is
  *      epoch-guarded (§2.1): it snapshots hydrateEpoch before its REST read and
  *      discards the result if a newer ingest/mutation/hydrate bumped the epoch
  *      meanwhile, so a slow reconnect snapshot can never clobber a newer WS upsert.
@@ -43,7 +50,11 @@ export function useStatusSync(serverIds: string[]) {
 
     const hydrate = () => {
       if (cancelled) return;
+      useFreshnessStore.getState().noteWsMessage();
       void useSupervisorStore.getState().hydrateOpenEscalations(serverIdsRef.current);
+      // Defensive summaries hydrate — covers cold start (before the first WS tick)
+      // and reconnects. Monotonic-guarded ingest, so it never clobbers live state.
+      void useSupervisorStore.getState().hydrateSessionSummaries(serverIdsRef.current);
     };
 
     hydrate(); // once on mount
@@ -58,6 +69,7 @@ export function useStatusSync(serverIds: string[]) {
   useEffect(() => {
     const client = getWebSocketClient();
     const sub = client.onMessage((message) => {
+      useFreshnessStore.getState().noteWsMessage();
       const msg = message as { type?: string; project?: unknown; escalation?: unknown };
       if (!msg || typeof msg.type !== 'string') return;
       switch (msg.type) {
@@ -77,6 +89,38 @@ export function useStatusSync(serverIds: string[]) {
           if (!project) break;
           const ids = serverIdsRef.current.length ? serverIdsRef.current : ['local'];
           for (const id of ids) void useSupervisorStore.getState().loadProjectTodos(id, project);
+          break;
+        }
+        case 'session_summary_updated': {
+          const m = msg as {
+            project?: unknown; session?: unknown; progressState?: unknown;
+            paneSeenAt?: unknown; updatedAt?: unknown;
+            summaryText?: unknown; firstClause?: unknown; summaryUpdatedAt?: unknown;
+            refreshState?: unknown; structured?: unknown;
+            paneHash?: unknown; summaryPaneHash?: unknown;
+          };
+          if (typeof m.project !== 'string' || typeof m.session !== 'string') break;
+          if (typeof m.progressState !== 'string') break;
+          useSupervisorStore.getState().ingestSessionSummary({
+            project: m.project,
+            session: m.session,
+            progressState: m.progressState as ProgressState,
+            paneSeenAt: typeof m.paneSeenAt === 'number' ? m.paneSeenAt : Date.now(),
+            updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt : Date.now(),
+            summaryText: typeof m.summaryText === 'string' ? m.summaryText : undefined,
+            firstClause: typeof m.firstClause === 'string' ? m.firstClause : undefined,
+            summaryUpdatedAt: typeof m.summaryUpdatedAt === 'number' ? m.summaryUpdatedAt : undefined,
+            paneHash: typeof m.paneHash === 'string' ? m.paneHash : undefined,
+            summaryPaneHash: typeof m.summaryPaneHash === 'string' ? m.summaryPaneHash : undefined,
+            refreshState:
+              m.refreshState === 'fresh' || m.refreshState === 'stale-failing'
+                ? m.refreshState
+                : undefined,
+            structured:
+              m.structured && typeof m.structured === 'object'
+                ? (m.structured as ZenStructured)
+                : undefined,
+          });
           break;
         }
         case 'orchestrator_tick': {

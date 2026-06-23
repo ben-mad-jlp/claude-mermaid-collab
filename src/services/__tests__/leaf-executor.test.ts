@@ -25,6 +25,7 @@ import {
   NODE_BUDGET,
   deprecatePriorAttempts,
   blueprintAttemptName,
+  planResume,
   type LeafExecutorDeps,
   type LeafSizeManifest,
 } from '../leaf-executor';
@@ -171,6 +172,32 @@ function makeDeps(opts: {
   };
   return { deps, spies };
 }
+
+describe('planResume (resume decision — conservative, fresh on any doubt)', () => {
+  const SHA = 'abc123';
+  it('no resume row → fresh', () => {
+    expect(planResume(null, SHA)).toEqual({ mode: 'fresh', reason: 'no-resume-state' });
+  });
+  it('merged → skip-to-gate regardless of epic base', () => {
+    expect(planResume({ merged: true, phase: 'review', epicBaseSha: 'old' }, SHA).mode).toBe('skip-to-gate');
+    expect(planResume({ merged: true, phase: 'blueprint', epicBaseSha: null }, null).mode).toBe('skip-to-gate');
+  });
+  it('killed at/before blueprint → fresh (nothing durable to reuse)', () => {
+    expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: SHA }, SHA).reason).toBe('killed-before-blueprint');
+    expect(planResume({ merged: false, phase: null, epicBaseSha: SHA }, SHA).reason).toBe('killed-before-blueprint');
+  });
+  it('missing epic base on either side → fresh', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: null }, SHA).reason).toBe('no-epic-base');
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, null).reason).toBe('no-epic-base');
+  });
+  it('epic base moved → fresh (never resume against a changed world)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA)).toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
+  });
+  it('blueprint done + base unchanged → reattach-blueprint', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA)).toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+    expect(planResume({ merged: false, phase: 'review', epicBaseSha: SHA }, SHA).mode).toBe('reattach-blueprint');
+  });
+});
 
 describe('parseVerdict (fail-closed)', () => {
   it('PASS only on an explicit VERDICT: PASS line', () => {
@@ -472,6 +499,10 @@ describe('leafExecutionMode (epic f5c7fc46 — thin code/verify dispatch)', () =
     expect(leafExecutionMode(mk('cad-dogfood'))).toBe('verify');
     expect(leafExecutionMode(mk('Dogfood'))).toBe('verify');
   });
+  it("reviewer type → 'review' (epic d8ac1a18 — completeness-review shape)", () => {
+    expect(leafExecutionMode(mk('reviewer'))).toBe('review');
+    expect(leafExecutionMode(mk('Reviewer'))).toBe('review');
+  });
   it("everything else (incl. backend/ui/null) → 'code' (default, proven path)", () => {
     expect(leafExecutionMode(mk('backend'))).toBe('code');
     expect(leafExecutionMode(mk('ui'))).toBe('code');
@@ -520,8 +551,14 @@ interface WaveOpts {
   nodeBudget?: number;
   /** verify text per call, in order; defaults to 'TSC: CLEAN'. */
   verifyTexts?: string[];
+  /** Change-set seam injection (files this leaf touched). Unset ⇒ seam unwired
+   *  (null) ⇒ prior conservative behaviour (gate fails on any error; no no-op skip). */
+  changeSet?: string[] | null;
   /** Spy collector for persistBlueprint calls (one expected per attempt). */
   persistCalls?: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }>;
+  /** When provided, wires the auto-split seam and captures each splitInto call.
+   *  Unset ⇒ seam unwired ⇒ never splits (prior behaviour). */
+  splitCalls?: Array<{ leafId: string; files: string[] }>;
 }
 
 function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[] } {
@@ -565,6 +602,10 @@ function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[]
     escalate() {},
     recordNode: () => null,
     readBlueprint: async () => manifestText,
+    changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
+    splitInto: opts.splitCalls
+      ? async (lf, files) => { opts.splitCalls!.push({ leafId: lf.id, files }); }
+      : undefined,
     persistBlueprint: opts.persistCalls
       ? async ({ project, attempt, manifest, blueprintMd }) => {
           opts.persistCalls!.push({ project, attempt, manifest, blueprintMd });
@@ -644,6 +685,115 @@ describe('runLeaf P5 size gate', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('waves-file-stuck');
+  });
+
+  it('(i) WAVES gate: a FOREIGN-only tsc error (file the leaf never touched) PASSES when scoped', async () => {
+    // The build123d ec4c082d failure: every own-file verify clean, but the project-wide
+    // gate tripped on a pre-existing error in an untouched file. With the change-set wired,
+    // the foreign-only failure must be scoped away and the leaf accepted.
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      changeSet: ['a.ts'],
+      // per-file a.ts verify clean; the GATE verify reports an error in an untouched file.
+      verifyTexts: ['TSC: CLEAN', 'foreign/other.ts(12,3): error TS2307: Cannot find module'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).not.toBe('waves-tsc-gate-failed');
+  });
+
+  it('(j) WAVES gate: an IN-SCOPE tsc error (in a file the leaf changed) still BLOCKS', async () => {
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
+      changeSet: ['a.ts'],
+      verifyTexts: ['TSC: CLEAN', 'a.ts(5,2): error TS2322: type mismatch'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('waves-tsc-gate-failed');
+  });
+
+  it('(k) WAVES gate: with the change-set UNWIRED, any gate error BLOCKS (fail-closed, unchanged)', async () => {
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
+      // NO changeSet → seam unwired → null → fail closed even on a foreign error.
+      verifyTexts: ['TSC: CLEAN', 'foreign/other.ts(1,1): error TS2307: x'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('waves-tsc-gate-failed');
+  });
+
+  it('(l) WAVES no-op skip: a wimplement that changes nothing skips its per-file verify', async () => {
+    // Budget-burn regression: an already-satisfied file (not in the change-set after its
+    // wimplement) must NOT spend a verify node. a.ts is touched, b.ts is already done.
+    const { deps, calls } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts', 'b.ts'], tasks: [{ id: 't', files: ['a.ts', 'b.ts'], description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      changeSet: ['a.ts'], // only a.ts was actually changed; b.ts is a no-op
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(calls.filter((c) => c === 'wimplement').length).toBe(2); // both files implemented
+    // Only a.ts gets a per-file verify; b.ts is skipped. Plus the 1 wave-level gate verify.
+    expect(calls.filter((c) => c === 'verify').length).toBe(2);
+  });
+
+  it('(m) over-ceiling enumerable manifest ⇒ SPLIT pre-flight (no floor/waves nodes run)', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 3, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: [] },
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('split');
+    expect(splitCalls.length).toBe(1);
+    expect([...splitCalls[0].files].sort()).toEqual([...files].sort());
+    // Split happens AFTER blueprint but BEFORE any implement/research/verify work.
+    expect(calls).toEqual(['blueprint']);
+  });
+
+  it('(n) over-ceiling but NON-ENUMERABLE fanout ⇒ no split, falls through to WAVES', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: files, tasks: [{ id: 't', files, description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 200,
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(splitCalls.length).toBe(0); // non-enumerable can't be partitioned → no split
+    expect(calls).toContain('wimplement'); // ran the WAVES path instead
+    expect(res.outcome).toBe('accepted');
+  });
+
+  it('(o) enumerable but at/below the ceiling ⇒ no split (runs normally)', async () => {
+    const files = Array.from({ length: 8 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 8, estimatedTasks: 8, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: files.map((f, i) => ({ id: `t${i}`, files: [f], description: 'd' })) },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 200,
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(splitCalls.length).toBe(0); // 8 ≤ SPLIT_CEILING (12)
+    expect(res.outcome).toBe('accepted');
+  });
+
+  it('(p) split seam UNWIRED ⇒ a too-big leaf still runs (no split) — backward compatible', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const { deps } = makeWaveDeps({
+      manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 1, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: [{ id: 't', files, description: 'x' }] },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 200,
+      // NO splitCalls → splitInto unwired → never splits.
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).not.toBe('split');
   });
 
   it('(h) large multi-file waves leaf does NOT budget-exhaust on the DEFAULT budget (L4 regression)', async () => {
@@ -1202,5 +1352,56 @@ describe('deprecatePriorAttempts (only the live attempt blueprint stays undeprec
     await mm.initialize();
     expect(mm.getItemMetadata(orphan).deprecated).toBe(true);
     expect(mm.getItemMetadata(live).deprecated ?? false).toBe(false);
+  });
+});
+
+describe('runLeaf resume consumption (slice 2)', () => {
+  it('skip-to-gate: runs only the gate, no worktree / blueprint / merge', async () => {
+    const { deps, spies } = makeDeps({ gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'skip-to-gate', reason: 'work-merged' };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.reason).toBe('resumed-skip-to-gate');
+    expect(spies.invokeSpecs.length).toBe(0); // no nodes spawned at all
+    expect(spies.ensureCalls.length).toBe(0); // no worktree cut
+    expect(spies.mergeCalls).toBe(0); // already merged by the prior run
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('skip-to-gate: a pending gate is reported as pending', async () => {
+    const { deps } = makeDeps({ gateEffective: 'pending' });
+    deps.resumePlan = { mode: 'skip-to-gate', reason: 'work-merged' };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('pending');
+    expect(res.reason).toBe('gate-pending');
+  });
+
+  it('reattach-blueprint: reuses the durable plan (no blueprint node), runs implement+review', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => 'RESTORED PLAN — implement these files';
+    const writes: Array<{ rel: string; content: string }> = [];
+    deps.writeArtifact = async (_cwd, rel, content) => { writes.push({ rel, content }); };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // No node with the blueprint's Write profile was invoked — the plan was reused.
+    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(ranBlueprint).toBe(false);
+    // implement + review still ran.
+    expect(spies.invokeSpecs.length).toBe(2);
+    expect(spies.mergeCalls).toBe(1);
+    // The restored plan was written into the fresh worktree.
+    expect(writes.some((w) => w.content === 'RESTORED PLAN — implement these files')).toBe(true);
+    expect(spies.ensureCalls[0].opts.fresh).toBe(true); // still a FRESH worktree
+  });
+
+  it('reattach-blueprint: falls back to running the blueprint node when the durable plan is gone', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => null; // plan vanished
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(ranBlueprint).toBe(true); // had to author it after all
   });
 });

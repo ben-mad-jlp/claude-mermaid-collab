@@ -69,6 +69,7 @@ export type WSMessage =
   | { type: 'claude_session_registered'; project: string; session: string; claudePid?: string | number; claudeSessionId?: string; [k: string]: unknown }
   | { type: 'claude_session_status'; project: string; session: string; status: string; [k: string]: unknown }
   | { type: 'claude_context_update'; project: string; session: string; contextPercent: number }
+  | { type: 'claude_usage_update'; fiveHourPercent: number; sevenDayPercent: number; updatedAt: number }
   | { type: 'claude_session_checkpoint_ready'; project: string; session: string; persistedAt: number; [k: string]: unknown }
   | { type: 'supervisor_session_cleared'; project: string; session: string; [k: string]: unknown }
   | { type: 'supervisor_decision'; project: string; session: string; kind: string; detail?: string | null; ts: number; [k: string]: unknown }
@@ -109,6 +110,25 @@ export type WSMessage =
   | { type: 'pair_mode_changed'; pairMode: boolean; project: string; session: string }
   | { type: 'supervisor_nudge'; project: string; session: string; serverId: string; text: string; sent: boolean }
   | { type: 'orchestrator_tick'; at: number }
+  | { type: 'session_summary_updated'; project: string; session: string;
+      progressState: 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
+      paneSeenAt: number; updatedAt: number;
+      summaryText?: string;
+      firstClause?: string;
+      summaryUpdatedAt?: number;
+      refreshState?: 'fresh' | 'stale-failing';
+      paneHash?: string;
+      summaryPaneHash?: string;
+      structured?: {
+        paragraph: string;
+        detail?: string;
+        status: 'working' | 'idle' | 'stuck' | 'needs-input';
+        question?: string;
+        options?: Array<{ label: string; valueToSend: string }>;
+        recommended?: number;
+        multiSelect?: boolean;
+        suggestedAnswers?: string[];
+      } }
   | { type: 'escalation_created'; project: string; session: string; kind: string; id: string; routedTo?: string; escalation?: unknown }
   | { type: 'escalation_decided'; project: string; session: string; id: string; optionId: string | null }
   // Drive (level=drive) autonomous-decision narration — observational only, NOT

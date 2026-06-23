@@ -66,8 +66,8 @@ const TEST_ROOT = mkdtempSync(join(tmpdir(), 'mc-coord-live-projects-'));
 
 describe('isHeadlessLeaf — non-code leaf exclusion', () => {
   const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', ...(over as any) }) as Todo;
-  it('excludes reviewer-type leaves (L7 no-commit reversal) — they go the legacy/human path', () => {
-    expect(isHeadlessLeaf(base({ type: 'reviewer' }), TEST_ROOT)).toBe(false);
+  it('ADMITS reviewer-type leaves (epic d8ac1a18: they run the review execution shape, no longer stranded)', () => {
+    expect(isHeadlessLeaf(base({ type: 'reviewer', id: 'reviewer-no-children' }), TEST_ROOT)).toBe(true);
   });
   it('excludes human-owned, [EPIC], and [GATE] leaves', () => {
     expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), TEST_ROOT)).toBe(false);

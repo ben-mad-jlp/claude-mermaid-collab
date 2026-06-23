@@ -28,13 +28,12 @@ import { useSessionStatuses } from '@/hooks/useSessionStatuses';
 import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
 import { NeedsYouZone } from './NeedsYouZone';
 import { InflightPanel } from './InflightPanel';
+import { ReadyPanel } from './ReadyPanel';
 import { projectPlanStats } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
-import { HumanInbox } from '@/components/todos/HumanInbox';
-import { selectHumanInbox } from '@/components/todos/humanInboxSelectors';
 import { FleetVitals } from './FleetVitals';
 import { DeployBanner } from './DeployBanner';
-import { WorkerRoster } from './WorkerRoster';
+import { SubscribersPanel } from './SubscribersPanel';
 import { StreamTicker } from './StreamTicker';
 import { PlanPanel } from '../PlanPanel';
 import { DecisionCard } from './focal/DecisionCard';
@@ -365,6 +364,12 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     [todos],
   );
 
+  // todoId→title for enriching the stream's thin todo-lifecycle events (render-time join).
+  const titleByTodoId = useMemo(
+    () => new Map(todos.map((t) => [t.id, t.title ?? t.id])),
+    [todos],
+  );
+
   // The single source of "needs you" — same selector the CommandBarBadge, the
   // Z-rail and the FleetGraph danger ring derive from (badge ⟺ ring parity).
   const openEscalations = useMemo(
@@ -408,7 +413,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'todos' | 'workers' | 'stream' | 'executor' | 'detail'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'subscribers' | 'stream' | 'executor' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -419,11 +424,11 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     setSelectedEpic(epic);
     setBridgeTab('detail');
   };
-  /** Close the contextual detail tab: clear the selection and fall back to Todos. */
+  /** Close the contextual detail tab: clear the selection and fall back to Ready. */
   const closeDetail = () => {
     setSelectedTodoId(null);
     setSelectedEpic(null);
-    setBridgeTab('todos');
+    setBridgeTab('ready');
   };
 
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
@@ -497,8 +502,8 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     { key: 'escalations', label: 'Escalations', count: blockerEscalations.length, loud: true },
                     { key: 'land', label: 'Land', count: landEscalations.length, info: true },
                     { key: 'inflight', label: 'In-flight', count: inflightCount, info: true },
-                    { key: 'todos', label: 'Todos', count: selectHumanInbox(todos).length },
-                    { key: 'workers', label: 'Workers', count: workerSubs.length },
+                    { key: 'ready', label: 'Ready', count: readyCount, info: true },
+                    { key: 'subscribers', label: 'Subscribers' },
                     { key: 'stream', label: 'Stream' },
                     { key: 'executor', label: 'Executor' },
                     ...((selectedTodoId || selectedEpic)
@@ -544,19 +549,27 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                   {bridgeTab === 'inflight' && (
                     <div className="p-2"><InflightPanel todos={todos} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
                   )}
-                  {bridgeTab === 'todos' && (
+                  {bridgeTab === 'ready' && (
+                    <ReadyPanel todos={todos} onSelectTodo={handleSelectTodo} />
+                  )}
+                  {bridgeTab === 'subscribers' && (
+                    <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />
+                  )}
+                  {bridgeTab === 'stream' && (
                     <div className="p-2">
-                      <HumanInbox
+                      <StreamTicker
                         embedded
-                        todos={todos}
-                        onClaim={(t) => void promoteTodo(serverScope, project, t.id, 'in_progress')}
-                        onComplete={(t) => void promoteTodo(serverScope, project, t.id, 'done')}
-                        onOpen={handleSelectTodo}
+                        events={projectStreamEvents}
+                        titleByTodoId={titleByTodoId}
+                        onSelectEvent={(e) => {
+                          // Jump to the detail of what the event is about, when it carries a
+                          // todo target we can resolve in the current set. Targetless events no-op.
+                          const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined;
+                          if (t) handleSelectTodo(t);
+                        }}
                       />
                     </div>
                   )}
-                  {bridgeTab === 'workers' && <div className="p-2"><WorkerRoster embedded subscriptions={workerSubs} todos={todos} onJump={handleJump} /></div>}
-                  {bridgeTab === 'stream' && <div className="p-2"><StreamTicker embedded events={projectStreamEvents} /></div>}
                   {bridgeTab === 'executor' && (
                     <div className="p-2">
                       <ExecutorStatsPanel project={project} serverScope={serverScope} />

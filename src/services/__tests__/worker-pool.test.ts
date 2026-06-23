@@ -14,8 +14,13 @@ import {
   listPool,
   resetPool,
   reapDeadSlots,
+  poolConfigForSize,
   type PoolSlot,
 } from '../worker-pool';
+
+// Single-slot config: pins capacity tests to budget=1 so they exercise the
+// at-capacity gate independent of the (now 3) default slots-per-type.
+const CFG1 = poolConfigForSize(1);
 
 // listPool now returns a project-partitioned array; this helper finds the slot
 // for a (project, sessionName) pair the way callers scope their readouts.
@@ -27,10 +32,19 @@ function slotOf(project: string, sessionName: string): (PoolSlot & { sessionName
 const P = '/proj/main';
 
 describe('worker-pool config', () => {
-  it('defaults to 1 slot per type, except frontend (3)', () => {
-    expect(DEFAULT_SLOTS_PER_TYPE).toBe(1);
-    expect(POOL_CONFIG.frontend).toBe(3); // intentional: parallel UI work
-    for (const t of POOL_TYPES) if (t !== 'frontend') expect(POOL_CONFIG[t]).toBe(1);
+  it('defaults to 3 slots per type (fan out by default; raise per-project)', () => {
+    expect(DEFAULT_SLOTS_PER_TYPE).toBe(3);
+    // POOL_CONFIG itself is env-tunable (MERMAID_POOL_<TYPE>), so assert the
+    // default constant rather than the resolved map.
+  });
+
+  it('poolConfigForSize expands to a uniform per-type config, clamped to [1,16]', () => {
+    const cfg = poolConfigForSize(5);
+    for (const t of POOL_TYPES) expect(cfg[t]).toBe(5);
+    // clamp: below 1 → 1; above MAX (16) → 16; non-finite → 1.
+    for (const t of POOL_TYPES) expect(poolConfigForSize(0)[t]).toBe(1);
+    for (const t of POOL_TYPES) expect(poolConfigForSize(999)[t]).toBe(16);
+    for (const t of POOL_TYPES) expect(poolConfigForSize(NaN)[t]).toBe(1);
   });
 });
 
@@ -111,10 +125,10 @@ describe('pool registry transitions', () => {
   });
 
   it('returns undefined when at capacity and no idle slot', () => {
-    getOrCreateSlot(P, 'api');
+    getOrCreateSlot(P, 'api', 'claude', CFG1);
     markBusy(P, poolSessionName('api'), 'todo-1');
-    // budget is 1 and the only slot is busy → at capacity
-    expect(getOrCreateSlot(P, 'api')).toBeUndefined();
+    // budget pinned to 1 and the only slot is busy → at capacity
+    expect(getOrCreateSlot(P, 'api', 'claude', CFG1)).toBeUndefined();
   });
 
   it('markBusy / markIdle drive status + currentTodoId', () => {
@@ -152,8 +166,8 @@ describe('pool registry is partitioned by project (P0 regression — multi-proje
     const B = '/proj/B';
 
     // Each project independently gets a backend-claude-1 slot (same logical name).
-    const a = getOrCreateSlot(A, 'backend');
-    const b = getOrCreateSlot(B, 'backend');
+    const a = getOrCreateSlot(A, 'backend', 'claude', CFG1);
+    const b = getOrCreateSlot(B, 'backend', 'claude', CFG1);
     expect(a).toEqual({ project: A, type: 'backend', provider: 'claude', slot: 1, status: 'idle' });
     expect(b).toEqual({ project: B, type: 'backend', provider: 'claude', slot: 1, status: 'idle' });
     // Distinct registry entries despite the identical session name.
@@ -174,7 +188,7 @@ describe('pool registry is partitioned by project (P0 regression — multi-proje
 
     // With budget=1, project A at capacity must NOT starve project B: B still has
     // its own free slot available (and vice-versa) until each fills its own pool.
-    expect(getOrCreateSlot(A, 'backend')).toBeUndefined(); // A at its own capacity
+    expect(getOrCreateSlot(A, 'backend', 'claude', CFG1)).toBeUndefined(); // A at its own capacity
     markIdle(B, 'backend-claude-1');
     expect(findIdleSessionForType(B, 'backend')).toBe('backend-claude-1'); // B independently idle
     expect(findIdleSessionForType(A, 'backend')).toBeUndefined();    // A still busy — unaffected
@@ -188,8 +202,8 @@ describe('reapDeadSlots (889e3e26 — slot release decoupled from todo status)',
     const a = getOrCreateSlot(P, 'backend')!;
     markBusy(P, poolSessionName(a.type, a.provider, a.slot), 'todo-a', 'mc-proj-backend-1');
     expect(slotOf(P, 'backend-claude-1')!.status).toBe('busy');
-    // backend at capacity (1 slot) → no new slot until the dead one is reaped.
-    expect(getOrCreateSlot(P, 'backend')).toBeUndefined();
+    // backend at capacity (pinned to 1 slot) → no new slot until the dead one is reaped.
+    expect(getOrCreateSlot(P, 'backend', 'claude', CFG1)).toBeUndefined();
 
     // The worker's tmux vanished (dropped/abandoned todo, or killed lane). The
     // predicate is async now (944408c2: tmux liveness is a non-blocking subprocess).

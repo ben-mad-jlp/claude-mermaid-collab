@@ -48,6 +48,7 @@ import { api, generateSessionName, type CachedUIState } from '@/lib/api';
 import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { useUsageStore } from '@/stores/usageStore';
 import { useDesignEditorStore } from '@/stores/designEditorStore';
 import type { Item, Session, ToolbarAction } from '@/types';
 
@@ -87,6 +88,7 @@ import { SessionCleanupDialog, type CleanupAction, CreateSessionDialog, AddProje
 
 // Import supervisor view
 import { BridgeDashboard } from '@/components/supervisor/bridge/BridgeDashboard';
+import { ZenMode } from '@/components/supervisor/zen/ZenMode';
 import { DiveLayoutGroup } from '@/components/stream/DiveTransition';
 
 /**
@@ -170,6 +172,7 @@ const App: React.FC = () => {
   // independently. Studio = the artifact viewer (viewerVisible); Browser/Terminal
   // carry their own visibility flags (browserStore.visible / terminalStore.open).
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
+  const zenMode = useUIStore((s) => s.zenMode);
   const specOpen = useUIStore((s) => s.specOpen);
   const browserVisible = useBrowserStore((s) => s.visible);
   const terminalOpen = useTerminalStore((s) => s.open);
@@ -326,6 +329,17 @@ const App: React.FC = () => {
     ).sort();
     void mc.setWatchedServers(ids);
   }, [subscriptionsForWatch]);
+
+  // First-paint hydration of account-wide rate-limit usage (5h / 7d) for the Zen top bars.
+  // Kept fresh afterwards by the statusline hook via the `claude_usage_update` WS message.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/usage')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.usage) useUsageStore.getState().setUsage(d.usage); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // Ref for MermaidPreview imperative methods
   const mermaidPreviewRef = useRef<MermaidPreviewRef>(null);
@@ -1030,6 +1044,12 @@ const App: React.FC = () => {
               notifiedContextThreshold.delete(criticalKey);
             }
           }
+          break;
+        }
+
+        case 'claude_usage_update': {
+          const { fiveHourPercent, sevenDayPercent, updatedAt } = message as any;
+          useUsageStore.getState().setUsage({ fiveHourPercent, sevenDayPercent, updatedAt });
           break;
         }
 
@@ -1784,6 +1804,16 @@ const App: React.FC = () => {
     );
   }
 
+  // Zen mode takes over the ENTIRE window (redesign 2026-06-20) — no Header, no
+  // sidebar, no chat panel. Just the calm card scroll; its own button exits back.
+  if (zenMode) {
+    return (
+      <ErrorBoundary>
+        <ZenMode />
+      </ErrorBoundary>
+    );
+  }
+
   // Desktop layout
   return (
     <ErrorBoundary>
@@ -1850,6 +1880,7 @@ const App: React.FC = () => {
                         <PanelResizeHandle className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-accent-400 transition-colors" />
                       )}
                       <Panel id={p} order={i} minSize={15} className="min-w-0 h-full bg-white dark:bg-gray-800">
+                        {/* zenMode is handled by a full-window short-circuit above. */}
                         {p === 'bridge' && <BridgeDashboard />}
                         {p === 'studio' && <div className="h-full min-h-0 overflow-hidden">{renderMainContent()}</div>}
                         {p === 'spec' && <SpecWorkspace />}

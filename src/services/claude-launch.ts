@@ -46,6 +46,22 @@ const isTuiReady = (t: string) => /ctx\s*\||for agents/.test(t);
 const isCollabBound = (t: string) => /collab|server health|Vibe|register/i.test(t);
 
 /**
+ * Deliver a one-line NUDGE to a registered collab session's tmux — the PUSH half of the
+ * subscription nudge-to-pull. Best-effort + idle-gated: only types when the TUI is at its
+ * prompt (`isTuiReady`), so we never corrupt a mid-turn input (the same gate
+ * `runTodoInSession` uses). Returns 'sent' | 'busy' (not at prompt → caller re-queues for the
+ * next tick) | 'no-tmux' (no/dead pane). `text` must be a single short line.
+ */
+export async function nudgeSession(project: string, session: string, text: string): Promise<'sent' | 'busy' | 'no-tmux'> {
+  const tmux = tmuxBaseName(project, session);
+  const pane = capturePane(tmux);
+  if (!pane) return 'no-tmux';
+  if (!isTuiReady(pane)) return 'busy';
+  await sendTmuxKeysRaw(tmux, text);
+  return 'sent';
+}
+
+/**
  * Idempotently ensure a tmux session exists with `claude` launched AND bound to
  * the collab session via `/collab`. If the session is ALREADY up, interactive,
  * and collab-bound, it is REUSED as-is (no relaunch, no double `/collab`).

@@ -465,6 +465,59 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
+  // changeSet — files this lane's worktree touched: committed work (diff
+  // baseRef..HEAD) UNION uncommitted edits (status --porcelain). Mirrors the
+  // completion gate's lane-local change-set (gate-runner fetchLaneChangeSet) so
+  // the WAVES tsc gate can scope a project-wide failure the same way, and the
+  // executor can detect a no-op wimplement. Mid-leaf the edits are uncommitted
+  // (HEAD still at the epic tip) so `status` carries them; the baseRef diff covers
+  // any committed work. Returns null when no worktree exists or BOTH git reads
+  // fail (→ caller fails closed / unscoped); an empty-but-readable result is a
+  // real empty change-set, not an error.
+  // ---------------------------------------------------------------------------
+  async changeSet(sessionId: string, baseRef?: string): Promise<string[] | null> {
+    const rec = await this.readRecord(sessionId);
+    if (!rec || !(await this.pathExists(rec.path))) return null;
+    const set = new Set<string>();
+    let read = false;
+    if (baseRef) {
+      const d = await this.runGit(
+        rec.path,
+        ['diff', '--name-only', `${baseRef}..HEAD`],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      if (d.code === 0) {
+        read = true;
+        for (const line of d.stdout.split('\n')) {
+          const p = line.trim();
+          if (p) set.add(p);
+        }
+      }
+    }
+    const s = await this.runGit(
+      rec.path,
+      ['status', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (s.code === 0) {
+      read = true;
+      for (const line of s.stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // Porcelain: "XY <path>" or rename "XY <old> -> <new>". Strip the 2-char
+        // status + leading space; take the post-arrow path for renames.
+        let p = line.slice(3).trim();
+        const arrow = p.indexOf(' -> ');
+        if (arrow !== -1) p = p.slice(arrow + 4).trim();
+        // Strip surrounding quotes git adds for paths with special chars.
+        if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1);
+        if (p) set.add(p);
+      }
+    }
+    return read ? [...set] : null;
+  }
+
+  // ---------------------------------------------------------------------------
   // list — enumerate all persisted worktree records.
   // ---------------------------------------------------------------------------
   async list(): Promise<WorktreeInfo[]> {
@@ -773,8 +826,18 @@ export class WorktreeManager {
 
     let result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
 
-    // The dir may be left dangling from a crashed run — prune + retry once.
+    // Retry once. Two distinct failure modes:
+    //  (a) a dir left dangling from a crashed run → prune + retry.
+    //  (b) COLD-START RACE: on the first wave of a brand-NEW epic, N workers each saw
+    //      "branch doesn't exist" and ran `add -b` concurrently — one wins, the rest
+    //      fail with "branch already exists" (observed live on the Zen epic). Re-resolve:
+    //      if a sibling already MATERIALISED the worktree, return it; if it created the
+    //      BRANCH but not the worktree, attach the existing branch (no -b).
     if (result.code !== 0) {
+      // (b) sibling already materialised the worktree → just use it.
+      if (await this.pathExists(path.join(wtPath, '.git'))) {
+        return { epicId, branch, path: wtPath };
+      }
       await this.runGit(
         this.opts.projectRoot,
         ['worktree', 'remove', '--force', wtPath],
@@ -783,8 +846,23 @@ export class WorktreeManager {
       await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
         () => ({ code: 0, stdout: '', stderr: '' }),
       );
-      result = await this.runGit(this.opts.projectRoot, addArgs, DEFAULT_STEP_TIMEOUT_MS);
+      // Re-resolve branch existence (a sibling may have created it since our first check)
+      // and pick the matching add form — attach an existing branch, never re-`-b` it.
+      const branchNowExists =
+        (
+          await this.runGit(
+            this.opts.projectRoot,
+            ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
+            QUICK_TIMEOUT_MS,
+          ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
+        ).code === 0;
+      const retryArgs = branchNowExists ? ['worktree', 'add', wtPath, branch] : addArgs;
+      result = await this.runGit(this.opts.projectRoot, retryArgs, DEFAULT_STEP_TIMEOUT_MS);
       if (result.code !== 0) {
+        // Final fallback: if the worktree exists now (a sibling won the retry race too), use it.
+        if (await this.pathExists(path.join(wtPath, '.git'))) {
+          return { epicId, branch, path: wtPath };
+        }
         throw new Error(
           `git worktree add (epic ${this.epicId8(epicId)}) failed (code ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
         );
@@ -792,6 +870,26 @@ export class WorktreeManager {
     }
 
     return { epicId, branch, path: wtPath };
+  }
+
+  /** SHA at the tip of the epic accumulation branch — the base a leaf's blueprint is
+   *  authored against. null if not a git repo or the branch doesn't exist yet. Used
+   *  by the resume decision (leaf-phase-checkpoint-design) to detect a moved base so
+   *  a stale blueprint is never reused. */
+  async epicHeadSha(epicId: string): Promise<string | null> {
+    try {
+      if (!(await this.isGitRepo())) return null;
+      const branch = this.epicBranchName(epicId);
+      const r = await this.runGit(
+        this.opts.projectRoot,
+        ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      const sha = r.stdout.trim();
+      return r.code === 0 && sha ? sha : null;
+    } catch {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -14,10 +14,15 @@ export interface StreamTickerProps {
   events: StreamEvent[];
   /** Render body-only (no card chrome / header) for use inside a tab panel. */
   embedded?: boolean;
+  /** Click an event → jump to what it's about (e.g. its todo's detail). Forwarded to
+   *  EventStream, which renders rows clickable when set. */
+  onSelectEvent?: (event: StreamEvent) => void;
+  /** todoId→title map so thin todo-lifecycle events show what they're about. */
+  titleByTodoId?: Map<string, string>;
 }
 
-export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded }) => {
-  if (embedded) return <EventStream events={events} className="min-h-0" />;
+export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded, onSelectEvent, titleByTodoId }) => {
+  if (embedded) return <EventStream events={events} className="min-h-0" onSelectEvent={onSelectEvent} titleByTodoId={titleByTodoId} />;
   return (
     <div
       data-testid="bridge-stream-ticker"
@@ -26,7 +31,7 @@ export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded }) 
       <div className="shrink-0 px-1 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
         Stream
       </div>
-      <EventStream events={events} className="flex-1 min-h-0" />
+      <EventStream events={events} className="flex-1 min-h-0" onSelectEvent={onSelectEvent} />
     </div>
   );
 };

@@ -56,7 +56,28 @@ export const POOL_TYPES: readonly PoolType[] = [
  */
 export type PoolConfig = Record<PoolType, number>;
 
-export const DEFAULT_SLOTS_PER_TYPE = 1;
+/** Out-of-the-box slots per type, per project. Bumped from 1 → 3 so a project
+ *  fans out by default instead of running one worker at a time. Raise per-project
+ *  via the orchestrator pool-size knob (getProjectPoolConfig). */
+export const DEFAULT_SLOTS_PER_TYPE = 3;
+
+/** Hard upper clamp on the per-project pool size — each slot is a full agent
+ *  process and there is no machine-wide total-worker cap, so a typo must not be
+ *  able to spawn an unbounded fleet. */
+export const MAX_POOL_SIZE = 16;
+
+/** Clamp an arbitrary pool-size number to [1, MAX_POOL_SIZE]; non-finite → 1. */
+export function clampPoolSize(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(MAX_POOL_SIZE, Math.floor(n)));
+}
+
+/** Build a uniform PoolConfig — every worker type gets the same `n` slots. This is
+ *  what the single per-project "pool size" knob expands to. */
+export function poolConfigForSize(n: number): PoolConfig {
+  const slots = clampPoolSize(n);
+  return POOL_TYPES.reduce((acc, t) => { acc[t] = slots; return acc; }, {} as PoolConfig);
+}
 
 /** Per-type slot count, overridable via `MERMAID_POOL_<TYPE>` env (e.g.
  *  MERMAID_POOL_FRONTEND=3). Falls back to the given default. */

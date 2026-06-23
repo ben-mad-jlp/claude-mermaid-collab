@@ -11,12 +11,39 @@
  */
 import type { Todo } from './todo-store';
 
+/**
+ * The per-project default epic that orphan/triage todos auto-file under
+ * (constraint 373a2d52 / every-todo-needs-an-epic). The Inbox is a PLANNING-ONLY
+ * staging area: its children must NEVER be auto-executed — they must first be
+ * re-homed to a real epic. Matched by this exact title (the epic model is
+ * title-based throughout; one shared definition makes it easy to harden later).
+ *
+ * Defined HERE (the pure predicate module) so both the claim gate below and the
+ * approval route can import a SINGLE source of Inbox identity without pulling in
+ * the heavy session-todos / todo-store graph (no import cycle: this module only
+ * imports the `Todo` type).
+ */
+export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
+
+/** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention. */
+const isEpicTitle = (title: string | null | undefined): boolean =>
+  /^\s*\[EPIC\]/i.test(title ?? '');
+
+/** True iff this todo IS the Inbox epic itself (a top-level root, not a child). */
+export const isInboxEpic = (t: Todo | undefined): boolean =>
+  !!t && isEpicTitle(t.title) && t.title.trim() === INBOX_EPIC_TITLE;
+
+/** True iff this todo's PARENT is the Inbox epic (i.e. it is a triage child). */
+export const parentIsInbox = (t: Todo, byId: Map<string, Todo>): boolean =>
+  t.parentId != null && isInboxEpic(byId.get(t.parentId));
+
 export type ClaimReason =
   | 'claimable'       // fully unblocked, approved, agent → daemon-claimable
   | 'terminal'        // status done|dropped
   | 'in-flight'       // claim != null
   | 'rejected'        // this todo's OWN acceptanceStatus==='rejected' — ran but failed the gate; held for a human, never auto-reclaimed
   | 'human-assignee'  // fully-unblocked + approved HUMAN todo (incl. [GATE]) → actionable in HumanInbox, NOT daemon-claimed
+  | 'inbox-planning'  // parent is the [EPIC] Inbox — planning-only triage; re-home to a real epic to run
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
   | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable)
@@ -50,6 +77,13 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // was completeTodo's unblock-pass skip, deleted in S4; this derives it instead
   // (80f85190 — claimReason previously only checked a DEP's rejection, not its own).
   if (t.acceptanceStatus === 'rejected') return 'rejected';
+  // Inbox = planning-only: a triage child of [EPIC] Inbox must NEVER be auto-run,
+  // regardless of approval. Placed ABOVE the approval check so the distinct, hard
+  // reason surfaces even for already-approved-in-Inbox todos (the backstop that
+  // catches any approvedAt path the primary approval block didn't intercept). The
+  // Inbox epic ITSELF is a top-level root (parentId null) → unaffected; only its
+  // CHILDREN are gated. Re-home to a real epic to make it claimable.
+  if (parentIsInbox(t, byId)) return 'inbox-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {

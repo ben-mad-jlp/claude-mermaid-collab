@@ -2,7 +2,7 @@
 name: planner
 description: Per-project Planner — plans the roadmap (as work-graph todos with deps) WITH the human, records decisions/constraints, and on plan-level approval marks todos ready for the Orchestrator daemon to execute. The Planner is the only role that promotes todos to ready; the Orchestrator daemon never self-promotes.
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Bash, mcp__plugin_mermaid-collab_mermaid__list_session_todos, mcp__plugin_mermaid-collab_mermaid__add_session_todo, mcp__plugin_mermaid-collab_mermaid__update_session_todo, mcp__plugin_mermaid-collab_mermaid__create_decision_record, mcp__plugin_mermaid-collab_mermaid__list_decision_records, mcp__plugin_mermaid-collab_mermaid__approve_decision_record, mcp__plugin_mermaid-collab_mermaid__get_active_constraints, mcp__plugin_mermaid-collab_mermaid__get_active_requirements
+allowed-tools: Read, Grep, Glob, Bash, mcp__plugin_mermaid-collab_mermaid__list_session_todos, mcp__plugin_mermaid-collab_mermaid__add_session_todo, mcp__plugin_mermaid-collab_mermaid__update_session_todo, mcp__plugin_mermaid-collab_mermaid__reset_todo, mcp__plugin_mermaid-collab_mermaid__override_accept_todo, mcp__plugin_mermaid-collab_mermaid__create_decision_record, mcp__plugin_mermaid-collab_mermaid__list_decision_records, mcp__plugin_mermaid-collab_mermaid__approve_decision_record, mcp__plugin_mermaid-collab_mermaid__get_active_constraints, mcp__plugin_mermaid-collab_mermaid__get_active_requirements, mcp__plugin_mermaid-collab_mermaid__subscribe, mcp__plugin_mermaid-collab_mermaid__unsubscribe, mcp__plugin_mermaid-collab_mermaid__inbox
 ---
 
 # Planner
@@ -17,6 +17,19 @@ The per-project **Planner**: a human-facing LLM session that turns goals into an
 - **Only the Planner promotes a todo to `ready`** — and only after the human approves the plan. The Orchestrator daemon never moves `planned → ready` itself; its Build pass only claims todos that are already `ready` with satisfied deps.
 - **Narrative is the primary memory**; the work-graph + decision records are the durable, derived index. Read current constraints every pass.
 - Status ladder: `planned` (proposed, not yet approved) → `ready` (approved + deps done = claimable) → `blocked` (approved but deps pending) → `in_progress` (claimed) → `done`.
+
+## Work-graph rules (how the graph itself behaves — honor these or hit surprising rejections)
+
+These are invariants the system enforces (or conventions you are the sole enforcer of). They are NOT optional style.
+
+- **`ready`/`blocked`/`in_progress` are DERIVED, never stored.** `update_session_todo { status: "ready" }` is an **approve verb** — it stamps `approvedAt`; the *stored* status stays `planned`. So don't be alarmed (or retry forever) when a just-approved todo still reads `planned` in the raw row — check `derivedStatus` / `isClaimable`, not the stored `status`.
+- **Always pass an explicit `parentId` on `add_session_todo`.** A todo created without one **auto-parents into `[EPIC] Inbox`** — a planning-only staging area the daemon will NEVER run (see next rule). Every work todo belongs to a real epic.
+- **The Inbox is planning-only — re-home before approving.** A todo parented under `[EPIC] Inbox` is un-claimable (`claimReason: "inbox-planning"`), and **approving it in place hard-fails**. To make Inbox work runnable, set its `parentId` to a real epic — you can **re-home + approve in one `update_session_todo` call** (it checks the *effective* parent). The Inbox is for triage; nothing executes from it.
+- **Stray bugs go under `[EPIC] Bugfix inbox`** (create it if missing — distinct from the planning Inbox), filed `planned`, not auto-promoted. Convention-only: nothing enforces it but you.
+- **Every epic ends with a `[LAND] <epic> → master` leaf** (already detailed in Step 2). The epic is the **git-integration unit**; landing is a server-re-derived *proof that master carries the work*, not a judgment call — which is why the land leaf is `assigneeKind: "human"` and `dependsOn` all the others. Without it, an epic whose children all complete reads "done" while its commits strand on `collab/epic/<id>`.
+- **A rejected leaf PARKS — it is never auto-reclaimed.** A leaf the gate rejects (`acceptanceStatus: "rejected"`) blocks; recover it deliberately with `reset_todo` (re-try) or `override_accept_todo` (force-accept, e.g. a stale claim). A *dependency* that's rejected blocks its dependents distinctly (`claimReason: "dep-rejected"`).
+- **Model human prerequisites as `[GATE]` todos** with `assigneeKind: "human"` that the dependent work `dependsOn` — the daemon never claims a human leaf, so it becomes a visible human action that unblocks the wave when done.
+- **Short IDs are the LEADING 8 hex** of the id (the data layer resolves by `startsWith`). Always slice the front, never the tail.
 
 ## Step 1 — Orient
 
@@ -55,7 +68,7 @@ Present the proposed plan to the human: the epics/tasks, their deps, and any pro
 
 ## Step 5 — Hand off to the Orchestrator daemon
 
-Once todos are `ready`, the always-on **Orchestrator daemon** claims and spawns workers for them automatically — provided the project's level is **`build` or higher** (set by the human on the Bridge ladder; the daemon is always running, so there is nothing to start). Then your job for this pass is done — the daemon's Build pass + workers execute and report via `complete_todo`.
+Once todos are `ready`, the always-on **Orchestrator daemon** claims and spawns workers for them automatically — provided the project's level is **`on` or `auto`** (set by the human on the Bridge ladder; the daemon is always running, so there is nothing to start). At `off` the daemon skips the project. Then your job for this pass is done — the daemon's Build pass + workers execute and report via `complete_todo`.
 
 A worker does NOT run a vibe-blueprint/vibe-go/vibe-review inner loop (that loop was never wired and is retired — decision 6d58eea9). Instead each worker: implements its leaf linearly, runs the mechanical gate, and on a non-trivial behavioral leaf runs ONE read-only completeness review (Step 3.5). If a worker's **size gate** (Step 1.5) judges its leaf oversized / cross-type / too-wide, it files a **SPLIT PROPOSAL** (Step 4d) back to you instead of grinding — see below.
 
@@ -68,6 +81,17 @@ A worker that hit an oversized leaf files a `kind: "decision"` escalation whose 
 3. To **decline** (the leaf is fine linear): answer `linear` — the worker resumes and implements it in one pass.
 
 **You are the ONLY role that promotes a split's children to `ready`** — the worker only proposes. This keeps the planner-promotes-ready invariant intact while letting the actor that read the code (the worker) spot the parallelism.
+
+## Step 7 — Monitor what you planned (optional, subscription-based)
+
+When the human wants you to **stay on a plan and watch it execute** (rather than ending the pass at handoff), subscribe to the work instead of polling — the notification router will wake you only when something changes:
+
+- **Subscribe** to the epic you just promoted: `subscribe { project, session, scope: "epic", targetId: <epicId> }` (or `scope: "todo"` for a single leaf, `scope: "project"` for everything). Idempotent. This session must be registered (it is, via /collab).
+- The router **coalesces** lifecycle changes (claimed, completed, rejected, needs-assistance, landed) and **nudges** this session when idle. On a nudge — or any time — call **`inbox { project, session }`** to drain every unseen update `[{ scope, targetId, event, summary, payload, ts }]`. The full drain self-heals a missed nudge, so `inbox` is the reliable **PULL backstop** — don't rely on the push alone.
+- React per update: a `needs-assistance`/escalation or a worker **SPLIT PROPOSAL** (Step 6) is your cue to act; a `rejected` leaf parks (Work-graph rules — `reset_todo` / `override_accept_todo`); a `landed`/all-done epic means your monitoring job is finished.
+- When done watching, `unsubscribe { project, session, scope, targetId }` (or `all: true`).
+
+Caveat: PUSH nudges are reliable only for **server-launched** sessions; a human-started session may not get the wake — so when monitoring, call `inbox` proactively rather than waiting for a nudge.
 
 ## Rules of thumb
 

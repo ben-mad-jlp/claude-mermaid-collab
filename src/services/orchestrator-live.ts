@@ -16,9 +16,12 @@
  *             (behind the proof gate + rate limits).
  */
 
-import { getOrchestratorLevel, listOrchestratorProjects } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel } from './orchestrator-config.js';
+import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
+import { runNotificationTick } from './session-notification-tick.js';
+import { runSessionSummaryTick } from './session-summary-loop.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
@@ -29,15 +32,80 @@ import { registerOrchestratorKick } from './orchestrator-kick.js';
 // ---------------------------------------------------------------------------
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let summaryTimer: ReturnType<typeof setInterval> | null = null;
+let summaryRunning = false; // overlap guard for the independent summary loop
 let tickRunning = false;
 let rerunRequested = false;
 let kickTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTickAt: number | null = null;
 let configuredTickMs = 30_000;
+const SUMMARY_INTERVAL_MS = 30_000;
+// Visibility breadcrumb (Grok: "no visibility is the worst part of a wedge"). Set to
+// `<project>:<pass>` while that pass is awaited, cleared when the tick finishes. If a
+// tick wedges, getOrchestratorHealth().currentPhase shows EXACTLY which project+pass
+// is stuck — no logfile spelunking. `tickStartedAt` lets a reader compute how long the
+// in-flight tick has been running (lastTickAt only updates on COMPLETION).
+let currentPhase: string | null = null;
+let tickStartedAt: number | null = null;
 
 /** Coalesce a burst of state changes (e.g. a planner promoting several leaves) into
  *  one kicked tick. */
 const KICK_DEBOUNCE_MS = 250;
+
+// Per-pass BACKSTOP timeouts. The single-flight tick awaits each pass inline, and the
+// build pass in turn awaits full leaf runs (coordinator-daemon runTick). Every inner
+// call is individually bounded already (node-invoker 10min wall-clock kill; git via
+// worktree-manager runCmd SIGKILL; Grok/judgment via AbortSignal) — but a single
+// residual unbounded await (or a pathological cold-start on a stale/conflicted branch
+// like the build123d trigger) would wedge `tickRunning` FOREVER (lastTickAt stuck),
+// which is the failure this guards. These deadlines convert a permanent wedge into a
+// logged timeout + the tick moving on. NOT a force-clear of tickRunning (which would
+// risk overlapping ticks per the design note) — we bound the awaited pass promise; the
+// finally then clears the flag normally. An in-flight leaf is NOT killed by this: it
+// keeps running under its claim (the lease + reattach make any true interruption cheap),
+// and the next tick skips it (still claimed) and services other projects. The build
+// ceiling sits well above a normal single leaf; tripping it means genuinely stuck or an
+// unusually deep wave — either way the daemon stays alive.
+const NOTIFY_PASS_TIMEOUT_MS = 90_000; // 1.5min — git-diff probes only
+const BUILD_PASS_TIMEOUT_MS = 30 * 60_000; // 30min — awaits leaf run(s)
+const RECONCILE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — reconcile harness
+const TRIAGE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — bounded Grok calls
+
+/** Race a pass against a backstop deadline. Rejects with a labelled error on timeout so
+ *  the caller's existing try/catch logs it and the tick proceeds. The underlying work is
+ *  abandoned (JS can't cancel it) but NOT killed — its own inner bounds + claim/lease own
+ *  its lifecycle. */
+export function withPassTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    t = setTimeout(() => reject(new Error(`pass-timeout after ${ms}ms: ${label}`)), ms);
+    (t as { unref?: () => void }).unref?.();
+  });
+  return Promise.race([p, deadline]).finally(() => { if (t) clearTimeout(t); }) as Promise<T>;
+}
+
+/**
+ * Run one Zen session-summary heartbeat on its OWN interval — decoupled from the
+ * orchestrator build tick. The summary pass used to be the first pass of the single-flight
+ * orchestrator tick, which serialized it behind the (up-to-30-min) build pass: while a
+ * project was building, every watched Zen card froze (no `session_summary_updated` until
+ * the build finished). The summary tick is a cheap, read-only read-model broadcaster
+ * (pane hash + a small sonnet call; nothing in the build/notify/triage passes reads its
+ * output), so it runs independently here. Own overlap guard so a slow interpret pass can't
+ * stack intervals; bounded by withPassTimeout so a wedged capture can't freeze the loop.
+ */
+async function runSummaryGuarded(): Promise<void> {
+  if (summaryRunning) return; // previous heartbeat still in flight — skip this beat
+  summaryRunning = true;
+  try {
+    const watchedProjects = () => new Set(listWatchedProjects().map((w) => w.project));
+    await withPassTimeout(runSessionSummaryTick({ watchedProjects }), NOTIFY_PASS_TIMEOUT_MS, 'summary');
+  } catch (err) {
+    console.warn('[orchestrator] session summary heartbeat failed:', err);
+  } finally {
+    summaryRunning = false;
+  }
+}
 
 /** Run one tick under the overlap guard, coalescing any kick that arrives mid-tick
  *  (so a todo that becomes ready WHILE a tick runs still gets serviced immediately
@@ -48,6 +116,7 @@ async function runTickGuarded(): Promise<void> {
     return;
   }
   tickRunning = true;
+  tickStartedAt = Date.now();
   try {
     getWebSocketHandler()?.broadcast({ type: 'orchestrator_tick', at: Date.now() });
   } catch {
@@ -62,6 +131,8 @@ async function runTickGuarded(): Promise<void> {
     console.warn('[orchestrator] Unhandled tick error:', err);
   } finally {
     lastTickAt = Date.now();
+    tickStartedAt = null;
+    currentPhase = null;
     tickRunning = false;
   }
 }
@@ -118,7 +189,19 @@ export interface TickDeps {
   getLevel?: (project: string) => ReturnType<typeof getOrchestratorLevel>;
   build?: (project: string) => Promise<void>;
   reconcile?: (project: string) => Promise<void>;
+  /** Diff todos → enqueue subscription notifications → nudge idle subscribers.
+   *  Runs for every WATCHED project regardless of level (decoupled from build).
+   *  Default: runNotificationTick. */
+  notify?: (project: string) => Promise<unknown>;
   triage?: (project: string, opts: { autoResolve: boolean }) => Promise<void>;
+  /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
+   *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
+  watchedProjects?: () => Set<string>;
+  /** Persist a level (used to force an unwatched project off). Default: setOrchestratorLevel. */
+  setLevel?: (project: string, level: ReturnType<typeof getOrchestratorLevel>) => void;
+  /** All CONFIGURED projects + levels (the unwatched-auto-off sweep reads these so it also
+   *  catches config-only entries never in the registry). Default: listOrchestratorProjects. */
+  listConfigured?: () => Array<{ project: string; level: ReturnType<typeof getOrchestratorLevel> }>;
 }
 
 /** One tick: enumerate registered projects and dispatch passes per level. */
@@ -127,7 +210,28 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const getLevel = deps.getLevel ?? getOrchestratorLevel;
   const build = deps.build ?? runBuildPass;
   const reconcile = deps.reconcile ?? runReconcilePass;
+  const notify = deps.notify ?? runNotificationTick;
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve }));
+  const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
+  const setLevel = deps.setLevel ?? setOrchestratorLevel;
+  const listConfigured = deps.listConfigured ?? listOrchestratorProjects;
+  const watched = watchedProjects();
+
+  // Unwatched-auto-off sweep: force off EVERY configured project that isn't watched — so the
+  // daemon never builds (or appears to be running) something the human isn't watching. This
+  // sweeps the ORCHESTRATOR-CONFIG rows (not just the registry the loop below iterates), so it
+  // also cleans CONFIG-ONLY stale entries that were never registered (e.g. /tmp test projects
+  // left at 'on'). Persisted + sticky; the loop below then sees them 'off' and skips.
+  try {
+    for (const { project, level } of listConfigured()) {
+      if (level !== 'off' && !watched.has(project)) {
+        setLevel(project, 'off');
+        console.warn(`[orchestrator] ${project} is at '${level}' but UNWATCHED — forcing off.`);
+      }
+    }
+  } catch (err) {
+    console.warn('[orchestrator] unwatched-auto-off sweep failed:', err);
+  }
 
   let projects: Array<{ path: string }>;
   try {
@@ -146,13 +250,27 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       continue;
     }
 
-    if (lvl === 'off') continue;
+    // Session-subscription notifications run for every WATCHED project regardless of
+    // level — you can subscribe-and-be-notified (e.g. a Planner monitoring its plan)
+    // without turning on autonomous building. Decoupled from runBuildPass on purpose;
+    // cheap (a no-op when nothing is subscribed to the project). Best-effort.
+    if (watched.has(project)) {
+      try {
+        currentPhase = `${project}:notify`;
+        await withPassTimeout(notify(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:notify`);
+      } catch (err) {
+        console.warn(`[orchestrator] notify failed for ${project}:`, err);
+      }
+    }
+
+    if (lvl === 'off') continue; // includes anything the sweep above just forced off
 
     const passes = passesForLevel(lvl);
 
     if (passes.build) {
       try {
-        await build(project);
+        currentPhase = `${project}:build`;
+        await withPassTimeout(build(project), BUILD_PASS_TIMEOUT_MS, `${project}:build`);
       } catch (err) {
         console.warn(`[orchestrator] runBuildPass failed for ${project}:`, err);
       }
@@ -160,7 +278,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
 
     if (passes.reconcile) {
       try {
-        await reconcile(project);
+        currentPhase = `${project}:reconcile`;
+        await withPassTimeout(reconcile(project), RECONCILE_PASS_TIMEOUT_MS, `${project}:reconcile`);
       } catch (err) {
         console.warn(`[orchestrator] runReconcilePass failed for ${project}:`, err);
       }
@@ -174,7 +293,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (passes.triage) {
       const autoResolve = lvl === 'auto';
       try {
-        await triage(project, { autoResolve });
+        currentPhase = `${project}:triage`;
+        await withPassTimeout(triage(project, { autoResolve }), TRIAGE_PASS_TIMEOUT_MS, `${project}:triage`);
       } catch (err) {
         console.warn(`[orchestrator] runTriagePass failed for ${project}:`, err);
       }
@@ -202,6 +322,16 @@ export function startOrchestrator(intervalMs = 30_000): void {
   (t as { unref?: () => void }).unref?.();
   timer = t;
 
+  // Independent Zen summary heartbeat — decoupled from the build tick so a long build
+  // can't starve it (see runSummaryGuarded). Runs once immediately so cards refresh
+  // promptly on boot, then on its own interval. Idempotent with the timer===null guard.
+  if (summaryTimer === null) {
+    void runSummaryGuarded();
+    const st = setInterval(() => { void runSummaryGuarded(); }, SUMMARY_INTERVAL_MS);
+    (st as { unref?: () => void }).unref?.();
+    summaryTimer = st;
+  }
+
   // Event-driven claim path: the todo-store fires this when a todo becomes ready, so
   // we tick within KICK_DEBOUNCE_MS instead of waiting for the interval.
   registerOrchestratorKick((reason) => kickOrchestrator(reason));
@@ -212,6 +342,10 @@ export function stopOrchestrator(): void {
   if (timer === null) return;
   clearInterval(timer);
   timer = null;
+  if (summaryTimer !== null) {
+    clearInterval(summaryTimer);
+    summaryTimer = null;
+  }
   // Drop any kick scheduled within the debounce window so it can't tick after stop
   // (kickOrchestrator already no-ops new kicks once timer is null).
   if (kickTimer !== null) {
@@ -230,6 +364,11 @@ export function getOrchestratorHealth(): {
   running: boolean;
   tickMs: number;
   lastTickAt: number | null;
+  /** `<project>:<pass>` currently being awaited, or null when idle between ticks. */
+  currentPhase: string | null;
+  /** ms the in-flight tick has been running (null when idle). A large value here with a
+   *  non-null currentPhase = that pass is wedged — points straight at the culprit. */
+  tickRunningMs: number | null;
   projects: Array<{ project: string; level: string }>;
 } {
   // Synchronous snapshot of the projects with an explicitly-set level (SQLite is
@@ -244,6 +383,8 @@ export function getOrchestratorHealth(): {
     running: isOrchestratorRunning(),
     tickMs: configuredTickMs,
     lastTickAt,
+    currentPhase,
+    tickRunningMs: tickStartedAt != null ? Date.now() - tickStartedAt : null,
     projects,
   };
 }

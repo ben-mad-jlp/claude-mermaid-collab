@@ -194,3 +194,52 @@ describe('supervisorStore.hydrateOpenEscalations (L3)', () => {
     expect(useSupervisorStore.getState().openEscalations.map((e) => e.id)).toEqual(['e2']);
   });
 });
+
+/**
+ * #4 — defensive summaries hydrate (GET /api/supervisor/summaries → fetch-on-mount
+ * / reconnect). Folds the server snapshot into sessionSummaries; the ingest's
+ * monotonic guard must keep a stale snapshot from clobbering newer live WS state.
+ */
+describe('supervisorStore.hydrateSessionSummaries', () => {
+  beforeEach(() => useSupervisorStore.setState({ sessionSummaries: {} }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  const okJson = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+  const msg = (over?: Record<string, unknown>) => ({
+    type: 'session_summary_updated', project: '/repo', session: 's1',
+    progressState: 'stalled', paneSeenAt: 1000, updatedAt: 1000,
+    summaryText: 'snapshot', refreshState: 'stale-failing',
+    paneHash: 'H', summaryPaneHash: 'H', ...over,
+  });
+
+  it('fetches the snapshot and folds entries (incl. pane hashes) into sessionSummaries', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson({ summaries: [msg()] })));
+    await useSupervisorStore.getState().hydrateSessionSummaries(['srv1']);
+    const e = useSupervisorStore.getState().sessionSummaries['/repo::s1'];
+    expect(e).toBeDefined();
+    expect(e.refreshState).toBe('stale-failing');
+    expect(e.paneHash).toBe('H');
+    expect(e.summaryPaneHash).toBe('H');
+  });
+
+  it('monotonic guard: an older snapshot does not clobber newer live state', async () => {
+    // Newer live WS state already present.
+    useSupervisorStore.getState().ingestSessionSummary(
+      msg({ updatedAt: 5000, summaryText: 'NEW', refreshState: 'fresh' }) as never,
+    );
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      okJson({ summaries: [msg({ updatedAt: 1000, summaryText: 'OLD', refreshState: 'stale-failing' })] }),
+    ));
+    await useSupervisorStore.getState().hydrateSessionSummaries(['srv1']);
+    const e = useSupervisorStore.getState().sessionSummaries['/repo::s1'];
+    expect(e.summaryText).toBe('NEW');
+    expect(e.refreshState).toBe('fresh');
+  });
+
+  it('best-effort: a failed fetch keeps prior state (no throw, no clobber)', async () => {
+    useSupervisorStore.getState().ingestSessionSummary(msg({ updatedAt: 3000, summaryText: 'KEEP' }) as never);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }));
+    await useSupervisorStore.getState().hydrateSessionSummaries(['srv1']);
+    expect(useSupervisorStore.getState().sessionSummaries['/repo::s1'].summaryText).toBe('KEEP');
+  });
+});

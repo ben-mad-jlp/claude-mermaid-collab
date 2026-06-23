@@ -50,6 +50,16 @@ export function argvSendKeysEnter(name: string): string[] {
   return ['tmux', 'send-keys', '-t', name, 'Enter'];
 }
 
+/**
+ * tmux send-keys -t <name> <key…> — send one or more KEY NAMES (no `-l`), so tmux
+ * interprets them as keys rather than literal text (e.g. `Right`, `Enter`, `Space`).
+ * Used to drive Claude Code's interactive multi-select prompt (toggle digits are sent
+ * literally via {@link argvSendKeysLiteral}; the `Right`→review→`Enter` submit uses this).
+ */
+export function argvSendKeysNames(name: string, keys: string[]): string[] {
+  return ['tmux', 'send-keys', '-t', name, ...keys];
+}
+
 /** tmux list-sessions -F <format> */
 export function argvListSessions(format: string): string[] {
   return ['tmux', 'list-sessions', '-F', format];

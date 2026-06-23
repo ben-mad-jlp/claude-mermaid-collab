@@ -43,7 +43,7 @@ function pickAnimation(status: string): string {
   return `${CLAUDE_PIX_BASE}/${pool[Math.floor(Math.random() * pool.length)]}`;
 }
 
-export const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
+export const ClaudePixAvatar: React.FC<{ status: string; size?: number }> = ({ status, size = 44 }) => {
   const [src] = useState(() => pickAnimation(status));
   const prevStatus = useRef(status);
   const [currentSrc, setCurrentSrc] = useState(src);
@@ -70,7 +70,7 @@ export const ClaudePixAvatar: React.FC<{ status: string }> = ({ status }) => {
           frameBorder="0"
           sandbox="allow-scripts"
           className="rounded-sm overflow-hidden pointer-events-none"
-          style={{ width: 44, height: 44, imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
+          style={{ width: size, height: size, imageRendering: 'pixelated', background: 'transparent', display: 'block' }}
         />
       </div>
 

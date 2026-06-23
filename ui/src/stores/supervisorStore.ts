@@ -21,10 +21,16 @@ import type { SessionTodo } from '@/types/sessionTodo';
  *
  * Persistence is manual (localStorage.setItem on every mutation) rather than via
  * zustand's persist middleware, matching `subscriptionStore.ts`.
+ *
+ * Z9: every action is pure HTTP (`invoke`) + WS-ingest; no hover/desktop-only state —
+ * the Phase-2 mobile app is a straight thin-client port.
  */
 export interface WatchedProject {
   project: string;
   addedAt: number;
+  /** Z9: per-project context-watchdog trigger threshold (%). Null/absent = default 80%.
+   *  Server-persisted (supervisor-store watchdogThresholdPercent). */
+  watchdogThresholdPercent?: number | null;
 }
 
 /** Deploy-drift read-model for the self-deploy banner. From
@@ -112,6 +118,10 @@ export interface Escalation {
   // on to the human — the provenance tag distinguishes triaged-and-deferred from
   // never-seen. Absent on payloads written before the field existed → 'human'.
   routedTo?: string;
+  /** Server-stamped operator-gate flag (irreversible/outward action). Arrives as
+   *  0|1 from mapEscalationRow's column spread; truthy = a hard human floor that
+   *  MUST outrank routine approvals in the Zen triage stack (Z3/Z4). */
+  operatorGated?: boolean | number;
   /** How many times the steward auto-attempted this escalation (thrash guard). */
   stewardAttempts?: number;
   /** Orch P2: an inline Grok-suggested action at level `propose` (or null). The
@@ -223,6 +233,48 @@ export interface SupervisedSession {
   serverId?: string;
 }
 
+export type ProgressState = 'active' | 'quiet' | 'stalled' | 'wedged' | 'unknown';
+
+export interface ZenStructured {
+  paragraph: string;
+  /** Fuller summary shown on "more" — richer than the glance paragraph, not a restatement. */
+  detail?: string;
+  status: 'working' | 'idle' | 'stuck' | 'needs-input';
+  question?: string;
+  options?: Array<{ label: string; valueToSend: string }>;
+  recommended?: number;
+  multiSelect?: boolean;
+  /** AI-proposed canned replies for an open end-of-turn question (no on-screen menu). */
+  suggestedAnswers?: string[];
+  /** AI-proposed next-step directive for an idle, question-free session (e.g. "Run the tests"). */
+  aiOption?: string;
+}
+
+/** Z3: mirror of the server session-summary heartbeat (session-summary-loop.ts).
+ *  Keyed `${project}::${session}`. LIVE signal — NOT persisted to localStorage
+ *  (a hydrated stale value would falsely read as wedged on first paint, same
+ *  rationale as `liveness`). `snoozedUntil` is a LOCAL-only suppression set by
+ *  the Zen wedge card's Snooze button — never sent by the server. */
+export interface SessionSummary {
+  project: string;
+  session: string;
+  progressState: ProgressState;
+  paneSeenAt: number;
+  updatedAt: number;
+  snoozedUntil?: number;
+  summaryText?: string;
+  firstClause?: string;
+  summaryUpdatedAt?: number;
+  refreshState?: 'fresh' | 'stale-failing';
+  /** Live pane hash (advances every tick). */
+  paneHash?: string;
+  /** Pane hash the carried `structured` question/options were captured from.
+   *  `paneHash === summaryPaneHash` ⇒ the question is still on screen, so it's
+   *  safe to answer even if refreshState is stale-failing. */
+  summaryPaneHash?: string;
+  structured?: ZenStructured;
+}
+
 const PROJECTS_KEY = 'supervisor-projects';
 const ROADMAP_KEY = 'supervisor-roadmap';
 const TODOS_KEY = 'supervisor-todos-by-project';
@@ -310,6 +362,17 @@ function hydrate<T>(key: string, fallback: T): T {
   }
 }
 
+// Z9: module-scope snooze resurface timers, keyed by `${project}::${session}`.
+const snoozeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function scheduleResurface(key: string, ms: number, bump: () => void) {
+  const prev = snoozeTimers.get(key);
+  if (prev) clearTimeout(prev);
+  snoozeTimers.set(key, setTimeout(() => { snoozeTimers.delete(key); bump(); }, Math.max(0, ms)));
+}
+
+// Z9: module-scope pending-clear control records for the undo window, keyed by escalation id.
+const pendingClearCtl = new Map<string, { timer: ReturnType<typeof setTimeout>; prev: Escalation }>();
+
 /** An escalation is "open" (belongs in the open slice) only while its status is
  *  literally 'open' — a 'resolved'/'decided' item belongs in the resolved slice. */
 const isOpen = (e: Escalation) => e.status === 'open';
@@ -386,6 +449,45 @@ interface SupervisorState {
    *  server-stamped) and bump the epoch — the incremental refresh path (design §2),
    *  replacing App.tsx's blanket `loadEscalations` reload. */
   ingestEscalationCreated: (e: Escalation) => void;
+  /** Z3: live mirror of the server session-summary heartbeat. Keyed
+   *  `${project}::${session}`. NOT persisted (live signal). */
+  sessionSummaries: Record<string, SessionSummary>;
+  /** Fold a `session_summary_updated` WS event into the map (upsert by key).
+   *  Preserves any local `snoozedUntil` already set for that key. */
+  ingestSessionSummary: (s: {
+    project: string; session: string; progressState: ProgressState;
+    paneSeenAt: number; updatedAt: number;
+    summaryText?: string; firstClause?: string; summaryUpdatedAt?: number;
+    refreshState?: 'fresh' | 'stale-failing'; structured?: ZenStructured;
+    paneHash?: string; summaryPaneHash?: string;
+  }) => void;
+  /** Locally snooze a session out of the triage stack until `untilMs`. */
+  snoozeSession: (project: string, session: string, untilMs: number) => void;
+  /** Z9: snooze relative — re-surfaces after `ms`. Client-side timer guarantees a
+   *  re-render at expiry without depending on the freshness pulse. */
+  snoozeSessionFor: (project: string, session: string, ms: number) => void;
+  /** Z9: out-of-band re-hash/re-summarize for force-proof. POST → server re-reads
+   *  the pane and re-runs the interpreter immediately, then broadcasts
+   *  `session_summary_updated` (folded by ingestSessionSummary). Returns whether the
+   *  request was accepted. No local state write — the WS event is the source of truth. */
+  refreshSummaryNow: (serverId: string, project: string, session: string) => Promise<boolean>;
+  /** Z9: in-flight optimistic clears awaiting their 5s undo window. Keyed by
+   *  escalation id. Live/ephemeral — NOT persisted. The toast UI selects over this. */
+  pendingClears: Record<string, { id: string; status: string; project?: string; sentAt: number }>;
+  /** Z9: optimistically clear an escalation with a 5s undo window. Moves it to
+   *  resolved locally, registers a pendingClear (for the toast), and after `undoMs`
+   *  (default 5000) commits to the server. Server failure → revert into open. */
+  clearWithUndo: (serverId: string, id: string, status: string, undoMs?: number) => void;
+  /** Z9: cancel a pending clear before its window elapses — restores the item to open. */
+  undoClear: (id: string) => void;
+  /** Z9: operator marks/unmarks an open escalation as "only you" — sets the local
+   *  operatorGated flag so it deterministically outranks routine approvals in the
+   *  Zen triage stack (reuses escalationSeverity's SEV_GATED_OR_WEDGED tier). Local-
+   *  first (optimistic); best-effort server persist so a reload/hydrate keeps the mark. */
+  markOperatorOnly: (serverId: string, id: string, on: boolean) => Promise<void>;
+  /** Z9: set (number 1-100) or clear (null → default 80%) a project's watchdog
+   *  trigger threshold. Mirrors the set_watchdog_threshold MCP tool. Reloads projects. */
+  setWatchdogThreshold: (serverId: string, project: string, thresholdPercent: number | null) => Promise<boolean>;
   supervised: SupervisedSession[];
   config: SupervisorConfig | null;
   liveness: SupervisorLiveness | null;
@@ -429,6 +531,12 @@ interface SupervisorState {
    *  locally-resolved id. The single full REST read (replaces every
    *  per-component interval/useEffect). */
   hydrateOpenEscalations: (serverIds: string[]) => Promise<void>;
+  /** Defensive summaries hydrate: fetch the server's snapshot (GET
+   *  /api/supervisor/summaries — same payloads as the WS connect-snapshot) and
+   *  fold each into sessionSummaries. Runs on mount + per WS (re)connect to cover
+   *  cold start (before WS) and reconnects. Best-effort per server; the ingest is
+   *  monotonic-guarded so a stale snapshot can't clobber a newer live WS tick. */
+  hydrateSessionSummaries: (serverIds: string[]) => Promise<void>;
   resolveEscalation: (serverId: string, id: string, status: string) => Promise<void>;
   decideEscalation: (serverId: string, id: string, optionId: string) => Promise<boolean>;
   /** FBPE P4: the land click — land a green 'epic-ready-to-land' escalation onto
@@ -439,7 +547,7 @@ interface SupervisorState {
    * Server hard-gates self-project; the deploy is detached and will kill+relaunch
    * the sidecar, so this resolves immediately and the UI should then poll for the
    * new live version. */
-  deploySelf: (serverId: string, project: string) => Promise<{ ok: boolean; started: boolean; reason: string; logPath?: string }>;
+  deploySelf: (serverId: string, project: string, force?: boolean) => Promise<{ ok: boolean; started: boolean; reason: string; logPath?: string; inflightLeaves?: string[] }>;
   /** Read the deploy-drift status for the banner (live version, staleness, gate). */
   fetchDeployStatus: (serverId: string, project: string) => Promise<DeployStatus | null>;
   /** Orch P2: confirm an inline Grok suggestion → server re-validates the proof
@@ -448,6 +556,12 @@ interface SupervisorState {
   /** Orch P2: dismiss an inline Grok suggestion → clears it; escalation stays open. */
   dismissSuggestion: (serverId: string, project: string, id: string) => Promise<void>;
   nudge: (serverId: string, project: string, session: string, text: string) => Promise<boolean>;
+  /** Answer a Claude Code multi-select question: toggle the chosen 1-based option numbers then submit. */
+  answerPaneMulti: (serverId: string, project: string, session: string, numbers: number[]) => Promise<boolean>;
+  /** Z8: fetch the raw tmux capture-pane text for a session ON DEMAND (not a
+   *  stream) — backs the PaneLinesPopover "show the lines it read". Returns the
+   *  raw pane string, or '' on failure (keep-prior-on-failure convention). */
+  capturePane: (serverId: string, project: string, session: string) => Promise<string>;
   loadConfig: (serverId: string) => Promise<void>;
   saveConfig: (serverId: string, supervisorProject: string, supervisorSession: string) => Promise<void>;
   // SPEC API surface (design-system-object-ui §8). Coverage/objects/bom are live
@@ -491,6 +605,8 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
   unlandedEpicsByProject: {},
+  sessionSummaries: {},
+  pendingClears: {},
   openEscalations: hydrate<Escalation[]>(ESCALATIONS_KEY, []),
   resolvedEscalations: hydrate<Escalation[]>(RESOLVED_ESCALATIONS_KEY, []),
   // Deprecated alias — seeded from the same cache as openEscalations (§4).
@@ -512,6 +628,93 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       const open = [e, ...state.openEscalations.filter((x) => x.id !== e.id)];
       return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
     }),
+  ingestSessionSummary: (s) =>
+    set((state) => {
+      const key = `${s.project}::${s.session}`;
+      const prev = state.sessionSummaries[key];
+      // Monotonic guard: drop an update older than what we already hold. The
+      // server stamps `updatedAt` every tick (always advancing), so an out-of-
+      // order arrival — e.g. a slow fetch-on-mount response landing after a
+      // newer WS tick — can never clobber fresher state.
+      if (prev && s.updatedAt < prev.updatedAt) return {};
+      return {
+        sessionSummaries: {
+          ...state.sessionSummaries,
+          [key]: {
+            ...s,
+            snoozedUntil: prev?.snoozedUntil,
+            structured: s.structured ?? prev?.structured,
+            summaryText: s.summaryText ?? prev?.summaryText,
+            firstClause: s.firstClause ?? prev?.firstClause,
+            summaryUpdatedAt: s.summaryUpdatedAt ?? prev?.summaryUpdatedAt,
+            refreshState: s.refreshState ?? prev?.refreshState,
+            paneHash: s.paneHash ?? prev?.paneHash,
+            // summaryPaneHash tracks the carried structured payload: keep it
+            // paired with whichever `structured` we end up holding above.
+            summaryPaneHash: s.structured ? s.summaryPaneHash : (s.summaryPaneHash ?? prev?.summaryPaneHash),
+          },
+        },
+      };
+    }),
+  snoozeSession: (project, session, untilMs) => {
+    const key = `${project}::${session}`;
+    set((state) => {
+      const prev = state.sessionSummaries[key];
+      if (!prev) return {};
+      return { sessionSummaries: { ...state.sessionSummaries, [key]: { ...prev, snoozedUntil: untilMs } } };
+    });
+    scheduleResurface(key, untilMs - Date.now(), get().bumpEpoch);
+  },
+  snoozeSessionFor: (project, session, ms) => {
+    get().snoozeSession(project, session, Date.now() + ms);
+  },
+  refreshSummaryNow: async (serverId, project, session) => {
+    const res = await invoke(serverId, '/api/supervisor/refresh-summary', 'POST', { project, session });
+    return !!res?.ok;
+  },
+  clearWithUndo: (serverId, id, status, undoMs = 5000) => {
+    const state = get();
+    const prev = state.openEscalations.find((e) => e.id === id);
+    if (!prev) return;
+    set((s) => ({
+      ...moveOpenToResolved(s, id, { status, resolvedAt: Date.now() }),
+      pendingClears: { ...s.pendingClears, [id]: { id, status, project: prev.project, sentAt: Date.now() } },
+    }));
+    const timer = setTimeout(async () => {
+      pendingClearCtl.delete(id);
+      const res = await invoke(serverId, '/api/supervisor/escalations/resolve', 'POST', { id, status });
+      set((s) => {
+        const { [id]: _drop, ...rest } = s.pendingClears;
+        if (res?.ok) return { pendingClears: rest };
+        const resolved = s.resolvedEscalations.filter((e) => e.id !== id);
+        const open = [prev, ...s.openEscalations.filter((e) => e.id !== id)];
+        return { ...writeOpen(open), ...writeResolved(resolved), pendingClears: rest, hydrateEpoch: s.hydrateEpoch + 1 };
+      });
+    }, undoMs);
+    pendingClearCtl.set(id, { timer, prev });
+  },
+  undoClear: (id) => {
+    const ctl = pendingClearCtl.get(id);
+    if (!ctl) return;
+    clearTimeout(ctl.timer);
+    pendingClearCtl.delete(id);
+    set((s) => {
+      const { [id]: _drop, ...rest } = s.pendingClears;
+      const resolved = s.resolvedEscalations.filter((e) => e.id !== id);
+      const open = [ctl.prev, ...s.openEscalations.filter((e) => e.id !== id)];
+      return { ...writeOpen(open), ...writeResolved(resolved), pendingClears: rest, hydrateEpoch: s.hydrateEpoch + 1 };
+    });
+  },
+  markOperatorOnly: async (serverId, id, on) => {
+    set((state) => updateOpenItem(state, id, { operatorGated: on ? 1 : 0 }));
+    await invoke(serverId, '/api/supervisor/escalation/' + encodeURIComponent(id) + '/operator-gate', 'POST', { on });
+  },
+  setWatchdogThreshold: async (serverId, project, thresholdPercent) => {
+    const res = await invoke(serverId, '/api/supervisor/watchdog-threshold', 'POST', { project, thresholdPercent });
+    if (!res?.ok) return false;
+    await get().loadProjects(serverId);
+    return true;
+  },
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
   liveness: null,
@@ -682,7 +885,10 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   },
 
   deleteTodo: async (serverId, project, id) => {
-    const res = await invoke(serverId, '/api/supervisor/roadmap', 'DELETE', { project, id });
+    // Work-graph todo delete. Must hit the todos table, NOT /api/supervisor/roadmap
+    // (deleteItem on the roadmap_item table) — kanban items are work-graph todos, so
+    // the old roadmap route matched 0 rows and "Clear completed" silently no-opped.
+    const res = await invoke(serverId, '/api/supervisor/todos', 'DELETE', { project, id });
     return !!res?.ok;
   },
 
@@ -774,10 +980,54 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       return { ...writeOpen(open), hydrateEpoch: state.hydrateEpoch + 1 };
     });
   },
+  hydrateSessionSummaries: async (serverIds) => {
+    const ids = serverIds.length ? serverIds : ['local'];
+    const results = await Promise.all(
+      ids.map((id) => invoke(id, '/api/supervisor/summaries', 'GET')),
+    );
+    const ingest = get().ingestSessionSummary;
+    for (const res of results) {
+      if (!res?.ok) continue; // best-effort per server — keep prior on failure
+      for (const m of (res.body?.summaries ?? []) as Array<Record<string, unknown>>) {
+        if (typeof m.project !== 'string' || typeof m.session !== 'string') continue;
+        if (typeof m.progressState !== 'string') continue;
+        // Same validation as the WS ingest (useStatusSync); the monotonic guard in
+        // ingestSessionSummary discards any entry older than what we already hold.
+        ingest({
+          project: m.project,
+          session: m.session,
+          progressState: m.progressState as ProgressState,
+          paneSeenAt: typeof m.paneSeenAt === 'number' ? m.paneSeenAt : Date.now(),
+          updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt : Date.now(),
+          summaryText: typeof m.summaryText === 'string' ? m.summaryText : undefined,
+          firstClause: typeof m.firstClause === 'string' ? m.firstClause : undefined,
+          summaryUpdatedAt: typeof m.summaryUpdatedAt === 'number' ? m.summaryUpdatedAt : undefined,
+          paneHash: typeof m.paneHash === 'string' ? m.paneHash : undefined,
+          summaryPaneHash: typeof m.summaryPaneHash === 'string' ? m.summaryPaneHash : undefined,
+          refreshState:
+            m.refreshState === 'fresh' || m.refreshState === 'stale-failing' ? m.refreshState : undefined,
+          structured:
+            m.structured && typeof m.structured === 'object' ? (m.structured as ZenStructured) : undefined,
+        });
+      }
+    }
+  },
 
   nudge: async (serverId, project, session, text) => {
     const res = await invoke(serverId, '/api/supervisor/nudge', 'POST', { project, session, text });
     return !!res?.ok;
+  },
+
+  answerPaneMulti: async (serverId, project, session, numbers) => {
+    const res = await invoke(serverId, '/api/supervisor/answer-multi', 'POST', { project, session, serverId, numbers });
+    return !!res?.ok;
+  },
+
+  capturePane: async (serverId, project, session) => {
+    const res = await invoke(serverId, '/api/supervisor/capture-pane', 'POST', { project, session });
+    if (!res?.ok) return '';
+    const lines = res.body?.lines;
+    return typeof lines === 'string' ? lines : '';
   },
 
   loadConfig: async (serverId) => {
@@ -825,14 +1075,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     };
   },
 
-  deploySelf: async (serverId, project) => {
-    const res = await invoke(serverId, '/api/supervisor/deploy', 'POST', { project });
-    const result = (res?.body as { ok?: boolean; started?: boolean; reason?: string; logPath?: string }) ?? {};
+  deploySelf: async (serverId, project, force) => {
+    const res = await invoke(serverId, '/api/supervisor/deploy', 'POST', { project, force: !!force });
+    const result = (res?.body as { ok?: boolean; started?: boolean; reason?: string; logPath?: string; inflightLeaves?: string[] }) ?? {};
     return {
       ok: !!result.ok,
       started: !!result.started,
       reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed'),
       logPath: result.logPath,
+      inflightLeaves: result.inflightLeaves,
     };
   },
 

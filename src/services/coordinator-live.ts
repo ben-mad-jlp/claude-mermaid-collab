@@ -2,13 +2,19 @@ import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
-import { getOrchestratorLevel, listOrchestratorProjects } from './orchestrator-config';
+import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, getLeafResume, clearLeafResume } from './worker-ledger';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
+import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
+
+/** P1 breaker memory: lanes already SOFT-warned this process, so a soft (non-parking)
+ *  breach is surfaced once, not re-audited every 30s tick. HARD trips park the lane
+ *  out of in_progress, so they self-dedup; the escalation store dedups too. */
+const budgetSoftWarned = new Set<string>();
 import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
@@ -45,6 +51,7 @@ import {
   markIdle,
   removeSlot,
   reapDeadSlots,
+  DEFAULT_SLOTS_PER_TYPE,
 } from './worker-pool';
 // PAW P1: route the worker spawn + pane-scrape liveness through the WorkerAgent
 // registry (claude-only today). The pane detectors below are RE-EXPORTED from the
@@ -493,13 +500,12 @@ export function workerIsolationEnabled(): boolean {
 export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   if (todo.assigneeKind === 'human') return false;
   if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return false;
-  // NON-CODE leaves don't fit the code executor: a 'reviewer' leaf's deliverable is a
-  // judgment, not a commit, so it produces NO work on the epic branch and the
-  // work-committed re-verify (accepted ⇒ commit on branch) wrongly reverses its accept
-  // to 'ready' (the L7 completeness-review case). Keep reviewer leaves out of the headless
-  // path — they go the legacy/human route. (A code 'review' NODE inside the executor is
-  // unrelated; this is the leaf TYPE.)
-  if (todo.type === 'reviewer') return false;
+  // NOTE: 'reviewer' leaves USED to be excluded here (a review's deliverable is a judgment,
+  // not a commit, so the code path's work-committed re-verify wrongly reversed accept→ready —
+  // the L7 case). That exclusion stranded every epic that ends with a completeness-review leaf
+  // before review→[LAND]. FIXED (epic d8ac1a18): the leaf-executor now has a 'review' execution
+  // shape (leafExecutionMode → runReviewPipeline) whose deliverable IS a committed report, so
+  // it survives the re-verify exactly like the 'verify' shape. Reviewer leaves are now headless.
   // Leaf = no child todos parented to it in the tracking work-graph.
   const hasChildren = listTodos(project, {}).some((t) => t.parentId === todo.id);
   return !hasChildren;
@@ -514,7 +520,7 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
 export function headlessExclusionReason(todo: Todo, project: string): string | null {
   if (todo.assigneeKind === 'human') return 'human';
   if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return 'epic-or-gate';
-  if (todo.type === 'reviewer') return 'reviewer';
+  // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
   if (listTodos(project, {}).some((t) => t.parentId === todo.id)) return 'has-children';
   return null;
 }
@@ -795,8 +801,10 @@ export async function acceptTimeAncestorGate(
   // 2. NOT reachable yet — one-shot idempotent epic→integration land reconcile.
   // landEpicToMaster is a no-op when nothing is ahead (already up to date); a
   // conflict leaves integration untouched and we fall through to reversal below.
+  let landConflict = false;
   try {
     const land = await wm.landEpicToMaster(epicId, { baseRef: intRef });
+    landConflict = land.conflict === true;
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile', landed: land.landed, conflict: land.conflict, reason: land.reason }) });
   } catch (e) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'land-reconcile-error', reason: e instanceof Error ? e.message : String(e) }) });
@@ -818,7 +826,12 @@ export async function acceptTimeAncestorGate(
   // (the build123d A1 ~5h burn). Bound it: under the cap, reverse to `ready` for a
   // re-attempt; at/over the cap, PARK held + escalate so a human integrates it once.
   const reversals = countStrandedReversals(project, todoId);
-  if (reversals >= STRANDED_REOPEN_CAP) {
+  // A merge CONFLICT at epic→integration (e.g. a long-stale epic that now conflicts with the
+  // integration ref) is STRUCTURAL — re-building the leaf can never resolve it, so reversing
+  // for a re-attempt just burns claim/quota cycles until the cap. Park-held IMMEDIATELY on a
+  // conflict (a human must rebase/resolve the epic). Only the non-conflict strand (a transient
+  // integration miss) benefits from the capped re-attempt below.
+  if (landConflict || reversals >= STRANDED_REOPEN_CAP) {
     await parkStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session, reversals);
     return false;
   }
@@ -895,6 +908,80 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
       }
     }
     if (!foundationStranded) out.push(t);
+  }
+  return out;
+}
+
+// --- TRANSPARENCY: why is a project not claiming? -------------------------------
+// The claim pipeline (claimGuard) silently DROPS ready leaves for several distinct
+// reasons — over daily budget, an open rate-cap breaker, a failing env probe, a
+// stranded foundation (stale base), or a non-headless todo. From the outside you see
+// only "auto, ticking, 0 in_progress" and have to grep reconcile-audit blobs to learn
+// why (observed live: 20min spelunking to find a single bp1:blocked-stranded-foundation).
+// This runs the SAME predicates the tick uses — in the SAME order — but REPORTS the
+// reason each ready leaf was held instead of filtering silently. Reusing the real
+// functions (not a reimplementation) guarantees it can't drift from actual behavior.
+export interface ClaimSuppressionReport {
+  level: ReturnType<typeof getOrchestratorLevel>;
+  ready: number;
+  claimable: number;
+  /** Project-wide gate that suppresses ALL claiming this tick, or null. */
+  projectGate: 'over-daily-budget' | 'breaker-open' | null;
+  /** Per-leaf hold reasons (only the suppressed ones). */
+  suppressed: Array<{ todoId: string; title: string; reason: string }>;
+  claimableIds: string[];
+}
+
+export async function diagnoseClaimSuppression(project: string): Promise<ClaimSuppressionReport> {
+  const level = getOrchestratorLevel(project);
+  const ready = listReadyTodos(project);
+  const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: t.title ?? t.id, reason }));
+  // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
+  if (overDailyBudget(project)) {
+    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [] };
+  }
+  // Per-leaf pipeline, in claimGuard order: probe → stranded-foundation → headless.
+  const ids = (ts: Todo[]) => new Set(ts.map((t) => t.id));
+  const afterProbe = await filterClaimable(ready);
+  const probeOk = ids(afterProbe);
+  const afterBp1 = await bp1FilterStrandedFoundations(project, afterProbe);
+  const bp1Ok = ids(afterBp1);
+  const afterHeadless = afterBp1.filter((t) => isHeadlessLeaf(t, project));
+  const headlessOk = ids(afterHeadless);
+  const suppressed = classifyClaimSuppression(
+    ready.map((t) => ({ id: t.id, title: t.title ?? t.id, claimProbe: t.claimProbe ?? null, notHeadlessReason: headlessExclusionReason(t, project) })),
+    probeOk, bp1Ok, headlessOk,
+  );
+  // The breaker gate applies AFTER the per-leaf filters in claimGuard, suppressing the
+  // remaining set; report it as the project gate when open (the per-leaf reasons above
+  // still hold and are kept for detail).
+  const projectGate = breakerOpen() ? 'breaker-open' as const : null;
+  const claimable = projectGate ? [] : afterHeadless;
+  return {
+    level,
+    ready: ready.length,
+    claimable: claimable.length,
+    projectGate,
+    suppressed,
+    claimableIds: claimable.map((t) => t.id),
+  };
+}
+
+/** Pure classification (exported for tests): given the ready leaves and the id-sets
+ *  that SURVIVED each successive claimGuard filter, attribute each suppressed leaf to
+ *  the FIRST filter that dropped it — same order claimGuard applies them (probe →
+ *  stranded-foundation → headless). A leaf in all three sets is claimable (omitted). */
+export function classifyClaimSuppression(
+  ready: Array<{ id: string; title: string; claimProbe: string | null; notHeadlessReason: string | null }>,
+  probeOk: Set<string>,
+  bp1Ok: Set<string>,
+  headlessOk: Set<string>,
+): Array<{ todoId: string; title: string; reason: string }> {
+  const out: Array<{ todoId: string; title: string; reason: string }> = [];
+  for (const t of ready) {
+    if (!probeOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `probe-down: ${t.claimProbe ?? '?'}` });
+    else if (!bp1Ok.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: 'stranded-foundation (dep accepted but not on integration — stale base; drops at auto only)' });
+    else if (!headlessOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `not-headless: ${t.notHeadlessReason ?? 'unknown'}` });
   }
   return out;
 }
@@ -1272,6 +1359,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       try { getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' } as any); }
       catch { /* broadcast is best-effort */ }
     },
+    // Concurrent-dispatch budget = the per-project pool size (uniform across types),
+    // defaulting to DEFAULT_SLOTS_PER_TYPE when unset. Lets the daemon run up to N
+    // headless leaves at once instead of awaiting each serially.
+    maxConcurrency: (project: string) => getProjectPoolSize(project) ?? DEFAULT_SLOTS_PER_TYPE,
     listReadyTodos,
     // Readiness-gates P4: claim-time liveness probe filter. A todo carrying a
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set
@@ -1548,7 +1639,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
 
       let poolName = workerIsolationEnabled() ? undefined : findIdleSessionForType(poolProject, type, provider);
       if (!poolName) {
-        const slot = getOrCreateSlot(poolProject, type, provider);
+        const slot = getOrCreateSlot(poolProject, type, provider, getProjectPoolConfig(poolProject));
         if (!slot) {
           try { await releaseClaim(project, todo.id); } catch { /* lease still backstops if the release fails */ }
           recordSupervisorAudit({ kind: 'spawn', project, session: poolSessionName(type, provider), detail: JSON.stringify({ todoId: todo.id, type, provider, started: false, reason: 'pool-busy-deferred', released: true }) });
@@ -1592,8 +1683,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         try {
           const ledProject = todo.targetProject ?? project;
           // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
-          // NODE_BUDGET bounds total spawns across all pause/resume cycles.
-          const carried = pausedNodesSpent(project, todo.id);
+          // NODE_BUDGET bounds total spawns across all pause/resume cycles. The in-memory
+          // breaker record is freshest (graceful pause); the DURABLE leaf_resume row
+          // (slice 1b) is the fallback that survives a hard kill / hot-swap so a crashed
+          // mid-run leaf doesn't reset its budget to 20 and redo blueprint+implement.
+          const carried = pausedNodesSpent(project, todo.id) || getLeafResume(project, todo.id)?.nodesSpent || 0;
           const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo, carried));
           recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
           if (res.outcome === 'paused') {
@@ -1606,9 +1700,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
             return false;
           }
-          // A non-paused outcome means the leaf made progress past the cap (or never
-          // hit one) — clear any stale paused record so a future pause starts clean.
+          // A non-paused outcome is TERMINAL for this dispatch (accepted/blocked/
+          // rejected/pending) — clear the in-memory paused record AND the durable
+          // resume row so a future claim starts clean (no stale carried budget).
           recordResume(project, todo.id);
+          clearLeafResume(todo.id);
           // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
           // backoff STREAK (not the whole breaker) so the next isolated cap starts at
           // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.
@@ -2015,6 +2111,57 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         todoId,
       });
     },
+    enforceBudgetCaps: async (project: string): Promise<string[]> => {
+      // P1 governance breaker (87452094). Pure deterministic caps over OBSERVABLE
+      // lane telemetry — iteration count (retryCount), wall-clock (now-claimedAt).
+      // (Token budget is wired when per-lane usage telemetry is plumbed; the selector
+      // already tolerates an undefined tokens axis.) HARD breach → park BLOCKED via the
+      // SAME completion funnel parkBlocked/sweepExhaustedHeadless use (→ non-claimable,
+      // cannot re-spawn) + structured escalation + loud audit. Soft breach → warn once.
+      const now = Date.now();
+      const rows: LaneBudgetRow[] = listTodos(project, { status: 'in_progress' }).map((t) => ({
+        todoId: t.id,
+        title: t.title ?? undefined,
+        session: t.sessionName,
+        claimedAtMs: t.claimedAt ? new Date(t.claimedAt as unknown as string).getTime() : undefined,
+        iterations: typeof t.retryCount === 'number' ? t.retryCount : undefined,
+      }));
+      const trips = selectBudgetTrips(rows, now, DEFAULT_BUDGET_CONFIG);
+      const parked: string[] = [];
+      const deps = makeCoordinatorDeps();
+      for (const trip of trips) {
+        const todo = getTodo(project, trip.todoId);
+        const session = trip.session ?? todo?.sessionName ?? 'unassigned';
+        if (trip.tier === 'soft') {
+          // Surface once — non-parking warning that the lane is approaching a hard cap.
+          if (budgetSoftWarned.has(trip.todoId)) continue;
+          budgetSoftWarned.add(trip.todoId);
+          recordSupervisorAudit({ kind: 'nudge', project, session, detail: JSON.stringify({ todoId: trip.todoId, reason: 'budget-soft', breaches: trip.breaches }) });
+          continue;
+        }
+        // HARD: park BLOCKED (non-claimable) via the completion funnel, then escalate.
+        try { await handleWorkerComplete(deps, project, trip.todoId, 'rejected'); }
+        catch { /* park funnel best-effort; the escalation still files below */ }
+        // Structured payload (design §2.5): the literal trip trajectory + the exhausted
+        // action-class (it ran past its budget) + concrete options + recommendation.
+        createEscalation({
+          project,
+          session,
+          kind: 'blocker',
+          todoId: trip.todoId,
+          questionText:
+            `Lane "${todo?.title ?? trip.todoId}" hit a HARD budget cap and was PARKED (blocked, cannot re-spawn). ` +
+            `Trip: ${trip.reason}. ` +
+            `It burned its budget without completing — running longer is the same action class at higher cost. ` +
+            `Decide: (1) extend the cap and re-open (if it was genuinely close), ` +
+            `(2) split it into smaller lanes, or (3) drop it. (P1 deterministic breaker — 87452094.)`,
+        });
+        recordSupervisorAudit({ kind: 'escalate', project, session, detail: JSON.stringify({ todoId: trip.todoId, reason: 'budget-hard', breaches: trip.breaches }) });
+        budgetSoftWarned.delete(trip.todoId);
+        parked.push(trip.todoId);
+      }
+      return parked;
+    },
     sweepExhaustedHeadless: async (project: string): Promise<void> => {
       // P3: any leaf paused on a rate cap past the 2h total-wait ceiling is parked
       // BLOCKED + escalated. The cap may persist indefinitely (account out of quota
@@ -2158,4 +2305,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
 export async function runBuildPass(project: string): Promise<void> {
   const deps = makeCoordinatorDeps();
   await runTick(deps, project);
+  // NOTE: session-subscription notifications used to run here, but they are now
+  // driven by the orchestrator tick (runOrchestratorTick → notify) for every
+  // WATCHED project regardless of level — so subscribe-and-be-notified works even
+  // when autonomous building is off. See orchestrator-live.ts.
 }

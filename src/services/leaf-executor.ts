@@ -22,13 +22,17 @@
 
 import { join } from 'node:path';
 import type { Todo } from './todo-store';
+import { splitLeafInto } from './todo-store';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
+import type { EffortLevel } from '../agent/contracts';
+import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, assertSubscriptionAuth } from '../agent/node-invoker';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
-import { recordNode, setLeafInflight, clearLeafInflight } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
+import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -36,7 +40,8 @@ import { recordNode, setLeafInflight, clearLeafInflight } from './worker-ledger'
 export type LeafNodeKind =
   | 'blueprint' | 'implement' | 'review' // floor (unchanged)
   | 'research' | 'wimplement' | 'verify' | 'fix' // waves (P5)
-  | 'driveplan' | 'driveexec' | 'report'; // verify pipeline (epic f5c7fc46)
+  | 'driveplan' | 'driveexec' | 'report' // verify pipeline (epic f5c7fc46)
+  | 'summary'; // zen mode (design-zen-mode Phase 4): session-summary model knob
 
 /**
  * P5 — structured size manifest the BLUEPRINT node emits as a trailing ```json
@@ -65,6 +70,9 @@ export interface LeafExecutorDeps {
   epicId: string;
   /** The epic's accumulation branch (worktrees are cut fresh off its tip). */
   epicBranch: string;
+  /** Epic tip SHA at run start — recorded into the durable resume row so a later
+   *  re-claim can detect a moved base (slice 2). Best-effort; may be null. */
+  epicBaseSha?: string | null;
   /** Once-per-run subscription auth assertion (throws if not the subscription). */
   assertAuth: () => AuthMode;
   /** Route a PASS/BLOCKED proposal through the EXISTING completion gate funnel.
@@ -104,12 +112,37 @@ export interface LeafExecutorDeps {
    *  floor/tests run fine unwired. */
   setInflight?: (e: { project: string; leafId: string; epicId?: string | null; nodeKind?: string | null; model?: string | null; attempt?: number | null }) => void;
   clearInflight?: (leafId: string) => void;
+  /** DURABLE resume state (slice 1b): persist the budget already spent (+ phase/attempt)
+   *  so a hard kill recovers it on re-claim instead of resetting the budget. Best-effort;
+   *  unwired in tests. */
+  persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
+  /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
+  markMerged?: (leafId: string) => void;
+  /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
+  resumePlan?: ResumePlan;
+  /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
+   *  worktree instead of re-running the blueprint node). null ⇒ fall back to running it. */
+  restoreBlueprint?: (leafId: string) => string | null;
   /** Master node budget override (TEST seam). Default {@link NODE_BUDGET}=20. The
    *  floor structurally spends ≤6 nodes (3/attempt × cap 2); this backstop catches a
    *  runaway node (e.g. one that internally loops). Lowerable in tests to exercise
    *  the budget ceiling deterministically without faking a 20-node run. */
   nodeBudget?: number;
   now?: () => number;
+  /** Change-set seam: the files THIS leaf's worktree touched (vs the epic base),
+   *  used to (1) scope the WAVES tsc gate so a PRE-EXISTING foreign error in a file
+   *  the leaf never touched can't block it (matching the completion gate's contract),
+   *  and (2) detect a no-op `wimplement` (file already satisfied) so its per-file verify
+   *  is skipped instead of burning a node. Default → `wm.changeSet(sessionKey, epicBranch)`.
+   *  Optional `?.`: when unwired (tests / non-git) it returns null and BOTH behaviours
+   *  fall back to the prior conservative path (gate fails on any error; no skip). */
+  changeSet?: (sessionKey: string) => Promise<string[] | null>;
+  /** Auto-split seam (worker-decomposition): decompose a too-big leaf into one child
+   *  leaf per file UNDER it — the leaf becomes a non-executable dependency-grouping
+   *  container (sweepEpicRollups closes it when its children settle; it owns no branch
+   *  and triggers no merge). Default → `splitLeafInto` in todo-store (createTodo per file
+   *  + release this leaf's claim). Optional `?.`: unwired (tests / floor) ⇒ never splits. */
+  splitInto?: (leaf: Todo, files: string[]) => Promise<void>;
   /** P5 size-gate seam: read back the blueprint artifact (the .md the blueprint
    *  node wrote, including its trailing ```json size block) so the executor can
    *  derive the {@link LeafSizeManifest}. Default reads
@@ -160,7 +193,13 @@ export interface LeafRunResult {
   // 'pending' is a FIRST-CLASS outcome (no longer collapsed into 'rejected'): the
   // review PASSed and the work merged, but the completion gate's work-committed
   // re-verify deferred. Distinct from 'rejected' (gate/review actually failed).
-  outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused';
+  // 'split' (worker-decomposition): the leaf was too big to build in one run, so it was
+  // decomposed PRE-FLIGHT into one child leaf per file and became a non-executable
+  // dependency-grouping container. No completion, no merge — sweepEpicRollups closes it
+  // when its children settle; the enclosing epic's LAND leaf stays the merge authority.
+  // The coordinator treats it as "this dispatch produced no acceptance" (returns false);
+  // the container claim-guard then keeps the parent from being re-claimed.
+  outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | 'split';
   attempts: number;
   nodesSpent: number;
   /** Set on a 'blocked' outcome (the cap/budget reason). */
@@ -199,6 +238,12 @@ export const REVISE_REUSE_CAP = 1;
  *  non-enumerable fan-out. Over any of these ⇒ WAVES. */
 export const FILE_THRESHOLD = 4;
 export const TASK_THRESHOLD = 6;
+/** Auto-split ceiling (worker-decomposition): a leaf whose ENUMERATED file set exceeds
+ *  this is decomposed PRE-FLIGHT into one child leaf per file rather than run as one
+ *  (over-large) WAVES leaf that tends to exhaust its node budget. Above FILE_THRESHOLD
+ *  (=WAVES) and well above it — ≤4 FLOOR, 5..SPLIT_CEILING WAVES, >SPLIT_CEILING split.
+ *  A non-enumerable manifest can't be partitioned, so it never auto-splits (→ WAVES). */
+export const SPLIT_CEILING = 12;
 
 /** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
  *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
@@ -228,26 +273,63 @@ export const VERIFY_GATE_MCP_TOOL = verbMcpTool(VERIFY_GATE_VERB);
 /** Per-node model + tool allowlist (blueprint §3). Bash is read-only by prompt
  *  convention (the CLI has no RO-bash flag). The space-separated list is passed
  *  straight to `--allowedTools` by the P1 invoker. */
-const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string }> = {
-  blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash' },
-  implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' },
-  review: { model: 'opus', allowedTools: 'Read Grep Glob Bash' },
+/** Per-node reasoning effort baseline (epic: daemon-set effort). Reasoning-heavy
+ *  nodes (the opus ones: blueprint/review/driveplan) default to 'high'; the
+ *  implementation/read nodes (sonnet) default to 'medium'. A per-project override
+ *  (getProjectEffort) or MERMAID_NODE_EFFORT can replace these uniformly. */
+/** Every leaf-executor node kind, in a stable display order (drives the matrix editor). */
+export const LEAF_NODE_KINDS: LeafNodeKind[] = [
+  'blueprint', 'implement', 'review',
+  'research', 'wimplement', 'verify', 'fix',
+  'driveplan', 'driveexec', 'report',
+  'summary',
+];
+
+/** One-line description of what each node kind does — surfaced in the matrix editor. */
+export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
+  blueprint: 'Floor: plans the leaf — authors the implementation blueprint the later nodes follow.',
+  implement: 'Floor: writes the code per the blueprint (single-shot).',
+  review: 'Floor: reviews the implementation against the blueprint; failure drives a retry.',
+  research: 'Waves: read-only investigation per task before any edits.',
+  wimplement: 'Waves: implements one file/target (read + edit).',
+  verify: 'Waves: checks one file (e.g. runs tsc) and reports pass/fail.',
+  fix: 'Waves: fixes a file that failed verify (same error twice ⇒ stuck).',
+  driveplan: 'Verify pipeline: authors an AssemblyBuildPlan — plan only, no code.',
+  driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
+  report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
+  summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
+};
+
+export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
+  blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
+  implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' },
+  review: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // P5 waves:
-  research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash' }, // read-only (spec §12: sonnet for non-blueprint/review)
-  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
-  verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash' }, // read + bash-tsc
-  fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash' }, // read+edit
+  research: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read-only (spec §12: sonnet for non-blueprint/review)
+  wimplement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' }, // read+edit
+  verify: { model: 'sonnet', allowedTools: 'Read Grep Glob Bash', effort: 'medium' }, // read + bash-tsc
+  fix: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' }, // read+edit
   // verify pipeline (epic f5c7fc46): plan authors an AssemblyBuildPlan; driveexec is
   // CONSTRAINED to the single deterministic gate verb (invokes, authors nothing); report
   // writes+commits findings and files one session-todo per finding.
-  driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash' },
-  driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}` },
+  driveplan: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
+  driveexec: { model: 'sonnet', allowedTools: `Read Write Bash ${VERIFY_GATE_MCP_TOOL}`, effort: 'medium' },
   // No Bash, no Write: the report node only READS the verdicts, files finding todos via MCP,
   // and EMITS the report markdown as its final message — the EXECUTOR writes it into the
   // worktree + commits it (L5: a node's new-file Write resolves to the project root, not the
   // worktree, so a node-written report never reaches mergeToEpic → accept reverses).
-  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__add_session_todo' },
+  report: { model: 'sonnet', allowedTools: 'Read Grep Glob mcp__mermaid__add_session_todo', effort: 'medium' },
+  // zen mode (design-zen-mode Phase 4): summarizes a watched session's progress. Read-only;
+  // emits the summary as its final message (consumed by Z7). Default sonnet (claude-sonnet-4-6).
+  summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
 };
+
+/** Process-wide effort override: MERMAID_NODE_EFFORT forces every spawned node to a
+ *  single level (blunt instrument; the per-project knob is preferred). */
+const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
+  const e = process.env.MERMAID_NODE_EFFORT;
+  return e && (['low', 'medium', 'high', 'xhigh', 'max'] as string[]).includes(e) ? (e as EffortLevel) : undefined;
+})();
 
 /** Fixed in-worktree path the blueprint node writes to and the later nodes read. */
 function blueprintPath(leaf: Todo): string {
@@ -277,6 +359,14 @@ function verifyResultPath(leaf: Todo): string {
 }
 function verifyReportPath(leaf: Todo): string {
   return `docs/verify/${leaf.id}.report.md`;
+}
+
+/** The committed deliverable of a `review`-shape leaf (epic d8ac1a18 dogfood): a
+ *  completeness-review report over the epic's union change-set. Worktree-relative;
+ *  the executor writes + commits it (the node only emits the markdown), so the
+ *  completion gate's work-committed re-verify sees real work. */
+function reviewReportPath(leaf: Todo): string {
+  return `docs/review/${leaf.id}.report.md`;
 }
 
 /** Build the inline prompt for a node kind (clones the LOGIC of vibe-blueprint /
@@ -426,6 +516,55 @@ export function buildVerifyPrompt(
   }
 }
 
+/** Build the inline prompt for a REVIEW-shape leaf (epic d8ac1a18 dogfood): a single
+ *  read-only LLM judgment node that reviews the EPIC's union change-set against the leaf's
+ *  spec (the spec is inlined — it carries the LOCKED DECISIONS), files one session-todo per
+ *  gap, and EMITS the full report markdown as its final message (the executor writes +
+ *  commits it — a node Write resolves to the project root, not the worktree, so a
+ *  node-written report never reaches mergeToEpic → accept reverses; same L5 gotcha as
+ *  verify's report node). The trailing `VERDICT:` line is the content gate that re-arms the
+ *  hallucination guard at the content layer (a vacuous report has no parseable verdict →
+ *  the executor parks it blocked). Self-contained (references nothing in skills/). */
+export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
+  const title = leaf.title ?? leaf.id;
+  const spec = leaf.description ?? '(no spec provided)';
+  return [
+    'You are the REVIEW node for a COMPLETENESS REVIEW leaf, READ-ONLY (Read/Grep/Glob and',
+    'Bash for inspection ONLY — make NO edits, do NOT run git commit/push, do NOT run the',
+    'acceptance gate). The executor commits your report for you.',
+    `Title: ${title}`,
+    '',
+    'REVIEW SPEC (the acceptance criteria — it carries the LOCKED DECISIONS to check against):',
+    '--- SPEC START ---',
+    spec,
+    '--- SPEC END ---',
+    '',
+    'You are reviewing the UNION change-set of the whole epic (all sibling leaves\' work,',
+    `accumulated on this branch). Inspect it with git from the repo root:`,
+    `  • the file list:  \`git diff --stat ${baseRef}...HEAD\``,
+    `  • the full diff:  \`git diff ${baseRef}...HEAD\``,
+    `  • per-commit log: \`git log --oneline ${baseRef}..HEAD\``,
+    `(If \`${baseRef}\` is not resolvable, fall back to \`git merge-base HEAD @{u} 2>/dev/null\` or`,
+    'review the working tree directly — do the best honest review you can and SAY which base you used.)',
+    'Read the actual changed source to confirm behavior — do not review from the diff alone.',
+    '',
+    'Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or',
+    'unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.',
+    '',
+    'For EACH distinct gap/finding, file one session-todo via the collab MCP tool',
+    '`mcp__mermaid__add_session_todo` (title = the finding, description = detail + where + why it',
+    'matters) if that tool is available; if it is not, list the would-be todos as a section in the report.',
+    '',
+    'Then compose a REVIEW REPORT (markdown): what was reviewed (and the diff base you used), the',
+    'per-decision check results, and each finding with enough detail to act on.',
+    'End your reply with EXACTLY one line, nothing after it:',
+    '`VERDICT: PASS`  (the change-set fully satisfies the spec — no material gaps)',
+    '`VERDICT: FAIL — <one-line summary>`  (material gaps exist; they are filed as todos above)',
+    'OUTPUT the COMPLETE report markdown (ending with that VERDICT line) as your FINAL reply',
+    'message, verbatim — that final message IS the deliverable the executor commits.',
+  ].join('\n');
+}
+
 /** A unit of wave work — a single task (research) or a single file
  *  (wimplement/verify/fix). */
 export interface WaveTarget {
@@ -566,13 +705,19 @@ export function shouldUseFloor(m: LeafSizeManifest | null): boolean {
 
 /** Which EXECUTION SHAPE a leaf runs (epic f5c7fc46). 'code' (default) is the proven
  *  blueprint→implement/waves→tsc-review AUTHORING pipeline; 'verify' is the non-code
- *  dogfood pipeline (plan → deterministic driver verb → domain gate → committed report).
- *  Keyed off the leaf's `type`: a 'verify'/'cad-dogfood'/'dogfood' type → verify; else
- *  code. THIN dispatch, deliberately NOT a recipe registry (YAGNI — only two real shapes;
- *  see the recipe-space analysis in doc executor-recipe-registry-design). Pure. */
-export function leafExecutionMode(leaf: Todo): 'code' | 'verify' {
+ *  dogfood pipeline (plan → deterministic driver verb → domain gate → committed report);
+ *  'review' (epic d8ac1a18 dogfood) is a completeness review over an epic's union change-set
+ *  (one LLM judgment node → committed report → file gap todos). Both verify and review are
+ *  NON-AUTHORING shapes whose deliverable is a COMMITTED report (so they survive the
+ *  completion gate's work-committed re-verify, exactly like the code path's commit).
+ *  Keyed off the leaf's `type`: 'verify'/'cad-dogfood'/'dogfood' → verify; 'reviewer' →
+ *  review; else code. THIN dispatch, deliberately NOT a recipe registry (YAGNI — only a few
+ *  real shapes; see the recipe-space analysis in doc executor-recipe-registry-design). Pure. */
+export function leafExecutionMode(leaf: Todo): 'code' | 'verify' | 'review' {
   const t = (leaf.type ?? '').toLowerCase();
-  return t === 'verify' || t === 'cad-dogfood' || t === 'dogfood' ? 'verify' : 'code';
+  if (t === 'verify' || t === 'cad-dogfood' || t === 'dogfood') return 'verify';
+  if (t === 'reviewer') return 'review';
+  return 'code';
 }
 
 /** The verify pipeline's domain gate, made PLUGGABLE in L3 (epic f5c7fc46 e9ce8693). A gate
@@ -721,6 +866,40 @@ export function leafSessionKey(leaf: Todo): string {
  * @param leaf    The claimed leaf todo (already in_progress).
  * @param deps    Injected seam. Use {@link makeLeafExecutorDeps} for the real wiring.
  */
+/** How to (re)dispatch a leaf that may have durable resume state. */
+export type ResumeMode = 'fresh' | 'skip-to-gate' | 'reattach-blueprint';
+export interface ResumePlan { mode: ResumeMode; reason: string }
+
+/**
+ * Decide how to dispatch a leaf given its durable resume row and the CURRENT epic
+ * tip (leaf-phase-checkpoint-design slice 2). Pure + total — unit-tested without
+ * git/db. Conservatism is deliberate: any doubt resolves to a clean FRESH run.
+ *
+ * - no resume row                  → fresh (first dispatch)
+ * - merged                         → skip-to-gate (work is committed; the gate
+ *                                     re-verifies it — safe regardless of further
+ *                                     epic advance; redoing the leaf is pure waste)
+ * - killed at/before blueprint     → fresh (nothing durable to reuse)
+ * - epic base missing/moved        → fresh (the blueprint was authored against the
+ *                                     old tip; resuming against a changed world is
+ *                                     Grok's #1 risk — never do it)
+ * - blueprint done + base unchanged→ reattach-blueprint (reuse the DURABLE blueprint
+ *                                     plan in a FRESH worktree, re-run implement→
+ *                                     review; saves the ~4.5min blueprint without
+ *                                     reusing any partial implementation)
+ */
+export function planResume(
+  resume: { phase?: string | null; merged: boolean; epicBaseSha?: string | null } | null,
+  currentEpicSha: string | null,
+): ResumePlan {
+  if (!resume) return { mode: 'fresh', reason: 'no-resume-state' };
+  if (resume.merged) return { mode: 'skip-to-gate', reason: 'work-merged' };
+  if (!resume.phase || resume.phase === 'blueprint') return { mode: 'fresh', reason: 'killed-before-blueprint' };
+  if (!resume.epicBaseSha || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+  if (resume.epicBaseSha !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
+  return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+}
+
 export async function runLeaf(
   project: string,
   leaf: Todo,
@@ -740,7 +919,17 @@ export async function runLeaf(
   const state = { attempt: 0, nodesSpent: deps.startNodesSpent ?? 0 };
   // Which execution path the last attempt took — recorded on the terminal record so a
   // run's shape (and which path a failure came from) is legible without re-deriving.
-  let pathTaken: 'floor' | 'waves' | null = null;
+  let pathTaken: 'floor' | 'waves' | 'review' | null = null;
+
+  // Per-(project, node-kind) model + effort overrides, resolved once per run.
+  // model  : per-kind override → NODE_PROFILE default.
+  // effort : per-kind override → per-project blanket (getProjectEffort) →
+  //          MERMAID_NODE_EFFORT env → per-kind NODE_PROFILE default.
+  const nodeOverrides = listNodeProfileOverrides(project);
+  const projectEffort = getProjectEffort(project);
+  const nodeModel = (kind: LeafNodeKind): string => nodeOverrides[kind]?.model ?? NODE_PROFILE[kind].model;
+  const nodeEffort = (kind: LeafNodeKind): EffortLevel =>
+    nodeOverrides[kind]?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
 
   // NODE_BUDGET (20) is the runaway ceiling sized for the FLOOR (≤6 nodes/2 attempts). The
   // WAVES path legitimately spends ~tasks + files×~3 nodes (research per task, then
@@ -767,7 +956,11 @@ export async function runLeaf(
     state.nodesSpent += 1;
     // LIVE signal: mark the leaf as running THIS node before the (slow) spawn, clear it
     // the instant the node returns — so the in-flight node is visible cross-process.
-    deps.setInflight?.({ project, leafId: leaf.id, epicId, nodeKind: kind, model: NODE_PROFILE[kind].model, attempt: state.attempt });
+    deps.setInflight?.({ project, leafId: leaf.id, epicId, nodeKind: kind, model: nodeModel(kind), attempt: state.attempt });
+    // DURABLE budget checkpoint (slice 1b): nodesSpent was already incremented above,
+    // so persist it BEFORE the slow spawn — a kill mid-node then recovers the spend
+    // (the node counts toward budget whether or not it finishes, matching checkBudget).
+    deps.persistResume?.({ project, leafId: leaf.id, nodesSpent: state.nodesSpent, phase: kind, attempt: state.attempt, epicBaseSha: deps.epicBaseSha });
     let res: NodeResult;
     try {
       res = await deps.invoker.invoke(spec);
@@ -782,7 +975,7 @@ export async function runLeaf(
         epicId,
         leafId: leaf.id,
         nodeKind: kind,
-        model: NODE_PROFILE[kind].model,
+        model: nodeModel(kind),
         nodesSpent: 1,
         authMode: res.authMode,
         exitCode: res.exitCode,
@@ -897,7 +1090,8 @@ export async function runLeaf(
     reviewFindings?: string,
   ): NodeSpec => ({
     prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
-    model: NODE_PROFILE[kind].model,
+    model: nodeModel(kind),
+    effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
     leafId: leaf.id,
@@ -915,7 +1109,8 @@ export async function runLeaf(
     ctx?: { blueprintText?: string; researchText?: string },
   ): NodeSpec => ({
     prompt: buildWavePrompt(kind, leaf, target, ctx),
-    model: NODE_PROFILE[kind].model,
+    model: nodeModel(kind),
+    effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
     cwd,
     leafId: leaf.id,
@@ -972,6 +1167,16 @@ export async function runLeaf(
       if (impl.rateLimited) return pausedResult('wimplement', impl);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
+      // No-op short-circuit: if the wimplement made NO change to this file, it was
+      // already satisfied in the worktree baseline — skip its per-file verify (the
+      // final project-wide gate still backstops). Avoids burning a verify node per
+      // already-done file (the budget-exhaustion-on-done-work failure). Only when the
+      // change-set is readable; null (unwired / non-git) → verify as before.
+      const implChangeSet = deps.changeSet ? await deps.changeSet(sessionKey) : null;
+      if (implChangeSet && !isInChangeSet(file, implChangeSet)) {
+        continue; // already-done file → next file
+      }
+
       // VERIFY + per-file FIX loop. same-error-signature-twice = stuck.
       let previousError: string | null = null;
       for (;;) {
@@ -1004,7 +1209,18 @@ export async function runLeaf(
     if (gate.rateLimited) return pausedResult('verify', gate);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!isTscClean(gate.text)) {
-      return parkBlocked('waves-tsc-gate-failed');
+      // The gate runs PROJECT-WIDE tsc, so a PRE-EXISTING error in a file this leaf
+      // never touched would otherwise block an otherwise-clean leaf. Scope the failure
+      // to the leaf's change-set — the same contract the completion gate already uses
+      // (scopeFailureToChangeSet): foreign-only errors PASS; an error in a file the leaf
+      // changed still blocks. When the change-set is unavailable (unwired / non-git), the
+      // scope returns null → we fail closed exactly as before.
+      const gateChangeSet = deps.changeSet ? await deps.changeSet(sessionKey) : null;
+      const scoped = scopeFailureToChangeSet(gate.text ?? '', gateChangeSet);
+      if (!scoped?.passed) {
+        return parkBlocked('waves-tsc-gate-failed');
+      }
+      // foreign-only tsc errors → the leaf's own files are clean → gate passes.
     }
 
     return null; // all clean → caller runs the leaf REVIEW node
@@ -1021,7 +1237,8 @@ export async function runLeaf(
     gateFindings?: string,
   ): NodeSpec => ({
     prompt: buildVerifyPrompt(kind, leaf, planText, gateFindings, verb),
-    model: NODE_PROFILE[kind].model,
+    model: nodeModel(kind),
+    effort: nodeEffort(kind),
     // driveexec is constrained to the RESOLVED verb's MCP tool (not the static default).
     allowedTools:
       kind === 'driveexec'
@@ -1050,6 +1267,112 @@ export async function runLeaf(
    * command gate (e.g. pytest) compose into the findings. Spends 3–4 nodes through the
    * shared budget/runNode.
    */
+  /** SHARED REPORT TAIL for the non-authoring shapes (verify + review). The committed
+   *  report .md has already been written into the worktree; merge it onto the epic branch
+   *  (so the completion gate's work-committed re-verify sees committed work, exactly like
+   *  the code path), then propose acceptance and record the terminal outcome. `gateVerdict`
+   *  is informational telemetry — BOTH pass and fail ACCEPT (a finding is the deliverable,
+   *  filed as todos, not a rejection). Only a merge failure parks blocked. */
+  const finalizeReportLeaf = async (
+    gateVerdict: 'pass' | 'fail',
+    commitMessage: string,
+  ): Promise<LeafRunResult> => {
+    try {
+      await deps.mergeToEpic(sessionKey, epicId, commitMessage, leaf.id);
+    } catch (e) {
+      return parkBlocked(
+        `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
+        gateVerdict,
+      );
+    }
+    const g = await deps.complete(project, leaf.id, 'accepted');
+    const effective = g.effective ?? 'accepted';
+    const reason =
+      effective === 'pending' ? 'gate-pending'
+      : effective === 'rejected' ? 'gate-rejected'
+      : undefined;
+    recordOutcome(effective, gateVerdict, {
+      reason,
+      pendingReason: g.pendingReason,
+      gateReasons: g.gateReasons,
+    });
+    return {
+      outcome: effective,
+      attempts: state.attempt,
+      nodesSpent: state.nodesSpent,
+      ...(reason ? { reason } : {}),
+    };
+  };
+
+  /**
+   * REVIEW pipeline (epic d8ac1a18 dogfood): a single read-only LLM judgment node reviews
+   * the epic's UNION change-set (git diff <epic-base>...HEAD) against the leaf's inlined spec,
+   * files one session-todo per gap, and emits the report markdown. The EXECUTOR writes +
+   * commits that report (docs/review/<id>.report.md) and merges it onto the epic branch —
+   * so the deliverable is a COMMITTED report that survives the work-committed re-verify, the
+   * same way verify does. The trailing `VERDICT:` line is the CONTENT GATE (re-arms the
+   * hallucination guard at the content layer): an empty report or one with no parseable
+   * verdict parks the leaf blocked. A FAIL verdict still ACCEPTS — gaps are the deliverable
+   * (filed as todos), not a rejection; the human reads the report before [LAND]. Single pass,
+   * one in-place retry on a failed node (mirrors the verify plan-node retry).
+   */
+  const runReviewPipeline = async (): Promise<LeafRunResult> => {
+    state.attempt = 1; // single pass (no fresh-worktree retry loop)
+    pathTaken = 'review';
+    const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
+    const cwd = wt.path;
+    // The union change-set base: the epic branch was cut off master, so master..HEAD is the
+    // epic's accumulated work. The node is told to fall back if the ref doesn't resolve.
+    const baseRef = 'master';
+    // The review node needs add_session_todo (file gap todos) on top of the read-only set;
+    // NO Write (the executor commits the report — a node Write resolves to the project root).
+    const buildReviewSpec = (): NodeSpec => ({
+      prompt: buildReviewPrompt(leaf, baseRef),
+      model: nodeModel('review'),
+      effort: nodeEffort('review'),
+      allowedTools: `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`,
+      cwd,
+      leafId: leaf.id,
+      epicId,
+      permissionMode: 'bypassPermissions',
+      transcriptPath: leafTranscriptPath(project, leaf.id),
+      transcriptLabel: 'review',
+    });
+
+    let rev = await runNode('review', buildReviewSpec());
+    if (rev.rateLimited) return pausedResult('review', rev);
+    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    if (!rev.ok) {
+      rev = await runNode('review', buildReviewSpec());
+      if (rev.rateLimited) return pausedResult('review', rev);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    }
+    if (!rev.ok) return parkBlocked('review-node-failed');
+
+    // CONTENT GATE (Grok #3): a committed report would trivially pass the work-committed
+    // re-verify, so re-arm the hallucination guard HERE — the report must be non-empty AND
+    // end with a parseable VERDICT line, else the reviewer did no real work → park blocked.
+    const reportMd = (rev.text ?? '').trim();
+    if (!reportMd) return parkBlocked('review-report-empty');
+    if (!/^\s*VERDICT:\s*(PASS|FAIL)\b/im.test(stripSentinelFmt(reportMd))) {
+      return parkBlocked('review-report-no-verdict');
+    }
+    const verdict = parseVerdict(reportMd); // pass|fail — informational; BOTH accept.
+
+    // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
+    // node's new-file Write resolves to the project root, not the worktree, so it would never
+    // reach mergeToEpic.
+    try {
+      await deps.writeArtifact?.(cwd, reviewReportPath(leaf), reportMd);
+    } catch (e) {
+      return parkBlocked(
+        `review-report-write-failed: ${e instanceof Error ? e.message : String(e)}`,
+        verdict,
+      );
+    }
+    return finalizeReportLeaf(verdict, `review: ${leaf.title ?? leaf.id}`);
+  };
+
   const runVerifyPipeline = async (): Promise<LeafRunResult> => {
     state.attempt = 1; // single pass (no fresh-worktree retry loop) — telemetry shows attempts=1
     const cfg = (deps.resolveVerifyGate ?? resolveVerifyGate)(leaf); // L3: pluggable {verb, command}
@@ -1128,47 +1451,40 @@ export async function runLeaf(
     }
 
     // Overall verdict: clean ONLY if BOTH the verb gate passed AND no command-gate finding.
+    // COMMIT-SHAPED DELIVERABLE: the shared report tail merges the committed report onto the
+    // epic branch BEFORE proposing acceptance, exactly like the code path, so the gate's
+    // work-committed re-verify sees committed work. A failing DOMAIN gate is captured in the
+    // report + filed findings, not a rejected leaf.
     const gateVerdict: 'pass' | 'fail' = findings.length === 0 ? 'pass' : 'fail';
+    return finalizeReportLeaf(gateVerdict, `verify: ${leaf.title ?? leaf.id}`);
+  };
 
-    // COMMIT-SHAPED DELIVERABLE: merge the worktree (the committed report) onto the epic
-    // branch BEFORE proposing acceptance, exactly like the code path, so the gate's
-    // work-committed re-verify sees committed work. The verify leaf's success is "it verified
-    // and reported" — a failing DOMAIN gate is captured in the report + filed findings, not a
-    // rejected leaf.
-    try {
-      await deps.mergeToEpic(sessionKey, epicId, `verify: ${leaf.title ?? leaf.id}`, leaf.id);
-    } catch (e) {
-      return parkBlocked(
-        `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
-        gateVerdict,
-      );
-    }
-    const g = await deps.complete(project, leaf.id, 'accepted');
-    const effective = g.effective ?? 'accepted';
+  // EXECUTION-MODE DISPATCH. A 'verify' leaf (epic f5c7fc46) runs the non-code dogfood
+  // pipeline (plan → deterministic build_assembly_plan → domain gate → committed report);
+  // a 'review' leaf (epic d8ac1a18) runs the completeness-review pipeline (one judgment
+  // node over the epic union diff → committed report → gap todos). Both are NON-authoring
+  // shapes — force-fitting either into blueprint→implement→tsc is exactly the build123d T14
+  // failure (vacuous "TSC: CLEAN") and the reviewer-strands-the-epic failure this dispatch fixes.
+  if (leafExecutionMode(leaf) === 'verify') {
+    return runVerifyPipeline();
+  }
+  if (leafExecutionMode(leaf) === 'review') {
+    return runReviewPipeline();
+  }
+
+  // RESUME: SKIP-TO-GATE (slice 2). A prior (killed) run already committed this
+  // leaf's work onto the epic branch but died before the acceptance gate finished.
+  // Re-running the whole leaf would be pure waste — just run the gate, which
+  // re-verifies the already-committed work. Safe regardless of further epic advance.
+  if (deps.resumePlan?.mode === 'skip-to-gate') {
+    const gate = await deps.complete(project, leaf.id, 'accepted');
+    const effective = gate.effective ?? 'accepted';
     const reason =
       effective === 'pending' ? 'gate-pending'
       : effective === 'rejected' ? 'gate-rejected'
-      : undefined;
-    recordOutcome(effective, gateVerdict, {
-      reason,
-      pendingReason: g.pendingReason,
-      gateReasons: g.gateReasons,
-    });
-    return {
-      outcome: effective,
-      attempts: state.attempt,
-      nodesSpent: state.nodesSpent,
-      ...(reason ? { reason } : {}),
-    };
-  };
-
-  // EXECUTION-MODE DISPATCH (epic f5c7fc46): a 'verify' leaf runs the non-code dogfood
-  // pipeline above (plan → deterministic build_assembly_plan → domain gate → committed
-  // report), NOT the code authoring loop below — force-fitting it into blueprint→implement→
-  // tsc is exactly the build123d T14 failure this epic fixes (vacuous "TSC: CLEAN" on a CAD
-  // task). L1 dispatched to a stub; L2 lands the real pipeline.
-  if (leafExecutionMode(leaf) === 'verify') {
-    return runVerifyPipeline();
+      : 'resumed-skip-to-gate';
+    recordOutcome(effective, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
+    return { outcome: effective, attempts: state.attempt, nodesSpent: state.nodesSpent, reason };
   }
 
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
@@ -1180,11 +1496,27 @@ export async function runLeaf(
     const wt = await deps.wm.ensure(sessionKey, { baseBranch: epicBranch, fresh: true });
     const cwd = wt.path;
 
-    // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
-    // must not interpret its empty/error output as a FAIL nor advance the attempt).
-    let bp = await runNode('blueprint', buildSpec('blueprint', cwd));
-    if (bp.rateLimited) return pausedResult('blueprint', bp);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    // RESUME: REATTACH-BLUEPRINT (slice 2). On the FIRST attempt of a resumed run
+    // whose blueprint already completed (against an UNCHANGED epic base — guarded in
+    // planResume), reuse the durable blueprint PLAN instead of re-running the ~4.5min
+    // blueprint node. The worktree is still FRESH off the epic tip — we reuse only the
+    // plan, never partial implementation — so this can't be "worse than fresh". If the
+    // durable plan is gone, fall back to running the blueprint node normally.
+    let bp: NodeResult;
+    const reattach = state.attempt === 1 && deps.resumePlan?.mode === 'reattach-blueprint';
+    const restored = reattach ? (deps.restoreBlueprint?.(leaf.id) ?? null) : null;
+    if (reattach && restored && restored.trim()) {
+      await deps.writeArtifact?.(cwd, blueprintPath(leaf), restored);
+      // Synthetic OK result — no node spent (the whole point); text feeds the size
+      // gate + implement just like a fresh blueprint node's final message.
+      bp = { ok: true, exitCode: 0, stdout: restored, durationMs: 0, rateLimited: false, authMode: 'subscription', text: restored };
+    } else {
+      // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
+      // must not interpret its empty/error output as a FAIL nor advance the attempt).
+      bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      if (bp.rateLimited) return pausedResult('blueprint', bp);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+    }
 
     // L1-pilot finding (ce02d796): a blueprint node that FAILED (non-zero exit /
     // errored — NOT rate-limited, which is handled above) wrote no usable blueprint.
@@ -1228,6 +1560,25 @@ export async function runLeaf(
         });
       } catch {
         /* persistence is durable-telemetry — never break the run */
+      }
+    }
+
+    // --- AUTO-SPLIT (worker-decomposition) ---
+    // A leaf whose blueprint ENUMERATES more files than one run should carry is split
+    // PRE-FLIGHT into one child leaf per file under THIS leaf (which becomes a
+    // non-executable dependency-grouping container). Children commit to the SAME enclosing
+    // epic branch (resolveEpicId walks past this node) and complete as ordinary leaves;
+    // sweepEpicRollups closes this container when they all settle — NO new branch, NO land
+    // gate (the epic's LAND leaf stays the sole merge-to-master authority). Only when the
+    // fanout is ENUMERABLE — a non-enumerable manifest can't be partitioned, so it falls
+    // through to WAVES. Guarded by deps.splitInto (unwired ⇒ never splits).
+    if (deps.splitInto && manifest && !manifest.nonEnumerableFanout) {
+      const splitFiles = [...new Set([
+        ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
+      ])];
+      if (splitFiles.length > SPLIT_CEILING) {
+        await deps.splitInto(leaf, splitFiles);
+        return { outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent };
       }
     }
 
@@ -1304,6 +1655,10 @@ export async function runLeaf(
           reviewVerdict,
         );
       }
+      // Work is now committed onto the epic branch. Flag it durably so a kill in the
+      // narrow window before the gate completes can skip straight to the gate on a
+      // future claim instead of redoing the whole leaf (consumed in slice 2).
+      deps.markMerged?.(leaf.id);
       const gate = await deps.complete(project, leaf.id, 'accepted');
       const effective = gate.effective ?? 'accepted';
       // RECORD THE TRUTH (§4a): the effective outcome IS the outcome — no longer
@@ -1384,11 +1739,28 @@ export async function makeLeafExecutorDeps(
   // Materialise the epic accumulation branch so the off-tip base exists.
   const epic = await wm.ensureEpic(epicId, targetProject);
   const epicBranch = epic?.branch ?? 'master';
+  // Epic tip at run start — the base the blueprint will be authored against. Recorded
+  // durably so a re-claim can reject a stale resume if the base moved (slice 2).
+  const epicBaseSha = epic ? await wm.epicHeadSha(epicId) : null;
+  // RESUME DECISION (slice 2): compare the durable resume row against the current
+  // epic tip. fresh | skip-to-gate | reattach-blueprint. On a FRESH decision with a
+  // stale row (e.g. the epic base moved under a killed run), drop the row and ignore
+  // any carried budget so the clean run starts at 0; otherwise carry it forward.
+  const existingResume = getLeafResume(project, leaf.id);
+  const resumePlan = planResume(existingResume, epicBaseSha);
+  let effectiveStart = startNodesSpent;
+  if (resumePlan.mode === 'fresh' && existingResume) {
+    clearLeafResume(leaf.id);
+    effectiveStart = 0;
+  }
   return {
     invoker: ClaudeNodeInvoker,
     wm,
     epicId,
     epicBranch,
+    epicBaseSha,
+    resumePlan,
+    startNodesSpent: effectiveStart,
     assertAuth: assertSubscriptionAuth,
     complete: async (p, t, a) => {
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
@@ -1398,10 +1770,15 @@ export async function makeLeafExecutorDeps(
     },
     mergeToEpic: (sessionKey, eId, message, todoId) =>
       wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
+    changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
+    splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,
     recordNode,
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,
+    persistResume: recordLeafResume,
+    markMerged: markLeafMerged,
+    restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
     readBlueprint: async (cwd, lf) => {
       try {
@@ -1446,7 +1823,6 @@ export async function makeLeafExecutorDeps(
       }
     },
     resolveVerifyGate,
-    startNodesSpent,
     // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at
     // the call site). Writes a collab document scoped to a fixed `leaf-blueprints`
     // session under the TRACKING `project`, then points the leaf todo's

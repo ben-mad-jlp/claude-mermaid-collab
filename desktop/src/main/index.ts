@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, nativeImage, Menu, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, Menu, screen, dialog } from 'electron';
 import {
   loadWindowState,
   saveWindowState,
@@ -55,6 +55,20 @@ function registerIpc(): void {
   ipcMain.handle('mc:browser:setZoom', (_e, id: string, factor: number) => paneManager?.setZoom(id, factor) ?? 1);
   ipcMain.handle('mc:browser:getZoom', (_e, id: string) => paneManager?.getZoom(id) ?? 1);
   ipcMain.handle('mc:setZoomFactor', (_e, factor: number) => { mainWindow?.webContents.setZoomFactor(factor); });
+
+  // Native folder picker for Add Project / Add Watching. 'createDirectory' gives the
+  // macOS dialog its built-in New-Folder button. Returns the chosen absolute path, or
+  // null when cancelled. (Renderers in a plain browser have no `mc` bridge and fall
+  // back to the in-app folder browser instead.)
+  ipcMain.handle('mc:pickFolder', async (_e, opts?: { defaultPath?: string; title?: string }) => {
+    const win = mainWindow ?? BrowserWindow.getFocusedWindow() ?? undefined;
+    const res = await dialog.showOpenDialog(win as BrowserWindow, {
+      title: opts?.title ?? 'Choose a project folder',
+      defaultPath: opts?.defaultPath,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
+  });
   // Probe a server's reachability from the main process (the renderer can't
   // cross-origin fetch other servers). Returns true iff /api/health responds OK.
   ipcMain.handle('mc:probeServer', async (_e, opts: { host: string; port: number }) => {

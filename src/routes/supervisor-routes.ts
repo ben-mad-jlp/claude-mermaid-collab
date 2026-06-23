@@ -17,10 +17,16 @@ import {
   getSupervisorConfig,
   setSupervisorConfig,
   listSupervisorAudit,
+  getWatchdogThreshold,
+  setWatchdogThreshold,
+  setEscalationRoute,
+  setEscalationOperatorGated,
 } from '../services/supervisor-store.ts';
+import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
 import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
 import { projectRegistry } from '../services/project-registry.ts';
-import { listTodos, updateTodo, getTodo } from '../services/todo-store.ts';
+import { listTodos, updateTodo, getTodo, removeTodo } from '../services/todo-store.ts';
+import { isInboxEpic } from '../services/claimability.ts';
 import { listDecisionRecords, createDecisionRecord, type DecisionStatus, type RequirementSpec } from '../services/decision-record-store.ts';
 import { listObjects, listTypes } from '../services/system-object-store.ts';
 import { bom } from '../services/system-object-bom.ts';
@@ -31,8 +37,9 @@ import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt } from '../
 import { systemStatus } from '../services/system-status.ts';
 import { execFileSync } from 'node:child_process';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSION } from '../config.ts';
-import { sendTmuxKeys } from '../services/tmux-send.ts';
+import { sendTmuxKeys, sendTmuxSelection } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
+import { capturePaneText } from '../services/tmux-capture.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -42,6 +49,20 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // PROJECTS
   if (url.pathname === '/api/supervisor/projects' && req.method === 'GET') {
     return Response.json({ projects: listWatchedProjects() });
+  }
+
+  // SUMMARIES SNAPSHOT — the same per-session payloads the server pushes on WS
+  // connect (snapshotSummaryMessages), exposed for an explicit fetch-on-mount /
+  // reconnect hydrate. The UI's ingest is monotonic-guarded, so a (possibly
+  // older) snapshot can never clobber a newer live WS tick. Best-effort: if the
+  // summary-loop service isn't present yet, return an empty set rather than 500.
+  if (url.pathname === '/api/supervisor/summaries' && req.method === 'GET') {
+    try {
+      const { snapshotSummaryMessages } = await import('../services/session-summary-loop.ts');
+      return Response.json({ summaries: snapshotSummaryMessages() });
+    } catch {
+      return Response.json({ summaries: [] });
+    }
   }
 
   // UNLANDED EPICS — deterministic git-tree drift readout (design-epic-landing P1):
@@ -198,10 +219,40 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       // status:'ready' the same way, but the Planner writes approvedAt directly with
       // its audit handle, and the seam fires kick('approved') on the null→non-null.
       let patch: import('../services/todo-store.ts').UpdateTodoPatch = {};
-      if (status === 'ready') patch = { approvedAt: new Date().toISOString(), approvedBy: 'planner' };
-      else if (status) patch = { status };
+      if (status === 'ready') {
+        // Inbox = planning-only: refuse to approve a triage child of [EPIC] Inbox.
+        // Approving it is itself the mistake — it would look ready but the daemon's
+        // claim gate ('inbox-planning') will never run it. Re-home to a real epic
+        // first. Only the approve/promote-to-ready action is blocked; other status
+        // transitions are unaffected.
+        const target = getTodo(project, id);
+        const parent = target?.parentId ? getTodo(project, target.parentId) : undefined;
+        if (parent && isInboxEpic(parent)) {
+          return jsonError(
+            'Cannot approve a todo parented under [EPIC] Inbox — re-home it to a real epic before approving.',
+            400,
+          );
+        }
+        patch = { approvedAt: new Date().toISOString(), approvedBy: 'planner' };
+      } else if (status) patch = { status };
       const todo = await updateTodo(project, id, patch);
       return Response.json({ todo });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // DELETE A PROJECT TODO (work-graph) — project-scoped by id. Backs the Kanban
+  // "Clear completed" housekeeping action. Earlier this path wrongly hit
+  // /api/supervisor/roadmap → deleteItem (the roadmap_item table), so the DELETE
+  // matched 0 rows and clear-completed silently no-opped on every work-graph todo
+  // (most visibly the Inbox epic). removeTodo deletes from the todos table.
+  if (url.pathname === '/api/supervisor/todos' && req.method === 'DELETE') {
+    try {
+      const { project, id } = (await req.json()) as { project?: string; id?: string };
+      if (!project || !id) return jsonError('project and id are required', 400);
+      await removeTodo(project, id);
+      return Response.json({ ok: true });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
@@ -276,12 +327,48 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   }
 
   // ESCALATIONS
+  // Mobile-parity audit (Z9): every READ is a plain HTTP GET read-model; every MUTATION
+  // returns JSON AND, where it changes shared zone state, emits a WS event the client
+  // folds. mark/resolve → escalation_created (full row); refresh-summary →
+  // session_summary_updated (loop helper). No route depends on MCP, hover-to-reveal, or
+  // a desktop-only capability. The contract is fully HTTP+WS → Phase-2 mobile app is a
+  // straight thin-client port.
   if (url.pathname === '/api/supervisor/escalations/resolve' && req.method === 'POST') {
     try {
       const { id, status } = (await req.json()) as { id?: string; status?: string };
       if (!id || !status) return jsonError('id and status are required', 400);
+      const esc = getEscalation(id);
       resolveEscalation(id, status, 'human'); // user clicked Resolve (fd934fb7)
+      getWebSocketHandler()?.broadcast({
+        type: 'escalation_created',
+        project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',
+        id, routedTo: esc?.routedTo ?? 'human', escalation: getEscalation(id),
+      });
       return Response.json({ ok: true });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/escalations/mark — the Z9 operator "only you" pin. Forces the
+  // escalation onto the human floor (deterministic outranking) via setEscalationRoute,
+  // then re-broadcasts the full row (escalation_created upsert convention) so every
+  // client re-sorts. Pass operatorGated:false to clear the pin (route back to steward).
+  if (url.pathname === '/api/supervisor/escalations/mark' && req.method === 'POST') {
+    try {
+      const { id, operatorGated } = (await req.json()) as { id?: string; operatorGated?: boolean };
+      if (!id) return jsonError('id is required', 400);
+      const esc = getEscalation(id);
+      if (!esc) return jsonError(`escalation not found: ${id}`, 404);
+      const pin = operatorGated !== false; // default mark=on
+      setEscalationRoute(id, pin ? 'human' : 'steward', pin ? 'operator-marked: only you' : null);
+      const updated = getEscalation(id);
+      getWebSocketHandler()?.broadcast({
+        type: 'escalation_created',
+        project: esc.project, session: esc.session, kind: esc.kind, id,
+        routedTo: updated?.routedTo ?? 'human', escalation: updated,
+      });
+      return Response.json({ escalation: updated });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
@@ -362,9 +449,9 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // immediately; the detached child owns the actual deploy regardless.
   if (url.pathname === '/api/supervisor/deploy' && req.method === 'POST') {
     try {
-      const { project } = (await req.json()) as { project?: string };
+      const { project, force } = (await req.json()) as { project?: string; force?: boolean };
       if (!project) return jsonError('project is required', 400);
-      const result = requestSelfDeploy(project);
+      const result = requestSelfDeploy(project, { force: !!force });
       return Response.json(result, { status: result.ok ? 200 : 409 });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
@@ -408,6 +495,32 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // POST /api/supervisor/escalation/:id/operator-gate — operator-gated "only you" mark.
+  // body {on}: setEscalationOperatorGated flips operatorGated AND forces routedTo='human'
+  // (deterministic outranking). Broadcasts escalation_created full-row for peer re-sort.
+  {
+    const gateMatch = url.pathname.match(/^\/api\/supervisor\/escalation\/([^/]+)\/operator-gate$/);
+    if (gateMatch && req.method === 'POST') {
+      try {
+        const id = decodeURIComponent(gateMatch[1]);
+        const { on } = (await req.json()) as { on?: boolean };
+        const esc = getEscalation(id);
+        if (!esc) return jsonError(`escalation not found: ${id}`, 404);
+        const updated = setEscalationOperatorGated(id, !!on);
+        if (updated) {
+          getWebSocketHandler()?.broadcast({
+            type: 'escalation_created',
+            project: updated.project, session: updated.session, kind: updated.kind,
+            id: updated.id, routedTo: updated.routedTo, escalation: updated,
+          });
+        }
+        return Response.json({ ok: true, escalation: updated });
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+  }
+
   if (url.pathname === '/api/supervisor/config' && req.method === 'GET') {
     const stored = getSupervisorConfig();
     if (stored) {
@@ -434,6 +547,44 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     // Steward defaults mirror the supervisor: a fixed global workspace, not the
     // current active project (the steward is a fleet-wide role like the supervisor).
     return Response.json({ stewardProject: STEWARD_PROJECT, stewardSession: STEWARD_SESSION });
+  }
+
+  // GET /api/supervisor/watchdog-threshold?project= — the context-watchdog trigger
+  // threshold (%), or null when it falls back to the default (DEFAULT_WATCHDOG_CONFIG=80).
+  if (url.pathname === '/api/supervisor/watchdog-threshold' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({
+      project,
+      thresholdPercent: getWatchdogThreshold(project),
+      default: DEFAULT_WATCHDOG_CONFIG.thresholdPercent,
+    });
+  }
+
+  // POST /api/supervisor/watchdog-threshold — REST parity for the set_watchdog_threshold
+  // MCP tool. thresholdPercent:null clears (revert to default). Validation MIRRORS the MCP
+  // tool (setup.ts:5148) so REST and MCP stay in lockstep.
+  if (url.pathname === '/api/supervisor/watchdog-threshold' && req.method === 'POST') {
+    try {
+      const { project, thresholdPercent } = (await req.json()) as {
+        project?: string; thresholdPercent?: number | null;
+      };
+      if (!project) return jsonError('project is required', 400);
+      if (thresholdPercent !== null && thresholdPercent !== undefined &&
+          (typeof thresholdPercent !== 'number' || !Number.isFinite(thresholdPercent) ||
+           thresholdPercent < 1 || thresholdPercent > 100)) {
+        return jsonError('thresholdPercent must be a number 1-100, or null to clear', 400);
+      }
+      setWatchdogThreshold(project, thresholdPercent ?? null);
+      return Response.json({
+        ok: true,
+        project,
+        thresholdPercent: getWatchdogThreshold(project),
+        default: DEFAULT_WATCHDOG_CONFIG.thresholdPercent,
+      });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
   }
 
   if (url.pathname === '/api/supervisor/nudge' && req.method === 'POST') {
@@ -464,6 +615,100 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       }
       getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
       return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  if (url.pathname === '/api/supervisor/answer-multi' && req.method === 'POST') {
+    try {
+      const { project, session, serverId, numbers } = (await req.json()) as {
+        project?: string;
+        session?: string;
+        serverId?: string;
+        numbers?: unknown;
+      };
+      if (!project || !session) return jsonError('project and session are required', 400);
+      if (!Array.isArray(numbers) || !numbers.every((n) => typeof n === 'number')) {
+        return jsonError('numbers must be an array of option numbers', 400);
+      }
+      let result: any;
+      let sent: boolean;
+      if (serverId && getPeer(serverId)) {
+        const peer = getPeer(serverId)!;
+        const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-selection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project, session, numbers }),
+        });
+        result = await res.json();
+        sent = !!(result?.tmux ?? result?.sent ?? result?.success);
+      } else {
+        result = await sendTmuxSelection(project, session, numbers as number[]);
+        sent = !!result?.sent;
+      }
+      getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text: `selected: ${(numbers as number[]).join(', ')}`, sent });
+      return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/capture-pane — on-demand raw tmux pane read ("show the
+  // lines it read"). Mirrors the nudge route's peer/local branch but READS instead
+  // of writes (NOT a stream): peer → forward to peer's /api/ide/capture-pane;
+  // local → capturePaneText helper. No WS broadcast (pure read).
+  if (url.pathname === '/api/supervisor/capture-pane' && req.method === 'POST') {
+    try {
+      const { project, session, serverId } = (await req.json()) as {
+        project?: string;
+        session?: string;
+        serverId?: string;
+      };
+      if (!project || !session) return jsonError('project and session are required', 400);
+      if (serverId && getPeer(serverId)) {
+        const peer = getPeer(serverId)!;
+        const res = await fetch(peer.baseUrl + '/api/ide/capture-pane', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project, session }),
+        });
+        return Response.json(await res.json());
+      }
+      const lines = await capturePaneText(project, session);
+      return Response.json({ lines });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/refresh-summary — force a fresh out-of-band session summary
+  // (Z9 force-proof): re-hash + re-summarize even when the pane hash is unchanged. A
+  // remote session forwards to the peer that owns its tmux + summary cache (like
+  // capture-pane). Best-effort: if the summary-loop service isn't deployed yet, report
+  // ok:false rather than 500. The loop helper broadcasts session_summary_updated itself.
+  if (url.pathname === '/api/supervisor/refresh-summary' && req.method === 'POST') {
+    try {
+      const { project, session, serverId } = (await req.json()) as {
+        project?: string; session?: string; serverId?: string;
+      };
+      if (!project || !session) return jsonError('project and session are required', 400);
+      if (serverId && getPeer(serverId)) {
+        const peer = getPeer(serverId)!;
+        const res = await fetch(peer.baseUrl + '/api/supervisor/refresh-summary', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project, session }),
+        });
+        return Response.json(await res.json());
+      }
+      try {
+        const { refreshSummaryNow } = await import('../services/session-summary-loop.ts');
+        const result = await refreshSummaryNow(project, session);
+        return Response.json(result);
+      } catch {
+        // Loop service not yet deployed → degrade, never error the Bridge.
+        return Response.json({ ok: false, reason: 'summary loop unavailable', summary: null });
+      }
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }

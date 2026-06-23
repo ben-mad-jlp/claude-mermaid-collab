@@ -33,9 +33,11 @@ import {
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
+import { recordUsage, getUsage } from '../services/usage-store';
+import { refreshSummaryNow } from '../services/session-summary-loop';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
-import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject } from '../services/supervisor-store.ts';
+import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
 import {
@@ -67,7 +69,7 @@ async function loadSpritePipeline() {
   return { quantizeBuffer };
 }
 import { tmpdir as osTmpdir } from 'os';
-import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile } from 'fs/promises';
+import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile, readdir as fsReaddir, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from 'fs/promises';
 
 /**
  * Expand ~ to home directory in paths
@@ -80,6 +82,39 @@ function expandPath(path: string): string {
     return homedir();
   }
   return path;
+}
+
+/**
+ * Full session de-registration cleanup shared by every delete/archive path.
+ * `sessionRegistry.unregister()` only removes the sessions.json entry; this clears
+ * the TWO registrations that were otherwise left DANGLING when a session is deleted:
+ *  1. the supervisor's supervised-session row (`removeSupervised`), so a deleted
+ *     session no longer lingers as a ghost in the supervised list; and
+ *  2. the Claude-session binding file `/tmp/.mermaid-collab-binding-<id>.json` written
+ *     by `register_claude_session` — keyed by claudeSessionId, so we match on its
+ *     `{project, session}` contents rather than a known id.
+ * All best-effort: a failure here NEVER blocks the delete (the registry row is gone).
+ */
+async function cleanupSessionRegistrations(project: string, session: string): Promise<void> {
+  try { removeSupervised(project, session); } catch { /* best-effort: supervisor row */ }
+  try {
+    const { dropSubscriptionsForSession } = await import('../services/session-subscriptions');
+    dropSubscriptionsForSession(project, session);
+  } catch { /* best-effort: subscriptions + queued notifications */ }
+  try {
+    const entries = await fsReaddir('/tmp');
+    await Promise.all(
+      entries
+        .filter((n) => n.startsWith('.mermaid-collab-binding-') && n.endsWith('.json'))
+        .map(async (n) => {
+          const p = join('/tmp', n);
+          try {
+            const b = JSON.parse(await fsReadFile(p, 'utf-8')) as { project?: string; session?: string };
+            if (b.project === project && b.session === session) await fsUnlink(p);
+          } catch { /* unreadable / mismatched binding — skip */ }
+        }),
+    );
+  } catch { /* /tmp unreadable — best-effort */ }
 }
 
 // Track server start time for uptime calculation
@@ -105,7 +140,7 @@ async function loadImageSourceToBuffer(source: string): Promise<{ buffer: Buffer
   const buf = await readFile(source);
   // Infer mime from extension
   const ext = source.toLowerCase().split('.').pop() || '';
-  const extMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff', avif: 'image/avif', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
+  const extMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff', avif: 'image/avif', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', glb: 'model/gltf-binary', gltf: 'model/gltf+json', stl: 'model/stl', obj: 'model/obj', ply: 'model/ply' };
   return { buffer: buf, mimeType: extMap[ext] || 'application/octet-stream' };
 }
 
@@ -307,6 +342,7 @@ export async function handleAPI(
       const project = expandPath(rawProject);
 
       const removed = await sessionRegistry.unregister(project, session);
+      await cleanupSessionRegistrations(project, session);
       return Response.json({ success: removed });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
@@ -340,6 +376,7 @@ export async function handleAPI(
       // Unregister from session registry if deleted
       if (options.deleteSession) {
         await sessionRegistry.unregister(project, session);
+        await cleanupSessionRegistrations(project, session);
         wsHandler.broadcast({ type: 'session_deleted', project, session });
       }
 
@@ -379,8 +416,87 @@ export async function handleAPI(
       const { rm } = await import('node:fs/promises');
       await rm(sessionDir, { recursive: true, force: true });
       await sessionRegistry.unregister(project, session);
+      await cleanupSessionRegistrations(project, session);
       wsHandler.broadcast({ type: 'session_deleted', project, session });
       return Response.json({ ok: true });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // ============================================
+  // Filesystem browse + mkdir — backs the Add Project / Add Watching folder picker
+  // (the in-app browser used in a plain browser, and the "create new folder" option
+  // in BOTH the browser and the desktop app). Local single-user tool: read any dir
+  // the server user can read; mkdir restricted to a single safe path segment.
+  // ============================================
+
+  // GET /api/fs/list?path=<abs> — list the immediate SUBDIRECTORIES of a directory.
+  // Empty/missing path → the user's home dir. Returns { path, parent, entries[] }.
+  if (path === '/api/fs/list' && req.method === 'GET') {
+    try {
+      const raw = url.searchParams.get('path');
+      const dir = raw && raw.trim() ? expandPath(raw.trim()) : homedir();
+      if (!dir.startsWith('/')) return Response.json({ error: 'path must be absolute' }, { status: 400 });
+      let dirents;
+      try {
+        dirents = await fsReaddir(dir, { withFileTypes: true });
+      } catch (e: any) {
+        const code = e?.code === 'ENOENT' ? 404 : e?.code === 'EACCES' ? 403 : 400;
+        return Response.json({ error: `cannot read ${dir}: ${e?.message || String(e)}` }, { status: code });
+      }
+      const entries = dirents
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+        .map((d) => ({ name: d.name, path: join(dir, d.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const parent = dir === '/' ? null : join(dir, '..');
+      return Response.json({ path: dir, parent, entries }, { headers: { 'Cache-Control': 'no-store' } });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // POST /api/fs/mkdir { parent, name } — create a new folder `name` inside `parent`
+  // and return its absolute path. `name` must be a single safe segment (no / or ..).
+  if (path === '/api/fs/mkdir' && req.method === 'POST') {
+    try {
+      const { parent: rawParent, name } = (await req.json()) as { parent?: string; name?: string };
+      if (!rawParent || !name) return Response.json({ error: 'parent and name required' }, { status: 400 });
+      const parent = expandPath(rawParent.trim());
+      const seg = name.trim();
+      if (!parent.startsWith('/')) return Response.json({ error: 'parent must be absolute' }, { status: 400 });
+      if (!seg || seg.includes('/') || seg === '.' || seg === '..') {
+        return Response.json({ error: 'name must be a single folder name (no slashes)' }, { status: 400 });
+      }
+      try {
+        const st = await fsStat(parent);
+        if (!st.isDirectory()) return Response.json({ error: `${parent} is not a directory` }, { status: 400 });
+      } catch {
+        return Response.json({ error: `parent does not exist: ${parent}` }, { status: 404 });
+      }
+      const target = join(parent, seg);
+      try {
+        await fsMkdir(target, { recursive: false });
+      } catch (e: any) {
+        if (e?.code === 'EEXIST') return Response.json({ error: `already exists: ${target}` }, { status: 409 });
+        return Response.json({ error: `mkdir failed: ${e?.message || String(e)}` }, { status: 400 });
+      }
+      return Response.json({ path: target });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // GET /api/subscriptions?project=<abs> — list the session→{todo|epic|project} notification
+  // subscriptions for a project (the Bridge "Subscribers" tab). Read-only.
+  if (path === '/api/subscriptions' && req.method === 'GET') {
+    try {
+      const raw = url.searchParams.get('project');
+      const project = raw ? expandPath(raw) : null;
+      const { listAllSubscriptions } = await import('../services/session-subscriptions');
+      const all = listAllSubscriptions();
+      const subs = project ? all.filter((s) => s.project === project) : all;
+      return Response.json({ subscriptions: subs }, { headers: { 'Cache-Control': 'no-store' } });
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 500 });
     }
@@ -2748,6 +2864,18 @@ export async function handleAPI(
       lastUpdate: Date.now(),
     });
 
+    // When a watched session transitions into a state that needs attention
+    // (waiting / permission → a question or permission prompt just appeared), force a
+    // fresh Zen summary NOW. Otherwise the card colours red from this status while the
+    // interpreter's last summary — captured BEFORE the question — still shows, so the
+    // Zen card reads "previous work" with no question on a red card. refreshSummaryNow
+    // self-gates (no-op unless the session is watched). Fire-and-forget.
+    if ((status === 'waiting' || status === 'permission') && status !== prevStatus) {
+      void refreshSummaryNow(project, session).catch((err: any) => {
+        console.warn(`[session-notify] summary refresh failed: ${err?.message || String(err)}`);
+      });
+    }
+
     // Real-time push to the supervisor: when a SUPERVISED worker transitions
     // into a state that needs attention (waiting / permission), nudge the
     // supervisor's own tmux to reconcile now — so it doesn't have to wait for
@@ -2969,8 +3097,14 @@ export async function handleAPI(
         leafId,
         blueprintId,
         manifest: {
+          estimatedFiles: manifest.estimatedFiles,
+          estimatedTasks: manifest.estimatedTasks,
+          nonEnumerableFanout: manifest.nonEnumerableFanout,
           filesToCreate: manifest.filesToCreate,
           filesToEdit: manifest.filesToEdit,
+          // tasks[] {id, files, description} drives the per-todo blueprint GRAPH in the
+          // detail view (the file lists alone power the "Proposed changes" card).
+          tasks: manifest.tasks,
         },
       });
     }
@@ -3025,6 +3159,17 @@ export async function handleAPI(
     try { recentSpawns = listSupervisorAudit({ kind: 'spawn', limit: 10 }); } catch { /* best-effort */ }
     const failures = listLeafRuns({ project, epicId, limit: failLimit })
       .filter((r) => r.finalOutcome != null && r.finalOutcome !== 'accepted');
+    // Transparency: when scoped to a project, report WHY ready leaves aren't claimed
+    // (over-budget / breaker / probe-down / stranded-foundation / not-headless) so the
+    // fleet panel can show "8 ready, 0 claimed — 3 stranded-foundation" instead of an
+    // unexplained idle daemon. Best-effort; never block the live read on it.
+    let claimSuppression: unknown;
+    if (project) {
+      try {
+        const { diagnoseClaimSuppression } = await import('../services/coordinator-live');
+        claimSuppression = await diagnoseClaimSuppression(project);
+      } catch { /* best-effort transparency */ }
+    }
     return Response.json({
       now,
       inflight,
@@ -3032,6 +3177,7 @@ export async function handleAPI(
       paused,
       recentSpawns,
       failures,
+      ...(claimSuppression ? { claimSuppression } : {}),
     });
   }
 
@@ -3232,6 +3378,23 @@ export async function handleAPI(
     wsHandler.broadcast({ type: 'claude_context_update', project, session, contextPercent });
 
     return Response.json({ success: true });
+  }
+
+  // POST /api/usage-update — statusline hook reports account-wide rate-limit usage
+  // (5-hour + 7-day rolling windows). Account-global, so no session binding needed.
+  if (path === '/api/usage-update' && req.method === 'POST') {
+    const { fiveHourPercent, sevenDayPercent } = await req.json() as { fiveHourPercent?: number; sevenDayPercent?: number };
+    if (fiveHourPercent == null || sevenDayPercent == null) {
+      return Response.json({ error: 'fiveHourPercent and sevenDayPercent required' }, { status: 400 });
+    }
+    const snap = recordUsage(fiveHourPercent, sevenDayPercent);
+    wsHandler.broadcast({ type: 'claude_usage_update', ...snap });
+    return Response.json({ success: true });
+  }
+
+  // GET /api/usage — latest account-wide rate-limit usage (UI hydration on load).
+  if (path === '/api/usage' && req.method === 'GET') {
+    return Response.json({ usage: getUsage() });
   }
 
 

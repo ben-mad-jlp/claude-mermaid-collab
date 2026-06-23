@@ -75,6 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
   const browserVisible = useBrowserStore((s) => s.visible);
   const viewerVisible = useUIStore((s) => s.viewerVisible);
   const bridgeOpen = useUIStore((s) => s.bridgeOpen);
+  const zenMode = useUIStore((s) => s.zenMode);
   const specOpen = useUIStore((s) => s.specOpen);
   const paneOrder = useUIStore((s) => s.paneOrder);
   // The selected/active project — shown next to the Bridge toggle so the Bridge
@@ -290,6 +291,17 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               );
             })}
+            {/* Zen mode toggle pill — swaps the bridge pane content to ZenMode */}
+            <button
+              data-testid="toggle-zen"
+              onClick={() => useUIStore.getState().toggleZenMode()}
+              aria-label="Toggle Zen mode"
+              title="Zen mode — calm escalation view"
+              className={paneToggleClass(zenMode)}
+            >
+              <span className="text-xs font-medium px-0.5">Zen</span>
+            </button>
+
             {/* Selected project, shown next to the Bridge toggle. */}
             {(() => {
               const proj = activeProject ?? currentSession?.project ?? null;

@@ -58,6 +58,9 @@ export interface NodeSpec {
   transcriptLabel?: string;
   /** Permission mode override. Default 'bypassPermissions' (no human to approve, headless). */
   permissionMode?: 'bypassPermissions' | 'acceptEdits' | 'default' | 'plan' | 'auto' | 'dontAsk';
+  /** Reasoning effort (--effort low|medium|high|xhigh|max). Optional → CLI/model
+   *  default. The daemon sets this per node kind (judgment nodes run higher). */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
 export interface NodeUsage {
@@ -75,8 +78,13 @@ export interface NodeResult {
   stdout: string;
   durationMs: number;
   usage?: NodeUsage;
-  /** Detected via exit code / stderr signal (see RATE_LIMIT_RE — heuristic). */
+  /** Transient pause signal: a true rate-limit/cap OR a network outage (see
+   *  `unreachable`). Reported as `rateLimited` so the executor's pause path handles
+   *  both uniformly (pause + backoff, no attempt burned). */
   rateLimited: boolean;
+  /** True when the pause was caused by a CONNECTIVITY failure (internet/API down,
+   *  CONN_ERR_RE) rather than a rate cap — for logging/labels; the handling is the same. */
+  unreachable?: boolean;
   /** Epoch ms the rate cap is known to reset, IF the CLI surfaces one.
    *  v1: always `undefined` (stub) — see `parseCapReset` + §5 of the P3 blueprint.
    *  The daemon falls back to pure exponential backoff when this is absent. */
@@ -102,19 +110,70 @@ const DEFAULT_TIMEOUT_MS = 600_000;
  */
 export const RATE_LIMIT_RE = /rate.?limit|429|too many requests|usage limit|overloaded|quota/i;
 
+/** Connection/network-outage signatures. A node whose request never reached the API
+ *  (DNS/TCP/TLS failure) is NOT a leaf failure — the work was never tested. We treat
+ *  it like a rate-limit: PAUSE + backoff, no attempt burned (the internet-down case). */
+export const CONN_ERR_RE = /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|getaddrinfo|fetch failed|network error|connection error|connection (?:closed|reset|refused)|unable to connect|socket hang ?up|tls|certificate/i;
+
+/** After SIGTERM, wait this long for a graceful exit before escalating to SIGKILL.
+ *  A process stuck in a network syscall ignores SIGTERM, so the hard kill is required. */
+const KILL_GRACE_MS = 3_000;
+/** Hard cap on collecting stdout/stderr/exit AFTER the run resolves-or-times-out.
+ *  Guarantees the invocation always returns even if a pipe never EOFs (a grandchild
+ *  holding it open) — this is what kept the daemon's single-flight tick from wedging. */
+const DRAIN_CAP_MS = 5_000;
+
 /**
- * Best-effort scrape of a cap-RESET timestamp (epoch ms) from a node's output.
- *
- * UNCONFIRMED — v1 STUB returning `undefined`. `claude --help` documents no
- * reset-time field, so there is no safe format to parse yet. Pure exponential
- * backoff (owned by the daemon's headless-breaker) is the correct, dependency-free
- * default. See §1c/§5 of the P3 blueprint and the RUNTIME-CONFIRM TODO above: when a
- * REAL 429 is first observed, populate a CAP_RESET_RE (ISO-8601 / unix-epoch /
- * `retry after Ns`) here. Fail-safe: a wrong value only changes how long the daemon
- * waits, never loses work.
+ * The Claude subscription session-limit message the `-p` stream-json carries in its
+ * `result` field on a 429, e.g.:
+ *   "You've hit your session limit · resets 8:50pm (America/Chicago)"
+ * Captures HH, MM, am/pm and the IANA timezone. (Confirmed from a real 429, 2026-06-18.)
  */
-export function parseCapReset(_stdout: string, _stderr: string): number | undefined {
-  return undefined;
+export const CAP_RESET_RE = /resets\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*\(\s*([A-Za-z][A-Za-z0-9_+\-/]*)\s*\)/i;
+
+/** UTC offset (ms) of IANA `tz` at instant `at` (tz-wall-clock minus the UTC instant). */
+function tzOffsetMs(tz: string, at: number): number | undefined {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    const p: Record<string, number> = {};
+    for (const part of dtf.formatToParts(new Date(at))) {
+      if (part.type !== 'literal') p[part.type] = Number(part.value);
+    }
+    if ([p.year, p.month, p.day, p.hour, p.minute, p.second].some((n) => Number.isNaN(n))) return undefined;
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - at;
+  } catch { return undefined; } // invalid IANA name → caller falls back to backoff
+}
+
+/** Epoch (ms) of the NEXT time it is hour24:minute in `tz`, strictly after `now`. */
+function nextZonedEpoch(hour24: number, minute: number, tz: string, now: number): number | undefined {
+  const off = tzOffsetMs(tz, now);
+  if (off === undefined) return undefined;
+  const wall = new Date(now + off); // a Date whose UTC fields ARE tz's wall clock
+  const targetWallUTC = Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate(), hour24, minute, 0);
+  let epoch = targetWallUTC - off; // wall-clock-in-tz → real instant (off ≈ constant over <24h)
+  if (epoch <= now) epoch += 24 * 60 * 60 * 1000; // already passed today → tomorrow
+  return epoch;
+}
+
+/**
+ * Scrape the cap-RESET instant (epoch ms) from a 429 node's output. Parses the
+ * subscription session-limit message (see {@link CAP_RESET_RE}) into the next
+ * occurrence of that wall-clock time in the stated timezone. Returns `undefined` when
+ * the message is absent/unparseable — the daemon's headless-breaker then falls back to
+ * pure exponential backoff. Fail-safe: a wrong value only changes how long the daemon
+ * waits, never loses work. `now` is injectable for tests.
+ */
+export function parseCapReset(stdout: string, stderr: string, now: number = Date.now()): number | undefined {
+  const m = `${stdout}\n${stderr}`.match(CAP_RESET_RE);
+  if (!m) return undefined;
+  const minute = Number(m[2]);
+  let hour = Number(m[1]) % 12;
+  if (/pm/i.test(m[3])) hour += 12;
+  if (Number.isNaN(hour) || Number.isNaN(minute) || hour > 23 || minute > 59) return undefined;
+  return nextZonedEpoch(hour, minute, m[4], now);
 }
 
 /**
@@ -144,6 +203,7 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
     '--permission-mode', spec.permissionMode ?? 'bypassPermissions',
   ];
   if (spec.model) argv.push('--model', spec.model);
+  if (spec.effort) argv.push('--effort', spec.effort);
   // allowedTools may be '' (= no tools) — push it explicitly when defined (not just truthy).
   if (spec.allowedTools !== undefined) argv.push('--allowedTools', spec.allowedTools);
   if (spec.appendSystemPrompt) argv.push('--append-system-prompt', spec.appendSystemPrompt);
@@ -376,13 +436,24 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
     };
   }
 
-  // Wall-clock kill: race the process exit against the timeout.
+  // Start draining stdout/stderr IMMEDIATELY (concurrent with the run) — NOT after the
+  // timeout. Reading the pipes after a kill is exactly what wedged the daemon: a
+  // grandchild holding the pipe open means `new Response(stream).text()` never EOFs, so
+  // the await hangs forever and the single-flight tick guard never clears. Reading
+  // concurrently captures partial output and lets us cap the wait below.
+  const stdoutP = new Response(proc.stdout as ReadableStream).text().catch(() => '');
+  const stderrP = new Response(proc.stderr as ReadableStream).text().catch(() => '');
+
+  // Wall-clock kill with ESCALATION: SIGTERM, then SIGKILL after a grace period (a
+  // process stuck in a network syscall ignores SIGTERM). race process exit vs timeout.
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let hardTimer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
       timedOut = true;
       try { proc.kill(); } catch { /* already gone */ }
+      hardTimer = setTimeout(() => { try { proc.kill(9); } catch { /* gone */ } }, KILL_GRACE_MS);
       resolve();
     }, timeoutMs);
   });
@@ -390,13 +461,16 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
   const exited = proc.exited.then(() => undefined);
   await Promise.race([exited, timeout]);
 
-  // Drain streams + final exit code (the kill above makes exited resolve).
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout as ReadableStream).text().catch(() => ''),
-    new Response(proc.stderr as ReadableStream).text().catch(() => ''),
-  ]);
-  const exitCode = await proc.exited;
+  // BOUNDED collection: never await an unbounded stream/exit. Each is capped so the
+  // invocation ALWAYS returns (within timeoutMs + DRAIN_CAP_MS), which is what makes
+  // the daemon un-wedgeable — partial output is acceptable, a permanent hang is not.
+  const capped = <T>(p: Promise<T>, fallback: T): Promise<T> =>
+    Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), DRAIN_CAP_MS))]);
+  const stdout = await capped(stdoutP, '');
+  const stderr = await capped(stderrP, '');
+  const exitCode = await capped(proc.exited, -1);
   if (timer) clearTimeout(timer);
+  if (hardTimer) clearTimeout(hardTimer);
 
   const durationMs = Math.round(Date.now() - start);
 
@@ -437,7 +511,23 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       exitCode !== 0 &&
       /\b429\b|rate limit (?:exceeded|reached)|too many requests/i.test(stderr));
 
-  const ok = exitCode === 0 && !rateLimited && !parsed.isError;
+  // Network outage / unreachable API: the request never reached the model, so the
+  // leaf was never actually tested. Classify it as a transient PAUSE (same handling
+  // as a rate limit — pause + backoff, no attempt burned) instead of a leaf failure
+  // that burns retries. Only when there's NO structured API result (a genuine
+  // connection failure, not a model error that happens to mention "tls" etc.).
+  const unreachable =
+    !rateLimited &&
+    exitCode !== 0 &&
+    parsed.apiErrorStatus === undefined &&
+    !parsed.isError &&
+    CONN_ERR_RE.test(stderr);
+
+  // `transient` drives the executor's pause path (rate-limit OR connectivity); both
+  // pause + back off rather than burning an attempt. capReset only applies to a real
+  // session cap; an outage has none → undefined → the daemon falls back to backoff.
+  const transient = rateLimited || unreachable;
+  const ok = exitCode === 0 && !transient && !parsed.isError;
 
   return {
     ok,
@@ -445,8 +535,13 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
     stdout,
     durationMs,
     usage: parsed.usage,
-    rateLimited,
-    // v1 stub → always undefined; daemon uses pure backoff. See parseCapReset.
+    // Report `transient` (rate-limit OR connectivity outage) as rateLimited so the
+    // executor's existing pause path handles both without touching every call site.
+    rateLimited: transient,
+    // `unreachable` distinguishes a network outage from a true cap for logging/labels.
+    unreachable,
+    // Parse the subscription session-limit reset time so the breaker reopens exactly
+    // when the cap lifts; an outage has no reset → undefined → daemon backoff.
     capReset: rateLimited ? parseCapReset(stdout, stderr) : undefined,
     authMode,
     text: parsed.text,
