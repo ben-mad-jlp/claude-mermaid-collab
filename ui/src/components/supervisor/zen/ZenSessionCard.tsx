@@ -144,18 +144,23 @@ const ProjectBar: React.FC<{
         </span>
       </div>
       <div className="flex items-center gap-2.5 shrink-0">
-        {/* Plan totals — funnel buckets as colored dots */}
+        {/* Plan totals — every funnel bucket as a colored dot + count in its own type
+            colour (matching the project card), plus a ⚠ parked flag when ready work is
+            queued but nothing is running it (ready>0 & in-flight==0). */}
         {totals && totals.total > 0 && (
           <>
             {FUNNEL_SEGMENTS.map((seg) =>
               seg.key !== 'done' && totals.counts[seg.key] > 0 ? (
-                <span key={seg.key} className="flex items-center gap-1 text-3xs font-medium" title={seg.label}>
+                <span key={seg.key} className="flex items-center gap-1 text-3xs font-semibold" title={`${seg.label}: ${totals.counts[seg.key]}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[seg.key].dot}`} />
-                  <span className="text-gray-600 dark:text-gray-300">{totals.counts[seg.key]}</span>
+                  <span className={STATUS_STYLE[seg.key].tint}>{totals.counts[seg.key]}</span>
                 </span>
               ) : null,
             )}
             <span className="text-3xs text-gray-500 dark:text-gray-400">{totals.total} open</span>
+            {totals.counts.ready > 0 && totals.counts.inflight === 0 && (
+              <span className="text-3xs font-semibold text-warning-600 dark:text-warning-400" title="Ready work queued but nothing is running it">⚠ parked</span>
+            )}
           </>
         )}
         {/* Daemon totals — leaf-executor lanes (⚙ working / claimed / ⚠ permission) */}
