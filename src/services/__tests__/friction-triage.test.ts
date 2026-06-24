@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runFrictionTriagePass, type FrictionTriageDeps } from '../friction-triage';
 import type { FrictionLayer } from '../friction-store';
+import { _closeProject } from '../friction-store';
 import type { Todo, CreateTodoInput } from '../todo-store';
 
 // ---------------------------------------------------------------------------
@@ -17,6 +18,7 @@ beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'friction-triage-'));
 });
 afterEach(() => {
+  _closeProject(project);
   rmSync(project, { recursive: true, force: true });
 });
 
@@ -358,5 +360,71 @@ describe('friction-triage: fail-open', () => {
     // The bad-one was NOT marked actioned (it failed before markActioned ran)
     const badFiled = actionedCalls.find((c) => c.reason === 'bad-one');
     expect(badFiled).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Real-store dedup integration (durable actioned marker)
+// ---------------------------------------------------------------------------
+
+describe('friction-triage: real-store dedup (integration)', () => {
+  it('second pass files nothing — marker persists in friction.db (no-spam)', async () => {
+    const todos: Todo[] = [];
+
+    // Only stub trends/listTodos/createTodo; leave isActioned/markActioned unset
+    // so friction-triage falls back to isReasonActioned/markReasonActioned (real DB).
+    const deps: FrictionTriageDeps = {
+      trends: () => ({
+        total: 1,
+        considered: 1,
+        byLayer: [],
+        recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'missing-model', count: 4 }],
+      }),
+      listTodos: () => todos,
+      createTodo: async (_p, input) => {
+        const todo = makeTodo({ ...input, id: 'created-' + todos.length });
+        todos.push(todo);
+        return todo;
+      },
+      threshold: 3,
+    };
+
+    await runFrictionTriagePass(project, deps);
+    const afterPass1 = todos.filter((t) => t.parentId != null).length;
+    expect(afterPass1).toBe(1);
+
+    // Second pass against same project — real marker is in friction.db
+    await runFrictionTriagePass(project, deps);
+    const afterPass2 = todos.filter((t) => t.parentId != null).length;
+    expect(afterPass2).toBe(1); // nothing new filed
+  });
+
+  it('marker survives a DB handle reopen (persisted on disk, not just cached)', async () => {
+    const todos: Todo[] = [];
+
+    const deps: FrictionTriageDeps = {
+      trends: () => ({
+        total: 1,
+        considered: 1,
+        byLayer: [],
+        recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'missing-model-reopen', count: 5 }],
+      }),
+      listTodos: () => todos,
+      createTodo: async (_p, input) => {
+        const todo = makeTodo({ ...input, id: 'created-' + todos.length });
+        todos.push(todo);
+        return todo;
+      },
+      threshold: 3,
+    };
+
+    await runFrictionTriagePass(project, deps);
+    expect(todos.filter((t) => t.parentId != null).length).toBe(1);
+
+    // Drop the cached DB handle — next call opens a fresh handle from disk
+    _closeProject(project);
+
+    await runFrictionTriagePass(project, deps);
+    expect(todos.filter((t) => t.parentId != null).length).toBe(1); // still only 1
   });
 });
