@@ -173,9 +173,17 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
     set((state) => {
       const oldEntries = Object.entries(state.subscriptions);
       const isPlaceholder = (id: string | null | undefined) => !id || id === 'local';
+      // A full UUID is a PRE-deriveSessionId legacy serverId. The current scheme
+      // only mints the 12-char deriveSessionId hash or the 'local' sentinel, so a
+      // UUID matches no live/paired server — it stranded local sessions on a dead
+      // id (clicking → 403 peer_not_paired). Treat it as a placeholder so it
+      // re-keys onto the active server, exactly like an empty/'local' id.
+      const isLegacyUuid = (id: string | null | undefined) =>
+        !!id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       const needsMigration = oldEntries.some(
         ([key, entry]) =>
           isPlaceholder(entry.serverId) ||
+          isLegacyUuid(entry.serverId) ||
           (!isPlaceholder(defaultServerId) && entry.serverId === 'local') ||
           !key.startsWith(`${entry.serverId}:`),
       );
@@ -189,9 +197,13 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
       const nextSubs: Record<string, SubscribedSession> = {};
       const oldToNewKey = new Map<string, string>();
       for (const [oldKey, entry] of oldEntries) {
-        // Re-key 'local' entries when a real server id is available.
+        // Re-key empty/'local'/legacy-UUID entries onto the active server. A
+        // legacy UUID always re-keys (it matches no live server regardless of
+        // whether the active id is 'local' or a real hash).
         const serverId =
-          !entry.serverId || (entry.serverId === 'local' && defaultServerId !== 'local')
+          !entry.serverId ||
+          isLegacyUuid(entry.serverId) ||
+          (entry.serverId === 'local' && defaultServerId !== 'local')
             ? defaultServerId
             : entry.serverId;
         const newKey = compositeKey(serverId, entry.project, entry.session);
