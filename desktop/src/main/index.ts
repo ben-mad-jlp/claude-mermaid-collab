@@ -562,7 +562,17 @@ async function bootstrap(): Promise<void> {
   // Auto-update (packaged builds only; inert without a publish feed + signing).
   if (app.isPackaged) {
     import('electron-updater')
-      .then(({ autoUpdater }) => autoUpdater.checkForUpdatesAndNotify())
+      .then(({ autoUpdater }) => {
+        // autoUpdater is an EventEmitter: a feed that can't be reached (e.g. an
+        // unresolvable/placeholder MC_UPDATE_FEED_URL) emits an 'error' EVENT,
+        // not just a promise rejection. Without an 'error' listener Node throws
+        // "Unhandled 'error' event" and the whole app crashes on launch. Register
+        // a no-op listener so update failures stay non-fatal.
+        autoUpdater.on('error', (err) => {
+          console.warn('[updater] check failed (ignored):', err?.message ?? err);
+        });
+        return autoUpdater.checkForUpdatesAndNotify();
+      })
       .catch(() => { /* no update feed / unsigned — ignore */ });
   }
 }
