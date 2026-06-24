@@ -1156,6 +1156,8 @@ export interface LandEpicOutcome {
    * a successful land.
    */
   selfLand?: boolean;
+  /** Dirty paths in the main checkout when the land was refused (clean-tree guard). */
+  dirtyPaths?: string[];
 }
 
 /**
@@ -1268,7 +1270,11 @@ export async function surfaceEpicLand(
  * card. A conflict leaves master UNTOUCHED and re-surfaces a 'needs human rebase, then
  * re-land' escalation (the original card stays open).
  */
-export async function landEpic(project: string, escalationId: string): Promise<LandEpicOutcome> {
+export async function landEpic(
+  project: string,
+  escalationId: string,
+  opts?: { allowDirty?: boolean },
+): Promise<LandEpicOutcome> {
   const esc = getEscalation(escalationId);
   if (!esc) return { ok: false, landed: false, reason: 'escalation-not-found' };
   if (esc.kind !== 'epic-ready-to-land') return { ok: false, landed: false, reason: 'not-a-land-escalation' };
@@ -1283,6 +1289,28 @@ export async function landEpic(project: string, escalationId: string): Promise<L
 
   return withLandMutex(targetProject, async (): Promise<LandEpicOutcome> => {
     try {
+      // Clean-tree guard: refuse a land when the main checkout has uncommitted/untracked
+      // changes unless the caller explicitly passes allowDirty (operator override).
+      const dirty = await wm.dirtyPaths().catch(() => [] as string[]);
+      if (dirty.length > 0) {
+        if (!opts?.allowDirty) {
+          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: 'dirty-tree', dirtyPaths: dirty }) });
+          return {
+            ok: false, landed: false, reason: 'dirty-tree', epicId, epicBranch, dirtyPaths: dirty,
+          };
+        }
+        // allowDirty: proceed, but make the override loud + durable.
+        console.warn(`[land] allowDirty override — main checkout dirty:\n${dirty.map((p) => `  ${p}`).join('\n')}`);
+        try {
+          await recordFriction(targetProject, {
+            layer: 'orchestration',
+            retryReason: 'land-allow-dirty',
+            todoId: epicId,
+            detail: `land of epic ${epicBranch} proceeded over a dirty main checkout (allowDirty). paths: ${dirty.join(', ')}`,
+          });
+        } catch { /* best-effort */ }
+      }
+
       // RE-DERIVE the land_epic proof from ground truth: every epic child done+accepted
       // in the store; tsc clean IN the epic's accumulation worktree; the epic branch
       // dry-merges cleanly into a master checkout. The click NEVER trusts the summary.
@@ -1315,7 +1343,7 @@ export async function landEpic(project: string, escalationId: string): Promise<L
       }
 
       // Green proof → perform the real single --no-ff epic→master merge.
-      const land = await wm.landEpicToMaster(epicId);
+      const land = await wm.landEpicToMaster(epicId, dirty.length > 0 && opts?.allowDirty ? { allowDirtyPaths: dirty } : undefined);
       if (land.conflict) {
         // Master untouched. Re-surface as a human-rebase request; the ready-to-land
         // card stays open so the human can re-land after resolving.
