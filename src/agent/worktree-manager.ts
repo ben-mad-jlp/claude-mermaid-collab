@@ -83,6 +83,9 @@ export interface LandOpts {
   baseRef?: string;
   onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void;
   timeoutMs?: number;
+  /** When set, append an `Allow-Dirty: <paths>` trailer to the land commit message
+   *  (the operator overrode the clean-tree guard for this land). */
+  allowDirtyPaths?: string[];
 }
 
 /** Result of landing an epic's accumulation branch onto master (FBPE P4). */
@@ -1198,6 +1201,16 @@ export class WorktreeManager {
     return null; // git error → indeterminate (fail-safe).
   }
 
+  /** Uncommitted/untracked paths in the main checkout — the clean-tree guard for LAND.
+   *  Empty array === clean. Read-only; never throws. */
+  async dirtyPaths(): Promise<string[]> {
+    if (!(await this.isGitRepo())) return [];
+    const res = await this.runGit(this.opts.projectRoot, ['status', '--porcelain'], QUICK_TIMEOUT_MS)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0) return [];
+    return res.stdout.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
+  }
+
   // ---------------------------------------------------------------------------
   // landEpicToMaster — the land click (FBPE P4). Merge an epic's accumulation
   // branch (collab/epic/<id8>) onto master with a single --no-ff merge, then
@@ -1266,9 +1279,12 @@ export class WorktreeManager {
     }
 
     try {
-      const mergeMessage =
+      let mergeMessage =
         `collab: land epic ${this.epicId8(epicId)} → ${baseRef}\n\n` +
         `Collab-Epic: ${epicId}\nCollab-Land: ${epicBranch}`;
+      if (opts?.allowDirtyPaths && opts.allowDirtyPaths.length > 0) {
+        mergeMessage += `\nAllow-Dirty: ${opts.allowDirtyPaths.join(', ')}`;
+      }
       const mergeRes = await this.runGit(
         wtPath,
         ['merge', '--no-ff', '-m', mergeMessage, epicBranch],
