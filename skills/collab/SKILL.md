@@ -113,3 +113,11 @@ Args: { "project": "<cwd>", "session": "<selected-session>", "claudePid": "<numb
 Then invoke skill: `vibe-active`
 
 The vibe-active skill handles reading the vibeinstructions document and resuming from where the user left off.
+
+## Working model
+
+Interactive collab sessions are **planning-only** by default: plan, supervise the Orchestrator daemon, create docs/diagrams/designs — do **not** hand-edit source on the main checkout.
+
+To hand-code, use the **`EnterWorktree`** opt-in flow (the session moves into an isolated branch off master), make edits, then merge/PR back and `ExitWorktree`. Todos/epics still resolve via `trackingProjectRoot()` (`src/services/todo-store.ts`) even from inside the worktree.
+
+See the **planner** or **vibe-active** skills for the full flow. The L1 land guard is the backstop.
