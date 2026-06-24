@@ -21,7 +21,7 @@ import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
-import { runSessionSummaryTick } from './session-summary-loop.js';
+import { runSessionSummaryTick, runSelfSummaryNudgePass } from './session-summary-loop.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
@@ -100,6 +100,13 @@ async function runSummaryGuarded(): Promise<void> {
   try {
     const watchedProjects = () => new Set(listWatchedProjects().map((w) => w.project));
     await withPassTimeout(runSessionSummaryTick({ watchedProjects }), NOTIFY_PASS_TIMEOUT_MS, 'summary');
+    // Nudge QUIET sessions to self-report their Zen summary. Cheap (cache read + idle-gated
+    // tmux sends), per-session throttled, gated by runtime_config. Best-effort.
+    try {
+      await withPassTimeout(runSelfSummaryNudgePass(), NOTIFY_PASS_TIMEOUT_MS, 'self-summary-nudge');
+    } catch (nudgeErr) {
+      console.warn('[orchestrator] self-summary nudge pass failed:', nudgeErr);
+    }
   } catch (err) {
     console.warn('[orchestrator] session summary heartbeat failed:', err);
   } finally {

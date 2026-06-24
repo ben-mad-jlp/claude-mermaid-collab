@@ -47,6 +47,7 @@ import { systemStatus } from './system-status.js';
 import { invokeNode } from '../agent/node-invoker.js';
 import { NODE_PROFILE } from './leaf-executor.js';
 import { listNodeProfileOverrides, getProjectEffort } from './orchestrator-config.js';
+import { nudgeSession } from './claude-launch.js';
 import type { EffortLevel } from '../agent/contracts.js';
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,11 @@ export interface SessionSummaryEntry {
   failureStreak?: number;
   /** Epoch ms before which we must NOT re-interpret this session (failure backoff). */
   nextRetryAt?: number;
+  /** Epoch ms of the most recent SELF-push (session called update_zen_summary →
+   *  pushSessionSummary). Drives the self-summary-nudge throttle so we don't nudge a
+   *  session that just self-reported. Distinct from lastSummaryAt (also set by the
+   *  external interpreter pass). */
+  lastSelfPushAt?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +111,10 @@ export interface SessionSummaryEntry {
 // ---------------------------------------------------------------------------
 
 const cache = new Map<string, SessionSummaryEntry>();
+
+/** Per-(project::session) last self-summary-nudge time. In-memory; a restart re-seeds
+ *  (default -Infinity ⇒ first pass always eligible). */
+const lastSelfNudgeAt = new Map<string, number>();
 
 // --- Durable cache (survives restarts/deploys) ------------------------------------
 // The in-memory cache is wiped on every server restart, so a deploy blanked every Zen
@@ -192,6 +202,7 @@ export function pushSessionSummary(
     refreshState: 'fresh',
     failureStreak: 0,
     nextRetryAt: undefined,
+    lastSelfPushAt: now,
   };
   cache.set(key, entry);
   scheduleSave();
@@ -238,6 +249,9 @@ export function __resetSummaryState(): void {
   inFlightInterpreters.clear();
   interpretSamples.length = 0;
   rateLimitedUntil = 0;
+  lastSelfNudgeAt.clear();
+  SELF_SUMMARY_NUDGE_ENABLED = envSelfNudgeEnabled();
+  SELF_SUMMARY_NUDGE_INTERVAL_MS = envSelfNudgeIntervalMs();
   // Tests own the cache deterministically — never load from or write to disk.
   persistEnabled = false;
   cacheLoaded = true;
@@ -261,6 +275,34 @@ export function setSummaryThresholds(t: { stallWindows?: number; wedgeWindows?: 
 
 export function getSummaryThresholds(): { stallWindows: number; wedgeWindows: number } {
   return { stallWindows: STALL_WINDOWS, wedgeWindows: WEDGE_WINDOWS };
+}
+
+// ---------------------------------------------------------------------------
+// Self-summary nudge knobs (cadence + enable) — surfaced via runtime_config.
+// The daemon periodically nudges QUIET interactive sessions to self-report their
+// Zen summary (update_zen_summary). `intervalMs` is the per-session MIN gap between
+// nudges (and the "has it self-pushed recently" window); `enabled` gates the pass.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_SELF_SUMMARY_NUDGE_INTERVAL_MS = 5 * 60_000; // 5min
+function envSelfNudgeEnabled(): boolean {
+  const v = process.env.MERMAID_SELF_SUMMARY_NUDGE;
+  return v == null ? true : (v === '1' || v === 'true'); // default ON
+}
+function envSelfNudgeIntervalMs(): number {
+  const n = Number(process.env.MERMAID_SELF_SUMMARY_NUDGE_INTERVAL_MS);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_SELF_SUMMARY_NUDGE_INTERVAL_MS;
+}
+
+let SELF_SUMMARY_NUDGE_ENABLED = envSelfNudgeEnabled();
+let SELF_SUMMARY_NUDGE_INTERVAL_MS = envSelfNudgeIntervalMs();
+
+export function getSelfSummaryNudgeConfig(): { enabled: boolean; intervalMs: number } {
+  return { enabled: SELF_SUMMARY_NUDGE_ENABLED, intervalMs: SELF_SUMMARY_NUDGE_INTERVAL_MS };
+}
+export function setSelfSummaryNudgeConfig(c: { enabled?: boolean; intervalMs?: number }): void {
+  if (c.enabled != null) SELF_SUMMARY_NUDGE_ENABLED = c.enabled;
+  if (c.intervalMs != null && c.intervalMs > 0) SELF_SUMMARY_NUDGE_INTERVAL_MS = c.intervalMs;
 }
 
 // ---------------------------------------------------------------------------
@@ -832,6 +874,7 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
         refreshState: prev?.refreshState,
         failureStreak: prev?.failureStreak,
         nextRetryAt: prev?.nextRetryAt,
+        lastSelfPushAt: prev?.lastSelfPushAt,
       };
       cache.set(key, entry);
       byState.unknown++;
@@ -864,6 +907,7 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
         refreshState: prev?.refreshState,
         failureStreak: prev?.failureStreak,
         nextRetryAt: prev?.nextRetryAt,
+        lastSelfPushAt: prev?.lastSelfPushAt,
       };
       cache.set(key, entry);
       byState.unknown++;
@@ -948,6 +992,7 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
       refreshState: prev?.refreshState,
       failureStreak: prev?.failureStreak,
       nextRetryAt: prev?.nextRetryAt,
+      lastSelfPushAt: prev?.lastSelfPushAt,
     };
     cache.set(key, entry);
     byState[progressState]++;
@@ -1065,4 +1110,67 @@ export async function refreshSummaryNow(
     interpret, broadcast, now,
   });
   return { ok: structured != null, structured };
+}
+
+// ---------------------------------------------------------------------------
+// Self-summary nudge pass
+// ---------------------------------------------------------------------------
+
+/** Should we nudge this session to self-report? Pure — unit-tested. `lastNudge` is our
+ *  last nudge to it (-Infinity if never); `lastSelfPush` is its last self-report. We skip
+ *  unless QUIET, no pending question, and both clocks are older than intervalMs. */
+export function shouldSelfNudge(
+  e: SessionSummaryEntry,
+  lastNudge: number,
+  nowMs: number,
+  intervalMs: number,
+): boolean {
+  if (e.progressState !== 'quiet') return false;            // skip active/stalled/wedged/unknown
+  const s = e.structured;
+  // Parked question — don't disrupt. A blocking on-screen prompt is status 'needs-input';
+  // an open end-of-turn question sets structured.question (carried sticky by the tick).
+  if (s?.question || s?.status === 'needs-input') return false;
+  if (nowMs - lastNudge < intervalMs) return false;          // our own re-nudge throttle
+  if (e.lastSelfPushAt != null && nowMs - e.lastSelfPushAt < intervalMs) return false; // self-pushed recently
+  return true;
+}
+
+export interface SelfSummaryNudgeDeps {
+  listSummaries?: () => SessionSummaryEntry[];
+  nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'no-tmux'>;
+  config?: () => { enabled: boolean; intervalMs: number };
+  now?: () => number;
+}
+
+const SELF_SUMMARY_NUDGE_TEXT =
+  '🪞 You\'ve gone quiet — please call the update_zen_summary MCP tool to self-report your current Zen summary (a short paragraph + status so your card stays fresh).';
+
+/**
+ * Periodic daemon pass: nudge QUIET interactive claude sessions to self-report their Zen
+ * summary via update_zen_summary. Reads the summary read-model cache (already filtered to
+ * watched interactive sessions — never headless leaves) and gates each session through
+ * shouldSelfNudge. Delivery is the existing idle-gated nudgeSession primitive, so a
+ * busy/dead/headless pane is never keyed ('busy'/'no-tmux' leave the throttle clock untouched
+ * → retried next pass). Only a 'sent' advances lastSelfNudgeAt. Best-effort; never throws.
+ */
+export async function runSelfSummaryNudgePass(
+  deps: SelfSummaryNudgeDeps = {},
+): Promise<{ scanned: number; eligible: number; nudged: string[] }> {
+  const cfg = (deps.config ?? getSelfSummaryNudgeConfig)();
+  if (!cfg.enabled) return { scanned: 0, eligible: 0, nudged: [] };
+  const list = (deps.listSummaries ?? listSessionSummaries)();
+  const nudge = deps.nudge ?? nudgeSession;
+  const now = deps.now ?? Date.now;
+  const nowMs = now();
+
+  let eligible = 0;
+  const nudged: string[] = [];
+  for (const e of list) {
+    const key = `${e.project}::${e.session}`;
+    if (!shouldSelfNudge(e, lastSelfNudgeAt.get(key) ?? -Infinity, nowMs, cfg.intervalMs)) continue;
+    eligible++;
+    const res = await nudge(e.project, e.session, SELF_SUMMARY_NUDGE_TEXT);
+    if (res === 'sent') { lastSelfNudgeAt.set(key, now()); nudged.push(e.session); }
+  }
+  return { scanned: list.length, eligible, nudged };
 }
