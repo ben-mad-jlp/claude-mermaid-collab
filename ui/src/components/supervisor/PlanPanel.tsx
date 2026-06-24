@@ -42,8 +42,8 @@ const STATUS_GLYPH: Record<string, string> = {
 };
 
 /** Glyph tint sourced from the canonical funnel palette (bucket → tint). */
-function statusTint(todo: SessionTodo): string {
-  const key = bucketTodo(todo);
+function statusTint(todo: SessionTodo, byId?: Map<string, SessionTodo>): string {
+  const key = bucketTodo(todo, byId);
   return key ? STATUS_STYLE[key].tint : 'text-gray-500 dark:text-gray-400';
 }
 
@@ -76,14 +76,16 @@ function planSort(waveMap: Map<string, number>) {
 function PlanRow({
   todo,
   depth,
+  byId,
   onSelect,
 }: {
   todo: SessionTodo;
   depth: number;
+  byId?: Map<string, SessionTodo>;
   onSelect?: (todo: SessionTodo) => void;
 }) {
   const glyph = STATUS_GLYPH[todo.status] ?? '○';
-  const colorCls = statusTint(todo);
+  const colorCls = statusTint(todo, byId);
   const depCount = todo.dependsOn?.length ?? 0;
   const isInProgress = todo.status === 'in_progress';
   return (
@@ -142,7 +144,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   // Derived via the single predicate (epic b2c858d4), not the shadow enum.
   const byIdAll = useMemo(() => buildById(todos), [todos]);
   const inProgress = todos.filter((t) => derivedStatus(t, byIdAll) === 'in_progress').length;
-  const blocked = todos.filter((t) => derivedStatus(t, byIdAll) === 'blocked').length;
+  const blocked = todos.filter((t) => t.heldAt != null || derivedStatus(t, byIdAll) === 'blocked').length;
 
   // Epic-grouped, sorted tree for list mode: top-level items (no parent in set)
   // sorted by the plan order, each followed by its children (also sorted).
@@ -394,7 +396,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
                   </div>
                 )}
                 <div className="flex-1 min-h-0">
-                  <FleetGraph todos={active.todos} subs={[]} onSelectTodo={onSelectTodo} onSelectEpic={onSelectEpic} />
+                  <FleetGraph todos={active.todos} subs={[]} project={project} onSelectTodo={onSelectTodo} onSelectEpic={onSelectEpic} />
                 </div>
               </div>
             );
@@ -402,7 +404,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
         ) : mode === 'list' ? (
           <div className="h-full overflow-auto p-2 space-y-0.5">
             {tree.map(({ todo, depth }) => (
-              <PlanRow key={todo.id} todo={todo} depth={depth} onSelect={onSelectTodo} />
+              <PlanRow key={todo.id} todo={todo} depth={depth} byId={byIdAll} onSelect={onSelectTodo} />
             ))}
           </div>
         ) : (

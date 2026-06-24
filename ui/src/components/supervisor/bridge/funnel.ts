@@ -48,7 +48,7 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     label: 'Backlog',
     tint: 'text-gray-500 dark:text-gray-400',
     bg: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
-    match: (t) => t.status === 'backlog' || t.status === 'planned' || t.status === 'todo',
+    match: (t) => (t.status === 'backlog' || t.status === 'planned' || t.status === 'todo') && !t.heldAt,
   },
   {
     key: 'ready',
@@ -86,6 +86,7 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     // needs-a-human states), read VERBATIM from claimReason. Legacy fallback (no
     // byId) reads the old enum so unmigrated callers are unchanged.
     match: (t, byId) => {
+      if (t.heldAt != null) return true;
       if (byId == null) return t.status === 'blocked';
       const r = claimReason(t, byId);
       return r === 'held' || r === 'dep-rejected' || r === 'deps-pending' || r === 'rejected';
