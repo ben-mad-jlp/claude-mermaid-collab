@@ -198,3 +198,24 @@ export function setWatchState(project: string, signalKey: string, state: string)
     ).run(signalKey, state, nowIso());
   });
 }
+
+/** Canonical KV key for the DF3 triage "this recurring reason already has a
+ *  filed todo" marker. Namespaced under friction_watch_state (no schema change). */
+const TRIAGE_ACTIONED_PREFIX = 'triage:actioned:';
+const triageActionedKey = (layer: FrictionLayer, retryReason: string) =>
+  `${TRIAGE_ACTIONED_PREFIX}${layer}:${retryReason}`;
+
+/** True iff a todo has already been filed for this (layer, reason) — DF3 dedup.
+ *  Permanent marker (MVP): once actioned, never re-filed. Future enhancement:
+ *  re-arm when the count grows materially after the prior todo is resolved. */
+export function isReasonActioned(project: string, layer: FrictionLayer, retryReason: string): boolean {
+  return getWatchState(project, triageActionedKey(layer, retryReason)) !== null;
+}
+
+/** Mark a (layer, reason) actioned by recording the filed todo id as the state
+ *  (the marker doubles as a back-pointer to the todo). Serialized via withLock. */
+export function markReasonActioned(
+  project: string, layer: FrictionLayer, retryReason: string, todoId: string,
+): Promise<void> {
+  return setWatchState(project, triageActionedKey(layer, retryReason), todoId);
+}
