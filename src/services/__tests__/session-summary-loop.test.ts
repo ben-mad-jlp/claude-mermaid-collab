@@ -18,8 +18,12 @@ import {
   parseInterpretJson,
   pushSessionSummary,
   getSelfSummaryNudgeConfig,
+  shouldSelfNudge,
+  runSelfSummaryNudgePass,
+  setSelfSummaryNudgeConfig,
   type SummaryTickDeps,
   type InterpreterStructured,
+  type SessionSummaryEntry,
 } from '../session-summary-loop.ts';
 
 // Isolate SQLite per test via MERMAID_DATA_DIR.
@@ -887,6 +891,8 @@ describe('interpret fallback defers to fresh self-push', () => {
     await __drainInterpreters();
 
     expect(interpretCallCount).toBe(0); // self-push is fresh — interpret is the fallback, not run
+    // No interpret ran ⇒ no outcome recorded ⇒ health attempts stays 0
+    expect(getSummaryHealth({ now: withinWindow + 2 }).attempts).toBe(0);
   });
 
   it('stale self-push ⇒ interpret runs', async () => {
@@ -964,5 +970,178 @@ describe('interpret fallback defers to fresh self-push', () => {
 
     expect(result.ok).toBe(true);
     expect(interpretCallCount).toBe(1); // force refresh bypasses the self-push gate
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Nudge-pass gate — pure + pass-level tests
+// ---------------------------------------------------------------------------
+
+describe('shouldSelfNudge (pure gate)', () => {
+  const INTERVAL = 5 * 60_000;
+  const NOW = 10 * 60_000;
+
+  function entry(over: Partial<SessionSummaryEntry> = {}): SessionSummaryEntry {
+    return {
+      project: P, session: S, tmux: 'mc-alpha-worker-1',
+      paneHash: 'h', paneSeenAt: 0, quietWindows: 1,
+      progressState: 'quiet', updatedAt: 0,
+      ...over,
+    };
+  }
+
+  it('quiet + no question + never self-pushed + never nudged → true', () => {
+    expect(shouldSelfNudge(entry(), -Infinity, NOW, INTERVAL)).toBe(true);
+  });
+
+  it('non-quiet progressState → false', () => {
+    for (const state of ['active', 'stalled', 'wedged', 'unknown'] as const) {
+      expect(shouldSelfNudge(entry({ progressState: state }), -Infinity, NOW, INTERVAL)).toBe(false);
+    }
+  });
+
+  it('parked open question → false', () => {
+    const e = entry({ structured: { paragraph: 'x', status: 'idle', question: 'Which way?' } });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('on-screen prompt (status needs-input) → false', () => {
+    const e = entry({ structured: { paragraph: 'x', status: 'needs-input' } });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('re-nudge throttle (last nudge < intervalMs ago) → false', () => {
+    // last nudge only 60s ago
+    expect(shouldSelfNudge(entry(), NOW - 60_000, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('self-pushed recently → false', () => {
+    const e = entry({ lastSelfPushAt: NOW - 60_000 });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('stale self-push (older than interval) → true', () => {
+    const e = entry({ lastSelfPushAt: NOW - 6 * 60_000 });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(true);
+  });
+});
+
+describe('runSelfSummaryNudgePass (pass orchestration)', () => {
+  const INTERVAL = 5 * 60_000;
+  const NOW = 10 * 60_000;
+
+  function quietEntry(over: Partial<SessionSummaryEntry> = {}): SessionSummaryEntry {
+    return {
+      project: P, session: S, tmux: 'mc-alpha-worker-1',
+      paneHash: 'h', paneSeenAt: 0, quietWindows: 1,
+      progressState: 'quiet', updatedAt: 0,
+      ...over,
+    };
+  }
+
+  it('disabled config → no-op, nudge not called', async () => {
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const result = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: false, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge,
+      now: () => NOW,
+    });
+    expect(result).toEqual({ scanned: 0, eligible: 0, nudged: [] });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('nudges ONLY quiet + no-pending-question + stale-self-push sessions', async () => {
+    const S2 = 'worker-2';
+    const S3 = 'worker-3';
+    const S4 = 'worker-4';
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const entries: SessionSummaryEntry[] = [
+      quietEntry({ session: S }),                                                   // eligible
+      { ...quietEntry(), session: S2, progressState: 'active' },                   // not quiet
+      { ...quietEntry(), session: S3,
+        structured: { paragraph: 'x', status: 'idle', question: 'Q?' } },         // has question
+      { ...quietEntry(), session: S4, lastSelfPushAt: NOW },                       // fresh push
+    ];
+    const result = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => entries,
+      nudge,
+      now: () => NOW,
+    });
+    expect(result.eligible).toBe(1);
+    expect(result.nudged).toEqual([S]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([P, S]);
+  });
+
+  it('skips active and question-parked sessions (never passed to nudge)', async () => {
+    const S_ACTIVE = 'worker-active';
+    const S_QPEND = 'worker-qpend';
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const entries: SessionSummaryEntry[] = [
+      { ...quietEntry(), session: S_ACTIVE, progressState: 'active' },
+      { ...quietEntry(), session: S_QPEND,
+        structured: { paragraph: 'x', status: 'idle', question: 'Next step?' } },
+    ];
+    await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => entries,
+      nudge,
+      now: () => NOW,
+    });
+    const calledSessions = calls.map(([, s]) => s);
+    expect(calledSessions).not.toContain(S_ACTIVE);
+    expect(calledSessions).not.toContain(S_QPEND);
+  });
+
+  it("'busy'/'no-tmux' does NOT advance the throttle → retried next pass", async () => {
+    let result1Return: 'sent' | 'busy' | 'no-tmux' = 'busy';
+    const calls1: Array<[string, string]> = [];
+    const nudge1 = async (p: string, s: string) => { calls1.push([p, s]); return result1Return; };
+
+    // Pass 1 — busy → throttle NOT advanced
+    const r1 = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge: nudge1,
+      now: () => NOW,
+    });
+    expect(r1.nudged).toEqual([]);
+
+    // Pass 2 at same NOW — nudge returns 'sent' this time → should succeed since throttle not set
+    result1Return = 'sent';
+    const calls2: Array<[string, string]> = [];
+    const nudge2 = async (p: string, s: string) => { calls2.push([p, s]); return 'sent' as const; };
+    const r2 = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge: nudge2,
+      now: () => NOW,
+    });
+    expect(r2.nudged).toEqual([S]);
+  });
+
+  it("'sent' advances the throttle → not re-nudged within interval", async () => {
+    const fixedT = NOW;
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const passDeps = {
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge,
+      now: () => fixedT,
+    };
+
+    // Pass 1 — should nudge
+    const r1 = await runSelfSummaryNudgePass(passDeps);
+    expect(r1.nudged).toEqual([S]);
+
+    // Pass 2 at same time — throttle was advanced, so not eligible
+    const r2 = await runSelfSummaryNudgePass(passDeps);
+    expect(r2.nudged).toEqual([]);
   });
 });
