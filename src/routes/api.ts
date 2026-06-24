@@ -3134,6 +3134,7 @@ export async function handleAPI(
     const { breakerOpen, breakerOpenUntil, pausedLeavesFor } = await import('../services/headless-breaker');
     const { listLeafRuns } = await import('../services/ledger-stats');
     const { listSupervisorAudit } = await import('../services/supervisor-store');
+    const { maxInflightGlobal, maxInflightPerProject, inflightActive } = await import('../services/inflight-limiter');
     const project = url.searchParams.get('project') ?? undefined;
     const epicId = url.searchParams.get('epicId') ?? undefined;
     const failLimit = Number(url.searchParams.get('failLimit') ?? 20);
@@ -3170,6 +3171,13 @@ export async function handleAPI(
         claimSuppression = await diagnoseClaimSuppression(project);
       } catch { /* best-effort transparency */ }
     }
+    // Concurrency caps + LIVE in-flight counts (the in-process limiter the fire-and-track
+    // dispatcher enforces). `active` is the authoritative reserved-slot count the cap gates
+    // against — it's why a project with N claimable leaves only runs `project.max` at once.
+    const limits = {
+      global: { max: maxInflightGlobal(), active: inflightActive() },
+      ...(project ? { project: { max: maxInflightPerProject(), active: inflightActive(project) } } : {}),
+    };
     return Response.json({
       now,
       inflight,
@@ -3177,6 +3185,7 @@ export async function handleAPI(
       paused,
       recentSpawns,
       failures,
+      limits,
       ...(claimSuppression ? { claimSuppression } : {}),
     });
   }

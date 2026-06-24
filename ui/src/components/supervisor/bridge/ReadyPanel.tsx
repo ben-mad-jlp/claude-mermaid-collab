@@ -30,16 +30,22 @@ function byClaimPriority(a: SessionTodo, b: SessionTodo): number {
 
 export interface ReadyPanelProps {
   todos: SessionTodo[];
+  /** AUTHORITATIVE claimable ids from the daemon read-model (claimSuppression.claimableIds).
+   *  When provided, the panel shows EXACTLY this set so it agrees with the Ready tab count —
+   *  the local isClaimable() predicate OVER-counts because it can't run the daemon's
+   *  probe / git-stranded / headless / breaker gates. Falls back to local when null. */
+  claimableIds?: string[] | null;
   onSelectTodo?: (todo: SessionTodo) => void;
 }
 
-export const ReadyPanel: React.FC<ReadyPanelProps> = ({ todos, onSelectTodo }) => {
+export const ReadyPanel: React.FC<ReadyPanelProps> = ({ todos, claimableIds, onSelectTodo }) => {
   const ready = useMemo(() => {
     const byId = buildById(todos);
+    const claimSet = claimableIds ? new Set(claimableIds) : null;
     return excludeEpics(todos)
-      .filter((t) => isClaimable(t, byId))
+      .filter((t) => (claimSet ? claimSet.has(t.id) : isClaimable(t, byId)))
       .sort(byClaimPriority);
-  }, [todos]);
+  }, [todos, claimableIds]);
 
   if (ready.length === 0) {
     return <div className="p-4 text-sm text-gray-400 dark:text-gray-500">Nothing ready — the queue is empty or everything's blocked/in-flight.</div>;

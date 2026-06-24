@@ -58,6 +58,12 @@ interface DaemonStatus {
     pathTaken?: string | null;
     nodesSpent?: number;
   }>;
+  // Fire-and-track concurrency caps + live in-flight counts (the in-process limiter).
+  // `active` is the authoritative reserved-slot count the cap gates against.
+  limits?: {
+    global: { max: number; active: number };
+    project?: { max: number; active: number };
+  };
 }
 
 // Slow bounded poll — this is evidence, not a live tail. ws nudge is the primary refresh.
@@ -73,7 +79,25 @@ function fmtDuration(ms: number | null | undefined): string {
   return `${m}m${s}s`;
 }
 
-const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; onResetBreaker?: () => void }> = ({ daemon, tick, onResetBreaker }) => {
+/** One concurrency-pool row: "active / max" with a FULL badge at the ceiling. */
+const PoolRow: React.FC<{ label: string; active: number; max: number }> = ({ label, active, max }) => {
+  const full = active >= max;
+  return (
+    <div className="flex items-center gap-2 py-0.5 tabular-nums">
+      <span className="text-gray-500 dark:text-gray-300 truncate max-w-[10rem]">{label}</span>
+      <span className={`ml-auto ${full ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-gray-700 dark:text-gray-200'}`}>
+        {active}/{max}
+      </span>
+      {full && (
+        <span className="rounded px-1 text-3xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+          FULL
+        </span>
+      )}
+    </div>
+  );
+};
+
+const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; projectLabel?: string; onResetBreaker?: () => void }> = ({ daemon, tick, projectLabel, onResetBreaker }) => {
   void tick; // triggers re-render each second for elapsed display
   if (!daemon) return null;
   const hasBreaker = daemon.breaker.open;
@@ -81,9 +105,25 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; onRes
   const hasPaused = daemon.paused.length > 0;
   const hasSpawns = daemon.recentSpawns.length > 0;
   const hasFailures = daemon.failures.length > 0;
-  if (!hasBreaker && !hasInflight && !hasPaused && !hasSpawns && !hasFailures) return null;
+  const hasLimits = !!daemon.limits;
+  if (!hasBreaker && !hasInflight && !hasPaused && !hasSpawns && !hasFailures && !hasLimits) return null;
   return (
     <div className="px-3 pb-3 border-b border-gray-200/70 dark:border-gray-700/70 space-y-2 pt-3">
+      {/* Sub-block 0: Concurrency pools — global + per-project headroom (active/max). */}
+      {daemon.limits && (
+        <div data-testid="daemon-pools" className="text-2xs">
+          <div className="uppercase tracking-wide text-gray-400 mb-1">concurrency pools</div>
+          <PoolRow label="global" active={daemon.limits.global.active} max={daemon.limits.global.max} />
+          {daemon.limits.project && (
+            <PoolRow
+              label={projectLabel ?? 'this project'}
+              active={daemon.limits.project.active}
+              max={daemon.limits.project.max}
+            />
+          )}
+        </div>
+      )}
+
       {/* Sub-block 1: Breaker badge */}
       <div
         data-testid="daemon-breaker"
@@ -330,6 +370,7 @@ export const ExecutorStatsPanel: React.FC<{
       <DaemonSection
         daemon={daemon}
         tick={tick}
+        projectLabel={project ? project.split('/').filter(Boolean).pop() : undefined}
         onResetBreaker={() => {
           void fetch('/api/leaf-executor/breaker-reset', { method: 'POST' }).catch(() => {});
           setRefetchNonce((n) => n + 1);

@@ -117,7 +117,7 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
     });
     return () => sub.unsubscribe();
   }, []);
-  const shouldPoll = inflightTodos.length > 0;
+  const shouldPoll = inflightTodos.length > 0 || (daemon?.inflight?.length ?? 0) > 0;
   const pollRef = useRef(shouldPoll);
   pollRef.current = shouldPoll;
   useEffect(() => {
@@ -126,11 +126,6 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
     return () => clearInterval(id);
   }, [shouldPoll]);
 
-  const byLeaf = useMemo(() => {
-    const m = new Map<string, InflightLeaf>();
-    for (const r of daemon?.inflight ?? []) m.set(r.leafId, r);
-    return m;
-  }, [daemon]);
   const pausedSet = useMemo(
     () => new Set((daemon?.paused ?? []).map((p) => p.todoId)),
     [daemon],
@@ -138,7 +133,24 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
   const runningCount = (daemon?.inflight ?? []).length;
   const breakerOpen = !!daemon?.breaker?.open;
 
-  if (inflightTodos.length === 0) {
+  // AUTHORITATIVE in-flight SET = union of (a) the daemon's live leaf-inflight ledger —
+  // the headless leaves running RIGHT NOW, which a local funnel misses because a headless
+  // leaf doesn't flip its todo's local status — and (b) the local claimed/in_progress
+  // todos (the "between nodes" case the ledger drops). Joined on leafId === todoId. Without
+  // (a) an actively-building project read "0 in flight" while two leaves blueprinted.
+  const rows = useMemo(() => {
+    const m = new Map<string, { id: string; title: string; todo?: SessionTodo; leaf?: InflightLeaf }>();
+    for (const t of inflightTodos) m.set(t.id, { id: t.id, title: t.title ?? t.id, todo: t });
+    for (const leaf of daemon?.inflight ?? []) {
+      const ex = m.get(leaf.leafId);
+      if (ex) { ex.leaf = leaf; continue; }
+      const t = todos.find((x) => x.id === leaf.leafId);
+      m.set(leaf.leafId, { id: leaf.leafId, title: t?.title ?? leaf.leafId.slice(0, 8), todo: t, leaf });
+    }
+    return [...m.values()];
+  }, [inflightTodos, daemon, todos]);
+
+  if (rows.length === 0) {
     return (
       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
         <span className="text-gray-400" aria-hidden="true">○</span>
@@ -151,7 +163,7 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
     <div data-testid="inflight-panel" className="space-y-2">
       {/* Roster header — in-flight count, how many are actively running a node, breaker. */}
       <div className="flex flex-wrap items-center gap-2 text-2xs text-gray-500 dark:text-gray-400">
-        <span className="font-semibold text-info-700 dark:text-info-400">{inflightTodos.length} in flight</span>
+        <span className="font-semibold text-info-700 dark:text-info-400">{rows.length} in flight</span>
         {runningCount > 0 && (
           <>
             <span className="text-gray-400">·</span>
@@ -167,15 +179,17 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
       </div>
 
       <div className="space-y-1.5">
-        {inflightTodos.map((t) => {
-          const leaf = byLeaf.get(t.id);
+        {rows.map((row) => {
+          const leaf = row.leaf;
+          const t = row.todo;
           const running = !!leaf;
           const nodeLabel = leaf?.nodeKind ? NODE_LABEL[leaf.nodeKind] ?? leaf.nodeKind : null;
           const elapsed = leaf ? now - leaf.startedAt : null;
-          const paused = pausedSet.has(t.id);
+          const paused = pausedSet.has(row.id);
+          const clickable = !!(onSelectTodo && t);
           return (
             <div
-              key={t.id}
+              key={row.id}
               data-testid="inflight-row"
               className="rounded border border-info-200 dark:border-info-900/50 bg-info-50/40 dark:bg-info-900/15 px-2.5 py-2 space-y-1"
             >
@@ -188,11 +202,11 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={onSelectTodo ? () => onSelectTodo(t) : undefined}
-                  title={onSelectTodo ? `Open ${t.title} — full headless run stats` : t.title}
-                  className={`flex-1 min-w-0 truncate text-left text-xs font-medium text-gray-800 dark:text-gray-100 ${onSelectTodo ? 'hover:underline cursor-pointer' : 'cursor-default'}`}
+                  onClick={clickable ? () => onSelectTodo!(t!) : undefined}
+                  title={clickable ? `Open ${row.title} — full headless run stats` : row.title}
+                  className={`flex-1 min-w-0 truncate text-left text-xs font-medium text-gray-800 dark:text-gray-100 ${clickable ? 'hover:underline cursor-pointer' : 'cursor-default'}`}
                 >
-                  {t.title}
+                  {row.title}
                 </button>
                 {elapsed != null && (
                   <span className="shrink-0 text-2xs tabular-nums text-gray-600 dark:text-gray-300" title="time on current node">
@@ -217,7 +231,7 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
                 {leaf?.attempt != null && leaf.attempt > 1 && (
                   <span title="attempt">attempt {leaf.attempt}</span>
                 )}
-                {typeof t.retryCount === 'number' && t.retryCount > 0 && (
+                {typeof t?.retryCount === 'number' && t.retryCount > 0 && (
                   <span className="text-warning-600 dark:text-warning-400" title="lease retries">⟳{t.retryCount}</span>
                 )}
               </div>

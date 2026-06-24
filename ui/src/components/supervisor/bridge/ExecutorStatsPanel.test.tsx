@@ -142,6 +142,22 @@ describe('ExecutorStatsPanel', () => {
     expect(band.textContent).toContain('OPEN');
   });
 
+  it('renders the concurrency pools section: global + per-project caps with a FULL badge', async () => {
+    const DAEMON_POOLS = {
+      ...DAEMON_IDLE,
+      limits: { global: { max: 4, active: 3 }, project: { max: 2, active: 2 } },
+    };
+    global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_POOLS }) as any;
+    render(<ExecutorStatsPanel project="/Users/me/Code/build123d-ocp-mcp" />);
+    await waitFor(() => expect(screen.getByTestId('daemon-pools')).toBeTruthy());
+    const pools = screen.getByTestId('daemon-pools');
+    expect(pools.textContent).toContain('global');
+    expect(pools.textContent).toContain('3/4'); // global active/max
+    expect(pools.textContent).toContain('build123d-ocp-mcp'); // per-project label = basename
+    expect(pools.textContent).toContain('2/2'); // per-project at ceiling
+    expect(pools.textContent).toContain('FULL'); // ceiling badge
+  });
+
   it('shows running inflight leaf in daemon-inflight section', async () => {
     global.fetch = mockFetchRouter({ '/stats': HEALTHY, '/daemon': DAEMON_ACTIVE }) as any;
     render(<ExecutorStatsPanel project="p" />);

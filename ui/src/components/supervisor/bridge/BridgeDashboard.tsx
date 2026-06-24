@@ -54,6 +54,7 @@ import { getWebSocketClient } from '@/lib/websocket';
 // cross-instance escalation that misses the per-process broadcast still surfaces
 // within the same window the worker card turns red.
 const ESCALATION_POLL_MS = 10_000;
+const DAEMON_COUNTS_POLL_MS = 10_000;
 
 export interface BridgeDashboardProps {
   /**
@@ -203,6 +204,34 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
     const id = setInterval(() => { void loadEscalations(serverScope, 'open'); }, ESCALATION_POLL_MS);
     return () => clearInterval(id);
   }, [serverScope, loadEscalations]);
+
+  // AUTHORITATIVE Ready / In-flight counts from the daemon read-model (the same
+  // /api/leaf-executor/daemon the Executor tab polls). The local todo-derived counts
+  // drift from reality: `Ready` OVER-counts (it skips the daemon's probe / git-stranded /
+  // headless / breaker gates) and `In-flight` UNDER-counts (a headless leaf doesn't flip
+  // its todo's local status, so an actively-building project read 0). Prefer the daemon's
+  // numbers; fall back to the local derivation until the first poll lands.
+  const [daemonCounts, setDaemonCounts] = useState<{ claimable: number | null; inflight: number | null; claimableIds: string[] | null }>({ claimable: null, inflight: null, claimableIds: null });
+  useEffect(() => {
+    if (!project) { setDaemonCounts({ claimable: null, inflight: null, claimableIds: null }); return; }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/leaf-executor/daemon?project=${encodeURIComponent(project)}`);
+        if (!res.ok || cancelled) return;
+        const d = await res.json();
+        if (cancelled) return;
+        setDaemonCounts({
+          claimable: typeof d?.claimSuppression?.claimable === 'number' ? d.claimSuppression.claimable : null,
+          inflight: Array.isArray(d?.inflight) ? d.inflight.length : null,
+          claimableIds: Array.isArray(d?.claimSuppression?.claimableIds) ? d.claimSuppression.claimableIds : null,
+        });
+      } catch { /* best-effort; keep the last good / local fallback */ }
+    };
+    void poll();
+    const id = setInterval(() => { void poll(); }, DAEMON_COUNTS_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [project]);
 
   const projectAudit = auditByProject[project];
   useEffect(() => {
@@ -502,8 +531,8 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                   {([
                     { key: 'escalations', label: 'Escalations', count: blockerEscalations.length, loud: true },
                     { key: 'land', label: 'Land', count: landEscalations.length, info: true },
-                    { key: 'inflight', label: 'In-flight', count: inflightCount, info: true },
-                    { key: 'ready', label: 'Ready', count: readyCount, info: true },
+                    { key: 'inflight', label: 'In-flight', count: daemonCounts.inflight ?? inflightCount, info: true },
+                    { key: 'ready', label: 'Ready', count: daemonCounts.claimable ?? readyCount, info: true },
                     { key: 'subscribers', label: 'Subscribers' },
                     { key: 'stream', label: 'Stream' },
                     { key: 'executor', label: 'Executor' },
@@ -552,7 +581,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
                     <div className="p-2"><InflightPanel todos={todos} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
                   )}
                   {bridgeTab === 'ready' && (
-                    <ReadyPanel todos={todos} onSelectTodo={handleSelectTodo} />
+                    <ReadyPanel todos={todos} claimableIds={daemonCounts.claimableIds} onSelectTodo={handleSelectTodo} />
                   )}
                   {bridgeTab === 'subscribers' && (
                     <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />
