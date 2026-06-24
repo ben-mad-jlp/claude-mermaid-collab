@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordFriction, listFriction, _closeProject } from '../friction-store';
+import { recordFriction, listFriction, _closeProject, getWatchState, setWatchState } from '../friction-store';
 
 let project: string;
 
@@ -93,5 +93,36 @@ describe('friction-store', () => {
     const notes = listFriction(project, { todoId: 't1' });
     expect(notes.length).toBe(1);
     expect(notes[0].retryReason).toBe('persisted');
+  });
+});
+
+describe('friction-store watch-state KV', () => {
+  it('returns null for an unset key', () => {
+    expect(getWatchState(project, 'watch:unset')).toBeNull();
+  });
+
+  it('round-trips a set value', async () => {
+    await setWatchState(project, 'watch:unlanded-threshold', 'over');
+    expect(getWatchState(project, 'watch:unlanded-threshold')).toBe('over');
+  });
+
+  it('upserts (second set overwrites, no duplicate row)', async () => {
+    const key = 'watch:stale-wt:/tmp/wt-a';
+    await setWatchState(project, key, 'branch-gone');
+    await setWatchState(project, key, 'stale');
+    expect(getWatchState(project, key)).toBe('stale');
+  });
+
+  it('keeps distinct keys independent', async () => {
+    await setWatchState(project, 'watch:a', 'x');
+    await setWatchState(project, 'watch:b', 'y');
+    expect(getWatchState(project, 'watch:a')).toBe('x');
+    expect(getWatchState(project, 'watch:b')).toBe('y');
+  });
+
+  it('persists across a reopened handle', async () => {
+    await setWatchState(project, 'watch:persist', 'over');
+    _closeProject(project); // drop cached handle → reopen DB file
+    expect(getWatchState(project, 'watch:persist')).toBe('over');
   });
 });

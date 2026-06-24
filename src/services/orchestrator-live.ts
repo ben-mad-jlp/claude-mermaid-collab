@@ -21,6 +21,7 @@ import { listWatchedProjects } from './supervisor-store.js';
 import { runBuildPass } from './coordinator-live.js';
 import { runReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick } from './session-notification-tick.js';
+import { runFrictionWatchPass } from './friction-watch.js';
 import { runSessionSummaryTick, runSelfSummaryNudgePass } from './session-summary-loop.js';
 import { runTriagePass } from './triage-pass.js';
 import { projectRegistry } from './project-registry.js';
@@ -200,6 +201,10 @@ export interface TickDeps {
    *  Runs for every WATCHED project regardless of level (decoupled from build).
    *  Default: runNotificationTick. */
   notify?: (project: string) => Promise<unknown>;
+  /** One deterministic operational-friction watch pass (unlanded-epic backlog, stale
+   *  worktrees). Runs for every WATCHED project regardless of level, like notify.
+   *  Default: runFrictionWatchPass. */
+  frictionWatch?: (project: string) => Promise<unknown>;
   triage?: (project: string, opts: { autoResolve: boolean }) => Promise<void>;
   /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
    *  (so nothing runs that the human isn't watching). Default: the watched_project table. */
@@ -218,6 +223,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const build = deps.build ?? runBuildPass;
   const reconcile = deps.reconcile ?? runReconcilePass;
   const notify = deps.notify ?? runNotificationTick;
+  const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
   const triage = deps.triage ?? ((project: string, opts: { autoResolve: boolean }) => runTriagePass(project, { autoResolve: opts.autoResolve }));
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
   const setLevel = deps.setLevel ?? setOrchestratorLevel;
@@ -267,6 +273,18 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         await withPassTimeout(notify(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:notify`);
       } catch (err) {
         console.warn(`[orchestrator] notify failed for ${project}:`, err);
+      }
+    }
+
+    // Operational-friction watch (DF2): record unlanded-epic backlog + stale worktrees as
+    // operational friction. Runs for every WATCHED project regardless of level — same as
+    // notify — since observability is not gated on autonomous building. No LLM; best-effort.
+    if (watched.has(project)) {
+      try {
+        currentPhase = `${project}:friction-watch`;
+        await withPassTimeout(frictionWatch(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-watch`);
+      } catch (err) {
+        console.warn(`[orchestrator] friction-watch failed for ${project}:`, err);
       }
     }
 
