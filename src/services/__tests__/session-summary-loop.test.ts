@@ -17,6 +17,7 @@ import {
   isInterpretRateLimited,
   parseInterpretJson,
   pushSessionSummary,
+  getSelfSummaryNudgeConfig,
   type SummaryTickDeps,
   type InterpreterStructured,
 } from '../session-summary-loop.ts';
@@ -854,5 +855,114 @@ describe('interpret observability', () => {
     const h = getSummaryHealth({ now: 1_000_000 });
     expect(h.attempts).toBe(0);
     expect(h.successRate).toBe(1);
+  });
+});
+
+describe('interpret fallback defers to fresh self-push', () => {
+  it('fresh self-push ⇒ no interpret fired', async () => {
+    const { intervalMs } = getSelfSummaryNudgeConfig();
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+    const pushTime = 1000;
+
+    // Seed an entry
+    await runSessionSummaryTick(makeDeps({ capture: async () => pane, now: () => pushTime }));
+
+    // Self-push at pushTime
+    pushSessionSummary(P, S, { paragraph: 'Self-reported.', status: 'working' });
+
+    // Change pane so change-gate would open, advance past throttle, but stay within staleness window
+    pane = 'pane-B';
+    const withinWindow = pushTime + Math.floor(intervalMs / 2);
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => withinWindow,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Interpreted.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Two ticks to ensure change-gate is open (second tick sees different prev hash)
+    await runSessionSummaryTick(deps);
+    await runSessionSummaryTick({ ...deps, now: () => withinWindow + 1 });
+    await __drainInterpreters();
+
+    expect(interpretCallCount).toBe(0); // self-push is fresh — interpret is the fallback, not run
+  });
+
+  it('stale self-push ⇒ interpret runs', async () => {
+    const { intervalMs } = getSelfSummaryNudgeConfig();
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+
+    // Seed an entry
+    await runSessionSummaryTick(makeDeps({ capture: async () => pane, now: () => 1000 }));
+
+    // Self-push — lastSelfPushAt is stamped with real Date.now() inside pushSessionSummary
+    pushSessionSummary(P, S, { paragraph: 'Self-reported.', status: 'working' });
+    // Capture real push time AFTER the call so beyondWindow is relative to the actual timestamp
+    const pushTime = Date.now();
+
+    // Advance time well past the staleness window
+    pane = 'pane-B';
+    const beyondWindow = pushTime + intervalMs + 60_000;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => beyondWindow,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Interpreted.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+
+    expect(interpretCallCount).toBeGreaterThanOrEqual(1); // stale push → interpret backstop fires
+  });
+
+  it('no self-push (never pushed) ⇒ interpret runs via normal path', async () => {
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+    let t = 1000;
+
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Interpreted.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed
+    await runSessionSummaryTick(deps);
+
+    // Change pane + advance past throttle — no self-push, so interpret runs normally
+    pane = 'pane-B';
+    t = 50_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+
+    expect(interpretCallCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('force refresh (refreshSummaryNow) ignores fresh self-push and still calls interpret', async () => {
+    const { intervalMs } = getSelfSummaryNudgeConfig();
+    let interpretCallCount = 0;
+    const pushTime = 1000;
+
+    // Seed an entry
+    await runSessionSummaryTick(makeDeps({ capture: async () => 'pane-content', now: () => pushTime }));
+
+    // Self-push — still fresh
+    pushSessionSummary(P, S, { paragraph: 'Self-reported.', status: 'working' });
+
+    // Force refresh while the push is still within the staleness window
+    const withinWindow = pushTime + Math.floor(intervalMs / 2);
+    const result = await refreshSummaryNow(P, S, makeDeps({
+      capture: async () => 'pane-content',
+      now: () => withinWindow,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Force-refreshed.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(interpretCallCount).toBe(1); // force refresh bypasses the self-push gate
   });
 });
