@@ -33,6 +33,7 @@ import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
+import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -1582,6 +1583,12 @@ export async function runLeaf(
       }
     }
 
+    // WORKTREE WRITE-LEAK MITIGATION: snapshot the MAIN checkout's dirty set BEFORE any
+    // writing node, so the pre-review sweep can detect+relocate files the CLI leaked to
+    // the main repo root (gitlink/common-dir root detection) instead of this worktree.
+    let rootSnap: RootSnapshot | null = null;
+    try { rootSnap = snapshotMainCheckout(cwd); } catch { /* best-effort */ }
+
     if (!shouldUseFloor(manifest)) {
       pathTaken = 'waves';
       // Lift the runaway ceiling to the size-aware waves budget (unless a test pinned one),
@@ -1616,6 +1623,15 @@ export async function runLeaf(
     let reuses = 0;
     let prevFindings = '';
     for (;;) {
+      // Relocate any files the implement/wimplement/fix nodes leaked to the MAIN checkout
+      // back into THIS worktree before the review node runs `git status` here — otherwise a
+      // correct implementation reads as "file absent" → false FAIL → thrash. Best-effort.
+      if (rootSnap) {
+        try {
+          const swept = sweepLeakedWrites(cwd, rootSnap);
+          if (swept.length) console.warn(`[leaf-executor] worktree write-leak: relocated ${swept.length} leaked file(s) from the main checkout into the worktree (${swept.slice(0, 5).join(', ')}${swept.length > 5 ? ', …' : ''})`);
+        } catch { /* never break the run on the mitigation */ }
+      }
       const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
       if (review.rateLimited) return pausedResult('review', review);
       reviewVerdict = parseVerdict(review.text);
