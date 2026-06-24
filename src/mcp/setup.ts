@@ -104,8 +104,10 @@ import {
 import {
   recordFrictionTool,
   listFrictionTool,
+  reportDogfoodTool,
   recordFrictionSchema,
   listFrictionSchema,
+  reportDogfoodSchema,
 } from './tools/friction.js';
 import {
   listSessionTodos,
@@ -2092,13 +2094,18 @@ IMPORTANT - Common pitfalls to avoid:
       // Friction-signal tools (SEAM·collab)
       {
         name: 'record_friction',
-        description: 'Record a structured friction note for a worker attempt: the retry reason + LAYER (orchestration = collab harness friction like gate format / wrong test command; domain = the project code/API the worker was editing). Persisted per-project to .collab/friction.db so failure attribution is queryable instead of lost in the worker transcript.',
+        description: 'Record a structured friction note: the retry reason + LAYER (orchestration = collab harness friction like gate format / wrong test command; domain = the project code/API the worker was editing; operational = systemic/dogfood friction any agent can log without a leaf scope). todoId is now optional — operational notes are not leaf-scoped. Persisted per-project to .collab/friction.db so failure attribution is queryable instead of lost in the worker transcript.',
         inputSchema: recordFrictionSchema,
       },
       {
         name: 'list_friction',
         description: 'Query persisted friction notes (newest first). Filter by todoId / session / layer — e.g. layer="domain" answers "which todos hit domain-layer friction and why" without opening each worker\'s private transcript.',
         inputSchema: listFrictionSchema,
+      },
+      {
+        name: 'report_dogfood',
+        description: 'Convenience: log a systemic dogfood/operational friction note that ANY agent (worker/daemon/watcher/human) can emit — records an operational-LAYER friction note. Thin wrapper over record_friction with layer="operational" and retryReason=reason; todoId optional (operational notes are not leaf-scoped). Surfaces in list_friction / friction_trends alongside orchestration & domain.',
+        inputSchema: reportDogfoodSchema,
       },
       // Session todos tools
       {
@@ -2176,7 +2183,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'epic_branch_status', description: "Read-only git landing status per [EPIC]. For each epic, reports its collab/epic/<id8> accumulation branch: exists?, ahead (unlanded commits vs master), behind (master commits the branch lacks), mergeable (trial merge has no conflicts), and landLeafDone (its [LAND] leaf is done). Flags `stranded` epics — branch ahead>0 but land leaf not done, i.e. 'done on the graph, unlanded on master' (the BP0 stranding). Pure git reads (rev-list/merge-tree), no mutation. Returns { project, baseRef, epics[], strandedCount }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose epics to check.' }, baseRef: { type: 'string', description: "Base branch to compare against (default 'master')." } }, required: ['project'] } },
       { name: 'instance_topology', description: "Read-only map of every live mermaid-collab server this machine knows about, each tagged CANONICAL vs STALE SHADOW. Joins the on-disk instance records (~/.mermaid-collab/instances: port, project/session, pid, version, startedAt), the canonical :9002 ownership lockfile + a live /api/health probe (together identifying the ONE process that actually owns the canonical port), and the in-memory remote-peer registry. The live :9002 owner is tagged `canonical`; any OTHER instance also claiming :9002 is a `shadow` (the 'deploy went cosmetic because a stale source server shadows the desktop sidecar' footgun); a server on its own port is a plain `instance`. `hasShadow:true` is the warning flag. Takes no args.", inputSchema: { type: 'object', properties: {} } },
       { name: 'orchestrator_off', description: "STEWARD KILL-SWITCH (one-way): force a project's Orchestrator autonomy level to 'off', stopping the daemon from driving todos. This is the steward's ONLY autonomy control — it can ALWAYS brake but can NEVER raise the level (decision 3bf1292b). It takes no level argument; raising autonomy (build/nudge/propose/drive) stays human-only on the Bridge ladder. Reuses the server-side 'off' transition. Optional project (defaults to the server's cwd). Returns the resulting level for confirmation.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Project to brake (defaults to the current working directory).' } } } },
-      { name: 'friction_trends', description: "Read-only recurrence rollup over the friction store. Groups the most-recent friction notes by LAYER (orchestration vs domain) with counts, and within each layer by retryReason, so a repeating problem (e.g. tmux-pane accumulation showing up as repeated orchestration friction) surfaces as a high-count reason instead of being buried in list_friction's flat newest-first list. Returns { total, considered, byLayer:[{ layer, count, reasons:[{ retryReason, count, sessions[], lastAt }] }], recurring:[{ layer, retryReason, count }] } — `recurring` is the cross-layer 'what keeps going wrong' shortlist (reasons seen >1, most-recurring first).", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose friction to roll up.' }, layer: { type: 'string', enum: ['orchestration', 'domain'], description: 'Optional: restrict to one layer.' }, limit: { type: 'number', description: 'Max most-recent notes to consider (default 100, capped 1000).' } }, required: ['project'] } },
+      { name: 'friction_trends', description: "Read-only recurrence rollup over the friction store. Groups the most-recent friction notes by LAYER (orchestration vs domain vs operational) with counts, and within each layer by retryReason, so a repeating problem (e.g. tmux-pane accumulation showing up as repeated orchestration friction) surfaces as a high-count reason instead of being buried in list_friction's flat newest-first list. Returns { total, considered, byLayer:[{ layer, count, reasons:[{ retryReason, count, sessions[], lastAt }] }], recurring:[{ layer, retryReason, count }] } — `recurring` is the cross-layer 'what keeps going wrong' shortlist (reasons seen >1, most-recurring first).", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose friction to roll up.' }, layer: { type: 'string', enum: ['orchestration', 'domain', 'operational'], description: 'Optional: restrict to one layer.' }, limit: { type: 'number', description: 'Max most-recent notes to consider (default 100, capped 1000).' } }, required: ['project'] } },
       { name: 'roadmap_rollup', description: "Read-only rollup of roadmap items joined to their spawned sessions. roadmap_list returns bare items; this joins each item to its session binding (roadmap_spawn_session sets sessionName + links the created todos) and the ids of the todos linked to it, so the steward sees which roadmap items have a live session and which are still un-spawned. Returns { total, spawned, unspawned, items:[{ id, title, status, parentId, sessionName, todoIds[], todoCount }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose roadmap to roll up.' } }, required: ['project'] } },
       { name: 'reset_todo', description: "STEWARD: unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready')." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' }, proof: { type: 'object', description: "STEWARD proof the server RE-VALIDATES at act time (never trusted as asserted). One of: {kind:'merged'} (HEAD..master==0), {kind:'tsc-clean'}, {kind:'grep',symbol,present}, {kind:'dep-done'} (all deps done/accepted in store). Required for an autonomous steward act when MERMAID_STEWARD_AUTO is on; a no-proof steward act is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — links the audit + is flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate).' } }, required: ['project','todoId'] } },
       { name: 'override_accept_todo', description: 'STEWARD override-accept: force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance; records the steward as completer for provenance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'steward')." }, proof: { type: 'object', description: "STEWARD DUAL proof, server-re-validated: {kind:'override', artifactPath?|artifactSymbol? (the deliverable provably IN-TREE), foreignErrorFiles:[] (the gate failure provably OUTSIDE this todo's change-set)}. DEFAULT DEFER — without both halves the override is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate + rate limit).' }, changeSetFiles: { type: 'array', items: { type: 'string' }, description: "This todo's change-set files — used to prove the gate error is foreign." } }, required: ['project','todoId'] } },
@@ -3610,14 +3617,21 @@ IMPORTANT - Common pitfalls to avoid:
 
           case 'record_friction': {
             const a = args as {
-              project: string; todoId: string;
+              project: string; todoId?: string;
               layer: import('../services/friction-store.js').FrictionLayer;
               retryReason: string; session?: string; attempt?: number; detail?: string;
             };
-            if (!a.project || !a.todoId || !a.layer || !a.retryReason) {
-              throw new Error('Missing required: project, todoId, layer, retryReason');
+            if (!a.project || !a.layer || !a.retryReason) {
+              throw new Error('Missing required: project, layer, retryReason');
             }
             const result = await recordFrictionTool(a);
+            return JSON.stringify(result, null, 2);
+          }
+
+          case 'report_dogfood': {
+            const a = args as { project: string; reason: string; detail?: string; todoId?: string };
+            if (!a.project || !a.reason) throw new Error('Missing required: project, reason');
+            const result = await reportDogfoodTool(a);
             return JSON.stringify(result, null, 2);
           }
 

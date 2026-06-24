@@ -18,14 +18,16 @@ import { join, dirname } from 'node:path';
  * can read real evidence without opening each worker's private ~/.claude transcript.
  */
 
-/** Where the friction came from: the orchestration harness (collab) vs the
- *  project's own domain (the code/API the worker was editing). */
-export type FrictionLayer = 'orchestration' | 'domain';
+/** Where the friction came from: the orchestration harness (collab), the
+ *  project's own domain (the code/API the worker was editing), or a systemic
+ *  operational observation any agent can emit without a leaf scope. */
+export type FrictionLayer = 'orchestration' | 'domain' | 'operational';
 
 export interface FrictionNote {
   id: string;
-  /** The work-graph todo this attempt was against. */
-  todoId: string;
+  /** The work-graph todo this attempt was against. Null for operational notes
+   *  that are not scoped to a single leaf. */
+  todoId: string | null;
   /** The worker/pool session that emitted it. */
   session: string | null;
   /** 1-based attempt number (the worker's own count, not the lease retryCount). */
@@ -41,7 +43,7 @@ export interface FrictionNote {
 }
 
 export interface RecordFrictionInput {
-  todoId: string;
+  todoId?: string | null;
   session?: string | null;
   attempt?: number;
   layer: FrictionLayer;
@@ -58,7 +60,7 @@ export interface FrictionFilter {
 const DDL = `
 CREATE TABLE IF NOT EXISTS friction_notes (
   id TEXT PRIMARY KEY,
-  todoId TEXT NOT NULL,
+  todoId TEXT,
   session TEXT,
   attempt INTEGER NOT NULL DEFAULT 1,
   layer TEXT NOT NULL,
@@ -80,6 +82,23 @@ function openDb(project: string): Database {
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+
+  // Migration: older friction.db had `todoId TEXT NOT NULL`; operational notes are
+  // not leaf-scoped, so todoId must be nullable. Rebuild the table if the old
+  // constraint is present (idempotent — no-op once todoId is nullable).
+  const cols = db.prepare(`PRAGMA table_info(friction_notes)`).all() as Array<{ name: string; notnull: number }>;
+  const todoCol = cols.find((c) => c.name === 'todoId');
+  if (todoCol && todoCol.notnull === 1) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.transaction(() => {
+      db.exec(`ALTER TABLE friction_notes RENAME TO friction_notes_old`);
+      db.exec(DDL);
+      db.exec(`INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
+               SELECT id, todoId, session, attempt, layer, retryReason, detail, createdAt FROM friction_notes_old`);
+      db.exec(`DROP TABLE friction_notes_old`);
+    })();
+  }
+
   dbCache.set(project, db);
   return db;
 }
@@ -104,12 +123,12 @@ function withLock<T>(project: string, fn: () => T | Promise<T>): Promise<T> {
 
 const nowIso = () => new Date().toISOString();
 
-const VALID_LAYERS: FrictionLayer[] = ['orchestration', 'domain'];
+const VALID_LAYERS: FrictionLayer[] = ['orchestration', 'domain', 'operational'];
 
 function rowToNote(row: any): FrictionNote {
   return {
     id: row.id,
-    todoId: row.todoId,
+    todoId: row.todoId ?? null,
     session: row.session ?? null,
     attempt: row.attempt,
     layer: row.layer as FrictionLayer,
@@ -123,7 +142,6 @@ function rowToNote(row: any): FrictionNote {
  *  store is a clean orchestration-vs-domain split). Returns the stored note. */
 export function recordFriction(project: string, input: RecordFrictionInput): Promise<FrictionNote> {
   return withLock(project, () => {
-    if (!input.todoId) throw new Error('recordFriction: todoId is required');
     if (!input.retryReason) throw new Error('recordFriction: retryReason is required');
     if (!VALID_LAYERS.includes(input.layer)) {
       throw new Error(`recordFriction: layer must be one of ${VALID_LAYERS.join(' | ')} (got ${String(input.layer)})`);
@@ -135,7 +153,7 @@ export function recordFriction(project: string, input: RecordFrictionInput): Pro
     db.prepare(
       `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
        VALUES (?,?,?,?,?,?,?,?)`
-    ).run(id, input.todoId, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, ts);
+    ).run(id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, ts);
     return rowToNote(db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id));
   });
 }

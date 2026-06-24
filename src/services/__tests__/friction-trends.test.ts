@@ -7,7 +7,7 @@ let seq = 0;
 function note(partial: Partial<FrictionNote> & { layer: FrictionNote['layer']; retryReason: string }): FrictionNote {
   return {
     id: `f${++seq}`,
-    todoId: 't1',
+    todoId: null,
     session: null,
     attempt: 1,
     detail: null,
@@ -65,5 +65,21 @@ describe('summarizeFrictionTrends', () => {
       note({ layer: 'domain', retryReason: 'x', session: 'w1' }),
     ]);
     expect(r.byLayer[0].reasons[0].sessions).toEqual(['w1']);
+  });
+
+  test('operational notes roll up under their own layer group', () => {
+    const r = summarizeFrictionTrends([
+      note({ layer: 'operational', retryReason: 'stale-shadow-server' }),
+      note({ layer: 'operational', retryReason: 'stale-shadow-server' }),
+      note({ layer: 'domain', retryReason: 'cad-api-rederived' }),
+    ]);
+    const layers = r.byLayer.map((l) => l.layer);
+    expect(layers).toContain('operational');
+    const op = r.byLayer.find((l) => l.layer === 'operational')!;
+    expect(op.count).toBe(2);
+    expect(op.reasons[0].retryReason).toBe('stale-shadow-server');
+    expect(op.reasons[0].count).toBe(2);
+    // appears in recurring (count > 1)
+    expect(r.recurring.some((x) => x.layer === 'operational' && x.retryReason === 'stale-shadow-server')).toBe(true);
   });
 });
