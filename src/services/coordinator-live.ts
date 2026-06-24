@@ -19,6 +19,7 @@ import { tmuxBaseName } from './tmux-naming';
 import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
 import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
+import { reserveLeafSlot, releaseLeafSlot } from './inflight-limiter';
 import { loadProjectManifest } from '../config/project-manifest';
 import { runRegistryGate } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
@@ -1378,6 +1379,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // defaulting to DEFAULT_SLOTS_PER_TYPE when unset. Lets the daemon run up to N
     // headless leaves at once instead of awaiting each serially.
     maxConcurrency: (project: string) => getProjectPoolSize(project) ?? DEFAULT_SLOTS_PER_TYPE,
+    // Fire-and-track concurrency limiter: wiring BOTH switches the daemon tick to the
+    // fire-and-track dispatch path (claim+launch up to the global+per-project caps, then
+    // return — never await a leaf run). launchWorker (below) fires the leaf and releases
+    // its slot in the run continuation.
+    reserveLeafSlot,
+    releaseLeafSlot,
     listReadyTodos,
     // Readiness-gates P4: claim-time liveness probe filter. A todo carrying a
     // `claimProbe` (e.g. 'tcp://127.0.0.1:8082') is held out of the claimable set
@@ -1695,42 +1702,58 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
           return false;
         }
-        try {
-          const ledProject = todo.targetProject ?? project;
-          // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
-          // NODE_BUDGET bounds total spawns across all pause/resume cycles. The in-memory
-          // breaker record is freshest (graceful pause); the DURABLE leaf_resume row
-          // (slice 1b) is the fallback that survives a hard kill / hot-swap so a crashed
-          // mid-run leaf doesn't reset its budget to 20 and redo blueprint+implement.
-          const carried = pausedNodesSpent(project, todo.id) || getLeafResume(project, todo.id)?.nodesSpent || 0;
-          const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo, carried));
-          recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
-          if (res.outcome === 'paused') {
-            // The executor hit a rate cap and yielded WITHOUT backing off. The DAEMON
-            // owns the response: trip the breaker (backoff/capReset), record the leaf
-            // for exhaustion tracking, and release the claim so the ordinary claim
-            // loop re-dispatches it once the breaker closes.
-            tripBreaker(res.paused?.capReset);
-            enqueuePausedLeaf(project, todo.id, res.paused!);
-            try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
-            return false;
+        // FIRE-AND-TRACK: run the leaf in the BACKGROUND and return immediately so the
+        // orchestrator tick is never blocked on a multi-minute leaf run (the coupling that
+        // serialized the whole fleet). The leaf's in-flight slot was reserved by the tick
+        // before this call; the continuation below releases it when the run settles, and
+        // owns ALL post-run handling (audit, paused/breaker, resume, streak reset). On any
+        // pre-launch failure (makeLeafExecutorDeps throws) the continuation releases the
+        // claim + escalates, exactly as the prior inline path did.
+        const ledProject = todo.targetProject ?? project;
+        void (async () => {
+          try {
+            // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
+            // NODE_BUDGET bounds total spawns across all pause/resume cycles. The in-memory
+            // breaker record is freshest (graceful pause); the DURABLE leaf_resume row
+            // (slice 1b) is the fallback that survives a hard kill / hot-swap so a crashed
+            // mid-run leaf doesn't reset its budget to 20 and redo blueprint+implement.
+            const carried = pausedNodesSpent(project, todo.id) || getLeafResume(project, todo.id)?.nodesSpent || 0;
+            const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo, carried));
+            recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
+            if (res.outcome === 'paused') {
+              // The executor hit a rate cap and yielded WITHOUT backing off. The DAEMON
+              // owns the response: trip the breaker (backoff/capReset), record the leaf
+              // for exhaustion tracking, and release the claim so the ordinary claim
+              // loop re-dispatches it once the breaker closes.
+              tripBreaker(res.paused?.capReset);
+              enqueuePausedLeaf(project, todo.id, res.paused!);
+              try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
+              return;
+            }
+            // A non-paused outcome is TERMINAL for this dispatch (accepted/blocked/
+            // rejected/pending) — clear the in-memory paused record AND the durable
+            // resume row so a future claim starts clean (no stale carried budget).
+            recordResume(project, todo.id);
+            clearLeafResume(todo.id);
+            // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
+            // backoff STREAK (not the whole breaker) so the next isolated cap starts at
+            // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.
+            if (res.outcome === 'accepted') resetBreakerStreak();
+          } catch (e) {
+            try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
+            try {
+              createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
+                questionText: `Leaf-executor failed for "${todo.title ?? todo.id}": ${e instanceof Error ? e.message : String(e)}` });
+            } catch { /* escalation best-effort */ }
+          } finally {
+            // Release the in-flight slot the tick reserved for this leaf (fire-and-track
+            // ownership: the tick handed the slot to this run when launchWorker returned true).
+            releaseLeafSlot(ledProject);
           }
-          // A non-paused outcome is TERMINAL for this dispatch (accepted/blocked/
-          // rejected/pending) — clear the in-memory paused record AND the durable
-          // resume row so a future claim starts clean (no stale carried budget).
-          recordResume(project, todo.id);
-          clearLeafResume(todo.id);
-          // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
-          // backoff STREAK (not the whole breaker) so the next isolated cap starts at
-          // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.
-          if (res.outcome === 'accepted') resetBreakerStreak();
-          return res.outcome === 'accepted';
-        } catch (e) {
-          try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
-          createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
-            questionText: `Leaf-executor failed for "${todo.title ?? todo.id}": ${e instanceof Error ? e.message : String(e)}` });
-          return false;
-        }
+        })();
+        // Launched (fired). The tick records it as spawned and moves on without awaiting
+        // the run; the continuation above owns completion + slot release.
+        return true;
       }
 
       // P7 PHASE 2 — TMUX LANE RETIRED. The headless leaf-executor above is the SOLE
