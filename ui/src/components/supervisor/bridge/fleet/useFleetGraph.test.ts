@@ -44,6 +44,32 @@ describe('useFleetGraph', () => {
     expect(result.current.nodes.every((n) => n.type === 'todo')).toBe(true);
   });
 
+  it('forces a node to the inflight bucket when its id is in inflightLeafIds (headless leaf with no local claim)', () => {
+    // A headless leaf-executor run never flips the todo's local status/claimedBy,
+    // so without the daemon ledger it would read as its plain status. The daemon
+    // inflight set must light it up as `inflight`.
+    const todos = [todo({ id: 'L1', status: 'ready' }), todo({ id: 'L2', status: 'ready' })];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(), inflightLeafIds: new Set(['L1']) }),
+    );
+    const n1 = result.current.nodes.find((n) => n.id === 'L1')!;
+    const n2 = result.current.nodes.find((n) => n.id === 'L2')!;
+    expect((n1.data as { bucket: string }).bucket).toBe('inflight');
+    expect((n2.data as { bucket: string }).bucket).not.toBe('inflight'); // not in the set → unchanged
+  });
+
+  it('counts a headless-inflight child toward its epic inflight tally', () => {
+    const todos = [
+      todo({ id: 'E1' }),
+      todo({ id: 'A', parentId: 'E1', status: 'ready' }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(), inflightLeafIds: new Set(['A']) }),
+    );
+    const epic = result.current.nodes.find((n) => n.id === 'E1')!;
+    expect((epic.data as { counts: Record<string, number> }).counts.inflight).toBe(1);
+  });
+
   it('treats a todo with children as a collapsed epic by default', () => {
     const todos = [todo({ id: 'E1' }), todo({ id: 'A', parentId: 'E1' })];
     const { result } = renderHook(() =>

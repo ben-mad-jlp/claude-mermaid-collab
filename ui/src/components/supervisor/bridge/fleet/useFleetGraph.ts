@@ -47,6 +47,15 @@ export interface UseFleetGraphInput {
    * as empty (only claim-holders qualify).
    */
   spawnedSessions?: Set<string>;
+  /**
+   * Leaf/todo ids the daemon reports as RUNNING RIGHT NOW (the headless
+   * leaf-executor `inflight[]` ledger, keyed by leafId === todoId). Headless
+   * runs leave no tmux and never flip the todo's `claimedBy`/`in_progress`, so
+   * without this set a running leaf would never light up in the graph (it only
+   * shows in the InflightPanel card). A node whose id is here is forced to the
+   * `inflight` bucket — mirroring InflightPanel's daemon-ledger ∪ local union.
+   */
+  inflightLeafIds?: Set<string>;
 }
 
 const EMPTY_COUNTS = (): Record<FunnelKey, number> => ({
@@ -90,7 +99,7 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; edges: FleetEdge[] } {
-  const { todos: rawTodos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions } = input;
+  const { todos: rawTodos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions, inflightLeafIds } = input;
 
   // Hide finished work so the graph shows only what's live/pending: drop
   // completed orphan/leaf todos (no active epic parent) and any epic that is
@@ -330,6 +339,11 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       openEscalations.some(
         (e) => e.session === t.claimedBy || e.session === t.assigneeSession || e.session === t.sessionName,
       );
+    // Daemon-ledger ∪ local-status bucket: a headless leaf the daemon reports as
+    // running (id in inflightLeafIds) is `inflight` even though its todo never
+    // flips claimedBy/in_progress; otherwise fall back to the local-status bucket.
+    const bucketOf = (t: SessionTodo): FunnelKey | null =>
+      inflightLeafIds?.has(t.id) ? 'inflight' : bucketTodo(t, struct.byId);
 
     for (const t of visibleTodos) {
       const pos = positions.get(t.id) ?? { x: 0, y: 0 };
@@ -337,7 +351,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         const counts = EMPTY_COUNTS();
         let total = 0;
         for (const c of struct.childrenByEpic.get(t.id) ?? []) {
-          const b = bucketTodo(c, struct.byId);
+          const b = bucketOf(c);
           if (b) {
             counts[b] += 1;
             total += 1;
@@ -358,7 +372,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         const data: TodoNodeData = {
           kind: 'todo',
           title: t.title,
-          bucket: bucketTodo(t, struct.byId) ?? 'backlog',
+          bucket: bucketOf(t) ?? 'backlog',
           retryCount: t.retryCount ?? 0,
           danger: dangerFor(t),
         };
@@ -392,7 +406,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
     // "has parentId" guarantees every container precedes the todos inside it.
     out.sort((a, b) => (a.parentId ? 1 : 0) - (b.parentId ? 1 : 0));
     return out;
-  }, [visibleTodos, struct, todos, subs, openEscalations, positions, parentOf, epicSize, now]);
+  }, [visibleTodos, struct, todos, subs, openEscalations, positions, parentOf, epicSize, now, inflightLeafIds]);
 
   // EDGES — dep edges (muted/static) re-routed through collapsed epics so they
   // always connect visible nodes; claim edges (accent/animated) only for active

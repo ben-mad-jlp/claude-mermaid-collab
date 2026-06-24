@@ -68,11 +68,20 @@ export interface FleetGraphProps {
    * for the epic). OPTIONAL — absent → clicking an epic just spotlights it.
    */
   onSelectEpic?: (epic: { id: string; label: string }) => void;
+  /**
+   * Project whose daemon inflight ledger to poll so HEADLESS leaf runs light up
+   * as `inflight` in the graph. Headless runs leave no tmux and never flip the
+   * todo's local status, so without this the graph can't tell a building leaf
+   * from a backlog one (the count tile was fixed in 6d92a034, the graph wasn't).
+   * OPTIONAL — when absent it's derived from the todos' `targetProject`; absent
+   * everywhere → no daemon enrichment (falls back to local status buckets).
+   */
+  project?: string;
 }
 
 const LOD_LABELS: Record<Lod | 'auto', string> = { auto: 'Auto', 0: 'L0', 1: 'L1', 2: 'L2' };
 
-const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect, onSelectTodo, onSelectEpic }) => {
+const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEscalations = [], onWorkerSelect, onSelectTodo, onSelectEpic, project }) => {
   const diveIn = useDiveIn();
   const setSelectedNodeId = useDeckStore((s) => s.setSelectedNodeId);
   const forcedLod = useDeckStore((s) => s.forcedLod);
@@ -123,6 +132,38 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
     return () => clearInterval(id);
   }, []);
 
+  // Headless leaf-executor runs leave no tmux and never flip the todo's local
+  // status, so a building leaf would read as `backlog` in the graph. Poll the
+  // daemon's inflight ledger (leafId === todoId) and force those nodes to the
+  // `inflight` bucket — the same daemon-ledger ∪ local union the InflightPanel
+  // card uses, but applied to the graph nodes. Project: explicit prop, else
+  // derived from the todos' targetProject (the Bridge already filters per-project).
+  const graphProject = useMemo(
+    () => project ?? todos.find((t) => t.targetProject)?.targetProject ?? null,
+    [project, todos],
+  );
+  const [inflightLeafIds, setInflightLeafIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!graphProject) { setInflightLeafIds(new Set()); return; }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/leaf-executor/daemon?project=${encodeURIComponent(graphProject)}`);
+        if (!res.ok || cancelled) return;
+        const d = await res.json();
+        if (cancelled) return;
+        const ids: string[] = Array.isArray(d?.inflight)
+          ? d.inflight.map((r: { leafId?: string }) => r.leafId).filter((x: unknown): x is string => typeof x === 'string')
+          : [];
+        // Keep a stable Set reference when unchanged so the nodes memo never churns.
+        setInflightLeafIds((prev) => (prev.size === ids.length && ids.every((i) => prev.has(i)) ? prev : new Set(ids)));
+      } catch { /* best-effort; keep last good (graph falls back to local buckets) */ }
+    };
+    void poll();
+    const id = setInterval(() => { void poll(); }, 4_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [graphProject]);
+
   // The fleet graph flows left→right (LR): dependency waves read as columns
   // advancing rightward, which suits the full-width bottom graph strip.
   const direction = 'LR';
@@ -135,7 +176,7 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
     () => new Set(supervised.filter((s) => s.source === 'spawn').map((s) => s.session)),
     [supervised],
   );
-  const { nodes, edges } = useFleetGraph({ todos, subs, openEscalations, expandedEpics, now, direction, spawnedSessions });
+  const { nodes, edges } = useFleetGraph({ todos, subs, openEscalations, expandedEpics, now, direction, spawnedSessions, inflightLeafIds });
 
   // Fit the graph to its pane once nodes populate and after each relayout — the
   // <ReactFlow fitView> prop only fires on the initial (empty) mount, which left
