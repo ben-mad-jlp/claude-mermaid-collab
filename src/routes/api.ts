@@ -3190,6 +3190,42 @@ export async function handleAPI(
     });
   }
 
+  // GET/POST /api/leaf-executor/inflight-caps — the CANONICAL fire-and-track concurrency
+  // control (post-unification: the in-flight cap is the real limiter; worker pool-size is
+  // kept in lockstep so it never bottlenecks). GET ?project= → effective {globalMax,
+  // projectMax}. POST {globalMax?, project?, projectMax?} persists (config.json for global,
+  // orchestrator_config for per-project) — config-first so it survives restarts.
+  if (path === '/api/leaf-executor/inflight-caps') {
+    const { maxInflightGlobal, maxInflightPerProject } = await import('../services/inflight-limiter');
+    if (req.method === 'GET') {
+      const project = url.searchParams.get('project') ?? undefined;
+      return Response.json({
+        globalMax: maxInflightGlobal(),
+        ...(project ? { projectMax: maxInflightPerProject(project) } : {}),
+      });
+    }
+    if (req.method === 'POST') {
+      const body = await req.json().catch(() => ({})) as { globalMax?: number; project?: string; projectMax?: number };
+      if (typeof body.globalMax === 'number' && Number.isFinite(body.globalMax) && body.globalMax > 0) {
+        const { setConfig } = await import('../services/config-file');
+        setConfig({ MERMAID_MAX_INFLIGHT_GLOBAL: String(Math.floor(body.globalMax)) });
+      }
+      if (body.project && typeof body.projectMax === 'number' && Number.isFinite(body.projectMax) && body.projectMax > 0) {
+        const { setProjectInflightCap, setProjectPoolSize } = await import('../services/orchestrator-config');
+        const cap = Math.floor(body.projectMax);
+        setProjectInflightCap(body.project, cap);
+        // LOCKSTEP: keep the worker pool-size ≥ the cap so slot-creation never throttles
+        // below the concurrency cap (the two were the source of the "different numbers"
+        // confusion — now one control drives both).
+        setProjectPoolSize(body.project, cap);
+      }
+      return Response.json({
+        globalMax: maxInflightGlobal(),
+        ...(body.project ? { projectMax: maxInflightPerProject(body.project) } : {}),
+      });
+    }
+  }
+
   // POST /api/leaf-executor/breaker-reset — operator force-closes the headless circuit
   // breaker from the Bridge. It otherwise auto-closes only after the rate-limit cooldown;
   // this clears the open hold + backoff streak + paused registry so the next claim tick

@@ -79,8 +79,9 @@ function fmtDuration(ms: number | null | undefined): string {
   return `${m}m${s}s`;
 }
 
-/** One concurrency-pool row: "active / max" with a FULL badge at the ceiling. */
-const PoolRow: React.FC<{ label: string; active: number; max: number }> = ({ label, active, max }) => {
+/** One concurrency-pool row: "active / max" with a FULL badge at the ceiling, plus
+ *  optional −/+ steppers to change the max (the canonical in-flight cap control). */
+const PoolRow: React.FC<{ label: string; active: number; max: number; onAdjust?: (delta: number) => void }> = ({ label, active, max, onAdjust }) => {
   const full = active >= max;
   return (
     <div className="flex items-center gap-2 py-0.5 tabular-nums">
@@ -93,12 +94,41 @@ const PoolRow: React.FC<{ label: string; active: number; max: number }> = ({ lab
           FULL
         </span>
       )}
+      {onAdjust && (
+        <span className="flex items-center gap-0.5 ml-1">
+          <button
+            type="button"
+            aria-label={`decrease ${label} cap`}
+            disabled={max <= 1}
+            onClick={() => onAdjust(-1)}
+            className="h-4 w-4 rounded text-3xs font-bold leading-none bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-40 dark:bg-gray-700 dark:text-gray-300"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            aria-label={`increase ${label} cap`}
+            onClick={() => onAdjust(1)}
+            className="h-4 w-4 rounded text-3xs font-bold leading-none bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300"
+          >
+            +
+          </button>
+        </span>
+      )}
     </div>
   );
 };
 
-const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; projectLabel?: string; onResetBreaker?: () => void }> = ({ daemon, tick, projectLabel, onResetBreaker }) => {
+const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; project?: string; projectLabel?: string; onCapsChanged?: () => void; onResetBreaker?: () => void }> = ({ daemon, tick, project, projectLabel, onCapsChanged, onResetBreaker }) => {
   void tick; // triggers re-render each second for elapsed display
+  // Persist a new cap via the canonical endpoint, then refetch so the display reflects it.
+  const postCaps = (body: { globalMax?: number; project?: string; projectMax?: number }) => {
+    void fetch('/api/leaf-executor/inflight-caps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(() => onCapsChanged?.()).catch(() => {});
+  };
   if (!daemon) return null;
   const hasBreaker = daemon.breaker.open;
   const hasInflight = daemon.inflight.length > 0;
@@ -112,13 +142,19 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; proje
       {/* Sub-block 0: Concurrency pools — global + per-project headroom (active/max). */}
       {daemon.limits && (
         <div data-testid="daemon-pools" className="text-2xs">
-          <div className="uppercase tracking-wide text-gray-400 mb-1">concurrency pools</div>
-          <PoolRow label="global" active={daemon.limits.global.active} max={daemon.limits.global.max} />
+          <div className="uppercase tracking-wide text-gray-400 mb-1">concurrency pools (max leaves in flight)</div>
+          <PoolRow
+            label="global"
+            active={daemon.limits.global.active}
+            max={daemon.limits.global.max}
+            onAdjust={(d) => postCaps({ globalMax: Math.max(1, daemon.limits!.global.max + d) })}
+          />
           {daemon.limits.project && (
             <PoolRow
               label={projectLabel ?? 'this project'}
               active={daemon.limits.project.active}
               max={daemon.limits.project.max}
+              onAdjust={project ? (d) => postCaps({ project, projectMax: Math.max(1, daemon.limits!.project!.max + d) }) : undefined}
             />
           )}
         </div>
@@ -370,7 +406,9 @@ export const ExecutorStatsPanel: React.FC<{
       <DaemonSection
         daemon={daemon}
         tick={tick}
+        project={project}
         projectLabel={project ? project.split('/').filter(Boolean).pop() : undefined}
+        onCapsChanged={() => setRefetchNonce((n) => n + 1)}
         onResetBreaker={() => {
           void fetch('/api/leaf-executor/breaker-reset', { method: 'POST' }).catch(() => {});
           setRefetchNonce((n) => n + 1);

@@ -15,6 +15,8 @@ import {
   setOrchestratorLevel,
   getProjectPoolSize,
   setProjectPoolSize,
+  getProjectInflightCap,
+  setProjectInflightCap,
   getProjectPoolConfig,
   getProjectEffort,
   setProjectEffort,
@@ -107,6 +109,38 @@ describe('unknown value clamping', () => {
   it('setOrchestratorLevel clamps unknown values to "on"', () => {
     setOrchestratorLevel('/proj/bad', 'totally-unknown' as never);
     expect(getOrchestratorLevel('/proj/bad')).toBe('on');
+  });
+});
+
+describe('per-project in-flight cap', () => {
+  it('returns null when unset', () => {
+    expect(getProjectInflightCap('/proj/cap-unset')).toBeNull();
+  });
+
+  it('set/get round-trips', () => {
+    setProjectInflightCap('/proj/cap-a', 7);
+    expect(getProjectInflightCap('/proj/cap-a')).toBe(7);
+  });
+
+  it('clamps to [1, 32]', () => {
+    setProjectInflightCap('/proj/cap-hi', 999);
+    expect(getProjectInflightCap('/proj/cap-hi')).toBe(32);
+    setProjectInflightCap('/proj/cap-lo', 0);
+    expect(getProjectInflightCap('/proj/cap-lo')).toBe(1);
+  });
+
+  it('null clears the override', () => {
+    setProjectInflightCap('/proj/cap-clear', 5);
+    expect(getProjectInflightCap('/proj/cap-clear')).toBe(5);
+    setProjectInflightCap('/proj/cap-clear', null);
+    expect(getProjectInflightCap('/proj/cap-clear')).toBeNull();
+  });
+
+  it('is independent of poolSize on the same project row', () => {
+    setProjectPoolSize('/proj/cap-mix', 4);
+    setProjectInflightCap('/proj/cap-mix', 9);
+    expect(getProjectPoolSize('/proj/cap-mix')).toBe(4);
+    expect(getProjectInflightCap('/proj/cap-mix')).toBe(9);
   });
 });
 

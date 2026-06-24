@@ -88,6 +88,11 @@ function openDb(): Database {
   // Additive migration: per-project reasoning-effort override for daemon-spawned
   // claude worker nodes. NULL = 'auto' (use the per-node-kind NODE_PROFILE defaults).
   try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN effortOverride TEXT'); } catch { /* already present */ }
+  // Additive migration: per-project in-flight CAP (fire-and-track concurrency). NULL =
+  // use the global per-project default (MERMAID_MAX_INFLIGHT_PROJECT). This is the
+  // canonical "how many leaves run at once for this project" knob post-fire-and-track;
+  // the daemon keeps poolSize in lockstep so worker slots never bottleneck below it.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN inflightCap INTEGER'); } catch { /* already present */ }
   // Per-(project, node-kind) model + effort overrides for the leaf-executor's claude
   // nodes. A row's NULL model/effort = inherit that node kind's NODE_PROFILE default.
   db.exec(`CREATE TABLE IF NOT EXISTS node_profile_override (
@@ -179,6 +184,35 @@ export function setProjectPoolSize(project: string, size: number | null): void {
 export function getProjectPoolConfig(project: string): PoolConfig {
   const size = getProjectPoolSize(project);
   return size == null ? POOL_CONFIG : poolConfigForSize(size);
+}
+
+// --- Per-project in-flight CAP (fire-and-track concurrency) ----------------------
+
+/** Clamp an in-flight cap to a sane range [1, 32]; non-finite → 1. */
+function clampInflightCap(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(32, Math.floor(n)));
+}
+
+/** The persisted per-project in-flight cap, or null when unset (→ global default). */
+export function getProjectInflightCap(project: string): number | null {
+  const d = openDb();
+  const row = d
+    .query('SELECT inflightCap FROM orchestrator_config WHERE project = ?')
+    .get(project) as { inflightCap: number | null } | undefined;
+  return row?.inflightCap == null ? null : clampInflightCap(row.inflightCap);
+}
+
+/** Persist a per-project in-flight cap. Pass null to clear (revert to global default).
+ *  Kept in LOCKSTEP with poolSize by the caller so the worker pool never bottlenecks
+ *  below the concurrency cap. Stored clamped to [1, 32]. */
+export function setProjectInflightCap(project: string, cap: number | null): void {
+  const d = openDb();
+  const value = cap == null ? null : clampInflightCap(cap);
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, inflightCap, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET inflightCap = excluded.inflightCap, updatedAt = excluded.updatedAt`,
+  ).run(project, value, Date.now());
 }
 
 // --- Per-project reasoning-effort override (daemon-spawned claude worker nodes) ---

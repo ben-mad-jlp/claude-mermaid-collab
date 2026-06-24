@@ -6,7 +6,7 @@
  *     daemon section absent when daemon is idle.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 
 // The panel subscribes to ws nudges; stub a no-op client so no real socket opens.
@@ -156,6 +156,24 @@ describe('ExecutorStatsPanel', () => {
     expect(pools.textContent).toContain('build123d-ocp-mcp'); // per-project label = basename
     expect(pools.textContent).toContain('2/2'); // per-project at ceiling
     expect(pools.textContent).toContain('FULL'); // ceiling badge
+  });
+
+  it('the global "+" stepper POSTs an increased globalMax to the caps endpoint', async () => {
+    const DAEMON_POOLS = {
+      ...DAEMON_IDLE,
+      limits: { global: { max: 4, active: 1 }, project: { max: 2, active: 0 } },
+    };
+    const posts: any[] = [];
+    global.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+      if (url.includes('/inflight-caps') && init?.method === 'POST') { posts.push(JSON.parse(init.body)); return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }); }
+      if (url.includes('/stats')) return Promise.resolve({ ok: true, json: () => Promise.resolve(HEALTHY) });
+      if (url.includes('/daemon')) return Promise.resolve({ ok: true, json: () => Promise.resolve(DAEMON_POOLS) });
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    }) as any;
+    render(<ExecutorStatsPanel project="/Users/me/Code/proj" />);
+    await waitFor(() => expect(screen.getByTestId('daemon-pools')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('increase global cap'));
+    await waitFor(() => expect(posts.some((b) => b.globalMax === 5)).toBe(true));
   });
 
   it('shows running inflight leaf in daemon-inflight section', async () => {

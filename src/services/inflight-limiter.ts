@@ -15,24 +15,45 @@
 // bound parallelism — a GLOBAL ceiling across all projects plus a PER-PROJECT
 // ceiling so one project can't starve the rest.
 
+import { getConfig } from './config-file';
+import { getProjectInflightCap } from './orchestrator-config';
+
 let globalActive = 0;
 const perProject = new Map<string, number>();
 
-function envInt(name: string, def: number): number {
-  const v = process.env[name];
+/** Resolve a positive int from a string value, else the fallback. */
+function posInt(v: string | undefined, def: number): number {
   if (v == null || v === '') return def;
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) && n > 0 ? n : def;
 }
 
-/** Max headless leaves running CONCURRENTLY across ALL projects. */
-export function maxInflightGlobal(): number {
-  return envInt('MERMAID_MAX_INFLIGHT_GLOBAL', 4);
+/** Config-FIRST, env fallback (mirrors getSecret precedence): a UI change persisted to
+ *  config.json wins over a stale launch-time env var. SYNCHRONOUS — the limiter's reserve
+ *  is atomic (no await between the cap check and the increment). */
+function cfgInt(key: string, def: number): number {
+  const cfg = getConfig(key);
+  if (cfg != null && cfg !== '') return posInt(cfg, def);
+  return posInt(process.env[key], def);
 }
 
-/** Max headless leaves running CONCURRENTLY within a single project. */
-export function maxInflightPerProject(): number {
-  return envInt('MERMAID_MAX_INFLIGHT_PROJECT', 2);
+/** Max headless leaves running CONCURRENTLY across ALL projects (config.json → env → 4). */
+export function maxInflightGlobal(): number {
+  return cfgInt('MERMAID_MAX_INFLIGHT_GLOBAL', 4);
+}
+
+/** Max headless leaves running CONCURRENTLY within a project. A per-project override
+ *  (orchestrator_config.inflightCap, set via the UI) wins; else the global default
+ *  (config.json → env → 2). The DB lookup is defensive — if the store is unavailable
+ *  (e.g. a unit test with no DB) it falls back to the global default. */
+export function maxInflightPerProject(project?: string): number {
+  if (project) {
+    try {
+      const override = getProjectInflightCap(project);
+      if (override != null) return override;
+    } catch { /* DB unavailable → global default */ }
+  }
+  return cfgInt('MERMAID_MAX_INFLIGHT_PROJECT', 2);
 }
 
 /** Current in-flight count — global (no arg) or for one project. */
@@ -48,7 +69,7 @@ export function inflightActive(project?: string): number {
  */
 export function reserveLeafSlot(project: string): boolean {
   if (globalActive >= maxInflightGlobal()) return false;
-  if ((perProject.get(project) ?? 0) >= maxInflightPerProject()) return false;
+  if ((perProject.get(project) ?? 0) >= maxInflightPerProject(project)) return false;
   globalActive += 1;
   perProject.set(project, (perProject.get(project) ?? 0) + 1);
   return true;
