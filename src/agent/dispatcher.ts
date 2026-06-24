@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from 'bun';
 import { stat, readFile as fsReadFile, writeFile as fsWriteFile, rename as fsRename, mkdir as fsMkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { trackingProjectRoot } from '../services/project-registry.ts';
 import type { AgentCommand, AgentEvent, UserMessageEvent, ErrorEvent, CommandAckEvent, UserInputResolvedEvent, CheckpointRevertedEvent, ModelChangedEvent, SessionRenamedEvent, AgentSetModelCommand, AgentRenameSessionCommand, EffortLevel, AttachmentReferencedEvent, AgentRewindToMessageCommand } from './contracts.ts';
 import type { AgentSessionRegistry } from './session-registry.ts';
 import type { WebSocketHandler } from '../websocket/handler.ts';
@@ -21,6 +22,18 @@ class DispatchError extends Error {
 
 type AgentWS = ServerWebSocket<{ subscriptions: Set<string> }>;
 
+/** True iff `cwd` IS a tracking-project root (a shared checkout), not an isolated
+ *  worktree. A worktree's tracking root resolves to a DIFFERENT path; only the
+ *  shared checkout maps to itself. Used to refuse a destructive revert against the
+ *  live main checkout. */
+function isSharedProjectRoot(cwd: string): boolean {
+  try {
+    return resolve(cwd) === resolve(trackingProjectRoot(cwd));
+  } catch {
+    return false;
+  }
+}
+
 const RECEIPT_TTL_MS = 10 * 60 * 1000;
 
 const ALLOWED_EFFORTS = new Set<EffortLevel>(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -39,6 +52,14 @@ export class AgentDispatcher {
     gitOps?: GitOps;
     checkpointStore?: CheckpointStore;
     eventLog?: EventLog;
+    /** Daemon/sidecar safety: refuse a checkpoint revert whose target cwd is a
+     *  SHARED tracking-project root (the live main checkout). The destructive
+     *  restore (`reset --hard` + `clean -fd` + `checkout <sha> -- .`) must only ever
+     *  run in a session's own isolated worktree; aimed at the shared root it
+     *  silently overwrites the main checkout with a stale tree (data corruption).
+     *  Left false for standalone single-session use where the repo root IS the
+     *  session and in-place revert is intended. */
+    guardProjectRootRevert?: boolean;
   }) {
     this.receipts = opts.receipts ?? new CommandReceiptsStore(opts.resolvedCwd, { isProjectRoot: true });
   }
@@ -443,15 +464,30 @@ export class AgentDispatcher {
       throw new DispatchError('CHECKPOINT_NOT_FOUND', `no checkpoint for turn ${turnId}`);
     }
 
+    // 1b. Resolve the SESSION's own working dir BEFORE stop() drops its registry
+    //     entry. The git restore (below) must target the session's worktree, NOT
+    //     the server's shared cwd (resolvedCwd) — restoring into the shared project
+    //     root stages a destructive revert-to-old-base into the MAIN checkout.
+    const cwd = this.opts.registry.cwdFor?.(sessionId) ?? this.opts.resolvedCwd;
+    // GUARD (daemon): a real per-session worktree maps to a DIFFERENT tracking root;
+    // only a shared checkout maps to itself. Refuse rather than corrupt the main tree.
+    if (this.opts.guardProjectRootRevert && isSharedProjectRoot(cwd)) {
+      throw new DispatchError(
+        'REVERT_REFUSED_SHARED_ROOT',
+        `checkpoint revert refused: session cwd "${cwd}" is a shared project root; ` +
+          `reverting there would overwrite the main checkout. Run the session in its own worktree.`,
+      );
+    }
+
     // 2. Quiesce the child: fully stop it (awaits process.exited) before any
     //    log mutation or git restore, so no late child frames slip in between
     //    the truncate and the revert event (see review I3). The next
     //    `agent_send` will re-spawn via getOrCreate.
     await this.opts.registry.stop(sessionId);
 
-    // 3. Pre-revert safety stash (only if git available and in a repo).
+    // 3. Pre-revert safety stash (only if git available and in a repo). Runs in the
+    //    session's own `cwd` (resolved + guarded above).
     let safetyStashSha: string | undefined;
-    const cwd = this.opts.resolvedCwd;
     if (gitOps) {
       try {
         const inRepo = await gitOps.isGitRepo(cwd);
