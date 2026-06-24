@@ -149,6 +149,64 @@ export function getSessionSummary(project: string, session: string): SessionSumm
   return cache.get(`${project}::${session}`);
 }
 
+/**
+ * SELF-SUMMARY push (spike): a LIVE session writes its OWN Zen summary — it knows its
+ * real state, so no external pane-scrape + LLM interpret is needed. Validates the
+ * structured payload (same shape the interpreter emits), folds it into the cache as a
+ * FRESH summary, and broadcasts via the card pipeline. `summaryPaneHash` is set to the
+ * current `paneHash` so a pushed question reads as answerable (paneStillMatches).
+ * Returns ok:false if the payload doesn't coerce (missing paragraph/status).
+ */
+export function pushSessionSummary(
+  project: string,
+  session: string,
+  raw: unknown,
+  broadcast?: (msg: unknown) => void,
+): { ok: boolean; reason?: string } {
+  const structured = coerceStructured(raw);
+  if (!structured) return { ok: false, reason: 'invalid-structured (need paragraph + a valid status)' };
+  loadCacheOnce();
+  const key = `${project}::${session}`;
+  const now = Date.now();
+  const prev = cache.get(key);
+  const paneHash = prev?.paneHash ?? '';
+  const progressState: ProgressState =
+    prev?.progressState ??
+    (structured.status === 'working' ? 'active' : structured.status === 'idle' ? 'quiet' : 'active');
+  const entry: SessionSummaryEntry = {
+    project,
+    session,
+    tmux: prev?.tmux ?? tmuxBaseName(project, session),
+    paneHash,
+    paneSeenAt: now,
+    quietWindows: prev?.quietWindows ?? 0,
+    progressState,
+    updatedAt: now,
+    summaryText: structured.paragraph,
+    firstClause: firstClauseOf(structured.paragraph),
+    structured,
+    summaryUpdatedAt: now,
+    summaryPaneHash: paneHash,
+    lastSummaryAt: now,
+    summaryInFlight: false,
+    refreshState: 'fresh',
+    failureStreak: 0,
+    nextRetryAt: undefined,
+  };
+  cache.set(key, entry);
+  scheduleSave();
+  broadcast?.({
+    type: 'session_summary_updated',
+    project,
+    session,
+    progressState,
+    paneSeenAt: now,
+    updatedAt: now,
+    ...summaryFields(entry),
+  });
+  return { ok: true };
+}
+
 export function listSessionSummaries(): SessionSummaryEntry[] {
   loadCacheOnce();
   return [...cache.values()];

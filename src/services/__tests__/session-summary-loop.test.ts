@@ -16,6 +16,7 @@ import {
   getSummaryHealth,
   isInterpretRateLimited,
   parseInterpretJson,
+  pushSessionSummary,
   type SummaryTickDeps,
   type InterpreterStructured,
 } from '../session-summary-loop.ts';
@@ -751,6 +752,33 @@ describe('sticky open-question', () => {
     await __drainInterpreters();
     e = getSessionSummary(P, S)!;
     expect(e.structured?.question).toBeUndefined();                   // resumed → dropped
+  });
+});
+
+describe('pushSessionSummary (self-summary)', () => {
+  it('folds a pushed structured summary into the cache as FRESH + broadcasts', () => {
+    const msgs: unknown[] = [];
+    const r = pushSessionSummary(P, S, { paragraph: 'We are wiring self-summary.', status: 'working' }, (m) => msgs.push(m));
+    expect(r.ok).toBe(true);
+    const e = getSessionSummary(P, S)!;
+    expect(e.structured?.paragraph).toBe('We are wiring self-summary.');
+    expect(e.refreshState).toBe('fresh');
+    expect(e.summaryPaneHash).toBe(e.paneHash); // pushed → answerable (paneStillMatches)
+    expect(msgs.length).toBe(1);
+    expect((msgs[0] as { type: string }).type).toBe('session_summary_updated');
+  });
+
+  it('carries a pushed open-question through to the card payload', () => {
+    const msgs: Array<Record<string, unknown>> = [];
+    pushSessionSummary(P, S, { paragraph: 'Done — which way?', status: 'idle', question: 'Ship or iterate?', suggestedAnswers: ['Ship', 'Iterate'] }, (m) => msgs.push(m as Record<string, unknown>));
+    const st = (msgs[0]?.structured ?? {}) as { question?: string; suggestedAnswers?: string[] };
+    expect(st.question).toBe('Ship or iterate?');
+    expect(st.suggestedAnswers).toEqual(['Ship', 'Iterate']);
+  });
+
+  it('rejects an invalid payload (no paragraph / valid status)', () => {
+    expect(pushSessionSummary(P, S, { foo: 1 }).ok).toBe(false);
+    expect(pushSessionSummary(P, S, { paragraph: 'x', status: 'bogus' }).ok).toBe(false);
   });
 });
 

@@ -65,6 +65,21 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // PUSH SUMMARY (self-summary spike) — a live session writes its OWN Zen summary
+  // (it knows its real state; no external pane-scrape/interpret). Folds into the cache
+  // as fresh + broadcasts. Same as the `update_zen_summary` MCP tool, over HTTP.
+  if (url.pathname === '/api/supervisor/push-summary' && req.method === 'POST') {
+    try {
+      const { project, session, structured } = (await req.json()) as { project?: string; session?: string; structured?: unknown };
+      if (!project || !session || !structured) return jsonError('project, session, structured are required', 400);
+      const { pushSessionSummary } = await import('../services/session-summary-loop.ts');
+      const r = pushSessionSummary(project, session, structured, (m) => getWebSocketHandler()?.broadcast(m as never));
+      return Response.json(r);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   // INTERPRET HEALTH — rolling success-rate / failure-reason / latency for the Zen
   // summary interpreter (freshness hardening #1: measure before hardening). Read-only.
   if (url.pathname === '/api/supervisor/summary-health' && req.method === 'GET') {
