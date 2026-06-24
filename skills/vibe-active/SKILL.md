@@ -104,6 +104,16 @@ In vibe mode, respond to user requests to:
 6. **Checkpoint before /clear** - When user invokes /vibe-checkpoint: invoke skill `vibe-checkpoint`
 7. **Cleanup** - When user says "done" or invokes /collab-cleanup: invoke skill `collab-cleanup`
 
+## Hand-coding: planning-only by default, worktree to opt in
+
+This is a **planning / authoring** session: create diagrams, docs, designs; control the browser; dispatch research/impl **agents**. By default do **not** hand-edit project source on the main checkout.
+
+If the work genuinely needs hand-written source changes, **enter a worktree first**: call `EnterWorktree`, make the edits there, then merge/PR back and call `ExitWorktree`. Todos/designs still resolve from inside the worktree because `trackingProjectRoot()` (`src/services/todo-store.ts`) maps the worktree cwd to the same project store.
+
+Prefer dispatching an **Implementation Agent** (see Agent Dispatch below) for anything non-trivial — keeps the interactive context clean.
+
+The L1 land guard is the backstop if source slips onto the main checkout. See the planner skill for the full worktree flow.
+
 ## Browser Automation
 
 Browser tools let Claude control a real Chrome browser via CDP. The server **spawns and owns a headless Chrome on the Linux server itself** (`MC_BROWSER_TARGET=streamed-panel`, the default) at `CDP_PORT` (9333) and streams frames to the UI — no Windows machine or SSH tunnel involved. If browser tools fail with "Chrome not reachable", the server-owned Chrome failed to start (check server logs / Chrome binary), not a tunnel or VSCodium button.
