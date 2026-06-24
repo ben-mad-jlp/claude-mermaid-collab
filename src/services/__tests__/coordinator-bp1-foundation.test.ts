@@ -48,8 +48,12 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     await fs.rm(repo, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('drops a dependent whose done foundation is stranded, then admits it once the foundation lands', async () => {
-    // BP1 only runs at `drive` (where the daemon auto-lands the epic to integration).
+  it('UNION SURFACE: at auto, a same-epic foundation on the epic branch (not yet landed) is ADMITTED — the lane forks from the epic-branch tip, so it is visible', async () => {
+    // The human-LAND-epic case (yolox FW): at `auto` an epic with a HUMAN [LAND] leaf
+    // does NOT auto-land per-leaf — its accepted foundations accumulate on the epic
+    // branch and reach master only at the human LAND. bp1's claim-time reachability must
+    // test the DEPENDENT's epic-branch tip (the base its lane forks from), NOT trunk only.
+    // (Trunk-only wrongly stranded EVERY in-epic sibling until the human landed — the bug.)
     setOrchestratorLevel(repo, 'auto');
     const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 test', status: 'planned' });
     const foundation = await createTodo(repo, { ownerSession: 's', title: 'foundation leaf', parentId: epic.id, status: 'planned' });
@@ -57,12 +61,11 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
       ownerSession: 's', title: 'dependent leaf', parentId: epic.id, status: 'ready',
       dependsOn: [foundation.id],
     });
-    // Foundation marked done+accepted but its commit is NOT yet on integration.
     await completeTodo(repo, foundation.id, 'accepted');
 
-    // Build the epic branch carrying the foundation's trailer (commit exists, but
-    // it's stranded on the epic branch — never merged to master). Throwaway worktree
-    // so the main tree (todos.db under .collab) is never checked out.
+    // Build the epic branch carrying the foundation's trailer — on the epic branch, NOT
+    // merged to master. Throwaway worktree so the main tree (.collab/todos.db) is never
+    // checked out.
     const epicBranch = getWorktreeManager(repo).epicBranchName(epic.id);
     const wt = await fs.mkdtemp(path.join(os.tmpdir(), 'mc-bp1-epicwt-'));
     await runGit(repo, ['worktree', 'add', '-q', '-b', epicBranch, wt, 'master']);
@@ -73,17 +76,45 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
 
     const dep = getTodo(repo, dependent.id)!;
 
-    // STRANDED foundation → the dependent is filtered OUT (not claimable this tick).
-    const blocked = await bp1FilterStrandedFoundations(repo, [dep]);
-    expect(blocked.map((t) => t.id)).not.toContain(dependent.id);
+    // On the epic branch (not trunk) at auto → ADMITTED via arm B (epic-branch tip).
+    const admittedPreLand = await bp1FilterStrandedFoundations(repo, [dep]);
+    expect(admittedPreLand.map((t) => t.id)).toContain(dependent.id);
 
-    // Land the epic onto master → the foundation's commit becomes an ancestor.
+    // Still admitted after the epic lands to master (arm A now also true).
     const land = await getWorktreeManager(repo).landEpicToMaster(epic.id);
     expect(land.landed).toBe(true);
+    const admittedPostLand = await bp1FilterStrandedFoundations(repo, [dep]);
+    expect(admittedPostLand.map((t) => t.id)).toContain(dependent.id);
+  });
 
-    // Now the foundation is reachable → the dependent is admitted.
-    const admitted = await bp1FilterStrandedFoundations(repo, [dep]);
-    expect(admitted.map((t) => t.id)).toContain(dependent.id);
+  it('TRUE STRAND: at auto, a foundation reachable from NEITHER the epic branch NOR trunk is DROPPED', async () => {
+    // The genuine phantom-base case the filter exists for: the foundation's commit landed
+    // out-of-band (e.g. on a lane branch) carrying its trailer, but never reached the epic
+    // accumulation branch OR master. The dependent's lane (forked from the epic-branch tip)
+    // would NOT contain it → building on it is unsafe → drop it this tick.
+    setOrchestratorLevel(repo, 'auto');
+    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp1 true-strand', status: 'planned' });
+    const foundation = await createTodo(repo, { ownerSession: 's', title: 'phantom foundation', parentId: epic.id, status: 'planned' });
+    const dependent = await createTodo(repo, {
+      ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [foundation.id],
+    });
+    await completeTodo(repo, foundation.id, 'accepted');
+
+    // Epic branch EXISTS but does NOT contain the foundation commit (forked off master, empty).
+    const epicBranch = getWorktreeManager(repo).epicBranchName(epic.id);
+    await runGit(repo, ['branch', epicBranch, 'master']);
+    // The foundation's commit lives on an unrelated lane branch — reachable from neither
+    // the epic branch nor master.
+    const laneWt = await fs.mkdtemp(path.join(os.tmpdir(), 'mc-bp1-lanewt-'));
+    await runGit(repo, ['worktree', 'add', '-q', '-b', `collab/leaf-exec-${foundation.id.slice(0, 8)}`, laneWt, 'master']);
+    await fs.writeFile(path.join(laneWt, 'phantom.txt'), 'P\n');
+    await runGit(laneWt, ['add', '-A']);
+    await runGit(laneWt, ['commit', '-q', '-m', `phantom foundation\n\nCollab-Todo: ${foundation.id}`]);
+    await runGit(repo, ['worktree', 'remove', '--force', laneWt]);
+
+    const dep = getTodo(repo, dependent.id)!;
+    const out = await bp1FilterStrandedFoundations(repo, [dep]);
+    expect(out.map((t) => t.id)).not.toContain(dependent.id); // both arms false → dropped
   });
 
   it('BELOW DRIVE (build): does NOT block — a stranded-vs-integration foundation is the NORMAL on-epic-branch state', async () => {

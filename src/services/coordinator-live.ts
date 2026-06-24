@@ -881,12 +881,31 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
       try {
         const wm = getWorktreeManager(dep.targetProject ?? project);
         if (!(await wm.isGitRepoPublic())) continue; // fail-safe: non-git → satisfied
+        const depEpicId = resolveEpicId(dep, project);
+        // UNION REACHABILITY (claim-time surface fix). The foundation is satisfied if
+        // its commit is reachable from EITHER surface the dependent's worker lane can
+        // see; stranded ONLY if reachable from NEITHER:
+        //   ARM A — trunk (`resolveIntegrationRef`): the OI-1 accept-time surface; admits
+        //           any foundation already LANDED (in-epic or cross-epic).
+        //   ARM B — the DEPENDENT's OWN epic accumulation branch tip: the base its lane
+        //           forks from. An on-epic-branch foundation (a same-epic sibling accepted
+        //           earlier, accumulated but NOT yet human-LANDed) IS already visible to it.
+        // Trunk-only (the old behaviour) wrongly stranded EVERY in-epic sibling of an auto
+        // epic whose human [LAND] hadn't run — the foundation lived on the epic branch, not
+        // trunk. This union is STRICTLY more permissive than trunk-only (trunk is arm A), so
+        // it can never newly-strand anything the old test passed. FAIL-SAFE preserved: a
+        // true/null on EITHER arm → satisfied (uncertainty never blocks).
         const intRef = await wm.resolveIntegrationRef();
-        if (!intRef) continue; // fail-safe: unresolvable integration → satisfied
-        const reachable = await wm.commitOnIntegration(resolveEpicId(dep, project), depId, intRef);
-        if (reachable === false) {
+        const reachableTrunk = intRef
+          ? await wm.commitOnIntegration(depEpicId, depId, intRef)
+          : null;
+        // Arm B runs in the DEPENDENT's repo against the DEPENDENT's epic branch.
+        const wmT = getWorktreeManager(t.targetProject ?? project);
+        const tEpicBranch = wmT.epicBranchName(resolveEpicId(t, project));
+        const reachableEpic = await wmT.commitOnIntegration(depEpicId, depId, tEpicBranch);
+        if (reachableTrunk === false && reachableEpic === false) {
           foundationStranded = true;
-          recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ todoId: t.id, depId, intRef, bp1: 'blocked-stranded-foundation' }) });
+          recordSupervisorAudit({ kind: 'reconcile', project, session: '', detail: JSON.stringify({ todoId: t.id, depId, intRef, epicBranch: tEpicBranch, bp1: 'blocked-stranded-foundation' }) });
           // DURABLE FIX: never strand SILENTLY. A done+accepted foundation whose commit
           // isn't reachable from integration (e.g. salvaged/committed out-of-band without
           // the Collab-Todo trailer the merge-back stamps) would otherwise drop EVERY
@@ -900,7 +919,7 @@ export async function bp1FilterStrandedFoundations(project: string, todos: Todo[
               session: 'bp1-stranded-foundation',
               todoId: depId,
               kind: 'assumption-invalidated',
-              questionText: `Dependents are blocked at \`drive\`: foundation todo ${depId} is done+accepted, but its commit is NOT reachable from ${intRef} (no Collab-Todo trailer on the integration branch — e.g. the work landed out-of-band). Its dependents can't be claimed until it's integrated. Fix: re-land the foundation to ${intRef} (stamping its trailer), or drop the project to \`build\` to build dependents on the epic branch instead.`,
+              questionText: `Dependents are blocked at \`drive\`: foundation todo ${depId} is done+accepted, but its commit is reachable from NEITHER trunk (${intRef ?? 'unresolved'}) NOR the dependent's epic branch (${tEpicBranch}) — i.e. its work never reached the epic accumulation branch (no Collab-Todo trailer; e.g. landed out-of-band). Its dependents can't be claimed until it's integrated. Fix: re-land/merge the foundation onto ${tEpicBranch} (stamping its trailer), or drop the project to \`build\` to build dependents on the epic branch instead.`,
             });
           } catch { /* never block the claim pass on escalation bookkeeping */ }
           break;
@@ -982,7 +1001,7 @@ export function classifyClaimSuppression(
   const out: Array<{ todoId: string; title: string; reason: string }> = [];
   for (const t of ready) {
     if (!probeOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `probe-down: ${t.claimProbe ?? '?'}` });
-    else if (!bp1Ok.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: 'stranded-foundation (dep accepted but not on integration — stale base; drops at auto only)' });
+    else if (!bp1Ok.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: 'stranded-foundation (dep accepted but reachable from neither trunk nor the epic branch — truly unintegrated; drops at auto only)' });
     else if (!headlessOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `not-headless: ${t.notHeadlessReason ?? 'unknown'}` });
   }
   return out;
