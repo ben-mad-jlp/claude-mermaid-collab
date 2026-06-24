@@ -18,6 +18,15 @@ The per-project **Planner**: a human-facing LLM session that turns goals into an
 - **Narrative is the primary memory**; the work-graph + decision records are the durable, derived index. Read current constraints every pass.
 - Status ladder: `planned` (proposed, not yet approved) → `ready` (approved + deps done = claimable) → `blocked` (approved but deps pending) → `in_progress` (claimed) → `done`.
 
+## Interactive sessions are planning-only (hand-code via a worktree)
+
+- **Default = planning-only.** In an interactive session, do planning work: decompose goals into the work-graph, write decision/constraint/requirement records, create docs/diagrams, and supervise the daemon (subscribe + `inbox`). Do **NOT** hand-edit source files on the main checkout — implementation is the daemon's workers' job (they run in their own epic worktrees).
+- **When you genuinely must hand-code** (a quick fix the daemon shouldn't own, an exploratory spike), **opt into a worktree first** rather than editing master in place:
+  - Call `EnterWorktree` (this project instruction authorizes it for this case) — the session moves into `.claude/worktrees/<name>` on a fresh branch off master.
+  - Todos/epics/constraints **still resolve**: `trackingProjectRoot()` (`src/services/todo-store.ts`) maps the worktree cwd back to the tracking project's `todos.db`, so every collab MCP call behaves exactly as it did on the main checkout.
+  - Do the edits, commit, then **merge / open a PR back to master** and call `ExitWorktree { action: "keep" }` (or `"remove"` once landed).
+- **Backstop:** the L1 land guard refuses to land from a dirty / off-model main checkout — this guidance is so you don't trip that guard; it is not the only line of defense.
+
 ## Work-graph rules (how the graph itself behaves — honor these or hit surprising rejections)
 
 These are invariants the system enforces (or conventions you are the sole enforcer of). They are NOT optional style.
