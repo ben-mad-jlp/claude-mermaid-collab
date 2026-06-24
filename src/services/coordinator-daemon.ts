@@ -39,6 +39,16 @@ export interface CoordinatorDeps {
    *  tick processes ready leaves strictly one-at-a-time. Returns the project's
    *  concurrency budget; omitted ⇒ 1 (the prior serial behaviour). */
   maxConcurrency?: (project: string) => number;
+  /** Fire-and-track concurrency limiter (decouples the tick from leaf completion).
+   *  `reserveLeafSlot(laneProject)` atomically reserves one in-flight slot against the
+   *  global + per-project caps, returning false when full. When BOTH reserve/release are
+   *  wired, the tick uses the fire-and-track path: it reserves, claims, and launches up to
+   *  the caps, then RETURNS — it never awaits the leaf run. A FIRED leaf (launchWorker
+   *  returned true) releases its own slot when it settles; the tick releases the slot only
+   *  when it does not fire (claim race / launchWorker deferred). Omitted ⇒ legacy path
+   *  (await each launchWorker, bounded by maxConcurrency). */
+  reserveLeafSlot?: (laneProject: string) => boolean;
+  releaseLeafSlot?: (laneProject: string) => void;
   /** Escalate a todo that exhausted its retry budget (parked 'blocked'). Optional. */
   escalateExhausted?: (project: string, todoId: string) => Promise<void>;
   /** P3 headless circuit-breaker exhaustion sweep: for any leaf paused on a rate cap
@@ -178,32 +188,63 @@ export async function runTick(
   ready = [...ready].sort(byClaimPriority);
   const claimed: string[] = [];
   const spawned: string[] = [];
-  // Concurrent dispatch (bounded by the per-project pool size): launchWorker awaits a
-  // full headless leaf run (minutes), so a serial loop would run leaves one-at-a-time
-  // and block the whole tick on the first. Run up to `concurrency` runners that each
-  // pull the next ready todo, claim it, and await its launch. `next++` is atomic in
-  // single-threaded JS (no await between read and increment) so no todo is processed
-  // twice. concurrency=1 (the default when maxConcurrency is unwired) is byte-identical
-  // to the prior serial loop, including claim/launch ordering.
-  const concurrency = Math.max(1, deps.maxConcurrency?.(project) ?? 1);
-  let next = 0;
-  const runner = async (): Promise<void> => {
-    for (;;) {
-      const i = next++;
-      if (i >= ready.length) return;
-      const t = ready[i];
+  // FIRE-AND-TRACK dispatch (when the in-flight limiter is wired). The OLD model
+  // awaited each launchWorker — a full headless leaf run (minutes) — inline, so one
+  // slow/hung leaf in ANY project wedged the single-flight orchestrator tick and
+  // starved the whole fleet. Here the tick CLAIMS + LAUNCHES up to the global +
+  // per-project caps and RETURNS; the launched leaf runs in the background and
+  // releases its own slot when it settles. Concurrency is bounded by the reservation,
+  // not by awaiting completion.
+  //
+  // Slot ownership: the tick RESERVES synchronously before claiming (atomic — no await
+  // between the cap check and the increment, so two reservations can't both pass).
+  //  - claim race (todo already claimed) → the tick releases the reservation.
+  //  - launchWorker FIRED the leaf (returned true) → the leaf's continuation owns the
+  //    release; the tick must NOT release.
+  //  - launchWorker did NOT fire (returned false: backoff / pool-busy / breaker / error)
+  //    → the tick releases the reservation.
+  if (deps.reserveLeafSlot && deps.releaseLeafSlot) {
+    for (const t of ready) {
+      const laneProject = t.targetProject ?? project;
+      if (!deps.reserveLeafSlot(laneProject)) break; // caps full this tick — rest stay ready
+      let owned = true; // we hold the reservation until launchWorker fires or we release it
       try {
         const c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
-        if (!c) continue; // lost the race / already claimed
+        if (!c) continue; // lost the race / already claimed → finally releases
         claimed.push(c.id);
-        const ok = await deps.launchWorker(project, c);
-        if (ok) spawned.push(c.id);
+        const fired = await deps.launchWorker(project, c);
+        if (fired) { owned = false; spawned.push(c.id); } // leaf continuation owns the slot now
       } catch {
         // one bad todo must not abort the whole tick; the lease handles recovery
+      } finally {
+        if (owned) deps.releaseLeafSlot(laneProject);
       }
     }
-  };
-  await Promise.all(Array.from({ length: concurrency }, () => runner()));
+  } else {
+    // LEGACY path (limiter unwired — e.g. unit tests): concurrent runners that await
+    // each launchWorker, bounded by the per-project pool size. `next++` is atomic in
+    // single-threaded JS so no todo is processed twice. concurrency=1 (the default when
+    // maxConcurrency is unwired) is byte-identical to the prior serial loop.
+    const concurrency = Math.max(1, deps.maxConcurrency?.(project) ?? 1);
+    let next = 0;
+    const runner = async (): Promise<void> => {
+      for (;;) {
+        const i = next++;
+        if (i >= ready.length) return;
+        const t = ready[i];
+        try {
+          const c = await deps.claimTodo(project, t.id, COORDINATOR_ID, leaseMs);
+          if (!c) continue; // lost the race / already claimed
+          claimed.push(c.id);
+          const ok = await deps.launchWorker(project, c);
+          if (ok) spawned.push(c.id);
+        } catch {
+          // one bad todo must not abort the whole tick; the lease handles recovery
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: concurrency }, () => runner()));
+  }
   // Push the daemon-driven status changes to the UI (reclaim/exhaust/claim) so the
   // Bridge doesn't show a stale in-flight card after a block/reclaim happened
   // entirely server-side (no MCP tool call to ride the existing broadcast).

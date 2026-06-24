@@ -65,6 +65,33 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // PUSH SUMMARY (self-summary spike) — a live session writes its OWN Zen summary
+  // (it knows its real state; no external pane-scrape/interpret). Folds into the cache
+  // as fresh + broadcasts. Same as the `update_zen_summary` MCP tool, over HTTP.
+  if (url.pathname === '/api/supervisor/push-summary' && req.method === 'POST') {
+    try {
+      const { project, session, structured } = (await req.json()) as { project?: string; session?: string; structured?: unknown };
+      if (!project || !session || !structured) return jsonError('project, session, structured are required', 400);
+      const { pushSessionSummary } = await import('../services/session-summary-loop.ts');
+      const r = pushSessionSummary(project, session, structured, (m) => getWebSocketHandler()?.broadcast(m as never));
+      return Response.json(r);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // INTERPRET HEALTH — rolling success-rate / failure-reason / latency for the Zen
+  // summary interpreter (freshness hardening #1: measure before hardening). Read-only.
+  if (url.pathname === '/api/supervisor/summary-health' && req.method === 'GET') {
+    try {
+      const { getSummaryHealth } = await import('../services/session-summary-loop.ts');
+      const w = Number(url.searchParams.get('windowMs'));
+      return Response.json(getSummaryHealth(Number.isFinite(w) && w > 0 ? { windowMs: w } : undefined));
+    } catch {
+      return Response.json({ windowMs: 0, attempts: 0, successes: 0, successRate: 1, byReason: {}, p50Ms: 0, p95Ms: 0, inputTokens: 0, cachedInputTokens: 0, totalInputTokens: 0, outputTokens: 0, costUsd: 0, rateLimitBackoffMs: 0, recentFailures: [] });
+    }
+  }
+
   // UNLANDED EPICS — deterministic git-tree drift readout (design-epic-landing P1):
   // collab/epic/* branches with commits NOT on master = accepted work stranded
   // off-master. Derived purely from `git rev-list master..<branch>` (not from land
@@ -78,6 +105,34 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     } catch (err) {
       // Non-git / transient project → empty, never error the Bridge.
       return Response.json({ unlandedEpics: [] });
+    }
+  }
+
+  // FRICTION TRENDS — recurrence rollup over the friction store (DF4). Read-only; the
+  // `recurring` shortlist + per-layer counts feed the Bridge dogfood-health panel.
+  if (url.pathname === '/api/supervisor/friction-trends' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project query param is required', 400);
+    try {
+      const { frictionTrends } = await import('../services/friction-trends.ts');
+      const limitRaw = Number(url.searchParams.get('limit'));
+      const trends = frictionTrends(project, Number.isFinite(limitRaw) && limitRaw > 0 ? { limit: limitRaw } : {});
+      return Response.json(trends);
+    } catch {
+      return Response.json({ total: 0, considered: 0, byLayer: [], recurring: [] });
+    }
+  }
+
+  // STALE WORKTREES — abandoned linked worktrees (branch-gone / prunable / aged-out).
+  // Pure git read (DF4). Read-only; never prunes. [] off non-git / on error.
+  if (url.pathname === '/api/supervisor/stale-worktrees' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project query param is required', 400);
+    try {
+      const staleWorktrees = await getWorktreeManager(project).listStaleWorktrees();
+      return Response.json({ staleWorktrees });
+    } catch {
+      return Response.json({ staleWorktrees: [] });
     }
   }
 

@@ -73,7 +73,7 @@ function fmtDuration(ms: number | null | undefined): string {
   return `${m}m${s}s`;
 }
 
-const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number }> = ({ daemon, tick }) => {
+const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number; onResetBreaker?: () => void }> = ({ daemon, tick, onResetBreaker }) => {
   void tick; // triggers re-render each second for elapsed display
   if (!daemon) return null;
   const hasBreaker = daemon.breaker.open;
@@ -95,7 +95,19 @@ const DaemonSection: React.FC<{ daemon: DaemonStatus | null; tick: number }> = (
       >
         {hasBreaker ? (
           <>
-            <div>circuit breaker OPEN — headless spawns paused</div>
+            <div className="flex items-center justify-between gap-2">
+              <span>circuit breaker OPEN — headless spawns paused</span>
+              {onResetBreaker && (
+                <button
+                  type="button"
+                  onClick={onResetBreaker}
+                  title="Force-close the breaker now (otherwise it auto-closes after the rate-limit cooldown)"
+                  className="shrink-0 rounded px-2 py-0.5 text-3xs font-semibold bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
             <div className="mt-1 font-normal tabular-nums">
               until {new Date(daemon.breaker.openUntil).toLocaleTimeString()} ·{' '}
               {fmtDuration(daemon.breaker.openUntil - daemon.now)} remaining
@@ -315,7 +327,14 @@ export const ExecutorStatsPanel: React.FC<{
       </div>
 
       {/* LIVE DAEMON SECTION — above aggregate tiles so live view leads, evidence follows. */}
-      <DaemonSection daemon={daemon} tick={tick} />
+      <DaemonSection
+        daemon={daemon}
+        tick={tick}
+        onResetBreaker={() => {
+          void fetch('/api/leaf-executor/breaker-reset', { method: 'POST' }).catch(() => {});
+          setRefetchNonce((n) => n + 1);
+        }}
+      />
 
       {empty ? (
         <div className="px-3 py-3">

@@ -163,6 +163,16 @@ export class AgentSessionRegistry {
     return this.getOrCreate(sessionId, record.cwd);
   }
 
+  /**
+   * The working directory a currently-registered session was started in, or
+   * undefined if it is not live. Used by the checkpoint-revert path to restore the
+   * SESSION's own worktree rather than the server's shared cwd — restoring into a
+   * shared project root stages a destructive revert into the main checkout.
+   */
+  cwdFor(sessionId: string): string | undefined {
+    return this.map.get(sessionId)?.cwd;
+  }
+
   async stop(sessionId: string): Promise<void> {
     const entry = this.map.get(sessionId);
     if (!entry) return;

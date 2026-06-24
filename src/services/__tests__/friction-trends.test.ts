@@ -1,13 +1,17 @@
 // Pure summarizeFrictionTrends tests — no DB needed.
-import { describe, test, expect } from 'bun:test';
+import { describe, test, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { FrictionNote } from '../friction-store';
-import { summarizeFrictionTrends } from '../friction-trends';
+import { recordFriction, _closeProject } from '../friction-store';
+import { summarizeFrictionTrends, frictionTrends } from '../friction-trends';
 
 let seq = 0;
 function note(partial: Partial<FrictionNote> & { layer: FrictionNote['layer']; retryReason: string }): FrictionNote {
   return {
     id: `f${++seq}`,
-    todoId: 't1',
+    todoId: null,
     session: null,
     attempt: 1,
     detail: null,
@@ -65,5 +69,70 @@ describe('summarizeFrictionTrends', () => {
       note({ layer: 'domain', retryReason: 'x', session: 'w1' }),
     ]);
     expect(r.byLayer[0].reasons[0].sessions).toEqual(['w1']);
+  });
+
+  test('operational notes roll up under their own layer group', () => {
+    const r = summarizeFrictionTrends([
+      note({ layer: 'operational', retryReason: 'stale-shadow-server' }),
+      note({ layer: 'operational', retryReason: 'stale-shadow-server' }),
+      note({ layer: 'domain', retryReason: 'cad-api-rederived' }),
+    ]);
+    const layers = r.byLayer.map((l) => l.layer);
+    expect(layers).toContain('operational');
+    const op = r.byLayer.find((l) => l.layer === 'operational')!;
+    expect(op.count).toBe(2);
+    expect(op.reasons[0].retryReason).toBe('stale-shadow-server');
+    expect(op.reasons[0].count).toBe(2);
+    // appears in recurring (count > 1)
+    expect(r.recurring.some((x) => x.layer === 'operational' && x.retryReason === 'stale-shadow-server')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Store-backed frictionTrends(project) — DB integration
+// ---------------------------------------------------------------------------
+
+describe('frictionTrends (store-backed)', () => {
+  let project: string;
+
+  beforeEach(() => {
+    project = mkdtempSync(join(tmpdir(), 'friction-trends-'));
+  });
+
+  afterEach(() => {
+    _closeProject(project);
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it('operational notes surface in the store-backed rollup and recurring list', async () => {
+    await recordFriction(project, { layer: 'operational', retryReason: 'stale-worktree' });
+    await recordFriction(project, { layer: 'operational', retryReason: 'stale-worktree' });
+    await recordFriction(project, { layer: 'domain', retryReason: 'cad-api-rederived' });
+
+    const r = frictionTrends(project);
+    const op = r.byLayer.find((l) => l.layer === 'operational');
+    expect(op).toBeDefined();
+    expect(op!.count).toBe(2);
+    expect(r.recurring.some((x) => x.layer === 'operational' && x.retryReason === 'stale-worktree' && x.count === 2)).toBe(true);
+  });
+
+  it('layer-filter param flows to listFriction (only one group returned)', async () => {
+    await recordFriction(project, { layer: 'operational', retryReason: 'stale-worktree' });
+    await recordFriction(project, { layer: 'operational', retryReason: 'stale-worktree' });
+    await recordFriction(project, { layer: 'domain', retryReason: 'cad-api-rederived' });
+
+    const r = frictionTrends(project, { layer: 'operational' });
+    expect(r.byLayer.length).toBe(1);
+    expect(r.byLayer[0].layer).toBe('operational');
+    expect(r.total).toBe(2);
+  });
+
+  it('limit cap is honored (newest-first, only cap notes considered)', async () => {
+    await recordFriction(project, { layer: 'domain', retryReason: 'old-reason' });
+    await recordFriction(project, { layer: 'domain', retryReason: 'newer-reason' });
+    await recordFriction(project, { layer: 'domain', retryReason: 'newest-reason' });
+
+    const r = frictionTrends(project, { limit: 2 });
+    expect(r.total).toBe(2);
   });
 });

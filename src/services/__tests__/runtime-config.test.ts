@@ -36,6 +36,8 @@ function inputs(overrides: Partial<RuntimeConfigInputs> = {}): RuntimeConfigInpu
     stewardSwitchedOn: false,
     supervisorPausedForProject: false,
     supervisorPauses: [],
+    selfSummaryNudgeEnabled: true,
+    selfSummaryNudgeIntervalMs: 5 * 60_000,
     ...overrides,
   };
 }

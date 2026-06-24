@@ -24,6 +24,7 @@ import {
   getMaxColdStarts,
   getDeadGraceMs,
 } from './coordinator-live';
+import { getSelfSummaryNudgeConfig } from './session-summary-loop';
 import { type PoolConfig } from './worker-pool';
 import { getProjectPoolConfig } from './orchestrator-config';
 import { getOrchestratorHealth } from './orchestrator-live.js';
@@ -60,6 +61,8 @@ export interface RuntimeConfig {
       /** The built-in default threshold (%) when no override is set. */
       defaultPercent: number;
     };
+    /** Self-summary nudge pass cadence/enable (daemon nudges quiet sessions to self-report). */
+    selfSummaryNudge: { enabled: boolean; intervalMs: number };
   };
   /** Every pause / override state in the control plane. */
   overrides: {
@@ -103,6 +106,8 @@ export interface RuntimeConfigInputs {
   stewardSwitchedOn: boolean;
   supervisorPausedForProject: boolean;
   supervisorPauses: Array<{ scope: string; pausedAt: number }>;
+  selfSummaryNudgeEnabled: boolean;
+  selfSummaryNudgeIntervalMs: number;
 }
 
 /**
@@ -124,6 +129,7 @@ export function summarizeRuntimeConfig(inp: RuntimeConfigInputs): RuntimeConfig 
         perProjectOverride: inp.perProjectWatchdogThreshold,
         defaultPercent: inp.defaultWatchdogThreshold,
       },
+      selfSummaryNudge: { enabled: inp.selfSummaryNudgeEnabled, intervalMs: inp.selfSummaryNudgeIntervalMs },
     },
     overrides: {
       steward: {
@@ -145,6 +151,7 @@ export function summarizeRuntimeConfig(inp: RuntimeConfigInputs): RuntimeConfig 
       steward: 'steward_pause_status / steward_pause / steward_resume',
       supervisor: 'supervisor_pause_status / supervisor_pause / supervisor_resume',
       orchestrator: 'orchestrator_status',
+      selfSummaryNudge: 'runtime_config (env: MERMAID_SELF_SUMMARY_NUDGE / MERMAID_SELF_SUMMARY_NUDGE_INTERVAL_MS)',
     },
   };
 }
@@ -157,6 +164,7 @@ export function summarizeRuntimeConfig(inp: RuntimeConfigInputs): RuntimeConfig 
 export function runtimeConfig(project: string, now: number = Date.now()): RuntimeConfig {
   const orchestratorLevel =
     getOrchestratorHealth().projects.find((p) => p.project === project)?.level ?? 'build';
+  const selfNudge = getSelfSummaryNudgeConfig();
 
   return summarizeRuntimeConfig({
     project,
@@ -174,5 +182,7 @@ export function runtimeConfig(project: string, now: number = Date.now()): Runtim
     stewardSwitchedOn: isStewardEnabled(),
     supervisorPausedForProject: isSupervisorPaused(project),
     supervisorPauses: listSupervisorPauses(),
+    selfSummaryNudgeEnabled: selfNudge.enabled,
+    selfSummaryNudgeIntervalMs: selfNudge.intervalMs,
   });
 }

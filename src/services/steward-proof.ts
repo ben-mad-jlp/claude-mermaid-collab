@@ -20,8 +20,9 @@
  * decision logic is unit-testable without a live repo; defaults shell out for real.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 export type StewardVerb = 'reset_todo' | 'override_accept_todo' | 'land_epic';
 
@@ -82,9 +83,11 @@ export interface ProofRunners {
   tscClean: (cwd: string) => boolean;
   grepPresent: (project: string, symbol: string) => boolean;
   fileExists: (project: string, relPath: string) => boolean;
-  /** epic-landable: dry `git merge --no-commit --no-ff <epicBranch>` in a master checkout,
-   *  then `git merge --abort` — true iff the merge applies cleanly (no conflict). Never
-   *  commits; always aborts so the master checkout is left pristine. */
+  /** epic-landable: dry `git merge --no-commit --no-ff <epicBranch>` in an ISOLATED
+   *  detached worktree off master HEAD — never in masterCwd directly. masterCwd is used
+   *  only to administer the worktree (git -C masterCwd worktree add/remove). True iff
+   *  the merge applies cleanly (no conflict). Never commits; master ref + main checkout
+   *  are untouched. */
   epicMergeClean: (masterCwd: string, epicBranch: string) => boolean;
 }
 
@@ -111,19 +114,35 @@ const realRunners: ProofRunners = {
     }
   },
   epicMergeClean(masterCwd, epicBranch) {
-    const abort = () => {
-      // Best-effort: only succeeds when a merge is in progress (MERGE_HEAD set).
-      try { execFileSync('git', ['merge', '--abort'], { cwd: masterCwd, stdio: 'pipe' }); } catch { /* nothing to abort */ }
+    // Isolated trial: create a detached worktree pinned at master HEAD and run the
+    // dry merge THERE — never in the main checkout (masterCwd). Mirrors the
+    // __land-master__ lifecycle (worktree-manager.landEpicToMaster). Setup failure
+    // is treated as not-clean (safe-refuse).
+    const trial = join(tmpdir(), `collab-land-trial-${process.pid}-${process.hrtime.bigint()}`);
+    const sh = (args: string[], cwd: string) =>
+      execFileSync('git', ['-C', cwd, ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
+    const teardown = () => {
+      try { execFileSync('git', ['-C', masterCwd, 'worktree', 'remove', '--force', trial], { stdio: 'pipe' }); } catch { /* gone */ }
+      try { execFileSync('git', ['-C', masterCwd, 'worktree', 'prune'], { stdio: 'pipe' }); } catch { /* best-effort */ }
     };
     try {
-      execFileSync('git', ['merge', '--no-commit', '--no-ff', epicBranch], { cwd: masterCwd, stdio: 'pipe' });
-      // Clean (or already-up-to-date) merge — abort to leave the checkout pristine.
-      abort();
+      // Detached worktree off master HEAD (do NOT check out the `master` branch — it is
+      // live in the main tree; `git worktree add master` would fail "already checked out").
+      execFileSync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, 'master'], { stdio: 'pipe' });
+    } catch {
+      teardown(); // path may have been partially created
+      return false; // cannot set up an isolated trial → refuse (do not fall back to masterCwd)
+    }
+    try {
+      sh(['merge', '--no-commit', '--no-ff', epicBranch], trial);
+      // Clean (or already-up-to-date). Abort to leave the trial pristine before teardown.
+      try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
       return true;
     } catch {
-      // Conflict (or other failure) — abort and report not-clean. Master is untouched.
-      abort();
-      return false;
+      try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
+      return false; // conflict
+    } finally {
+      teardown();
     }
   },
   grepPresent(project, symbol) {

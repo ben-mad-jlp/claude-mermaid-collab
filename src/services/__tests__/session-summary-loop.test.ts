@@ -11,8 +11,19 @@ import {
   setSummaryThresholds,
   getSummaryThresholds,
   refreshSummaryNow,
+  classifyInterpretFailure,
+  recordInterpretOutcome,
+  getSummaryHealth,
+  isInterpretRateLimited,
+  parseInterpretJson,
+  pushSessionSummary,
+  getSelfSummaryNudgeConfig,
+  shouldSelfNudge,
+  runSelfSummaryNudgePass,
+  setSelfSummaryNudgeConfig,
   type SummaryTickDeps,
   type InterpreterStructured,
+  type SessionSummaryEntry,
 } from '../session-summary-loop.ts';
 
 // Isolate SQLite per test via MERMAID_DATA_DIR.
@@ -476,9 +487,17 @@ describe('interpreter pass', () => {
     await __drainInterpreters();
     expect(interpretCallCount).toBe(1);
 
-    // Throttle clears (48s ≥ 45s); summaryPaneHash still undefined → change-gate open → retries
+    // Throttle clears (48s ≥ 45s) BUT the failure backoff (nextRetryAt = 2000 + 90s
+    // = 92000 after one failure) still gates the retry → no new call yet.
     interpretResult = { paragraph: 'Session recovered.', status: 'working' };
     t = 50_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(interpretCallCount).toBe(1); // backoff holds — no storm
+    expect(getSessionSummary(P, S)!.refreshState).toBe('stale-failing');
+
+    // Past the failure backoff (t ≥ 92000) → retry fires and recovers.
+    t = 95_000;
     await runSessionSummaryTick(deps);
     await __drainInterpreters();
     expect(interpretCallCount).toBe(2);
@@ -696,5 +715,433 @@ describe('refreshSummaryNow (force-proof)', () => {
     expect(result.ok).toBe(false);
     expect(entry.refreshState).toBe('stale-failing');
     expect(entry.summaryPaneHash).toBe(hashBefore); // unchanged
+  });
+});
+
+describe('sticky open-question', () => {
+  it('a still-idle re-interpret that drops the question keeps the prior question/suggestedAnswers', async () => {
+    let t = 1000;
+    let pane = 'pane-A';
+    let result: InterpreterStructured | null = null;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      interpret: async () => result,
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed (no interpret yet — throttle not met, not becameIdle).
+    await runSessionSummaryTick(deps);
+
+    // Pane change + throttle passed → interpret fires; returns IDLE WITH a question.
+    t = 50_000; pane = 'pane-B';
+    result = { paragraph: 'Waiting on direction.', status: 'idle', question: 'Which way next?', suggestedAnswers: ['Bake-off', 'Terrain'] };
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    expect(getSessionSummary(P, S)!.structured?.question).toBe('Which way next?');
+
+    // Pane churns (cursor/timer) + still idle, interpret DROPS the question → sticky keeps it.
+    t = 110_000; pane = 'pane-C';
+    result = { paragraph: 'Still waiting.', status: 'idle' };
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    let e = getSessionSummary(P, S)!;
+    expect(e.structured?.question).toBe('Which way next?');           // sticky kept the question
+    expect(e.structured?.suggestedAnswers).toEqual(['Bake-off', 'Terrain']); // …and its answers
+    expect(e.structured?.paragraph).toBe('Still waiting.');           // narration still advances
+
+    // Session RESUMES (status no longer idle) → the stale question is dropped.
+    t = 170_000; pane = 'pane-D';
+    result = { paragraph: 'Working now.', status: 'working' };
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+    e = getSessionSummary(P, S)!;
+    expect(e.structured?.question).toBeUndefined();                   // resumed → dropped
+  });
+});
+
+describe('pushSessionSummary (self-summary)', () => {
+  it('folds a pushed structured summary into the cache as FRESH + broadcasts', () => {
+    const msgs: unknown[] = [];
+    const r = pushSessionSummary(P, S, { paragraph: 'We are wiring self-summary.', status: 'working' }, (m) => msgs.push(m));
+    expect(r.ok).toBe(true);
+    const e = getSessionSummary(P, S)!;
+    expect(e.structured?.paragraph).toBe('We are wiring self-summary.');
+    expect(e.refreshState).toBe('fresh');
+    expect(e.summaryPaneHash).toBe(e.paneHash); // pushed → answerable (paneStillMatches)
+    expect(msgs.length).toBe(1);
+    expect((msgs[0] as { type: string }).type).toBe('session_summary_updated');
+  });
+
+  it('carries a pushed open-question through to the card payload', () => {
+    const msgs: Array<Record<string, unknown>> = [];
+    pushSessionSummary(P, S, { paragraph: 'Done — which way?', status: 'idle', question: 'Ship or iterate?', suggestedAnswers: ['Ship', 'Iterate'] }, (m) => msgs.push(m as Record<string, unknown>));
+    const st = (msgs[0]?.structured ?? {}) as { question?: string; suggestedAnswers?: string[] };
+    expect(st.question).toBe('Ship or iterate?');
+    expect(st.suggestedAnswers).toEqual(['Ship', 'Iterate']);
+  });
+
+  it('rejects an invalid payload (no paragraph / valid status)', () => {
+    expect(pushSessionSummary(P, S, { foo: 1 }).ok).toBe(false);
+    expect(pushSessionSummary(P, S, { paragraph: 'x', status: 'bogus' }).ok).toBe(false);
+  });
+});
+
+describe('interpret observability', () => {
+  it('classifyInterpretFailure maps node results to reasons', () => {
+    expect(classifyInterpretFailure({ ok: true }, true)).toBeUndefined();             // success
+    expect(classifyInterpretFailure({ ok: false, rateLimited: true }, false)).toBe('rate-limit');
+    expect(classifyInterpretFailure({ ok: false, rateLimited: true, unreachable: true }, false)).toBe('unreachable');
+    expect(classifyInterpretFailure({ ok: false, parseError: 'timed out after 60000ms' }, false)).toBe('timeout');
+    expect(classifyInterpretFailure({ ok: true }, false)).toBe('parse');             // node ok, our parse failed
+    expect(classifyInterpretFailure({ ok: false, parseError: 'bad json' }, false)).toBe('parse');
+    expect(classifyInterpretFailure({ ok: false }, false)).toBe('error');            // no marker
+  });
+
+  it('getSummaryHealth aggregates success-rate, reasons, latency, and recent failures within the window', () => {
+    const now = 1_000_000;
+    // Pushed chronologically (ascending ts), as production does.
+    recordInterpretOutcome({ ts: now - 20 * 60_000, project: P, session: 'old', ok: false, reason: 'error', latencyMs: 1 }); // outside window
+    recordInterpretOutcome({ ts: now - 4000, project: P, session: 'd', ok: false, reason: 'timeout', latencyMs: 60000 });
+    recordInterpretOutcome({ ts: now - 3000, project: P, session: 'c', ok: false, reason: 'rate-limit', latencyMs: 5000 });
+    recordInterpretOutcome({ ts: now - 2000, project: P, session: 'b', ok: true, latencyMs: 300, inputTokens: 1000, outputTokens: 200, costUsd: 0.003 });
+    recordInterpretOutcome({ ts: now - 1000, project: P, session: 'a', ok: true, latencyMs: 100, inputTokens: 500, outputTokens: 100, costUsd: 0.001 });
+
+    const h = getSummaryHealth({ now, windowMs: 10 * 60_000 });
+    expect(h.attempts).toBe(4);
+    expect(h.successes).toBe(2);
+    expect(h.successRate).toBe(0.5);
+    expect(h.byReason).toEqual({ 'rate-limit': 1, timeout: 1 });
+    expect(h.p50Ms).toBeGreaterThan(0);
+    expect(h.p95Ms).toBeGreaterThanOrEqual(h.p50Ms);
+    expect(h.recentFailures.map((f) => f.session)).toEqual(['c', 'd']); // most-recent failure first
+    expect(h.inputTokens).toBe(1500);   // NON-cached input summed over the window
+    expect(h.outputTokens).toBe(300);
+    expect(h.costUsd).toBeCloseTo(0.004, 6);
+  });
+
+  it('getSummaryHealth sums cached input tokens into totalInputTokens', () => {
+    const now = 3_000_000;
+    // Realistic shape: tiny non-cached input, big cache-read (the system prompt).
+    recordInterpretOutcome({ ts: now - 1000, project: P, session: 'a', ok: true, latencyMs: 100, inputTokens: 8, cacheReadTokens: 3500, cacheCreationTokens: 200, outputTokens: 400 });
+    recordInterpretOutcome({ ts: now - 500, project: P, session: 'b', ok: true, latencyMs: 120, inputTokens: 8, cacheReadTokens: 3500, outputTokens: 400 });
+    const h = getSummaryHealth({ now });
+    expect(h.inputTokens).toBe(16);                 // non-cached only
+    expect(h.cachedInputTokens).toBe(7200);         // 3500+200 + 3500
+    expect(h.totalInputTokens).toBe(7216);          // the real input volume
+    expect(h.outputTokens).toBe(800);
+  });
+
+  it('parseInterpretJson recovers JSON wrapped in prose or fences', () => {
+    const obj = '{"paragraph":"We are building.","status":"working"}';
+    // plain
+    expect(parseInterpretJson(obj)?.paragraph).toBe('We are building.');
+    // fenced
+    expect(parseInterpretJson('```json\n' + obj + '\n```')?.status).toBe('working');
+    // wrapped in prose (the failure mode that wasted ~39% of calls)
+    expect(parseInterpretJson('Sure! Here is the summary:\n' + obj + '\nLet me know.')?.paragraph).toBe('We are building.');
+    // genuinely unparseable → null
+    expect(parseInterpretJson('I could not produce JSON, sorry.')).toBeNull();
+    // valid JSON but missing required fields → null (coerce rejects)
+    expect(parseInterpretJson('{"foo":1}')).toBeNull();
+  });
+
+  it('a rate-limit outcome trips the fleet-wide backoff (and is reported)', () => {
+    const now = 2_000_000;
+    expect(isInterpretRateLimited(now)).toBe(false);
+    recordInterpretOutcome({ ts: now, project: P, session: 'x', ok: false, reason: 'rate-limit', latencyMs: 500 });
+    expect(isInterpretRateLimited(now + 1000)).toBe(true);          // backing off now
+    expect(isInterpretRateLimited(now + 5 * 60_000)).toBe(false);   // …lifts after the window
+    expect(getSummaryHealth({ now: now + 1000 }).rateLimitBackoffMs).toBeGreaterThan(0);
+  });
+
+  it('getSummaryHealth reports successRate 1 with no attempts', () => {
+    const h = getSummaryHealth({ now: 1_000_000 });
+    expect(h.attempts).toBe(0);
+    expect(h.successRate).toBe(1);
+  });
+});
+
+describe('interpret fallback defers to fresh self-push', () => {
+  it('fresh self-push ⇒ no interpret fired', async () => {
+    const { intervalMs } = getSelfSummaryNudgeConfig();
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+    const pushTime = 1000;
+
+    // Seed an entry
+    await runSessionSummaryTick(makeDeps({ capture: async () => pane, now: () => pushTime }));
+
+    // Self-push at pushTime
+    pushSessionSummary(P, S, { paragraph: 'Self-reported.', status: 'working' });
+
+    // Change pane so change-gate would open, advance past throttle, but stay within staleness window
+    pane = 'pane-B';
+    const withinWindow = pushTime + Math.floor(intervalMs / 2);
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => withinWindow,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Interpreted.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Two ticks to ensure change-gate is open (second tick sees different prev hash)
+    await runSessionSummaryTick(deps);
+    await runSessionSummaryTick({ ...deps, now: () => withinWindow + 1 });
+    await __drainInterpreters();
+
+    expect(interpretCallCount).toBe(0); // self-push is fresh — interpret is the fallback, not run
+    // No interpret ran ⇒ no outcome recorded ⇒ health attempts stays 0
+    expect(getSummaryHealth({ now: withinWindow + 2 }).attempts).toBe(0);
+  });
+
+  it('stale self-push ⇒ interpret runs', async () => {
+    const { intervalMs } = getSelfSummaryNudgeConfig();
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+
+    // Seed an entry
+    await runSessionSummaryTick(makeDeps({ capture: async () => pane, now: () => 1000 }));
+
+    // Self-push — lastSelfPushAt is stamped with real Date.now() inside pushSessionSummary
+    pushSessionSummary(P, S, { paragraph: 'Self-reported.', status: 'working' });
+    // Capture real push time AFTER the call so beyondWindow is relative to the actual timestamp
+    const pushTime = Date.now();
+
+    // Advance time well past the staleness window
+    pane = 'pane-B';
+    const beyondWindow = pushTime + intervalMs + 60_000;
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => beyondWindow,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Interpreted.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+
+    expect(interpretCallCount).toBeGreaterThanOrEqual(1); // stale push → interpret backstop fires
+  });
+
+  it('no self-push (never pushed) ⇒ interpret runs via normal path', async () => {
+    let interpretCallCount = 0;
+    let pane = 'pane-A';
+    let t = 1000;
+
+    const deps = makeDeps({
+      capture: async () => pane,
+      now: () => t,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Interpreted.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    });
+
+    // Seed
+    await runSessionSummaryTick(deps);
+
+    // Change pane + advance past throttle — no self-push, so interpret runs normally
+    pane = 'pane-B';
+    t = 50_000;
+    await runSessionSummaryTick(deps);
+    await __drainInterpreters();
+
+    expect(interpretCallCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('force refresh (refreshSummaryNow) ignores fresh self-push and still calls interpret', async () => {
+    const { intervalMs } = getSelfSummaryNudgeConfig();
+    let interpretCallCount = 0;
+    const pushTime = 1000;
+
+    // Seed an entry
+    await runSessionSummaryTick(makeDeps({ capture: async () => 'pane-content', now: () => pushTime }));
+
+    // Self-push — still fresh
+    pushSessionSummary(P, S, { paragraph: 'Self-reported.', status: 'working' });
+
+    // Force refresh while the push is still within the staleness window
+    const withinWindow = pushTime + Math.floor(intervalMs / 2);
+    const result = await refreshSummaryNow(P, S, makeDeps({
+      capture: async () => 'pane-content',
+      now: () => withinWindow,
+      interpret: async () => { interpretCallCount++; return { paragraph: 'Force-refreshed.', status: 'working' }; },
+      summaryModel: () => ({ model: 'sonnet', effort: 'low' as const }),
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(interpretCallCount).toBe(1); // force refresh bypasses the self-push gate
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Nudge-pass gate — pure + pass-level tests
+// ---------------------------------------------------------------------------
+
+describe('shouldSelfNudge (pure gate)', () => {
+  const INTERVAL = 5 * 60_000;
+  const NOW = 10 * 60_000;
+
+  function entry(over: Partial<SessionSummaryEntry> = {}): SessionSummaryEntry {
+    return {
+      project: P, session: S, tmux: 'mc-alpha-worker-1',
+      paneHash: 'h', paneSeenAt: 0, quietWindows: 1,
+      progressState: 'quiet', updatedAt: 0,
+      ...over,
+    };
+  }
+
+  it('quiet + no question + never self-pushed + never nudged → true', () => {
+    expect(shouldSelfNudge(entry(), -Infinity, NOW, INTERVAL)).toBe(true);
+  });
+
+  it('non-quiet progressState → false', () => {
+    for (const state of ['active', 'stalled', 'wedged', 'unknown'] as const) {
+      expect(shouldSelfNudge(entry({ progressState: state }), -Infinity, NOW, INTERVAL)).toBe(false);
+    }
+  });
+
+  it('parked open question → false', () => {
+    const e = entry({ structured: { paragraph: 'x', status: 'idle', question: 'Which way?' } });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('on-screen prompt (status needs-input) → false', () => {
+    const e = entry({ structured: { paragraph: 'x', status: 'needs-input' } });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('re-nudge throttle (last nudge < intervalMs ago) → false', () => {
+    // last nudge only 60s ago
+    expect(shouldSelfNudge(entry(), NOW - 60_000, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('self-pushed recently → false', () => {
+    const e = entry({ lastSelfPushAt: NOW - 60_000 });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(false);
+  });
+
+  it('stale self-push (older than interval) → true', () => {
+    const e = entry({ lastSelfPushAt: NOW - 6 * 60_000 });
+    expect(shouldSelfNudge(e, -Infinity, NOW, INTERVAL)).toBe(true);
+  });
+});
+
+describe('runSelfSummaryNudgePass (pass orchestration)', () => {
+  const INTERVAL = 5 * 60_000;
+  const NOW = 10 * 60_000;
+
+  function quietEntry(over: Partial<SessionSummaryEntry> = {}): SessionSummaryEntry {
+    return {
+      project: P, session: S, tmux: 'mc-alpha-worker-1',
+      paneHash: 'h', paneSeenAt: 0, quietWindows: 1,
+      progressState: 'quiet', updatedAt: 0,
+      ...over,
+    };
+  }
+
+  it('disabled config → no-op, nudge not called', async () => {
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const result = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: false, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge,
+      now: () => NOW,
+    });
+    expect(result).toEqual({ scanned: 0, eligible: 0, nudged: [] });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('nudges ONLY quiet + no-pending-question + stale-self-push sessions', async () => {
+    const S2 = 'worker-2';
+    const S3 = 'worker-3';
+    const S4 = 'worker-4';
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const entries: SessionSummaryEntry[] = [
+      quietEntry({ session: S }),                                                   // eligible
+      { ...quietEntry(), session: S2, progressState: 'active' },                   // not quiet
+      { ...quietEntry(), session: S3,
+        structured: { paragraph: 'x', status: 'idle', question: 'Q?' } },         // has question
+      { ...quietEntry(), session: S4, lastSelfPushAt: NOW },                       // fresh push
+    ];
+    const result = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => entries,
+      nudge,
+      now: () => NOW,
+    });
+    expect(result.eligible).toBe(1);
+    expect(result.nudged).toEqual([S]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([P, S]);
+  });
+
+  it('skips active and question-parked sessions (never passed to nudge)', async () => {
+    const S_ACTIVE = 'worker-active';
+    const S_QPEND = 'worker-qpend';
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const entries: SessionSummaryEntry[] = [
+      { ...quietEntry(), session: S_ACTIVE, progressState: 'active' },
+      { ...quietEntry(), session: S_QPEND,
+        structured: { paragraph: 'x', status: 'idle', question: 'Next step?' } },
+    ];
+    await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => entries,
+      nudge,
+      now: () => NOW,
+    });
+    const calledSessions = calls.map(([, s]) => s);
+    expect(calledSessions).not.toContain(S_ACTIVE);
+    expect(calledSessions).not.toContain(S_QPEND);
+  });
+
+  it("'busy'/'no-tmux' does NOT advance the throttle → retried next pass", async () => {
+    let result1Return: 'sent' | 'busy' | 'no-tmux' = 'busy';
+    const calls1: Array<[string, string]> = [];
+    const nudge1 = async (p: string, s: string) => { calls1.push([p, s]); return result1Return; };
+
+    // Pass 1 — busy → throttle NOT advanced
+    const r1 = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge: nudge1,
+      now: () => NOW,
+    });
+    expect(r1.nudged).toEqual([]);
+
+    // Pass 2 at same NOW — nudge returns 'sent' this time → should succeed since throttle not set
+    result1Return = 'sent';
+    const calls2: Array<[string, string]> = [];
+    const nudge2 = async (p: string, s: string) => { calls2.push([p, s]); return 'sent' as const; };
+    const r2 = await runSelfSummaryNudgePass({
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge: nudge2,
+      now: () => NOW,
+    });
+    expect(r2.nudged).toEqual([S]);
+  });
+
+  it("'sent' advances the throttle → not re-nudged within interval", async () => {
+    const fixedT = NOW;
+    const calls: Array<[string, string]> = [];
+    const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
+    const passDeps = {
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      listSummaries: () => [quietEntry()],
+      nudge,
+      now: () => fixedT,
+    };
+
+    // Pass 1 — should nudge
+    const r1 = await runSelfSummaryNudgePass(passDeps);
+    expect(r1.nudged).toEqual([S]);
+
+    // Pass 2 at same time — throttle was advanced, so not eligible
+    const r2 = await runSelfSummaryNudgePass(passDeps);
+    expect(r2.nudged).toEqual([]);
   });
 });

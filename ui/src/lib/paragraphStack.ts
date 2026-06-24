@@ -25,6 +25,11 @@ export interface SessionSummary {
   firstClause?: string;
   summaryUpdatedAt?: number;
   refreshState?: 'fresh' | 'stale-failing';
+  /** Live pane hash (advances every tick) + the hash the current summary was
+   *  captured from. Equal ⇒ the pane hasn't changed since we summarized it, so the
+   *  summary is still accurate however old (idle/quiet) — NOT a failed refresh. */
+  paneHash?: string;
+  summaryPaneHash?: string;
   structured?: ZenStructured;
 }
 
@@ -77,12 +82,17 @@ export function summaryFreshness(s: SessionSummary, now: number): FreshnessReado
   if (s.refreshState === 'stale-failing') {
     return { label: '⚠ summary refresh failing', failing: true };
   }
-  // Pane moving but summary stuck well behind → interpreter lagging.
-  if (
-    s.paneSeenAt &&
-    s.summaryUpdatedAt &&
-    s.paneSeenAt - s.summaryUpdatedAt > STALE_SLACK_MS
-  ) {
+  // "Failing" requires the pane to have actually CHANGED since the last summary
+  // (hash differs) AND stayed unsummarized past the slack — genuine silent lag.
+  // CRITICAL: do NOT use paneSeenAt for this. paneSeenAt advances every tick (the
+  // pane was *seen*), but summaryUpdatedAt only advances when the pane *changes*
+  // (the change-gate skips re-summarizing an unchanged pane). So paneSeenAt minus
+  // summaryUpdatedAt grows without bound for any IDLE session and falsely flagged
+  // every quiet session "refresh failing" after 3m. An unchanged pane (hashes
+  // equal) is idle/quiet: its summary still describes the current pane exactly,
+  // however old, so it is NEVER failing.
+  const paneChanged = !!s.paneHash && !!s.summaryPaneHash && s.paneHash !== s.summaryPaneHash;
+  if (paneChanged && s.summaryUpdatedAt && now - s.summaryUpdatedAt > STALE_SLACK_MS) {
     return { label: '⚠ summary refresh failing', failing: true };
   }
   const seen = s.summaryUpdatedAt ?? s.updatedAt ?? 0;

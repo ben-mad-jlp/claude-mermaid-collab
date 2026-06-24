@@ -18,14 +18,16 @@ import { join, dirname } from 'node:path';
  * can read real evidence without opening each worker's private ~/.claude transcript.
  */
 
-/** Where the friction came from: the orchestration harness (collab) vs the
- *  project's own domain (the code/API the worker was editing). */
-export type FrictionLayer = 'orchestration' | 'domain';
+/** Where the friction came from: the orchestration harness (collab), the
+ *  project's own domain (the code/API the worker was editing), or a systemic
+ *  operational observation any agent can emit without a leaf scope. */
+export type FrictionLayer = 'orchestration' | 'domain' | 'operational';
 
 export interface FrictionNote {
   id: string;
-  /** The work-graph todo this attempt was against. */
-  todoId: string;
+  /** The work-graph todo this attempt was against. Null for operational notes
+   *  that are not scoped to a single leaf. */
+  todoId: string | null;
   /** The worker/pool session that emitted it. */
   session: string | null;
   /** 1-based attempt number (the worker's own count, not the lease retryCount). */
@@ -41,7 +43,7 @@ export interface FrictionNote {
 }
 
 export interface RecordFrictionInput {
-  todoId: string;
+  todoId?: string | null;
   session?: string | null;
   attempt?: number;
   layer: FrictionLayer;
@@ -58,7 +60,7 @@ export interface FrictionFilter {
 const DDL = `
 CREATE TABLE IF NOT EXISTS friction_notes (
   id TEXT PRIMARY KEY,
-  todoId TEXT NOT NULL,
+  todoId TEXT,
   session TEXT,
   attempt INTEGER NOT NULL DEFAULT 1,
   layer TEXT NOT NULL,
@@ -68,6 +70,11 @@ CREATE TABLE IF NOT EXISTS friction_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_friction_todo ON friction_notes(todoId);
 CREATE INDEX IF NOT EXISTS idx_friction_layer ON friction_notes(layer);
+CREATE TABLE IF NOT EXISTS friction_watch_state (
+  signalKey TEXT PRIMARY KEY,
+  state TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
 `;
 
 const dbCache = new Map<string, Database>();
@@ -80,6 +87,23 @@ function openDb(project: string): Database {
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+
+  // Migration: older friction.db had `todoId TEXT NOT NULL`; operational notes are
+  // not leaf-scoped, so todoId must be nullable. Rebuild the table if the old
+  // constraint is present (idempotent — no-op once todoId is nullable).
+  const cols = db.prepare(`PRAGMA table_info(friction_notes)`).all() as Array<{ name: string; notnull: number }>;
+  const todoCol = cols.find((c) => c.name === 'todoId');
+  if (todoCol && todoCol.notnull === 1) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.transaction(() => {
+      db.exec(`ALTER TABLE friction_notes RENAME TO friction_notes_old`);
+      db.exec(DDL);
+      db.exec(`INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
+               SELECT id, todoId, session, attempt, layer, retryReason, detail, createdAt FROM friction_notes_old`);
+      db.exec(`DROP TABLE friction_notes_old`);
+    })();
+  }
+
   dbCache.set(project, db);
   return db;
 }
@@ -104,12 +128,12 @@ function withLock<T>(project: string, fn: () => T | Promise<T>): Promise<T> {
 
 const nowIso = () => new Date().toISOString();
 
-const VALID_LAYERS: FrictionLayer[] = ['orchestration', 'domain'];
+const VALID_LAYERS: FrictionLayer[] = ['orchestration', 'domain', 'operational'];
 
 function rowToNote(row: any): FrictionNote {
   return {
     id: row.id,
-    todoId: row.todoId,
+    todoId: row.todoId ?? null,
     session: row.session ?? null,
     attempt: row.attempt,
     layer: row.layer as FrictionLayer,
@@ -123,7 +147,6 @@ function rowToNote(row: any): FrictionNote {
  *  store is a clean orchestration-vs-domain split). Returns the stored note. */
 export function recordFriction(project: string, input: RecordFrictionInput): Promise<FrictionNote> {
   return withLock(project, () => {
-    if (!input.todoId) throw new Error('recordFriction: todoId is required');
     if (!input.retryReason) throw new Error('recordFriction: retryReason is required');
     if (!VALID_LAYERS.includes(input.layer)) {
       throw new Error(`recordFriction: layer must be one of ${VALID_LAYERS.join(' | ')} (got ${String(input.layer)})`);
@@ -135,7 +158,7 @@ export function recordFriction(project: string, input: RecordFrictionInput): Pro
     db.prepare(
       `INSERT INTO friction_notes (id, todoId, session, attempt, layer, retryReason, detail, createdAt)
        VALUES (?,?,?,?,?,?,?,?)`
-    ).run(id, input.todoId, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, ts);
+    ).run(id, input.todoId ?? null, input.session ?? null, attempt, input.layer, input.retryReason, input.detail ?? null, ts);
     return rowToNote(db.prepare('SELECT * FROM friction_notes WHERE id = ?').get(id));
   });
 }
@@ -152,4 +175,47 @@ export function listFriction(project: string, filter: FrictionFilter = {}): Fric
   if (filter.layer) { where.push('layer = ?'); params.push(filter.layer); }
   const sql = `SELECT * FROM friction_notes${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC, rowid DESC`;
   return (db.prepare(sql).all(...params) as any[]).map(rowToNote);
+}
+
+/** Read durable watch-dedup state for a signal key (operational friction watcher
+ *  uses this to record a STANDING condition once per edge, not every tick).
+ *  Returns null if the key has never been set. Unlocked read, mirrors listFriction. */
+export function getWatchState(project: string, signalKey: string): string | null {
+  const db = openDb(project);
+  const row = db
+    .prepare('SELECT state FROM friction_watch_state WHERE signalKey = ?')
+    .get(signalKey) as { state?: string } | undefined;
+  return row?.state ?? null;
+}
+
+/** Upsert durable watch-dedup state. Serialized via withLock like recordFriction. */
+export function setWatchState(project: string, signalKey: string, state: string): Promise<void> {
+  return withLock(project, () => {
+    const db = openDb(project);
+    db.prepare(
+      `INSERT INTO friction_watch_state (signalKey, state, updatedAt) VALUES (?,?,?)
+       ON CONFLICT(signalKey) DO UPDATE SET state = excluded.state, updatedAt = excluded.updatedAt`
+    ).run(signalKey, state, nowIso());
+  });
+}
+
+/** Canonical KV key for the DF3 triage "this recurring reason already has a
+ *  filed todo" marker. Namespaced under friction_watch_state (no schema change). */
+const TRIAGE_ACTIONED_PREFIX = 'triage:actioned:';
+const triageActionedKey = (layer: FrictionLayer, retryReason: string) =>
+  `${TRIAGE_ACTIONED_PREFIX}${layer}:${retryReason}`;
+
+/** True iff a todo has already been filed for this (layer, reason) — DF3 dedup.
+ *  Permanent marker (MVP): once actioned, never re-filed. Future enhancement:
+ *  re-arm when the count grows materially after the prior todo is resolved. */
+export function isReasonActioned(project: string, layer: FrictionLayer, retryReason: string): boolean {
+  return getWatchState(project, triageActionedKey(layer, retryReason)) !== null;
+}
+
+/** Mark a (layer, reason) actioned by recording the filed todo id as the state
+ *  (the marker doubles as a back-pointer to the todo). Serialized via withLock. */
+export function markReasonActioned(
+  project: string, layer: FrictionLayer, retryReason: string, todoId: string,
+): Promise<void> {
+  return setWatchState(project, triageActionedKey(layer, retryReason), todoId);
 }

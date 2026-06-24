@@ -79,20 +79,32 @@ describe('summaryFreshness', () => {
     expect(r.label).toBe('⚠ summary refresh failing');
   });
 
-  it('returns failing=true when paneSeenAt is > 3m ahead of summaryUpdatedAt', () => {
+  it('returns failing=true when the pane CHANGED and the summary is >3m behind', () => {
     const s = makeSession({
       summaryUpdatedAt: NOW - 4 * 60_000,
-      paneSeenAt: NOW - 30_000,       // pane 3m30s ahead of summary
+      paneHash: 'NEW', summaryPaneHash: 'OLD', // pane moved on, summary stuck
     });
     const r = summaryFreshness(s, NOW);
     expect(r.failing).toBe(true);
     expect(r.label).toBe('⚠ summary refresh failing');
   });
 
-  it('returns failing=false when drift is exactly at 3m boundary (not yet failing)', () => {
+  it('returns failing=FALSE for an IDLE session however old (pane unchanged — hashes equal)', () => {
+    // The bug this fixes: paneSeenAt advances every tick on an idle session, so the
+    // old paneSeenAt-drift check falsely flagged every quiet session "failing".
     const s = makeSession({
-      summaryUpdatedAt: NOW - 3 * 60_000,
-      paneSeenAt: NOW,                 // drift = 3m exactly → not > STALE_SLACK_MS
+      summaryUpdatedAt: NOW - 60 * 60_000, // summary an hour old…
+      paneSeenAt: NOW - 1_000,             // …but pane still being seen every tick
+      paneHash: 'SAME', summaryPaneHash: 'SAME', // and UNCHANGED → summary still accurate
+    });
+    const r = summaryFreshness(s, NOW);
+    expect(r.failing).toBe(false);
+  });
+
+  it('returns failing=false when the pane changed but within the 3m slack', () => {
+    const s = makeSession({
+      summaryUpdatedAt: NOW - 60_000, // 1m < slack
+      paneHash: 'NEW', summaryPaneHash: 'OLD',
     });
     const r = summaryFreshness(s, NOW);
     expect(r.failing).toBe(false);
@@ -125,12 +137,12 @@ describe('summaryFreshness', () => {
     expect(r.label).toBe('quiet 1m');
   });
 
-  it('refreshState fresh does not override drift check', () => {
-    // refreshState:'fresh' but pane far ahead → the drift check still fires
+  it('refreshState fresh does not override the pane-changed lag check', () => {
+    // refreshState:'fresh' but pane CHANGED and summary >3m behind → still failing
     const s = makeSession({
       refreshState: 'fresh',
       summaryUpdatedAt: NOW - 4 * 60_000,
-      paneSeenAt: NOW,
+      paneHash: 'NEW', summaryPaneHash: 'OLD',
     });
     const r = summaryFreshness(s, NOW);
     expect(r.failing).toBe(true);

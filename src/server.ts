@@ -412,6 +412,10 @@ const agentDispatcher = new AgentDispatcher({
   checkpointStore,
   eventLog: agentRegistry.getEventLog(),
   reactor: checkpointReactor,
+  // Sidecar runs at the shared self-project root; a session's checkpoint revert
+  // must target its OWN worktree, never the live main checkout. Refuse a revert
+  // aimed at a shared project root rather than silently corrupt it.
+  guardProjectRootRevert: true,
 });
 wsHandler.setAgentDispatcher(agentDispatcher);
 

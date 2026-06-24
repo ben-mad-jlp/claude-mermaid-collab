@@ -66,6 +66,10 @@ export interface NodeSpec {
 export interface NodeUsage {
   inputTokens?: number;
   outputTokens?: number;
+  /** Cached-prompt input tokens (the system prompt etc. served from cache) — the
+   *  bulk of a summary interpret's input lands here, NOT in inputTokens. */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
   costUsd?: number; // from result.total_cost_usd if present
   numTurns?: number; // from result.num_turns — the de-facto "steps"
 }
@@ -302,7 +306,7 @@ interface ClaudeJsonResult {
   total_cost_usd?: number;
   /** HTTP status of an API error (null/absent on success; 429 = rate limit, 5xx = transient). */
   api_error_status?: number | null;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
 }
 
 /** Parse a `--output-format json` result string into usage + text. */
@@ -330,6 +334,8 @@ export function parseNodeJson(stdout: string): {
   const usage: NodeUsage = {
     inputTokens: j.usage?.input_tokens,
     outputTokens: j.usage?.output_tokens,
+    cacheReadTokens: j.usage?.cache_read_input_tokens,
+    cacheCreationTokens: j.usage?.cache_creation_input_tokens,
     costUsd: j.total_cost_usd,
     numTurns: j.num_turns,
   };

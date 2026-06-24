@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordFriction, listFriction, _closeProject } from '../friction-store';
+import { recordFriction, listFriction, _closeProject, getWatchState, setWatchState } from '../friction-store';
 
 let project: string;
 
@@ -41,8 +41,25 @@ describe('friction-store', () => {
   it('rejects an invalid layer and missing required fields', async () => {
     // @ts-expect-error — invalid layer at the type level too
     await expect(recordFriction(project, { todoId: 't', layer: 'bogus', retryReason: 'x' })).rejects.toThrow('layer must be one of');
-    await expect(recordFriction(project, { todoId: '', layer: 'domain', retryReason: 'x' })).rejects.toThrow('todoId is required');
     await expect(recordFriction(project, { todoId: 't', layer: 'domain', retryReason: '' })).rejects.toThrow('retryReason is required');
+  });
+
+  it('records with no todoId (operational note) — stores null and round-trips', async () => {
+    const note = await recordFriction(project, { layer: 'operational', retryReason: 'stale-shadow-server', detail: 'plugin hook started old binary' });
+    expect(note.todoId).toBeNull();
+    expect(note.layer).toBe('operational');
+    expect(note.retryReason).toBe('stale-shadow-server');
+    // round-trip via list
+    const all = listFriction(project);
+    expect(all[0].todoId).toBeNull();
+  });
+
+  it('accepts operational layer and filters by it', async () => {
+    await recordFriction(project, { layer: 'operational', retryReason: 'nudge-not-delivered' });
+    await recordFriction(project, { todoId: 't1', layer: 'domain', retryReason: 'cad-api-rederived' });
+    const operational = listFriction(project, { layer: 'operational' });
+    expect(operational.length).toBe(1);
+    expect(operational[0].retryReason).toBe('nudge-not-delivered');
   });
 
   it('answers "which todos hit DOMAIN-layer friction and why" via the layer filter', async () => {
@@ -76,5 +93,36 @@ describe('friction-store', () => {
     const notes = listFriction(project, { todoId: 't1' });
     expect(notes.length).toBe(1);
     expect(notes[0].retryReason).toBe('persisted');
+  });
+});
+
+describe('friction-store watch-state KV', () => {
+  it('returns null for an unset key', () => {
+    expect(getWatchState(project, 'watch:unset')).toBeNull();
+  });
+
+  it('round-trips a set value', async () => {
+    await setWatchState(project, 'watch:unlanded-threshold', 'over');
+    expect(getWatchState(project, 'watch:unlanded-threshold')).toBe('over');
+  });
+
+  it('upserts (second set overwrites, no duplicate row)', async () => {
+    const key = 'watch:stale-wt:/tmp/wt-a';
+    await setWatchState(project, key, 'branch-gone');
+    await setWatchState(project, key, 'stale');
+    expect(getWatchState(project, key)).toBe('stale');
+  });
+
+  it('keeps distinct keys independent', async () => {
+    await setWatchState(project, 'watch:a', 'x');
+    await setWatchState(project, 'watch:b', 'y');
+    expect(getWatchState(project, 'watch:a')).toBe('x');
+    expect(getWatchState(project, 'watch:b')).toBe('y');
+  });
+
+  it('persists across a reopened handle', async () => {
+    await setWatchState(project, 'watch:persist', 'over');
+    _closeProject(project); // drop cached handle → reopen DB file
+    expect(getWatchState(project, 'watch:persist')).toBe('over');
   });
 });

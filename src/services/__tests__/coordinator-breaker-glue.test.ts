@@ -118,6 +118,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     const deps = makeCoordinatorDeps();
     const todo = makeTodo();
     const result = await deps.launchWorker(TEST_PROJECT, todo);
+    await new Promise((r) => setTimeout(r, 0)); // fire-and-track: runLeaf runs in the continuation
 
     expect(result).toBe(true);
     expect(runLeafCalls.length).toBe(1);
@@ -131,8 +132,11 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     const deps = makeCoordinatorDeps();
     const todo = makeTodo();
     const result = await deps.launchWorker(TEST_PROJECT, todo);
+    await new Promise((r) => setTimeout(r, 0)); // fire-and-track: pause handling runs in the continuation
 
-    expect(result).toBe(false);
+    // launchWorker now returns true (the leaf was FIRED); the paused outcome is handled
+    // asynchronously in the run continuation, which trips the breaker + releases the claim.
+    expect(result).toBe(true);
     expect(breakerOpen()).toBe(true);
     // enqueuePausedLeaf was called via the coordinator — nodesSpent is carried
     expect(pausedNodesSpent(TEST_PROJECT, todo.id)).toBe(4);
@@ -163,6 +167,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
 
     const deps = makeCoordinatorDeps();
     await deps.launchWorker(TEST_PROJECT, makeTodo());
+    await new Promise((r) => setTimeout(r, 0)); // fire-and-track: streak reset runs in the continuation
 
     // After the accepted run, streak was reset → the next trip should start at BASE
     const t1 = Date.now();
@@ -181,6 +186,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     leafResult = { outcome: 'accepted', attempts: 1, nodesSpent: 2 };
     const deps = makeCoordinatorDeps();
     await deps.launchWorker(TEST_PROJECT, makeTodo({ id: 'different-todo-id' }));
+    await new Promise((r) => setTimeout(r, 0)); // fire-and-track: accepted handling runs in the continuation
 
     // The other-leaf-id paused entry must still be in the registry
     expect(pausedNodesSpent(TEST_PROJECT, 'other-leaf-id')).toBe(3);
