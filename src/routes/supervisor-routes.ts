@@ -108,6 +108,34 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // FRICTION TRENDS — recurrence rollup over the friction store (DF4). Read-only; the
+  // `recurring` shortlist + per-layer counts feed the Bridge dogfood-health panel.
+  if (url.pathname === '/api/supervisor/friction-trends' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project query param is required', 400);
+    try {
+      const { frictionTrends } = await import('../services/friction-trends.ts');
+      const limitRaw = Number(url.searchParams.get('limit'));
+      const trends = frictionTrends(project, Number.isFinite(limitRaw) && limitRaw > 0 ? { limit: limitRaw } : {});
+      return Response.json(trends);
+    } catch {
+      return Response.json({ total: 0, considered: 0, byLayer: [], recurring: [] });
+    }
+  }
+
+  // STALE WORKTREES — abandoned linked worktrees (branch-gone / prunable / aged-out).
+  // Pure git read (DF4). Read-only; never prunes. [] off non-git / on error.
+  if (url.pathname === '/api/supervisor/stale-worktrees' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project query param is required', 400);
+    try {
+      const staleWorktrees = await getWorktreeManager(project).listStaleWorktrees();
+      return Response.json({ staleWorktrees });
+    } catch {
+      return Response.json({ staleWorktrees: [] });
+    }
+  }
+
   // ESCALATION HISTORY — read-only OPEN+RESOLVED escalation trail (escalation_list
   // is open-only). The frontend's per-epic history view (epicHistory) fetches this
   // ON OPEN with an epicId, getting the epic's escalations (with triage outcome) AND
