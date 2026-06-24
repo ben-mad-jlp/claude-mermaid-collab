@@ -41,8 +41,25 @@ describe('friction-store', () => {
   it('rejects an invalid layer and missing required fields', async () => {
     // @ts-expect-error — invalid layer at the type level too
     await expect(recordFriction(project, { todoId: 't', layer: 'bogus', retryReason: 'x' })).rejects.toThrow('layer must be one of');
-    await expect(recordFriction(project, { todoId: '', layer: 'domain', retryReason: 'x' })).rejects.toThrow('todoId is required');
     await expect(recordFriction(project, { todoId: 't', layer: 'domain', retryReason: '' })).rejects.toThrow('retryReason is required');
+  });
+
+  it('records with no todoId (operational note) — stores null and round-trips', async () => {
+    const note = await recordFriction(project, { layer: 'operational', retryReason: 'stale-shadow-server', detail: 'plugin hook started old binary' });
+    expect(note.todoId).toBeNull();
+    expect(note.layer).toBe('operational');
+    expect(note.retryReason).toBe('stale-shadow-server');
+    // round-trip via list
+    const all = listFriction(project);
+    expect(all[0].todoId).toBeNull();
+  });
+
+  it('accepts operational layer and filters by it', async () => {
+    await recordFriction(project, { layer: 'operational', retryReason: 'nudge-not-delivered' });
+    await recordFriction(project, { todoId: 't1', layer: 'domain', retryReason: 'cad-api-rederived' });
+    const operational = listFriction(project, { layer: 'operational' });
+    expect(operational.length).toBe(1);
+    expect(operational[0].retryReason).toBe('nudge-not-delivered');
   });
 
   it('answers "which todos hit DOMAIN-layer friction and why" via the layer filter', async () => {
