@@ -666,10 +666,22 @@ function shouldSummarize(
   paneNonEmpty: boolean,
   wsPresentNow: boolean,
   nowMs: number,
+  selfPushStalenessMs: number,
 ): boolean {
   if (!wsPresentNow || !paneNonEmpty) return false;
   if (isInterpretRateLimited(nowMs)) return false;       // B: fleet-wide 429 backoff — pause all interpreting
   if (prev?.summaryInFlight) return false;
+  // Self-summary is AUTHORITATIVE while fresh: a session that just self-reported
+  // its Zen summary needs NO external pane-scrape interpret. The interpret is a
+  // FALLBACK for sessions that haven't self-pushed within the window — non-claude
+  // panes and non-responsive sessions never set lastSelfPushAt, so they fall
+  // through to the interpret backstop automatically.
+  if (
+    prev?.lastSelfPushAt != null &&
+    nowMs - prev.lastSelfPushAt < selfPushStalenessMs
+  ) {
+    return false;
+  }
   if (prev?.nextRetryAt && nowMs < prev.nextRetryAt) return false; // A: failure backoff — don't storm a failing pane
   if (hash === prev?.summaryPaneHash) return false; // change-gate: frozen pane = zero cost
   const throttleOk = nowMs - (prev?.lastSummaryAt ?? 0) >= MIN_SUMMARY_INTERVAL_MS;
@@ -803,6 +815,7 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
       };
     });
   const interpret = deps.interpret ?? interpretViaNode;
+  const selfPushStalenessMs = getSelfSummaryNudgeConfig().intervalMs;
 
   const listKnownSessions =
     deps.listKnownSessions ??
@@ -1000,7 +1013,7 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
     emitted++;
 
     // Interpreter pass — fire-and-forget behind strict gate.
-    if (shouldSummarize(prev, hash, progressState, true, wsPresent(), ts)) {
+    if (shouldSummarize(prev, hash, progressState, true, wsPresent(), ts, selfPushStalenessMs)) {
       const { model, effort } = resolveModel(project);
       entry.summaryInFlight = true;
       entry.lastSummaryAt = ts; // stamp at LAUNCH so throttle counts attempts, not completions
