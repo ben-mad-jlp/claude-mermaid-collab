@@ -774,6 +774,68 @@ export class WorktreeManager {
     return out;
   }
 
+  /** Enumerate LINKED worktrees (excludes the main repo) that look abandoned:
+   *  their branch ref is gone / git marks them prunable, or their HEAD commit is older
+   *  than maxAgeMs. Pure git read — no prune, no removal. [] off non-git / on error. */
+  async listStaleWorktrees(
+    opts: { maxAgeMs?: number } = {},
+  ): Promise<Array<{ path: string; branch: string | null; reason: 'branch-gone' | 'prunable' | 'stale'; ageMs: number }>> {
+    if (!(await this.isGitRepo())) return [];
+    const maxAgeMs = opts.maxAgeMs ?? 7 * 24 * 60 * 60 * 1000;
+    const list = await this.runGit(
+      this.opts.projectRoot,
+      ['worktree', 'list', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (list.code !== 0) return [];
+    const out: Array<{ path: string; branch: string | null; reason: 'branch-gone' | 'prunable' | 'stale'; ageMs: number }> = [];
+    // Porcelain: blank-line-separated blocks of `key value` lines.
+    const blocks = list.stdout.split('\n\n');
+    for (const block of blocks) {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      let wtPath = '';
+      let branch: string | null = null;
+      let prunable = false;
+      for (const ln of lines) {
+        if (ln.startsWith('worktree ')) wtPath = ln.slice('worktree '.length);
+        else if (ln.startsWith('branch ')) branch = ln.slice('branch '.length).replace(/^refs\/heads\//, '');
+        else if (ln === 'prunable' || ln.startsWith('prunable ')) prunable = true;
+      }
+      if (!wtPath) continue;
+      if (path.resolve(wtPath) === path.resolve(this.opts.projectRoot)) continue; // skip main worktree
+      // branch-gone: a named branch that no longer resolves.
+      let branchGone = false;
+      if (branch) {
+        const ok =
+          (
+            await this.runGit(
+              this.opts.projectRoot,
+              ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
+              QUICK_TIMEOUT_MS,
+            ).catch(() => ({ code: 1, stdout: '', stderr: '' }))
+          ).code === 0;
+        branchGone = !ok;
+      }
+      // age: HEAD commit time inside the worktree.
+      let ageMs = 0;
+      const ct = await this.runGit(
+        wtPath,
+        ['log', '-1', '--format=%ct'],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      if (ct.code === 0 && ct.stdout.trim()) ageMs = this.now() - parseInt(ct.stdout.trim(), 10) * 1000;
+      const reason: 'branch-gone' | 'prunable' | 'stale' | null = branchGone
+        ? 'branch-gone'
+        : prunable
+          ? 'prunable'
+          : ageMs > maxAgeMs
+            ? 'stale'
+            : null;
+      if (reason) out.push({ path: wtPath, branch, reason, ageMs });
+    }
+    return out;
+  }
+
   /** Resolve a base ref to branch a NEW epic off: the requested ref when it
    *  exists, else the detected base branch. Lets a caller request a specific base
    *  (e.g. master) yet fall back to the detected default branch on a fresh repo. */

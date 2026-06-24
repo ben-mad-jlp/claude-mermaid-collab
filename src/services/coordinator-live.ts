@@ -61,6 +61,7 @@ import {
 import { resolveWorkerAgent } from '../agent/registry';
 import { getConfig } from './config-service';
 import { recordSelfLand, isSelfProject } from './deploy-service';
+import { recordFriction, getWatchState, setWatchState } from './friction-store';
 import {
   agentAliveInSubtree,
   CLAUDE_COMM_MATCHER,
@@ -1326,6 +1327,19 @@ export async function landEpic(project: string, escalationId: string): Promise<L
           questionText: `Land conflict: epic ${epicBranch} did not merge cleanly into master (master untouched). Rebase ${epicBranch} onto master, resolve conflicts, then re-land.`,
         });
         recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'conflict' }) });
+        // DF2: silently capture the land-merge conflict as operational friction (deduped
+        // per-epic edge — record once until a later land of this epic succeeds).
+        try {
+          const fkey = `watch:land-conflict:${epicId.slice(0, 8)}`;
+          if (getWatchState(targetProject, fkey) !== 'conflict') {
+            await recordFriction(targetProject, {
+              layer: 'operational',
+              retryReason: 'land-merge-conflict',
+              detail: `epic ${epicBranch} did not merge cleanly into master (master untouched). reason=${land.reason ?? 'epic-merge-conflict'}`,
+            });
+            await setWatchState(targetProject, fkey, 'conflict');
+          }
+        } catch { /* best-effort */ }
         return { ok: false, landed: false, conflict: true, reason: 'epic-merge-conflict', epicId, epicBranch };
       }
       if (!land.landed) {
@@ -1335,6 +1349,7 @@ export async function landEpic(project: string, escalationId: string): Promise<L
 
       // Landed — remove the epic branch + worktree (gated on land success), resolve the card.
       await wm.removeEpic(epicId, targetProject).catch(() => {});
+      try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
       resolveEscalation(escalationId, 'resolved', 'ai');
       const selfLand = isSelfProject(targetProject);
       // Stamp the self-land so the deploy-status surface can flag the running

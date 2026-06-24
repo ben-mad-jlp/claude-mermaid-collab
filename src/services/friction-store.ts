@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS friction_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_friction_todo ON friction_notes(todoId);
 CREATE INDEX IF NOT EXISTS idx_friction_layer ON friction_notes(layer);
+CREATE TABLE IF NOT EXISTS friction_watch_state (
+  signalKey TEXT PRIMARY KEY,
+  state TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+);
 `;
 
 const dbCache = new Map<string, Database>();
@@ -170,4 +175,26 @@ export function listFriction(project: string, filter: FrictionFilter = {}): Fric
   if (filter.layer) { where.push('layer = ?'); params.push(filter.layer); }
   const sql = `SELECT * FROM friction_notes${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY createdAt DESC, rowid DESC`;
   return (db.prepare(sql).all(...params) as any[]).map(rowToNote);
+}
+
+/** Read durable watch-dedup state for a signal key (operational friction watcher
+ *  uses this to record a STANDING condition once per edge, not every tick).
+ *  Returns null if the key has never been set. Unlocked read, mirrors listFriction. */
+export function getWatchState(project: string, signalKey: string): string | null {
+  const db = openDb(project);
+  const row = db
+    .prepare('SELECT state FROM friction_watch_state WHERE signalKey = ?')
+    .get(signalKey) as { state?: string } | undefined;
+  return row?.state ?? null;
+}
+
+/** Upsert durable watch-dedup state. Serialized via withLock like recordFriction. */
+export function setWatchState(project: string, signalKey: string, state: string): Promise<void> {
+  return withLock(project, () => {
+    const db = openDb(project);
+    db.prepare(
+      `INSERT INTO friction_watch_state (signalKey, state, updatedAt) VALUES (?,?,?)
+       ON CONFLICT(signalKey) DO UPDATE SET state = excluded.state, updatedAt = excluded.updatedAt`
+    ).run(signalKey, state, nowIso());
+  });
 }
