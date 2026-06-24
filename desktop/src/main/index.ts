@@ -1,4 +1,6 @@
 import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { mkdirSync } from 'node:fs';
 import { app, BrowserWindow, ipcMain, nativeImage, Menu, screen, dialog } from 'electron';
 import {
   loadWindowState,
@@ -421,6 +423,11 @@ function createWindow(): void {
       : {}),
     show: true,
     icon: appIcon,
+    // Hide the File/Edit/View menu bar by default (Alt reveals it on demand) so
+    // the native window title bar — with the min/maximize/close controls — is the
+    // only chrome at the top. The menu actions stay reachable via their keyboard
+    // accelerators and a tap of Alt.
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -494,6 +501,26 @@ async function bootstrap(): Promise<void> {
   // normal launches are unaffected.
   const cdpPort = await enableCdp(app, { port: process.env.MC_CDP_PORT ? Number(process.env.MC_CDP_PORT) : undefined });
   if (process.env.MC_INSPECT) app.commandLine.appendSwitch('inspect', process.env.MC_INSPECT);
+  // MC_GL controls the GL backend (opt-in). Useful in remote-desktop sessions
+  // (e.g. xrdp) where the X server exposes no hardware GLX, so hardware GL init
+  // fails noisily before falling back. Values:
+  //   'off'/'software' — disable hardware acceleration entirely (clean software
+  //                      render via ANGLE+SwiftShader; no GPU-init-failure spam)
+  //   'vulkan'         — ANGLE Vulkan backend (real GPU without GLX; needs a
+  //                      working NVIDIA driver — currently blocked by an NVML
+  //                      driver/library version mismatch, fix on the host first)
+  //   any other value  — passed through verbatim to --use-gl
+  // Unset = Electron default (hardware GL, auto-falls-back to software).
+  const mcGl = process.env.MC_GL;
+  if (mcGl === 'off' || mcGl === 'software') {
+    app.disableHardwareAcceleration();
+  } else if (mcGl === 'vulkan') {
+    app.commandLine.appendSwitch('use-gl', 'angle');
+    app.commandLine.appendSwitch('use-angle', 'vulkan');
+    app.commandLine.appendSwitch('enable-features', 'Vulkan');
+  } else if (mcGl) {
+    app.commandLine.appendSwitch('use-gl', mcGl);
+  }
 
   await app.whenReady();
   setupMenu();
@@ -571,9 +598,17 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
   const prodBinary = app.isPackaged
     ? join(process.resourcesPath, process.platform === 'win32' ? 'mc-server.exe' : 'mc-server')
     : undefined;
+  // The sidecar derives its on-disk data dirs (.collab/agent-sessions, …) from
+  // its cwd. In a packaged app repoRoot is the read-only resources/ bundle, so
+  // run the sidecar from a writable home dir (~/.mermaid-collab, where the
+  // server already keeps its global/scratch state) to avoid SQLITE_CANTOPEN. In
+  // dev, repoRoot is the writable checkout, so keep the existing behavior.
+  const dataDir = app.isPackaged ? join(homedir(), '.mermaid-collab') : repoRoot;
+  if (app.isPackaged) { try { mkdirSync(dataDir, { recursive: true }); } catch { /* best-effort */ } }
   supervisor = new ServerSupervisor({
     repoRoot,
-    project: repoRoot,
+    project: dataDir,
+    workdir: dataDir,
     session: process.env.MC_SESSION ?? 'desktop',
     host: '127.0.0.1',
     cdpPort,

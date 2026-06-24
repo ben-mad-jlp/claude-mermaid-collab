@@ -3,6 +3,7 @@
   "private": true,
   "version": "6.7.15",
   "description": "mermaid-collab native desktop app (Electron)",
+  "homepage": "https://github.com/ben-mad-jlp/claude-mermaid-collab",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -81,6 +82,7 @@
       ],
       "category": "Development",
       "icon": "build/icon.png",
+      "maintainer": "JLP Engineering <bmaderazo@jlpengineering.com>",
       "publish": {
         "provider": "generic",
         "url": "${env.MC_UPDATE_FEED_URL}",
@@ -108,5 +110,8 @@
       ]
     },
     "publish": null
-  }
+  },
+  "trustedDependencies": [
+    "electron-agent-bridge"
+  ]
 }

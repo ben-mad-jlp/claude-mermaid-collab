@@ -45,6 +45,14 @@ export function wrapSidecarForWsl(
 export interface SupervisorOpts {
   repoRoot: string;
   project: string;
+  /**
+   * Working directory for the spawned sidecar. The server derives its on-disk
+   * data paths (.collab/agent-sessions, checkpoints) from process.cwd(), so in a
+   * packaged app this MUST be a writable dir — repoRoot points at the read-only
+   * resources/ bundle and would fail with SQLITE_CANTOPEN. Defaults to repoRoot
+   * (correct in dev, where repoRoot is the writable checkout).
+   */
+  workdir?: string;
   session: string;
   host: string;
   port?: number;
@@ -453,7 +461,7 @@ export class ServerSupervisor {
     }
 
     this.child = this.spawnImpl(cmd, args, {
-      cwd: this.opts.repoRoot,
+      cwd: this.opts.workdir ?? this.opts.repoRoot,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
