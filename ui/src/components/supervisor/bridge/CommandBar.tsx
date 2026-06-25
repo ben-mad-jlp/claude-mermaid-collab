@@ -12,6 +12,7 @@ import React, { useState } from 'react';
 import { OrchestratorLadder } from './OrchestratorLadder';
 import { PoolSizeControl } from './PoolSizeControl';
 import { DaemonNodesMatrix } from '@/components/settings/DaemonNodesMatrix';
+import { DaemonProviderControl } from '@/components/settings/DaemonProviderControl';
 
 export interface CommandBarProps {
   liveCount: number;
@@ -104,6 +105,9 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           scoped to the active project. Toggled from the ⚙ nodes button above. */}
       {project && showNodes && (
         <div className="mt-2 rounded border border-gray-200 dark:border-gray-700 p-2 bg-white/60 dark:bg-gray-900/40">
+          <div className="mb-2 pb-2 border-b border-gray-200/70 dark:border-gray-700/70">
+            <DaemonProviderControl project={project} />
+          </div>
           <DaemonNodesMatrix project={project} />
         </div>
       )}
