@@ -605,16 +605,34 @@ interface GrokAuthStatus {
   authenticated?: boolean;
 }
 
-/** Apply grok auth rule to a parsed status / auth-file snapshot. */
-export function authModeFromGrokStatus(s: GrokAuthStatus | GrokAuthFile | null): AuthMode {
+/** Is a single credential record valid (has a token, not expired)? The real
+ *  ~/.grok/auth.json record carries the token as `key` (OIDC) or `access_token`, plus an
+ *  `expires_at` that is an ISO STRING (e.g. "2026-06-25T20:15:11Z") or epoch ms. */
+function grokRecordValid(r: Record<string, unknown> | null | undefined): boolean {
+  if (!r || typeof r !== 'object') return false;
+  const token = (r.access_token ?? r.key) as unknown;
+  if (typeof token !== 'string' || token.length === 0) return false;
+  const exp = r.expires_at;
+  if (exp == null) return true;
+  const ms = typeof exp === 'number' ? exp : Date.parse(String(exp));
+  return !Number.isFinite(ms) || ms > Date.now();
+}
+
+/** Apply grok auth rule to a parsed status / auth-file snapshot. Handles three shapes:
+ *  (1) `grok auth status --json` → { loggedIn|authenticated }, (2) a flat auth record
+ *  { access_token, expires_at }, and (3) the REAL ~/.grok/auth.json, which nests the
+ *  record under an `<issuer>::<client_id>` key: { "https://auth.x.ai::<id>": { key,
+ *  refresh_token, expires_at, ... } }. PR-1 only handled (1)/(2) → mis-read a logged-in
+ *  machine as 'unknown' and halted every grok leaf. */
+export function authModeFromGrokStatus(s: GrokAuthStatus | GrokAuthFile | Record<string, unknown> | null): AuthMode {
   if (!s) return 'unknown';
-  if ('loggedIn' in s && s.loggedIn === true) return 'grok';
-  if ('authenticated' in s && s.authenticated === true) return 'grok';
-  if ('access_token' in s && typeof s.access_token === 'string' && s.access_token.length > 0) {
-    const exp = s.expires_at;
-    if (exp == null) return 'grok';
-    const ms = typeof exp === 'number' ? exp : Date.parse(String(exp));
-    if (!Number.isFinite(ms) || ms > Date.now()) return 'grok';
+  if ('loggedIn' in s && (s as GrokAuthStatus).loggedIn === true) return 'grok';
+  if ('authenticated' in s && (s as GrokAuthStatus).authenticated === true) return 'grok';
+  // Flat record (shape 2).
+  if (grokRecordValid(s as Record<string, unknown>)) return 'grok';
+  // Nested issuer-keyed record(s) (shape 3) — valid if ANY nested credential is valid.
+  for (const v of Object.values(s as Record<string, unknown>)) {
+    if (v && typeof v === 'object' && grokRecordValid(v as Record<string, unknown>)) return 'grok';
   }
   return 'unknown';
 }

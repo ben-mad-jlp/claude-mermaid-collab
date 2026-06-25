@@ -83,6 +83,29 @@ describe('authModeFromGrokStatus', () => {
   it('returns unknown on null', () => {
     expect(authModeFromGrokStatus(null)).toBe('unknown');
   });
+
+  // The REAL ~/.grok/auth.json schema: token nested under an <issuer>::<client_id> key,
+  // token field is `key`, expires_at is an ISO STRING. PR-1 mis-read this as 'unknown' and
+  // halted every grok leaf on a logged-in machine.
+  it('returns grok for the nested issuer-keyed OIDC auth.json (key + ISO expires_at, future)', () => {
+    const future = new Date(Date.now() + 60_000).toISOString();
+    expect(authModeFromGrokStatus({
+      'https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828': {
+        key: 'oidc-token', refresh_token: 'r', expires_at: future, oidc_issuer: 'https://auth.x.ai',
+      },
+    })).toBe('grok');
+  });
+
+  it('returns unknown when the nested OIDC record is expired', () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    expect(authModeFromGrokStatus({
+      'https://auth.x.ai::id': { key: 'oidc-token', expires_at: past },
+    })).toBe('unknown');
+  });
+
+  it('nested record with no expiry but a token is valid', () => {
+    expect(authModeFromGrokStatus({ 'https://auth.x.ai::id': { key: 'tok' } })).toBe('grok');
+  });
 });
 
 describe('parseGrokOutput', () => {
