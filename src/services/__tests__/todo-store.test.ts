@@ -42,6 +42,16 @@ function strandOrphan(proj: string, id: string) {
   _closeProject(proj);
 }
 
+/** The FM1 non-atomic-rejection race: the terminal `acceptanceStatus='rejected'`
+ *  is written while the row is still `in_progress` (completeTodo's claim-clear has
+ *  not landed yet). A reaper that keys on status alone would reclaim it. */
+function strandRejected(proj: string, id: string) {
+  const db = new Database(join(proj, '.collab', 'todos.db'));
+  db.exec(`UPDATE todos SET status='in_progress', acceptanceStatus='rejected' WHERE id='${id}'`);
+  db.close();
+  _closeProject(proj);
+}
+
 beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'todo-store-'));
   // resetTodo now auto-resolves a todo's open escalations → isolate the supervisor.db
@@ -312,6 +322,22 @@ describe('todo-store new fields and functions', () => {
     expect(after.heldAt).not.toBeNull();
     expect(after.heldReason).toBe('retry-exhausted');
     expect(after.retryCount).toBeGreaterThan(MAX_CLAIM_RETRIES);
+  });
+
+  test('FM1: a self-rejected leaf is NOT reclaimed even while in_progress (non-atomic rejection race)', async () => {
+    const t = await createTodo(project, { ownerSession: 's1', title: 'rejected-racy', status: 'ready' });
+    strandRejected(project, t.id); // in_progress + acceptanceStatus='rejected'
+    // The reaper must REFUSE — else it resets to planned, clears the (about-to-clear)
+    // claim, bumps retryCount, and the next tick re-runs terminally-rejected work.
+    expect(await reclaimOrphan(project, t.id)).toBeNull();
+    const after = getTodo(project, t.id)!;
+    expect(after.acceptanceStatus).toBe('rejected'); // untouched
+    expect(after.retryCount).toBe(0); // never charged a retry
+
+    // Control: the SAME in_progress orphan WITHOUT the rejection is still reclaimable.
+    const u = await createTodo(project, { ownerSession: 's1', title: 'plain-orphan', status: 'ready' });
+    strandOrphan(project, u.id);
+    expect(await reclaimOrphan(project, u.id)).not.toBeNull();
   });
 
   test('releaseClaim: returns a live claim to ready with NO retry penalty; false for non-claims (DOGFOOD #3)', async () => {

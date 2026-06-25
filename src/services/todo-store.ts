@@ -948,6 +948,15 @@ export function reclaimNow(project: string, id: string): Promise<'ready' | 'bloc
     // Reclaimable iff it carries a (live or orphaned) claim, or is stranded
     // in_progress without one. Terminal rows are never reclaimed.
     if (row.status === 'done' || row.status === 'dropped') return null;
+    // FM1 (daemon-builder-trust-diagnostic): a SELF-REJECTED leaf is terminal —
+    // "held for a human, never auto-reclaimed" (claimability.ts). But its terminal
+    // write isn't atomic with the claim-clear: during `complete(...,'rejected')` the
+    // row is still status='in_progress' + claimed. Without this guard a reaper resets
+    // it to 'planned' (clearing the claim, bumping retryCount) in that window, and the
+    // next tick re-claims a terminally-rejected leaf → a fresh run that burns the
+    // rate-limited account. (Phase-B will make the terminal/claim write atomic; this
+    // is the cheap, authoritative choke-point guard.)
+    if (row.acceptanceStatus === 'rejected') return null;
     const hasClaim = readClaim(row) != null;
     if (!hasClaim && row.status !== 'in_progress') return null;
     const exhausted = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES;

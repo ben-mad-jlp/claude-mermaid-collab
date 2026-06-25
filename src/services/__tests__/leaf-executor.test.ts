@@ -103,6 +103,7 @@ interface Spies {
   completeCalls: Array<{ acceptance: 'accepted' | 'rejected' }>;
   mergeCalls: number;
   escalations: Array<{ kind: string; questionText: string }>;
+  removeCalls: string[];
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -120,6 +121,7 @@ function makeDeps(opts: {
     completeCalls: [],
     mergeCalls: 0,
     escalations: [],
+    removeCalls: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -144,10 +146,14 @@ function makeDeps(opts: {
       },
     },
     wm: {
-      // Only the two methods the executor touches are needed.
+      // The methods the executor touches.
       async ensure(sessionKey: string, o: { baseBranch?: string; fresh?: boolean }) {
         spies.ensureCalls.push({ sessionKey, opts: o ?? {} });
         return { isGit: true, path: `/tmp/wt/${spies.ensureCalls.length}`, branch: 'b', baseBranch: o?.baseBranch ?? 'm' } as never;
+      },
+      // FM3: the executor reaps its own worktree on a terminal outcome.
+      async remove(sessionKey: string) {
+        spies.removeCalls.push(sessionKey);
       },
     } as never,
     epicId: EPIC_ID,
@@ -363,6 +369,27 @@ describe('runLeaf state machine', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('pending');
     expect(res.reason).toBe('gate-pending');
+  });
+
+  it('FM3: reaps its own worktree on a TERMINAL outcome (blocked) — branch survives', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.removeCalls.length).toBeGreaterThan(0); // worktree removed (git keeps the branch)
+  });
+
+  it('FM3: reaps its own worktree on an ACCEPTED outcome', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.removeCalls.length).toBeGreaterThan(0);
+  });
+
+  it('FM3: KEEPS its worktree on a PENDING (paused/resumable) outcome', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'pending' });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('pending');
+    expect(spies.removeCalls).toEqual([]); // a paused leaf reuses its tree on resume
   });
 });
 
@@ -1060,6 +1087,7 @@ function makeVerifyDeps(opts: {
     completeCalls: [] as Spies['completeCalls'],
     mergeCalls: 0,
     escalations: [] as Spies['escalations'],
+    removeCalls: [] as Spies['removeCalls'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };

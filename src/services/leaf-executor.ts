@@ -913,6 +913,22 @@ export async function runLeaf(
   const sessionKey = leafSessionKey(leaf);
   const { epicId, epicBranch } = deps;
 
+  // FM3 (daemon-builder-trust-diagnostic): the executor never removed its own
+  // `leaf-exec-<id8>` worktree on a terminal outcome, so every completed leaf leaked
+  // one (51 orphans observed). Reap it here on ANY terminal result — `git worktree
+  // remove` keeps the BRANCH, so accepted work (already merged) and any un-merged
+  // blocked/rejected work stays recoverable on demand. A `pending` (paused/resumable)
+  // leaf KEEPS its worktree. Best-effort: never let cleanup change the outcome.
+  const finishWith = async (r: LeafRunResult): Promise<LeafRunResult> => {
+    // Keep the worktree for RESUMABLE outcomes (pending = gate-deferred, paused =
+    // rate-limited) — those re-dispatch and reuse/rebuild from it. Reap on every
+    // TERMINAL outcome (accepted/blocked/rejected/split).
+    if (r.outcome !== 'pending' && r.outcome !== 'paused') {
+      try { await deps.wm.remove(sessionKey); } catch { /* best-effort reap */ }
+    }
+    return r;
+  };
+
   // Single mutable run-state held in this closure (the budget counter must span
   // ALL attempts and ALL node kinds).
   // nodesSpent is SEEDED from startNodesSpent (P3 resume) so the master budget is
@@ -1060,7 +1076,7 @@ export async function runLeaf(
         `Leaf-executor parked "${leaf.title ?? leaf.id}" — ${reason} ` +
         `(attempts=${state.attempt}, nodesSpent=${state.nodesSpent}).`,
     });
-    return { outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason };
+    return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   };
 
   /** Yield a `paused` outcome — the executor's ENTIRE rate-cap response. It NEVER
@@ -1297,12 +1313,12 @@ export async function runLeaf(
       pendingReason: g.pendingReason,
       gateReasons: g.gateReasons,
     });
-    return {
+    return finishWith({
       outcome: effective,
       attempts: state.attempt,
       nodesSpent: state.nodesSpent,
       ...(reason ? { reason } : {}),
-    };
+    });
   };
 
   /**
@@ -1485,7 +1501,7 @@ export async function runLeaf(
       : effective === 'rejected' ? 'gate-rejected'
       : 'resumed-skip-to-gate';
     recordOutcome(effective, null, { reason, pendingReason: gate.pendingReason, gateReasons: gate.gateReasons });
-    return { outcome: effective, attempts: state.attempt, nodesSpent: state.nodesSpent, reason };
+    return finishWith({ outcome: effective, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   }
 
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
@@ -1579,7 +1595,7 @@ export async function runLeaf(
       ])];
       if (splitFiles.length > SPLIT_CEILING) {
         await deps.splitInto(leaf, splitFiles);
-        return { outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent };
+        return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
       }
     }
 
@@ -1601,7 +1617,7 @@ export async function runLeaf(
       }
       // WAVES — research/wimplement/verify/fix; budget/pause/stuck short-circuit here.
       const wavesResult = await runWaves(manifest!, cwd, blueprintBody);
-      if (wavesResult) return wavesResult;
+      if (wavesResult) return finishWith(wavesResult);
       // waves completed all files clean → FALL THROUGH to the REVIEW node below.
     } else {
       pathTaken = 'floor';
@@ -1690,12 +1706,12 @@ export async function runLeaf(
         pendingReason: gate.pendingReason,
         gateReasons: gate.gateReasons,
       });
-      return {
+      return finishWith({
         outcome,
         attempts: state.attempt,
         nodesSpent: state.nodesSpent,
         ...(reason ? { reason } : {}),
-      };
+      });
     }
 
     // REVIEW FAIL → next fresh attempt, unless the cap is exhausted.
