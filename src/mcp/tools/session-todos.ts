@@ -339,10 +339,17 @@ function isEpicTitle(title: string): boolean {
  *  epic is created as a root (no parent), so it never recurses through the
  *  auto-parent path. */
 async function ensureInboxEpic(project: string, session: string): Promise<string> {
-  const existing = listTodos(project, { includeCompleted: true }).find(
+  const all = listTodos(project, { includeCompleted: true }).filter(
     (t) => t.title?.trim() === INBOX_EPIC_TITLE,
   );
-  if (existing) return existing.id;
+  // Prefer a live (non-terminal) Inbox.
+  const live = all.find((t) => t.status !== 'done' && t.status !== 'dropped');
+  if (live) return live.id;
+  // All existing Inboxes are terminal — reopen the first rather than proliferating a second.
+  if (all.length > 0) {
+    await updateTodo(project, all[0].id, { status: 'planned' });
+    return all[0].id;
+  }
   const epic = await createTodo(project, {
     ownerSession: session,
     title: INBOX_EPIC_TITLE,
