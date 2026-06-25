@@ -93,6 +93,10 @@ function openDb(): Database {
   // canonical "how many leaves run at once for this project" knob post-fire-and-track;
   // the daemon keeps poolSize in lockstep so worker slots never bottleneck below it.
   try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN inflightCap INTEGER'); } catch { /* already present */ }
+  // Additive migration: per-project DEFAULT node provider (per-node hybrid). NULL = unset
+  // (fall through to the env/config knob, then 'claude'). Per-kind overrides on
+  // node_profile_override take precedence over this project default.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN nodeProvider TEXT'); } catch { /* already present */ }
   // Per-(project, node-kind) model + effort overrides for the leaf-executor's claude
   // nodes. A row's NULL model/effort = inherit that node kind's NODE_PROFILE default.
   db.exec(`CREATE TABLE IF NOT EXISTS node_profile_override (
@@ -103,6 +107,10 @@ function openDb(): Database {
     updatedAt INTEGER NOT NULL,
     PRIMARY KEY (project, kind)
   )`);
+  // Additive migration: per-(project, kind) PROVIDER override (per-node hybrid — grok
+  // build nodes off the Claude plan). NULL = inherit the project default → env/config →
+  // 'claude'. An mcp__-bearing kind is FORCED to claude at resolve time regardless.
+  try { db.exec('ALTER TABLE node_profile_override ADD COLUMN provider TEXT'); } catch { /* already present */ }
   // One-shot guarded backfill (epic 4b81ca59): collapse any legacy 5-rung rows to
   // the canonical off/on/auto. Idempotent — once migrated, rows are on/auto and no
   // longer match, so re-running is a no-op (cheap; only legacy rows are touched).
@@ -215,6 +223,37 @@ export function setProjectInflightCap(project: string, cap: number | null): void
   ).run(project, value, Date.now());
 }
 
+// --- Per-project DEFAULT node provider (per-node hybrid) ---
+
+/** Valid daemon node providers (codex is not selectable for daemon nodes). */
+export const NODE_PROVIDERS = ['claude', 'grok-build'] as const;
+export type NodeProviderId = (typeof NODE_PROVIDERS)[number];
+
+function asNodeProvider(v: string | null | undefined): NodeProviderId | null {
+  return v === 'claude' || v === 'grok-build' ? v : null;
+}
+
+/** The persisted per-project DEFAULT provider, or null when unset (→ env/config → claude).
+ *  Per-kind overrides (node_profile_override.provider) take precedence over this. */
+export function getProjectNodeProvider(project: string): NodeProviderId | null {
+  const d = openDb();
+  const row = d
+    .query('SELECT nodeProvider FROM orchestrator_config WHERE project = ?')
+    .get(project) as { nodeProvider: string | null } | undefined;
+  return asNodeProvider(row?.nodeProvider);
+}
+
+/** Persist a per-project default provider. Pass null to clear (revert to env/config/claude).
+ *  Rejects anything other than 'claude' | 'grok-build' by clearing. */
+export function setProjectNodeProvider(project: string, provider: NodeProviderId | null): void {
+  const d = openDb();
+  const value = asNodeProvider(provider);
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, nodeProvider, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET nodeProvider = excluded.nodeProvider, updatedAt = excluded.updatedAt`,
+  ).run(project, value, Date.now());
+}
+
 // --- Per-project reasoning-effort override (daemon-spawned claude worker nodes) ---
 
 /** The persisted per-project effort override, or null = 'auto' (per-node-kind
@@ -246,6 +285,9 @@ export interface NodeProfileOverride {
   model: string | null;
   /** Effort override, or null to inherit (then the per-project / env / default chain). */
   effort: EffortLevel | null;
+  /** Provider override ('claude' | 'grok-build'), or null to inherit (project default →
+   *  env/config → claude). Per-node hybrid routing. */
+  provider: NodeProviderId | null;
 }
 
 /** Every per-node-kind override for a project, keyed by kind. Kinds with no row
@@ -253,38 +295,41 @@ export interface NodeProfileOverride {
 export function listNodeProfileOverrides(project: string): Record<string, NodeProfileOverride> {
   const d = openDb();
   const rows = d
-    .query('SELECT kind, model, effort FROM node_profile_override WHERE project = ?')
-    .all(project) as Array<{ kind: string; model: string | null; effort: string | null }>;
+    .query('SELECT kind, model, effort, provider FROM node_profile_override WHERE project = ?')
+    .all(project) as Array<{ kind: string; model: string | null; effort: string | null; provider: string | null }>;
   const out: Record<string, NodeProfileOverride> = {};
   for (const r of rows) {
     out[r.kind] = {
       model: r.model && r.model.trim() ? r.model : null,
       effort: r.effort != null && (EFFORT_LEVELS as string[]).includes(r.effort) ? (r.effort as EffortLevel) : null,
+      provider: asNodeProvider(r.provider),
     };
   }
   return out;
 }
 
-/** Set (or clear) a single node kind's model/effort override for a project. A
- *  null model or effort clears that field (inherit); when BOTH are null the row is
- *  deleted so the kind reads as a clean inherit. An invalid effort coerces to null. */
+/** Set (or clear) a single node kind's model/effort/provider override for a project. A
+ *  null field clears it (inherit); when ALL are null the row is deleted so the kind reads
+ *  as a clean inherit. Invalid effort/provider coerce to null. */
 export function setNodeProfileOverride(
   project: string,
   kind: string,
   model: string | null,
   effort: EffortLevel | null,
+  provider: NodeProviderId | null = null,
 ): void {
   const d = openDb();
   const m = model && model.trim() ? model.trim() : null;
   const e = effort != null && (EFFORT_LEVELS as string[]).includes(effort) ? effort : null;
-  if (m == null && e == null) {
+  const p = asNodeProvider(provider);
+  if (m == null && e == null && p == null) {
     d.prepare('DELETE FROM node_profile_override WHERE project = ? AND kind = ?').run(project, kind);
     return;
   }
   d.prepare(
-    `INSERT INTO node_profile_override (project, kind, model, effort, updatedAt) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(project, kind) DO UPDATE SET model = excluded.model, effort = excluded.effort, updatedAt = excluded.updatedAt`,
-  ).run(project, kind, m, e, Date.now());
+    `INSERT INTO node_profile_override (project, kind, model, effort, provider, updatedAt) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project, kind) DO UPDATE SET model = excluded.model, effort = excluded.effort, provider = excluded.provider, updatedAt = excluded.updatedAt`,
+  ).run(project, kind, m, e, p, Date.now());
 }
 
 /** Copy a source project's ENTIRE node-profile override set to each target project,
@@ -294,8 +339,8 @@ export function setNodeProfileOverride(
 export function copyNodeProfilesTo(sourceProject: string, targetProjects: string[]): number {
   const d = openDb();
   const rows = d
-    .query('SELECT kind, model, effort FROM node_profile_override WHERE project = ?')
-    .all(sourceProject) as Array<{ kind: string; model: string | null; effort: string | null }>;
+    .query('SELECT kind, model, effort, provider FROM node_profile_override WHERE project = ?')
+    .all(sourceProject) as Array<{ kind: string; model: string | null; effort: string | null; provider: string | null }>;
   const now = Date.now();
   let count = 0;
   const apply = d.transaction((targets: string[]) => {
@@ -304,8 +349,8 @@ export function copyNodeProfilesTo(sourceProject: string, targetProjects: string
       d.prepare('DELETE FROM node_profile_override WHERE project = ?').run(t);
       for (const r of rows) {
         d.prepare(
-          'INSERT INTO node_profile_override (project, kind, model, effort, updatedAt) VALUES (?, ?, ?, ?, ?)',
-        ).run(t, r.kind, r.model, r.effort, now);
+          'INSERT INTO node_profile_override (project, kind, model, effort, provider, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+        ).run(t, r.kind, r.model, r.effort, r.provider, now);
       }
       count++;
     }

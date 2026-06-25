@@ -937,7 +937,7 @@ export async function runLeaf(
   // grok auth too so a MIXED leaf fails fast rather than stranding after the cheap grok work
   // (Grok review risk #3).
   deps.assertAuth();
-  if (anyGrokNodeConfigured()) (deps.assertGrokAuth ?? assertGrokAuth)();
+  if (anyGrokNodeConfigured(project)) (deps.assertGrokAuth ?? assertGrokAuth)();
 
   const sessionKey = leafSessionKey(leaf);
   const { epicId, epicBranch } = deps;
@@ -1011,7 +1011,7 @@ export async function runLeaf(
     // forced claude) + config; default claude = no behaviour change. For grok, set the spec
     // model to the kind's grok default so buildGrokArgv resolves a grok `-m` (not a claude
     // alias). The recorded (provider, model) reflects what actually ran (Grok review note).
-    const provider = resolveNodeProvider(kind, spec.allowedTools);
+    const provider = resolveNodeProvider(project, kind, spec.allowedTools);
     const invoker = provider === 'grok-build' ? (deps.grokInvoker ?? GrokNodeInvoker) : deps.invoker;
     const effSpec = provider === 'grok-build' ? { ...spec, model: grokLedgerModel(kind) } : spec;
     const recordedModel = provider === 'grok-build' ? grokLedgerModel(kind) : nodeModel(kind);

@@ -11,14 +11,19 @@
 //   2. DEFAULT CLAUDE — absent any config, every node resolves to 'claude' → zero behaviour
 //      change. A node only goes to grok when explicitly configured.
 //
-// Config source mirrors the inflight-limiter: config.json FIRST (hot, UI/Secrets-settable,
-// survives restart), env fallback. Knobs (value must be 'claude' or 'grok-build'):
-//   MERMAID_NODE_PROVIDER_<KIND>   per-kind override (e.g. MERMAID_NODE_PROVIDER_IMPLEMENT)
-//   MERMAID_NODE_PROVIDER          project-wide default for all selectable kinds
-// The per-kind knob is what drives the controlled experiment (implement→grok, rest claude).
+// Resolution precedence (highest first):
+//   1. mcp__ in allowlist → 'claude' (hard guard — Grok has no MCP)
+//   2. per-(project,kind) DB override   (node_profile_override.provider — the UI matrix)
+//   3. per-project DB default            (orchestrator_config.nodeProvider — the UI toggle)
+//   4. per-kind env/config knob          (MERMAID_NODE_PROVIDER_<KIND>)
+//   5. project env/config knob           (MERMAID_NODE_PROVIDER)
+//   6. 'claude'                          (default → zero behaviour change)
+// DB (UI) wins over the env/config knobs; the knobs remain for headless/experiment use.
+// All DB reads are DEFENSIVE (a missing store → skip, never throw into the run).
 
 import { getConfig } from './config-file';
 import { kindDefaultGrokModel, type GrokNodeKind, GROK_NODE_KINDS } from '../agent/grok-model';
+import { getProjectNodeProvider, listNodeProfileOverrides } from './orchestrator-config';
 
 export type NodeProvider = 'claude' | 'grok-build';
 
@@ -27,7 +32,7 @@ function asProvider(v: string | null | undefined): NodeProvider | null {
   return t === 'grok-build' || t === 'claude' ? t : null;
 }
 
-/** config.json first, then env. */
+/** config.json / env knob value, or null. */
 function cfg(key: string): string | null {
   const c = getConfig(key);
   if (c != null && c !== '') return c;
@@ -35,22 +40,44 @@ function cfg(key: string): string | null {
   return e != null && e !== '' ? e : null;
 }
 
-/**
- * Resolve the provider for ONE node. Precedence:
- *   mcp__ in allowlist → 'claude' (hard guard) → per-kind config → project default → 'claude'.
- */
-export function resolveNodeProvider(kind: string, allowedTools: string | undefined): NodeProvider {
-  if ((allowedTools ?? '').includes('mcp__')) return 'claude'; // MCP-forced, never grok
-  const perKind = asProvider(cfg(`MERMAID_NODE_PROVIDER_${kind.toUpperCase()}`));
-  if (perKind) return perKind;
-  const projectDefault = asProvider(cfg('MERMAID_NODE_PROVIDER'));
-  if (projectDefault) return projectDefault;
-  return 'claude';
+/** Per-kind DB override (defensive). */
+function dbKindProvider(project: string | undefined, kind: string): NodeProvider | null {
+  if (!project) return null;
+  try { return asProvider(listNodeProfileOverrides(project)[kind]?.provider); } catch { return null; }
 }
 
-/** True when ANY node provider is configured to grok-build — drives the leaf-entry auth
- *  pre-flight so a mixed leaf fails fast (rather than stranding after the cheap grok work). */
-export function anyGrokNodeConfigured(): boolean {
+/** Per-project DB default (defensive). */
+function dbProjectProvider(project: string | undefined): NodeProvider | null {
+  if (!project) return null;
+  try { return asProvider(getProjectNodeProvider(project)); } catch { return null; }
+}
+
+/**
+ * Resolve the provider for ONE node. See the precedence table at the top of the file.
+ */
+export function resolveNodeProvider(project: string | undefined, kind: string, allowedTools: string | undefined): NodeProvider {
+  if ((allowedTools ?? '').includes('mcp__')) return 'claude'; // MCP-forced, never grok
+  return (
+    dbKindProvider(project, kind) ??
+    dbProjectProvider(project) ??
+    asProvider(cfg(`MERMAID_NODE_PROVIDER_${kind.toUpperCase()}`)) ??
+    asProvider(cfg('MERMAID_NODE_PROVIDER')) ??
+    'claude'
+  );
+}
+
+/** True when ANY node provider (DB or env/config) is grok-build — drives the leaf-entry
+ *  auth pre-flight so a mixed leaf fails fast (rather than stranding after the cheap grok
+ *  work). Defensive on DB access. */
+export function anyGrokNodeConfigured(project?: string): boolean {
+  if (dbProjectProvider(project) === 'grok-build') return true;
+  if (project) {
+    try {
+      for (const ov of Object.values(listNodeProfileOverrides(project))) {
+        if (asProvider(ov.provider) === 'grok-build') return true;
+      }
+    } catch { /* no store → skip */ }
+  }
   if (asProvider(cfg('MERMAID_NODE_PROVIDER')) === 'grok-build') return true;
   for (const k of GROK_NODE_KINDS) {
     if (asProvider(cfg(`MERMAID_NODE_PROVIDER_${k.toUpperCase()}`)) === 'grok-build') return true;

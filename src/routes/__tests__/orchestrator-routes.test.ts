@@ -181,3 +181,43 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(res!.status).toBe(400);
   });
 });
+
+describe('handleOrchestratorRoutes — node provider (per-node hybrid)', () => {
+  const PV = '/tmp/orch-routes-provider';
+
+  it('GET node-provider defaults to null (unset) with provider choices', async () => {
+    const res = await call('GET', `/api/orchestrator/node-provider?project=${encodeURIComponent(PV)}`);
+    const body = await res!.json() as any;
+    expect(body.nodeProvider).toBeNull();
+    expect(body.choices).toEqual(['claude', 'grok-build']);
+  });
+
+  it('POST node-provider persists grok-build and GET reads it back', async () => {
+    await call('POST', '/api/orchestrator/node-provider', { project: PV, nodeProvider: 'grok-build' });
+    const res = await call('GET', `/api/orchestrator/node-provider?project=${encodeURIComponent(PV)}`);
+    expect(((await res!.json()) as any).nodeProvider).toBe('grok-build');
+  });
+
+  it('POST an invalid provider → 400', async () => {
+    const res = await call('POST', '/api/orchestrator/node-provider', { project: PV, nodeProvider: 'gpt-9' });
+    expect(res!.status).toBe(400);
+  });
+
+  it('node-profiles POST accepts a per-kind provider; GET surfaces it + mcpForced', async () => {
+    const ok = await call('POST', '/api/orchestrator/node-profiles', { project: PV, kind: 'implement', provider: 'grok-build' });
+    expect(ok!.status).toBe(200);
+    const body = await (await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(PV)}`))!.json() as any;
+    const impl = body.rows.find((r: { kind: string }) => r.kind === 'implement');
+    const report = body.rows.find((r: { kind: string }) => r.kind === 'report');
+    expect(impl.providerOverride).toBe('grok-build');
+    expect(impl.effectiveProvider).toBe('grok-build');
+    expect(report.mcpForced).toBe(true);
+    expect(report.effectiveProvider).toBe('claude'); // MCP-forced
+    expect(body.grokModels).toContain('grok-build');
+  });
+
+  it('node-profiles POST rejects grok on an MCP-forced kind → 400', async () => {
+    const res = await call('POST', '/api/orchestrator/node-profiles', { project: PV, kind: 'report', provider: 'grok-build' });
+    expect(res!.status).toBe(400);
+  });
+});

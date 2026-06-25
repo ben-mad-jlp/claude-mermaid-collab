@@ -206,20 +206,20 @@ describe('per-(project,node-kind) model + effort overrides', () => {
     expect(listNodeProfileOverrides('/proj/np-a')).toEqual({});
     setNodeProfileOverride('/proj/np-a', 'blueprint', 'sonnet', 'max');
     const o = listNodeProfileOverrides('/proj/np-a');
-    expect(o.blueprint).toEqual({ model: 'sonnet', effort: 'max' });
+    expect(o.blueprint).toEqual({ model: 'sonnet', effort: 'max', provider: null });
   });
 
   it('null model/effort clears that field; both null removes the row', () => {
     setNodeProfileOverride('/proj/np-b', 'review', 'opus', 'xhigh');
     setNodeProfileOverride('/proj/np-b', 'review', null, 'high'); // clear model only
-    expect(listNodeProfileOverrides('/proj/np-b').review).toEqual({ model: null, effort: 'high' });
+    expect(listNodeProfileOverrides('/proj/np-b').review).toEqual({ model: null, effort: 'high', provider: null });
     setNodeProfileOverride('/proj/np-b', 'review', null, null); // remove row
     expect(listNodeProfileOverrides('/proj/np-b').review).toBeUndefined();
   });
 
   it('an invalid effort coerces to null', () => {
     setNodeProfileOverride('/proj/np-c', 'implement', 'haiku', 'turbo' as never);
-    expect(listNodeProfileOverrides('/proj/np-c').implement).toEqual({ model: 'haiku', effort: null });
+    expect(listNodeProfileOverrides('/proj/np-c').implement).toEqual({ model: 'haiku', effort: null, provider: null });
   });
 });
 
@@ -230,7 +230,7 @@ describe('copyNodeProfilesTo (push to all projects)', () => {
     setNodeProfileOverride('/proj/dst', 'implement', 'haiku', 'low'); // pre-existing → wiped
     const n = copyNodeProfilesTo('/proj/src', ['/proj/src', '/proj/dst', '/proj/dst2']);
     expect(n).toBe(2); // source skipped
-    const expected: ReturnType<typeof listNodeProfileOverrides> = { blueprint: { model: 'sonnet', effort: 'max' }, review: { model: null, effort: 'high' } };
+    const expected: ReturnType<typeof listNodeProfileOverrides> = { blueprint: { model: 'sonnet', effort: 'max', provider: null }, review: { model: null, effort: 'high', provider: null } };
     expect(listNodeProfileOverrides('/proj/dst')).toEqual(expected);
     expect(listNodeProfileOverrides('/proj/dst2')).toEqual(expected);
     expect(listNodeProfileOverrides('/proj/src')).toEqual(expected); // source untouched
