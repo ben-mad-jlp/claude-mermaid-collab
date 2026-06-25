@@ -71,10 +71,15 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
       setLaunchMsg(null);
       setDetecting(true);
       try {
+        // Reuse the token already baked into the current start command (from a
+        // prior launch) rather than minting a fresh one — the server treats its
+        // config.json token as authoritative and ignores a new env token, so a
+        // freshly-minted token would diverge and every authed call would 401.
+        const existingToken = launchForm.command.match(/MERMAID_AUTH_TOKEN=(\S+)/)?.[1] || launchForm.token || undefined;
         const res = await fetch('/api/server/detect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ host, port, user: launchForm.user.trim() || undefined, password: launchForm.password || undefined }),
+          body: JSON.stringify({ host, port, user: launchForm.user.trim() || undefined, password: launchForm.password || undefined, token: existingToken }),
         });
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.ok) {

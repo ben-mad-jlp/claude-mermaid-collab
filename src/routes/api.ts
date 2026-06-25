@@ -661,16 +661,20 @@ export async function handleAPI(
 
   // POST /api/server/detect - SSH into a host and suggest a start command
   // (probes for bun / mermaid-collab / the plugin cache). Body: { host, port,
-  // user?, password? }. Used to prefill the launch dialog.
+  // user?, password?, token? }. Used to prefill the launch dialog. An existing
+  // connection's token is threaded through so detect REUSES it instead of
+  // minting a fresh one — otherwise the new token diverges from the server's
+  // config-authoritative token and every authed call 401s.
   if (path === '/api/server/detect' && req.method === 'POST') {
     try {
-      const body = (await req.json()) as { host?: string; port?: number; user?: string; password?: string };
+      const body = (await req.json()) as { host?: string; port?: number; user?: string; password?: string; token?: string };
       if (!body.host) return Response.json({ ok: false, error: 'host is required' }, { status: 400 });
       const result = await detectRemoteLaunch({
         host: body.host,
         port: Number(body.port) || 9002,
         user: body.user?.trim() || undefined,
         password: body.password || undefined,
+        token: body.token?.trim() || undefined,
       });
       return Response.json(result, { status: result.ok ? 200 : 502 });
     } catch (err) {
