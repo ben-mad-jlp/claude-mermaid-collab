@@ -88,6 +88,22 @@ export interface LandOpts {
   allowDirtyPaths?: string[];
 }
 
+/** Result of forward-integrating trunk INTO an epic accumulation branch (38d87ab3).
+ *  Keeps the build-time base in sync with the claim-time reachability union (71cebee3)
+ *  so a lane never forks from a stale epic tip that's missing trunk work it depends on. */
+export interface ForwardIntegrateResult {
+  /** The epic branch already contained trunk (nothing to do) OR trunk merged cleanly in. */
+  integrated: boolean;
+  /** Trunk was actually merged (a new --no-ff merge commit was created on the epic branch). */
+  advanced: boolean;
+  /** The forward-merge hit a conflict — the epic branch is UNTOUCHED (aborted). Caller escalates. */
+  conflict: boolean;
+  /** Skipped without merging: not-a-git-repo, missing branch, or a dirty epic worktree. */
+  skippedReason?: string;
+  /** Files left in conflict (conflict === true) — for the escalation message. */
+  conflictedPaths?: string[];
+}
+
 /** Result of landing an epic's accumulation branch onto master (FBPE P4). */
 export interface LandResult {
   /** The epic branch merged into master and the master ref was advanced. */
@@ -935,6 +951,90 @@ export class WorktreeManager {
     }
 
     return { epicId, branch, path: wtPath };
+  }
+
+  // ---------------------------------------------------------------------------
+  // forwardIntegrateEpic — bring an epic accumulation branch UP TO DATE with trunk
+  // BEFORE a lane forks its build worktree off the epic tip (todo 38d87ab3).
+  //
+  // WHY: claim-time reachability (71cebee3) admits a foundation reachable from the
+  // epic branch tip OR trunk (the union). But the worker lane forks from the epic
+  // branch tip ALONE. If the epic branch is behind trunk, a cross-epic foundation
+  // that landed to trunk AFTER this epic branched passes the claim gate (via the
+  // trunk arm) yet is ABSENT from the lane's actual base → a build-time miss. This
+  // makes the build-time base agree with the claim-time union.
+  //
+  // We FORWARD-MERGE (git merge --no-ff trunk into the epic branch), never rebase —
+  // the epic branch carries --no-ff worker-merge provenance a rebase would mangle
+  // (same reason flagRebaseNeeded is FLAG-ONLY). Conflict-safe: a conflict aborts and
+  // leaves the epic branch UNTOUCHED so the caller can escalate and fall back to the
+  // current tip (no worse than today's behaviour); it NEVER corrupts the epic branch.
+  // A dirty epic worktree is skipped (we never merge into uncommitted state).
+  // ---------------------------------------------------------------------------
+  async forwardIntegrateEpic(
+    epicId: string,
+    baseRef: string = 'master',
+    opts?: { timeoutMs?: number; onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void },
+  ): Promise<ForwardIntegrateResult> {
+    if (!(await this.isGitRepo())) return { integrated: false, advanced: false, conflict: false, skippedReason: 'non-git' };
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
+    const onProgress = opts?.onProgress;
+    const epicBranch = this.epicBranchName(epicId);
+    const trunk = await this.resolveBase(baseRef);
+
+    // The epic worktree must exist (it is where the merge runs). ensureEpic is
+    // idempotent — a fresh epic branched off trunk is already up to date.
+    const epic = await this.ensureEpic(epicId, undefined, baseRef);
+    if (!epic) return { integrated: false, advanced: false, conflict: false, skippedReason: 'non-git' };
+
+    // Resolve trunk's tip. Missing trunk → nothing to integrate.
+    const trunkShaRes = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${trunk}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (trunkShaRes.code !== 0 || !trunkShaRes.stdout.trim()) {
+      return { integrated: false, advanced: false, conflict: false, skippedReason: `trunk-missing:${trunk}` };
+    }
+    const trunkSha = trunkShaRes.stdout.trim();
+
+    // Already up to date? trunk is an ancestor of the epic tip → no-op.
+    const ancestor = await this.runGit(
+      epic.path,
+      ['merge-base', '--is-ancestor', trunkSha, epicBranch],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (ancestor.code === 0) return { integrated: true, advanced: false, conflict: false };
+
+    // Never merge into a dirty epic worktree — skip and let the caller proceed on
+    // the current tip rather than risk an unclean merge.
+    const dirtyRes = await this.runGit(epic.path, ['status', '--porcelain'], QUICK_TIMEOUT_MS, onProgress)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (dirtyRes.code !== 0) return { integrated: false, advanced: false, conflict: false, skippedReason: 'epic-status-failed' };
+    if (dirtyRes.stdout.trim() !== '') return { integrated: false, advanced: false, conflict: false, skippedReason: 'epic-worktree-dirty' };
+
+    // Forward-merge trunk INTO the epic branch (--no-ff preserves provenance).
+    const mergeMessage =
+      `collab: forward-integrate ${trunk} into epic ${this.epicId8(epicId)}\n\n` +
+      `Collab-Epic: ${epicId}\nCollab-Forward-Integrate: ${trunk}`;
+    const mergeRes = await this.runGit(
+      epic.path,
+      ['merge', '--no-ff', '-m', mergeMessage, trunkSha],
+      timeoutMs,
+      onProgress,
+    );
+    if (mergeRes.code !== 0) {
+      const conflictedRes = await this.runGit(
+        epic.path,
+        ['diff', '--name-only', '--diff-filter=U'],
+        QUICK_TIMEOUT_MS,
+      ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+      const conflictedPaths = conflictedRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+      // Abort → epic branch untouched. Caller escalates + builds on the current tip.
+      await this.runGit(epic.path, ['merge', '--abort'], QUICK_TIMEOUT_MS).catch(() => ({ code: 0, stdout: '', stderr: '' }));
+      return { integrated: false, advanced: false, conflict: true, conflictedPaths };
+    }
+    return { integrated: true, advanced: true, conflict: false };
   }
 
   /** SHA at the tip of the epic accumulation branch — the base a leaf's blueprint is

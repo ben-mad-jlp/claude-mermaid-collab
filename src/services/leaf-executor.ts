@@ -1791,6 +1791,34 @@ export async function makeLeafExecutorDeps(
   // Materialise the epic accumulation branch so the off-tip base exists.
   const epic = await wm.ensureEpic(epicId, targetProject);
   const epicBranch = epic?.branch ?? 'master';
+  // BUILD-BASE CONSISTENCY (38d87ab3): forward-integrate trunk INTO the epic branch
+  // BEFORE the lane forks its build worktree off the epic tip. Claim-time reachability
+  // (71cebee3) admits a foundation reachable from the epic tip OR trunk, but the lane
+  // forks from the epic tip ALONE — so a foundation that landed to trunk AFTER this
+  // epic branched would pass the claim gate yet be missing from the build base. The
+  // forward-merge keeps the two in agreement. Conflict-safe: on conflict the epic
+  // branch is left untouched, we escalate, and fall back to building on the current
+  // tip (no worse than before). Best-effort — never let it block the run.
+  if (epic) {
+    try {
+      const fi = await wm.forwardIntegrateEpic(epicId, 'master');
+      if (fi.conflict) {
+        try {
+          createEscalation({
+            project,
+            session: leafSessionKey(leaf),
+            todoId: leaf.id,
+            kind: 'assumption-invalidated',
+            questionText:
+              `Forward-integration conflict: could not merge master into epic branch ${epicBranch} before building ` +
+              `"${leaf.title ?? leaf.id}" (conflicts: ${(fi.conflictedPaths ?? []).join(', ') || 'unknown'}). ` +
+              `The epic branch is behind trunk and auto-merge failed — the leaf will build on the current (stale) ` +
+              `epic tip. Resolve by merging master into ${epicBranch} by hand, then re-run.`,
+          });
+        } catch { /* best-effort: never let escalation failure block the build */ }
+      }
+    } catch { /* best-effort: forward-integration is an optimisation, not a gate */ }
+  }
   // Epic tip at run start — the base the blueprint will be authored against. Recorded
   // durably so a re-claim can reject a stale resume if the base moved (slice 2).
   const epicBaseSha = epic ? await wm.epicHeadSha(epicId) : null;
