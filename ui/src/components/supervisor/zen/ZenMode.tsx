@@ -81,6 +81,31 @@ export const ZenMode: React.FC = () => {
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
   const setActiveProject = useUIStore((s) => s.setActiveProject);
 
+  // Zen-presence heartbeat: while this view is mounted AND the tab is visible, beat
+  // POST /api/zen/viewing (~15s). The server gates its summary interpret + self-nudge
+  // passes on a fresh beat, so we don't burn plan tokens summarizing when nobody is
+  // watching. Beats immediately on mount/visible so opening Zen re-enables summaries
+  // on the next loop tick. Stops on unmount or when the tab is hidden.
+  useEffect(() => {
+    const beat = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      const mc = (window as any).mc;
+      if (mc?.invokeOnServer) {
+        void mc.invokeOnServer('local', { path: '/api/zen/viewing', method: 'POST' }).catch(() => {});
+      } else {
+        void fetch('/api/zen/viewing', { method: 'POST' }).catch(() => {});
+      }
+    };
+    beat(); // immediate, so opening Zen re-arms summaries without waiting a full interval
+    const id = setInterval(beat, 15_000);
+    const onVis = () => { if (document.visibilityState === 'visible') beat(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, []);
+
   // "Add session" picker (Zen-native): list sessions not already watched → subscribe.
   const [addOpen, setAddOpen] = useState(false);
   const available = useMemo(

@@ -48,6 +48,7 @@ import { invokeNode } from '../agent/node-invoker.js';
 import { NODE_PROFILE } from './leaf-executor.js';
 import { listNodeProfileOverrides, getProjectEffort } from './orchestrator-config.js';
 import { nudgeSession } from './claude-launch.js';
+import { isZenActivelyViewed } from './zen-presence.js';
 import type { EffortLevel } from '../agent/contracts.js';
 
 // ---------------------------------------------------------------------------
@@ -453,6 +454,10 @@ export interface SummaryTickDeps {
   systemStatus?: (project: string) => Promise<{ fleet: { inProgress: number; working: number }; orchestrator: { poolOccupancy: number } }>;
   broadcast?: (msg: unknown) => void;
   hasWs?: () => boolean;
+  /** "Is a human actively LOOKING at the Zen view?" Gates the expensive interpret
+   *  pane-scrape so we don't burn plan tokens summarizing when nobody is watching.
+   *  Default: the zen-presence heartbeat registry. */
+  zenViewed?: () => boolean;
   now?: () => number;
   interpret?: (args: {
     project: string;
@@ -803,6 +808,11 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
       getWebSocketHandler()?.broadcast(msg as WSMessage);
     });
   const wsPresent = deps.hasWs ?? hasWebSocketHandler;
+  const zenViewed = deps.zenViewed ?? isZenActivelyViewed;
+  // The expensive interpret pass runs only while a human is ACTIVELY watching Zen — a
+  // connected-but-not-watching browser (wsPresent && !zenViewed) reads as no-corroboration,
+  // exactly like a WS gap. Saves background plan-token burn (no one is reading the card).
+  const watching = () => wsPresent() && zenViewed();
   const now = deps.now ?? Date.now;
   const resolveModel =
     deps.summaryModel ??
@@ -866,8 +876,10 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
     const ts = now();
     const prev = cache.get(key);
 
-    // WS-gap → unknown (no live corroboration).
-    if (!wsPresent()) {
+    // WS-gap OR Zen-not-watched → unknown (no live corroboration, and no reason to spend
+    // tokens interpreting a card nobody is reading). Reopens automatically the moment a Zen
+    // heartbeat lands (opening the Zen view).
+    if (!watching()) {
       const entry: SessionSummaryEntry = {
         project,
         session,
@@ -1012,8 +1024,8 @@ export async function runSessionSummaryTick(deps: SummaryTickDeps = {}): Promise
     broadcast({ type: 'session_summary_updated', project, session, progressState, paneSeenAt, updatedAt: ts, ...summaryFields(entry) });
     emitted++;
 
-    // Interpreter pass — fire-and-forget behind strict gate.
-    if (shouldSummarize(prev, hash, progressState, true, wsPresent(), ts, selfPushStalenessMs)) {
+    // Interpreter pass — fire-and-forget behind strict gate (watching() already true here).
+    if (shouldSummarize(prev, hash, progressState, true, watching(), ts, selfPushStalenessMs)) {
       const { model, effort } = resolveModel(project);
       entry.summaryInFlight = true;
       entry.lastSummaryAt = ts; // stamp at LAUNCH so throttle counts attempts, not completions
@@ -1159,6 +1171,8 @@ export interface SelfSummaryNudgeDeps {
   listSummaries?: () => SessionSummaryEntry[];
   nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'no-tmux'>;
   config?: () => { enabled: boolean; intervalMs: number };
+  /** Gate the whole nudge pass on Zen actually being watched (default: presence registry). */
+  zenViewed?: () => boolean;
   now?: () => number;
 }
 
@@ -1178,6 +1192,8 @@ export async function runSelfSummaryNudgePass(
 ): Promise<{ scanned: number; eligible: number; nudged: string[] }> {
   const cfg = (deps.config ?? getSelfSummaryNudgeConfig)();
   if (!cfg.enabled) return { scanned: 0, eligible: 0, nudged: [] };
+  // Don't nudge sessions to spend tokens self-summarizing when nobody is watching Zen.
+  if (!(deps.zenViewed ?? isZenActivelyViewed)()) return { scanned: 0, eligible: 0, nudged: [] };
   const list = (deps.listSummaries ?? listSessionSummaries)();
   const nudge = deps.nudge ?? nudgeSession;
   const now = deps.now ?? Date.now;

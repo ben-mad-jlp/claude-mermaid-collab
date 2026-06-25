@@ -50,6 +50,7 @@ function makeDeps(override: Partial<SummaryTickDeps> = {}): SummaryTickDeps {
     systemStatus: async () => ({ fleet: { inProgress: 0, working: 0 }, orchestrator: { poolOccupancy: 0 } }),
     broadcast: () => {},
     hasWs: () => true,
+    zenViewed: () => true, // default: Zen is being watched (tick tests exercise the interpret path)
     now: () => 1000,
     ...override,
   };
@@ -214,6 +215,19 @@ describe('runSessionSummaryTick', () => {
     const r = await runSessionSummaryTick(deps);
     expect(r.byState.unknown).toBe(1);
     expect(getSessionSummary(P, S)!.progressState).toBe('unknown');
+  });
+
+  it('Zen not actively viewed → unknown + no interpret (connected but not watching)', async () => {
+    let interpretCallCount = 0;
+    const deps = makeDeps({
+      hasWs: () => true,        // a browser IS connected...
+      zenViewed: () => false,   // ...but nobody is looking at Zen
+      interpret: async () => { interpretCallCount++; return { paragraph: 'x', status: 'working' as const }; },
+    });
+    const r = await runSessionSummaryTick(deps);
+    expect(r.byState.unknown).toBe(1);
+    expect(getSessionSummary(P, S)!.progressState).toBe('unknown');
+    expect(interpretCallCount).toBe(0); // no token-burning interpret
   });
 
   it('only supervised+watched sessions scanned; unwatched project sessions skipped', async () => {
@@ -1067,6 +1081,7 @@ describe('runSelfSummaryNudgePass (pass orchestration)', () => {
     ];
     const result = await runSelfSummaryNudgePass({
       config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      zenViewed: () => true,
       listSummaries: () => entries,
       nudge,
       now: () => NOW,
@@ -1089,6 +1104,7 @@ describe('runSelfSummaryNudgePass (pass orchestration)', () => {
     ];
     await runSelfSummaryNudgePass({
       config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      zenViewed: () => true,
       listSummaries: () => entries,
       nudge,
       now: () => NOW,
@@ -1106,6 +1122,7 @@ describe('runSelfSummaryNudgePass (pass orchestration)', () => {
     // Pass 1 — busy → throttle NOT advanced
     const r1 = await runSelfSummaryNudgePass({
       config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      zenViewed: () => true,
       listSummaries: () => [quietEntry()],
       nudge: nudge1,
       now: () => NOW,
@@ -1118,6 +1135,7 @@ describe('runSelfSummaryNudgePass (pass orchestration)', () => {
     const nudge2 = async (p: string, s: string) => { calls2.push([p, s]); return 'sent' as const; };
     const r2 = await runSelfSummaryNudgePass({
       config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      zenViewed: () => true,
       listSummaries: () => [quietEntry()],
       nudge: nudge2,
       now: () => NOW,
@@ -1131,6 +1149,7 @@ describe('runSelfSummaryNudgePass (pass orchestration)', () => {
     const nudge = async (p: string, s: string) => { calls.push([p, s]); return 'sent' as const; };
     const passDeps = {
       config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      zenViewed: () => true,
       listSummaries: () => [quietEntry()],
       nudge,
       now: () => fixedT,

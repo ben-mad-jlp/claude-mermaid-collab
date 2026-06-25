@@ -107,6 +107,7 @@ describe('runSelfSummaryNudgePass', () => {
         return nudgeResult;
       },
       config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      zenViewed: () => true, // these tests exercise the nudge logic; Zen is "being watched"
       now: () => now,
     };
   }
@@ -122,6 +123,22 @@ describe('runSelfSummaryNudgePass', () => {
       listSummaries: () => [e],
       nudge: async () => 'sent',
       config: () => ({ enabled: false, intervalMs: INTERVAL }),
+      now: () => 1_000_000,
+    });
+    expect(r).toEqual({ scanned: 0, eligible: 0, nudged: [] });
+    expect(nudgeCalls.length).toBe(0);
+  });
+
+  it('Zen not actively viewed → no nudges, scanned 0 (no background token burn)', async () => {
+    const e = entry();
+    const r = await runSelfSummaryNudgePass({
+      listSummaries: () => [e],
+      nudge: async (project: string, session: string, text: string) => {
+        nudgeCalls.push({ project, session, text });
+        return 'sent' as const;
+      },
+      config: () => ({ enabled: true, intervalMs: INTERVAL }),
+      zenViewed: () => false, // nobody is looking at Zen
       now: () => 1_000_000,
     });
     expect(r).toEqual({ scanned: 0, eligible: 0, nudged: [] });

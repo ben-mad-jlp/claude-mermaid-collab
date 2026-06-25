@@ -3237,6 +3237,21 @@ export async function handleAPI(
     }
   }
 
+  // POST /api/zen/viewing — Zen-view presence heartbeat. The Zen UI beats this (~15s)
+  // while it is MOUNTED and the tab is VISIBLE. The session-summary loop gates its
+  // interpret pane-scrape + self-summary nudge on a fresh heartbeat, so we don't burn
+  // plan tokens summarizing when nobody is watching. GET returns the presence snapshot.
+  if (path === '/api/zen/viewing') {
+    const { markZenViewed, getZenPresence } = await import('../services/zen-presence');
+    if (req.method === 'POST') {
+      markZenViewed();
+      return Response.json({ ok: true, ...getZenPresence() });
+    }
+    if (req.method === 'GET') {
+      return Response.json(getZenPresence());
+    }
+  }
+
   // POST /api/leaf-executor/breaker-reset — operator force-closes the headless circuit
   // breaker from the Bridge. It otherwise auto-closes only after the rate-limit cooldown;
   // this clears the open hold + backoff streak + paused registry so the next claim tick
