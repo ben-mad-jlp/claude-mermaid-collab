@@ -7,6 +7,7 @@ import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, getLeafResume, clearLeafResume } from './worker-ledger';
+import { reapOrphanedLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
@@ -1873,6 +1874,11 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the row) so daemon_status stops showing phantom running leaves. Global +
       // idempotent; cheap to run each tick (epic 8e7386e4).
       reapStaleInflight();
+
+      // Safety-net: reap leaf-exec-* worktrees whose todo is terminal but worktree
+      // survived (epoch-death case — process killed before finishWith ran). Throttled
+      // to once per 5 min to avoid per-tick fs + git overhead.
+      void reapOrphanedLeafWorktrees(project);
 
       // PRIOR-EPOCH FAST PATH (heal-on-restart): a claim stamped with a daemon
       // epoch other than THIS process's was minted by a now-dead daemon. The
