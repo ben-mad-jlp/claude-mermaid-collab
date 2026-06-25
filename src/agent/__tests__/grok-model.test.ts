@@ -29,7 +29,7 @@ describe('parseKindFromTranscriptLabel', () => {
 describe('resolveGrokModel', () => {
   it('maps grok-build UI id to CLI id', () => {
     expect(resolveGrokModel('grok-build', 'blueprint')).toBe(GROK_MODEL_ALIASES['grok-build']);
-    expect(resolveGrokModel('grok-build', 'blueprint')).toBe('grok-build-0.1');
+    expect(resolveGrokModel('grok-build', 'blueprint')).toBe('grok-build');
   });
 
   it('passthrough grok-composer-2.5-fast', () => {
@@ -38,11 +38,11 @@ describe('resolveGrokModel', () => {
 
   it('falls back Claude alias to kind default via wave label', () => {
     expect(resolveGrokModel('sonnet', 'wimplement:src/foo.ts')).toBe('grok-composer-2.5-fast');
-    expect(resolveGrokModel('opus', 'blueprint')).toBe('grok-build-0.1');
+    expect(resolveGrokModel('opus', 'blueprint')).toBe('grok-build');
   });
 
   it('uses reasoning default when kind hint is reasoning-heavy', () => {
-    expect(resolveGrokModel(undefined, 'review')).toBe('grok-build-0.1');
+    expect(resolveGrokModel(undefined, 'review')).toBe('grok-build');
   });
 
   it('uses composer default when kind hint is implementation', () => {
@@ -52,7 +52,7 @@ describe('resolveGrokModel', () => {
 
 describe('kindDefaultGrokModel', () => {
   it('classifies blueprint vs implement', () => {
-    expect(kindDefaultGrokModel('blueprint')).toBe('grok-build-0.1');
+    expect(kindDefaultGrokModel('blueprint')).toBe('grok-build');
     expect(kindDefaultGrokModel('implement')).toBe('grok-composer-2.5-fast');
   });
 });

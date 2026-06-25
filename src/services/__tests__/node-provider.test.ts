@@ -94,9 +94,9 @@ describe('anyGrokNodeConfigured', () => {
 });
 
 describe('grokLedgerModel', () => {
-  it('reasoning kinds → grok-build-0.1; others → composer-fast', () => {
-    expect(grokLedgerModel('blueprint')).toBe('grok-build-0.1');
-    expect(grokLedgerModel('review')).toBe('grok-build-0.1');
+  it('reasoning kinds → grok-build; others → composer-fast', () => {
+    expect(grokLedgerModel('blueprint')).toBe('grok-build');
+    expect(grokLedgerModel('review')).toBe('grok-build');
     expect(grokLedgerModel('implement')).toBe('grok-composer-2.5-fast');
   });
 });

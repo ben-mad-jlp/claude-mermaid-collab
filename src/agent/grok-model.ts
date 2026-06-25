@@ -17,10 +17,12 @@ export type GrokNodeKind = (typeof GROK_NODE_KINDS)[number];
 
 const REASONING_KINDS = new Set<GrokNodeKind>(['blueprint', 'review', 'driveplan']);
 
-/** UI / config value → `grok -m` CLI id. */
+/** UI / config value → `grok -m` CLI id. The real CLI model id is `grok-build` (verified
+ *  via `grok models`); the parent design's assumed `grok-build-0.1` is REJECTED by the CLI
+ *  as "unknown model id" — kept here only as a legacy alias mapping to the real id. */
 export const GROK_MODEL_ALIASES: Record<string, string> = {
-  'grok-build': 'grok-build-0.1',
-  'grok-build-0.1': 'grok-build-0.1',
+  'grok-build': 'grok-build',
+  'grok-build-0.1': 'grok-build', // legacy alias → real CLI id
   'grok-composer-2.5-fast': 'grok-composer-2.5-fast',
 };
 
@@ -35,7 +37,7 @@ export function parseKindFromTranscriptLabel(label?: string): GrokNodeKind | und
 }
 
 export function kindDefaultGrokModel(kind?: GrokNodeKind): string {
-  if (kind && REASONING_KINDS.has(kind)) return 'grok-build-0.1';
+  if (kind && REASONING_KINDS.has(kind)) return 'grok-build';
   return 'grok-composer-2.5-fast';
 }
 

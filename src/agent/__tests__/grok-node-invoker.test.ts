@@ -45,7 +45,7 @@ describe('buildGrokArgv', () => {
       { ...base, model: 'grok-build', transcriptLabel: 'blueprint' },
       '/tmp/p.txt',
     );
-    expect(argv).toEqual(expect.arrayContaining(['-m', 'grok-build-0.1']));
+    expect(argv).toEqual(expect.arrayContaining(['-m', 'grok-build']));
   });
 
   it('maps sonnet + wave label to composer default', () => {
