@@ -206,9 +206,9 @@ describe('runTriagePass — autoResolve (level drive, Phase 3)', () => {
 describe('confirmSuggestion / dismissSuggestion', () => {
   it('confirm applies reset_todo when the dep-done proof re-validates green', async () => {
     const project = freshProject();
-    const dep = await createTodo(project, { ownerSession: 'w', title: 'dep' });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'dep' });
     await completeTodo(project, dep.id, 'accepted', 'w'); // dep done+accepted
-    const work = await createTodo(project, { ownerSession: 'w', title: 'work', status: 'blocked', dependsOn: [dep.id] });
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'work', status: 'blocked', dependsOn: [dep.id] });
     const { escalation } = createEscalation({ project, session: 'w', kind: 'blocker', questionText: 'blocked?', todoId: work.id });
     setEscalationSuggestion(escalation.id, sugg({ bundleInputs: { todoUpdatedAt: getTodo(project, work.id)!.updatedAt } }));
 
@@ -225,8 +225,8 @@ describe('confirmSuggestion / dismissSuggestion', () => {
 
   it('confirm REJECTS (no mutation) + re-routes to human when the proof FAILS (dep not done)', async () => {
     const project = freshProject();
-    const dep = await createTodo(project, { ownerSession: 'w', title: 'dep' }); // NOT done
-    const work = await createTodo(project, { ownerSession: 'w', title: 'work', status: 'blocked', dependsOn: [dep.id] });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'dep' }); // NOT done
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'work', status: 'blocked', dependsOn: [dep.id] });
     const { escalation } = createEscalation({ project, session: 'w', kind: 'blocker', questionText: 'blocked?', todoId: work.id });
     setEscalationSuggestion(escalation.id, sugg({ bundleInputs: { todoUpdatedAt: getTodo(project, work.id)!.updatedAt } }));
 
@@ -244,9 +244,9 @@ describe('confirmSuggestion / dismissSuggestion', () => {
 
   it('confirm is STALE-guarded: a moved todo revision → no mutation, suggestion cleared', async () => {
     const project = freshProject();
-    const dep = await createTodo(project, { ownerSession: 'w', title: 'dep' });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'dep' });
     await completeTodo(project, dep.id, 'accepted', 'w');
-    const work = await createTodo(project, { ownerSession: 'w', title: 'work', status: 'blocked', dependsOn: [dep.id] });
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'work', status: 'blocked', dependsOn: [dep.id] });
     const { escalation } = createEscalation({ project, session: 'w', kind: 'blocker', questionText: 'blocked?', todoId: work.id });
     // Suggestion generated against a STALE revision.
     setEscalationSuggestion(escalation.id, sugg({ bundleInputs: { todoUpdatedAt: '1999-01-01T00:00:00.000Z' } }));

@@ -36,7 +36,7 @@ describe('POST /api/supervisor/edges/satisfy', () => {
   });
 
   test('resolves the object via the dragged todo objectRef', async () => {
-    const todo = await createTodo(project, { ownerSession: 's', title: 'linked', objectRef: 'obj-7' });
+    const todo = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'linked', objectRef: 'obj-7' });
     const res = await postSatisfy({ project, todoId: todo.id, reqId: 'req-2' });
     expect(res?.status).toBe(200);
     const edges = listEdges(project, { kind: 'satisfy' });
@@ -44,7 +44,7 @@ describe('POST /api/supervisor/edges/satisfy', () => {
   });
 
   test('a todo with NO objectRef is rejected gracefully (422), no edge created', async () => {
-    const todo = await createTodo(project, { ownerSession: 's', title: 'unlinked' }); // objectRef null
+    const todo = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'unlinked' }); // objectRef null
     const res = await postSatisfy({ project, todoId: todo.id, reqId: 'req-3' });
     expect(res?.status).toBe(422);
     expect(listEdges(project, { kind: 'satisfy' })).toHaveLength(0);

@@ -55,7 +55,7 @@ describe('todo-store — worktree cwd resolves to the tracking todos.db', () => 
   });
 
   it('test 4b — todo written via repo root is readable via worktree cwd', async () => {
-    const todo = await createTodo(repo, {
+    const todo = await createTodo(repo, { allowOrphan: true,
       title: 'T',
       ownerSession: 'test',
     });
@@ -68,7 +68,7 @@ describe('todo-store — worktree cwd resolves to the tracking todos.db', () => 
   });
 
   it('test 4b — todo written via worktree cwd is readable via repo root', async () => {
-    const todo = await createTodo(worktreePath, {
+    const todo = await createTodo(worktreePath, { allowOrphan: true,
       title: 'written-from-worktree',
       ownerSession: 'test',
     });

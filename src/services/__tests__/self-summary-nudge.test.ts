@@ -33,6 +33,16 @@ describe('shouldSelfNudge', () => {
     expect(shouldSelfNudge(entry(), -Infinity, 1_000_000, INTERVAL)).toBe(true);
   });
 
+  it('CHANGE-GATE: pane unchanged since last summary (paneHash === summaryPaneHash) → false (no idle ping loop)', () => {
+    // A self-push sets summaryPaneHash = the live paneHash; a static idle pane stays
+    // equal → never re-nudged (this is what stopped the nudge→push→nudge loop).
+    expect(shouldSelfNudge(entry({ paneHash: 'abc', summaryPaneHash: 'abc' }), -Infinity, 1_000_000, INTERVAL)).toBe(false);
+  });
+
+  it('CHANGE-GATE: pane changed since last summary (hashes differ) → true (real activity reopens the nudge)', () => {
+    expect(shouldSelfNudge(entry({ paneHash: 'NEW', summaryPaneHash: 'old' }), -Infinity, 1_000_000, INTERVAL)).toBe(true);
+  });
+
   it('active → false', () => {
     expect(shouldSelfNudge(entry({ progressState: 'active' }), -Infinity, 1_000_000, INTERVAL)).toBe(false);
   });

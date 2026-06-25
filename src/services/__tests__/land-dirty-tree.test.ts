@@ -70,12 +70,12 @@ describe('landEpic — dirty-tree refusal and allowDirty bypass', () => {
     await runGit(repo, ['commit', '-q', '-m', 'base']);
 
     // Seed the work-graph so landEpic can resolve the escalation → todo → epic.
-    const epic = await createTodo(repo, {
+    const epic = await createTodo(repo, { allowOrphan: true,
       title: '[EPIC] land test',
       ownerSession: 'test',
     });
     epicId = epic.id;
-    const landChild = await createTodo(repo, {
+    const landChild = await createTodo(repo, { allowOrphan: true,
       title: '[LAND] → master',
       ownerSession: 'test',
       parentId: epic.id,

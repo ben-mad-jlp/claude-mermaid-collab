@@ -1,6 +1,6 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable, claimReason, derivedStatus, type ClaimReason } from './claimability';
+import { isClaimable, claimReason, derivedStatus, isEpicTitle, INBOX_EPIC_TITLE, type ClaimReason } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -145,6 +145,29 @@ export interface CreateTodoInput {
   objectRef?: string | null;
   decisionRef?: string | null;
   claimProbe?: string | null;
+  /** EVERY-TODO-NEEDS-AN-EPIC guard (373a2d52). A non-epic top-level create (no
+   *  parentId, title not `[EPIC] …`) is an ORPHAN and is REJECTED — so a planning
+   *  skill that forgets to attach an epic fails LOUDLY instead of silently dumping
+   *  into the Inbox. To deliberately file an unplanned high-level thought, set
+   *  `inbox:true` (the ONLY path that homes to [EPIC] Inbox — never assumed). */
+  inbox?: boolean;
+  /** Internal escape hatch for the few legit top-level non-epic creates (data
+   *  migration, the readiness-gate dependency primitive). Skips the orphan guard. */
+  allowOrphan?: boolean;
+}
+
+/** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
+ *  inbox/allowOrphan. Carries a `code` so HTTP/MCP callers can map it to a 4xx. */
+export class OrphanTodoError extends Error {
+  readonly code = 'orphan-todo';
+  constructor(title: string) {
+    super(
+      `Every work todo must belong to an epic — refusing to create "${title}" with no epic. ` +
+      `Pass parentId=<epic id> (the [EPIC] this belongs under), or set inbox:true to deliberately ` +
+      `file an unplanned high-level thought under [EPIC] Inbox.`,
+    );
+    this.name = 'OrphanTodoError';
+  }
 }
 
 export type UpdateTodoPatch = Partial<{
@@ -661,7 +684,25 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
   return rows.map(rowToTodo);
 }
 
-export function createTodo(project: string, input: CreateTodoInput): Promise<Todo> {
+/** Resolve the parent for a create, enforcing every-todo-needs-an-epic. Runs BEFORE
+ *  the insert lock (it may itself create the Inbox epic — a recursive createTodo whose
+ *  epic title exempts it, so no re-entrant lock). Throws OrphanTodoError for a non-epic
+ *  top-level create unless `inbox`/`allowOrphan` is set. */
+async function resolveTodoParent(project: string, input: CreateTodoInput): Promise<string | null> {
+  if (input.parentId) return input.parentId;        // caller attached a parent
+  if (isEpicTitle(input.title)) return null;         // an epic is a legitimate root
+  if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
+  if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
+  // inbox:true → home under [EPIC] Inbox (find-or-create). The ONLY auto-home, and explicit.
+  const existing = listTodos(project, { includeCompleted: true })
+    .find((t) => t.title?.trim() === INBOX_EPIC_TITLE && t.status !== 'dropped');
+  if (existing) return existing.id;
+  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned' });
+  return inbox.id;
+}
+
+export async function createTodo(project: string, input: CreateTodoInput): Promise<Todo> {
+  const resolvedParentId = await resolveTodoParent(project, input);
   return withLock(project, () => {
     const db = openDb(project);
     const maxOrd = (db.query('SELECT MAX(ord) AS m FROM todos').get() as { m: number | null }).m;
@@ -688,7 +729,7 @@ export function createTodo(project: string, input: CreateTodoInput): Promise<Tod
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
       id, input.ownerSession, input.assigneeSession ?? input.ownerSession ?? null, input.assigneeKind ?? 'agent', input.title, input.description ?? null,
-      status, input.priority ?? null, input.dueDate ?? null, input.parentId ?? null,
+      status, input.priority ?? null, input.dueDate ?? null, resolvedParentId,
       JSON.stringify(input.dependsOn ?? []), ord, input.link ? JSON.stringify(input.link) : null,
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
@@ -1130,6 +1171,9 @@ export async function createGate(project: string, input: CreateGateInput): Promi
     title,
     description: input.description ?? null,
     decisionRef: input.decisionRef ?? null,
+    // A [GATE] is a dependency PRIMITIVE, not a work todo: when the caller leaves it
+    // unparented it attaches to the work-todo via dependsOn, so don't orphan-reject it.
+    allowOrphan: input.parentId == null,
   });
   const nextDeps = [...(work.dependsOn ?? []), gate.id];
   // S3: parking behind a gate is NO LONGER a manual hold — the OPEN gate dep makes

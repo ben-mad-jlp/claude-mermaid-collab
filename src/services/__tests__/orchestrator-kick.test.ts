@@ -47,17 +47,17 @@ describe('todo-store fires the kick on ready transitions', () => {
   });
 
   test('createTodo with status ready kicks; a non-ready create does not', async () => {
-    await createTodo(project, { ownerSession: 's1', title: 'plain' });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'plain' });
     expect(kicks).toEqual([]);
 
-    await createTodo(project, { ownerSession: 's1', title: 'hot', status: 'ready' });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'hot', status: 'ready' });
     expect(kicks.length).toBe(1);
     // De-conflate: status:'ready' is the APPROVE decision → the kick keys on it.
     expect(kicks[0]).toStartWith('todo-created-approved:');
   });
 
   test('updateTodo kicks only on the transition INTO ready', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'a', status: 'planned' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'a', status: 'planned' });
     expect(kicks).toEqual([]);
 
     // planned → ready (approve): kick.
@@ -75,11 +75,11 @@ describe('todo-store fires the kick on ready transitions', () => {
   });
 
   test('completeTodo fires a dep-terminal kick; the unblocked dependent DERIVES claimable', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', status: 'ready' });
     // De-conflate: a dep-blocked child is APPROVED + has an unsatisfied dep (derives
     // deps-pending) — NOT status:'blocked' (the seam would make that a manual hold,
     // which the dep completion would NOT clear).
-    const child = await createTodo(project, { ownerSession: 's1', title: 'child', status: 'ready', dependsOn: [dep.id] });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child', status: 'ready', dependsOn: [dep.id] });
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(child.id); // held by the dep
     kicks.length = 0; // ignore the create kicks
 
@@ -93,7 +93,7 @@ describe('todo-store fires the kick on ready transitions', () => {
   });
 
   test('completeTodo fires the dep-terminal capacity kick even when nothing unblocks', async () => {
-    const solo = await createTodo(project, { ownerSession: 's1', title: 'solo', status: 'ready' });
+    const solo = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'solo', status: 'ready' });
     kicks.length = 0;
     const res = await completeTodo(project, solo.id, 'accepted');
     expect(res.promoted).toEqual([]);
@@ -103,7 +103,7 @@ describe('todo-store fires the kick on ready transitions', () => {
   });
 
   test('resetTodo to ready kicks (steward unstick)', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'stuck', status: 'blocked' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'stuck', status: 'blocked' });
     kicks.length = 0;
     await resetTodo(project, t.id); // defaults to 'ready' = approve + clear-hold
     expect(kicks.length).toBe(1);

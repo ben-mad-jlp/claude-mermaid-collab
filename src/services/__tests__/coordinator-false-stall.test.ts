@@ -50,8 +50,8 @@ describe('false-stall guard — a finished (committed) ui/reviewer leaf is NOT a
   });
 
   it('returns TRUE for a committed ui leaf (stall path is suppressed)', async () => {
-    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] false-stall ui', status: 'planned' });
-    const ui = await createTodo(repo, { ownerSession: 's', title: 'ui leaf', parentId: epic.id, type: 'ui', status: 'planned', sessionName: 'worker-ui' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] false-stall ui', status: 'planned' });
+    const ui = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'ui leaf', parentId: epic.id, type: 'ui', status: 'planned', sessionName: 'worker-ui' });
 
     // Build the epic branch carrying the ui leaf's Collab-Todo trailer (= the
     // daemon committed/merged its work — the "built+committed" state) in a
@@ -70,8 +70,8 @@ describe('false-stall guard — a finished (committed) ui/reviewer leaf is NOT a
   });
 
   it('returns FALSE for a leaf with no commit on the epic branch (genuine idle → normal stall handling)', async () => {
-    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] false-stall none', status: 'planned' });
-    const reviewer = await createTodo(repo, { ownerSession: 's', title: 'reviewer leaf', parentId: epic.id, type: 'reviewer', status: 'planned', sessionName: 'worker-rev' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] false-stall none', status: 'planned' });
+    const reviewer = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'reviewer leaf', parentId: epic.id, type: 'reviewer', status: 'planned', sessionName: 'worker-rev' });
 
     // No epic branch / no commit carries this todo's trailer → not finished →
     // the stall reaper retains its normal wedge-recovery behaviour (fail-safe).

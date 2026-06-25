@@ -3559,9 +3559,11 @@ export async function handleAPI(
         priority?: 0 | 1 | 2 | 3 | 4;
         dueDate?: string;
         description?: string;
+        parentId?: string | null;
+        inbox?: boolean;
       };
 
-      const { project, session, link, status, assigneeSession, priority, dueDate, description } = body;
+      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox } = body;
       const title = body.title ?? body.text;
 
       if (!project || !session || !title) {
@@ -3571,7 +3573,9 @@ export async function handleAPI(
         return Response.json({ error: 'title must be non-empty' }, { status: 400 });
       }
 
-      const todo = await createTodo(project, { ownerSession: session, title, link, status, assigneeSession, priority, dueDate, description });
+      // every-todo-needs-an-epic: createTodo REJECTS a non-epic top-level create unless
+      // parentId (an epic) or inbox:true is given — the catch below returns it as a 400.
+      const todo = await createTodo(project, { ownerSession: session, title, link, status, assigneeSession, priority, dueDate, description, parentId, inbox });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',

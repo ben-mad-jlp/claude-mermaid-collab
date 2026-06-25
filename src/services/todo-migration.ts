@@ -59,6 +59,9 @@ export async function migrateProject(project: string): Promise<{ migrated: numbe
         assigneeSession: session,
         title: old.text,
         status: old.completed ? 'done' : 'todo',
+        // Legacy import predates every-todo-needs-an-epic — preserve structure verbatim,
+        // never reject/auto-home during migration.
+        allowOrphan: true,
         link: old.link ?? null,
       });
       legacyMap[old.id] = created.id;

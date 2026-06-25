@@ -26,7 +26,7 @@ import type { Todo } from './todo-store';
 export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
 
 /** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention. */
-const isEpicTitle = (title: string | null | undefined): boolean =>
+export const isEpicTitle = (title: string | null | undefined): boolean =>
   /^\s*\[EPIC\]/i.test(title ?? '');
 
 /** True iff this todo IS the Inbox epic itself (a top-level root, not a child). */

@@ -50,9 +50,9 @@ describe('BP0 — sweepStrandedAccepted flags accepted todos whose work never re
   it('flags ONLY the stranded child (no trailer on the epic branch), not the integrated one', async () => {
     // Seed an [EPIC] with two accepted children: A's work is on the epic branch,
     // B's is stranded (accepted with no commit reachable).
-    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] bp0 test', status: 'planned' });
-    const childA = await createTodo(repo, { ownerSession: 's', title: 'integrated child', parentId: epic.id, status: 'planned' });
-    const childB = await createTodo(repo, { ownerSession: 's', title: 'stranded child', parentId: epic.id, status: 'planned' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp0 test', status: 'planned' });
+    const childA = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'integrated child', parentId: epic.id, status: 'planned' });
+    const childB = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'stranded child', parentId: epic.id, status: 'planned' });
     await completeTodo(repo, childA.id, 'accepted');
     await completeTodo(repo, childB.id, 'accepted');
 
@@ -90,8 +90,8 @@ describe('BP0 — redesigned sweep: throttle + single summary escalation (no flo
     await runGit(repo, ['commit', '-q', '-m', 'base']);
 
     // One epic with a single stranded accepted child (no epic branch carries it).
-    const epic = await createTodo(repo, { ownerSession: 's', title: '[EPIC] throttle test', status: 'planned' });
-    const child = await createTodo(repo, { ownerSession: 's', title: 'stranded child', parentId: epic.id, status: 'planned' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] throttle test', status: 'planned' });
+    const child = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'stranded child', parentId: epic.id, status: 'planned' });
     await completeTodo(repo, child.id, 'accepted');
     strandedId = child.id;
   });

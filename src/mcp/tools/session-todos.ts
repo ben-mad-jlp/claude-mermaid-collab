@@ -177,10 +177,11 @@ export const addSessionTodoSchema = {
       items: { type: 'string' },
       description: 'List of todo ids this todo depends on',
     },
-    parentId: { type: 'string', description: 'Parent todo id (for subtasks)' },
+    parentId: { type: 'string', description: 'Parent todo id — the [EPIC] (or sub-task parent) this belongs under. REQUIRED for work todos: every todo must belong to an epic. Omitting it (and inbox) is REJECTED.' },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
     type: { type: 'string', description: 'Agent-profile type (frontend/backend/api/ui/library). Overrides inference from files.' },
     files: { type: 'array', items: { type: 'string' }, description: 'Touched files — used to infer the agent-profile type when `type` is omitted.' },
+    inbox: { type: 'boolean', description: 'Deliberately file an UNPLANNED high-level thought under [EPIC] Inbox. The ONLY way into the Inbox — never assumed. Use ONLY for genuine unplanned thoughts; planned work must pass parentId=<epic id> instead.' },
   },
   required: ['project', 'session', 'text'],
 };
@@ -373,9 +374,13 @@ export async function addSessionTodo(
     type?: string | null;
     /** Touched files — used to INFER the agent-profile type when `type` is absent. */
     files?: string[];
+    /** Deliberately file an unplanned high-level thought under [EPIC] Inbox. The ONLY
+     *  path into the Inbox — without it (and without a parentId/epic title) the create
+     *  is REJECTED, so a forgotten epic surfaces loudly instead of silently landing here. */
+    inbox?: boolean;
   },
 ): Promise<Todo> {
-  const { title: _extrasTitle, files, type, ...extrasRest } = extras ?? {};
+  const { title: _extrasTitle, files, type, inbox, ...extrasRest } = extras ?? {};
   const trimmed = (extras?.title ?? text).trim();
   if (!trimmed) throw new Error('text must be non-empty');
   // Explicit type wins; otherwise infer from the touched files (open-problem #8) —
@@ -384,12 +389,13 @@ export async function addSessionTodo(
   const resolvedType = type ?? (files && files.length
     ? (inferTypeFromManifest(project, files) ?? inferProfileType(files))
     : null);
-  // Every work todo belongs to an epic (constraint 373a2d52). If no parent was
-  // given and this isn't itself an epic, auto-parent it under the project's
-  // default Inbox epic so nothing floats at the top level. Re-parent under a real
-  // epic during planning. (Auto-parent on creation — no rejected calls.)
+  // Every work todo belongs to an epic (constraint 373a2d52). We NO LONGER silently
+  // auto-parent under the Inbox — that masked planning skills that forgot the epic.
+  // createTodo now REJECTS a non-epic top-level create unless `inbox:true` is set
+  // (the explicit "unplanned thought" path). An explicit Inbox flag pre-resolves the
+  // epic here so the title-based Inbox identity stays in this layer.
   let parentId = extrasRest.parentId ?? null;
-  if (!parentId && !isEpicTitle(trimmed)) {
+  if (!parentId && inbox && !isEpicTitle(trimmed)) {
     parentId = await ensureInboxEpic(project, session);
   }
   return createTodo(project, {
@@ -563,7 +569,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
     inputSchema: addSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files } = args as {
+      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox } = args as {
         project: string;
         session: string;
         text?: string;
@@ -580,9 +586,10 @@ export const sessionTodoToolDefs: ToolDef[] = [
         sessionName?: string | null;
         type?: string | null;
         files?: string[];
+        inbox?: boolean;
       };
       if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files });
+      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },

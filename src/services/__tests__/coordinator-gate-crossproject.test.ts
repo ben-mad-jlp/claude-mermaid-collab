@@ -38,7 +38,7 @@ describe('runGate cross-project target', () => {
     writeManifest(target, CWD_PROVING_GATE);
     writeFileSync(join(target, 'IN_THIS_REPO'), 'x', 'utf8');
 
-    const todo = await createTodo(tracking, { ownerSession: 's', title: 'cross', targetProject: target });
+    const todo = await createTodo(tracking, { allowOrphan: true, ownerSession: 's', title: 'cross', targetProject: target });
     const verdict = await makeCoordinatorDeps().runGate!(tracking, todo.id);
 
     // If it ran in the tracking repo it would have found no manifest (null) or
@@ -55,7 +55,7 @@ describe('runGate cross-project target', () => {
     writeManifest(tracking, CWD_PROVING_GATE);
     writeFileSync(join(tracking, 'IN_THIS_REPO'), 'x', 'utf8');
 
-    const todo = await createTodo(tracking, { ownerSession: 's', title: 'cross', targetProject: target });
+    const todo = await createTodo(tracking, { allowOrphan: true, ownerSession: 's', title: 'cross', targetProject: target });
     // Gate resolves to TARGET → target has no manifest → null (no gate to run),
     // NOT a false pass off the tracking repo's marker.
     const verdict = await makeCoordinatorDeps().runGate!(tracking, todo.id);
@@ -67,7 +67,7 @@ describe('runGate cross-project target', () => {
     writeManifest(tracking, CWD_PROVING_GATE);
     writeFileSync(join(tracking, 'IN_THIS_REPO'), 'x', 'utf8');
 
-    const todo = await createTodo(tracking, { ownerSession: 's', title: 'local' });
+    const todo = await createTodo(tracking, { allowOrphan: true, ownerSession: 's', title: 'local' });
     const verdict = await makeCoordinatorDeps().runGate!(tracking, todo.id);
     expect(verdict?.passed).toBe(true);
     expect(verdict?.reasons).toEqual(['ran-here']);

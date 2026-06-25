@@ -60,7 +60,7 @@ describe('roadmap-migration', () => {
 
   test('join — linked todo gets parentId backfilled to item.id', async () => {
     const item = await createItem(project, { title: 'Sprint 1' });
-    const todo = await createTodo(project, { ownerSession: 's1', title: 'task-1' });
+    const todo = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'task-1' });
     await linkTodo(project, item.id, todo.id);
 
     await migrateRoadmapToTodos(project);

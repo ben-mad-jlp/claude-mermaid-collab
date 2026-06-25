@@ -1143,6 +1143,13 @@ export function shouldSelfNudge(
   // Parked question — don't disrupt. A blocking on-screen prompt is status 'needs-input';
   // an open end-of-turn question sets structured.question (carried sticky by the tick).
   if (s?.question || s?.status === 'needs-input') return false;
+  // CHANGE-GATE (mirrors the interpret path's `hash === summaryPaneHash`): if the pane
+  // hasn't changed since the last summary was captured, the card is already accurate and
+  // re-nudging is pointless — this is what turned an idle session into a self-perpetuating
+  // ping loop (nudge → identical self-push → quiet → nudge again every intervalMs). A
+  // self-push sets summaryPaneHash = the live paneHash, so a static pane stays equal and
+  // is never re-nudged; real activity advances paneHash and reopens the nudge.
+  if (e.summaryPaneHash != null && e.paneHash === e.summaryPaneHash) return false;
   if (nowMs - lastNudge < intervalMs) return false;          // our own re-nudge throttle
   if (e.lastSelfPushAt != null && nowMs - e.lastSelfPushAt < intervalMs) return false; // self-pushed recently
   return true;

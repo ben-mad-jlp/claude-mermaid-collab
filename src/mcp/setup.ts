@@ -3662,7 +3662,7 @@ IMPORTANT - Common pitfalls to avoid:
           }
 
           case 'add_session_todo': {
-            const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files } = args as {
+            const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox } = args as {
               project: string;
               session: string;
               text?: string;
@@ -3679,9 +3679,10 @@ IMPORTANT - Common pitfalls to avoid:
               sessionName?: string | null;
               type?: string | null;
               files?: string[];
+              inbox?: boolean;
             };
             if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-            const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files });
+            const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify({ ...deriveTodoViews(project, [result])[0] }, null, 2);
           }
@@ -3794,7 +3795,10 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project || !itemId || !session) throw new Error('Missing required: project, itemId, session');
             const createdTodoIds: string[] = [];
             for (const t of todos ?? []) {
-              const todo = await addSessionTodo(project, session, t, undefined, { assigneeSession: session });
+              // Roadmap seeds are deliberate high-level starting items with no epic yet →
+              // explicitly file under [EPIC] Inbox (not a silent assumption; the roadmap
+              // flow declares them as inbox seeds, to be re-homed during planning).
+              const todo = await addSessionTodo(project, session, t, undefined, { assigneeSession: session, inbox: true });
               createdTodoIds.push(todo.id);
               await roadmapStore.linkTodo(project, itemId, todo.id);
             }

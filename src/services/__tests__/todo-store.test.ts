@@ -7,7 +7,7 @@ import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
-  deriveTodoViews,
+  deriveTodoViews, OrphanTodoError,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
@@ -68,7 +68,7 @@ afterEach(() => {
 
 describe('todo-store', () => {
   test('createTodo returns the upgraded shape, completed derived false', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'first' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'first' });
     expect(typeof t.id).toBe('string');
     expect(t.ownerSession).toBe('s1');
     expect(t.status).toBe('todo');
@@ -79,12 +79,12 @@ describe('todo-store', () => {
 
   test('objectRef defaults null and round-trips through create + update (the durable-link firewall)', async () => {
     // Defaults null (work-todo not linked to any durable system-object).
-    const t = await createTodo(project, { ownerSession: 's1', title: 'unlinked' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'unlinked' });
     expect(t.objectRef).toBe(null);
     expect(getTodo(project, t.id)!.objectRef).toBe(null);
 
     // Set at create.
-    const linked = await createTodo(project, { ownerSession: 's1', title: 'linked', objectRef: 'obj-123' });
+    const linked = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'linked', objectRef: 'obj-123' });
     expect(linked.objectRef).toBe('obj-123');
     expect(getTodo(project, linked.id)!.objectRef).toBe('obj-123');
 
@@ -100,26 +100,26 @@ describe('todo-store', () => {
   });
 
   test('listTodos session scope is owner-only; assigneeSession filter is separate; excludes done by default', async () => {
-    await createTodo(project, { ownerSession: 's1', title: 'a' });
-    await createTodo(project, { ownerSession: 's1', assigneeSession: 's2', title: 'b' });
-    await createTodo(project, { ownerSession: 's3', title: 'c' });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'a' });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', assigneeSession: 's2', title: 'b' });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's3', title: 'c' });
     // `session` scopes by OWNER only — 'b' is owned by s1 (assigned to s2), so s2 owns nothing.
     expect(listTodos(project, { session: 's2' }).map((t) => t.title)).toEqual([]);
     expect(listTodos(project, { session: 's1' }).map((t) => t.title).sort()).toEqual(['a', 'b']);
     // assignee filter surfaces work assigned to a session regardless of owner.
     expect(listTodos(project, { assigneeSession: 's2' }).map((t) => t.title)).toEqual(['b']);
 
-    const done = await createTodo(project, { ownerSession: 's1', title: 'd' });
+    const done = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'd' });
     await updateTodo(project, done.id, { status: 'done' });
     expect(listTodos(project, { session: 's1' }).some((t) => t.title === 'd')).toBe(false);
     expect(listTodos(project, { session: 's1', includeCompleted: true }).some((t) => t.title === 'd')).toBe(true);
   });
 
   test('createTodo defaults assigneeSession to the owner session (assigned to the session it was added in)', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'a' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'a' });
     expect(t.assigneeSession).toBe('s1');
     // explicit assignee still wins
-    const u = await createTodo(project, { ownerSession: 's1', assigneeSession: 's2', title: 'b' });
+    const u = await createTodo(project, { allowOrphan: true, ownerSession: 's1', assigneeSession: 's2', title: 'b' });
     expect(u.assigneeSession).toBe('s2');
   });
 
@@ -128,20 +128,20 @@ describe('todo-store', () => {
   });
 
   test('updateTodo syncs completed + completedAt when status -> done', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x' });
     const u = await updateTodo(project, t.id, { status: 'done' });
     expect(u.completed).toBe(true);
     expect(u.completedAt).not.toBeNull();
   });
 
   test('updateTodo with completed:true forces status done', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x' });
     const u = await updateTodo(project, t.id, { completed: true });
     expect(u.status).toBe('done');
   });
 
   test('assignTodo sets assigneeSession', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x' });
     const u = await assignTodo(project, t.id, 's2');
     expect(u.assigneeSession).toBe('s2');
   });
@@ -151,8 +151,8 @@ describe('todo-store', () => {
   });
 
   test('clearCompleted removes only done todos for the session', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'a' });
-    await createTodo(project, { ownerSession: 's1', title: 'b' });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'a' });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'b' });
     await updateTodo(project, a.id, { status: 'done' });
     const res = await clearCompleted(project, 's1');
     expect(res.removed).toBe(1);
@@ -160,8 +160,8 @@ describe('todo-store', () => {
   });
 
   test('reorder reassigns ord in x10 increments', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'a' });
-    const b = await createTodo(project, { ownerSession: 's1', title: 'b' });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'a' });
+    const b = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'b' });
     await reorder(project, [b.id, a.id]);
     const ordered = listTodos(project, { session: 's1' });
     expect(ordered.map((t) => t.title)).toEqual(['b', 'a']);
@@ -169,14 +169,14 @@ describe('todo-store', () => {
   });
 
   test('link round-trips as JSON', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', link: { blueprintId: 'bp', taskId: 'tk' } });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', link: { blueprintId: 'bp', taskId: 'tk' } });
     expect(getTodo(project, t.id)!.link).toEqual({ blueprintId: 'bp', taskId: 'tk' });
   });
 });
 
 describe('todo-store new fields and functions', () => {
   test('createTodo threads sessionName + blueprintId; claim fields default null; retryCount 0; acceptanceStatus null', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', sessionName: 'my-session', blueprintId: 'bp1' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', sessionName: 'my-session', blueprintId: 'bp1' });
     expect(t.sessionName).toBe('my-session');
     expect(t.blueprintId).toBe('bp1');
     expect(t.claimedBy).toBeNull();
@@ -188,7 +188,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('updateTodo patches sessionName, blueprintId, acceptanceStatus', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x' });
     const u = await updateTodo(project, t.id, { sessionName: 'new-session', blueprintId: 'bp2', acceptanceStatus: 'accepted' });
     expect(u.sessionName).toBe('new-session');
     expect(u.blueprintId).toBe('bp2');
@@ -196,7 +196,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('claimTodo: claim a ready todo → not null, status in_progress, claimedBy set, claimToken is string, claimLeaseMs set', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     const claimed = await claimTodo(project, t.id, 'agent-1', 60000);
     expect(claimed).not.toBeNull();
     expect(claimed!.status).toBe('in_progress');
@@ -206,32 +206,32 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('claimTodo: re-claim already-claimed → null', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 60000);
     const second = await claimTodo(project, t.id, 'agent-2', 60000);
     expect(second).toBeNull();
   });
 
   test('claimTodo: claiming status planned → null', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'planned' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'planned' });
     const claimed = await claimTodo(project, t.id, 'agent-1', 60000);
     expect(claimed).toBeNull();
   });
 
   test('claimTodo: claiming status blocked → null', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'blocked' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'blocked' });
     const claimed = await claimTodo(project, t.id, 'agent-1', 60000);
     expect(claimed).toBeNull();
   });
 
   test('claimTodo: claiming a non-ready (todo) status returns null', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x' });
     expect(t.status).toBe('todo');
     expect(await claimTodo(project, t.id, 'agent-1', 30000)).toBeNull();
   });
 
   test('releaseExpiredClaims: claim with 1000ms lease, release with now+2000ms → released, back to ready, retryCount 1', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 1000);
     const future = new Date(Date.now() + 2000).toISOString();
     const { released } = await releaseExpiredClaims(project, future);
@@ -246,7 +246,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('releaseExpiredClaims: claim with 60000ms lease, release with now+100ms → not released, still in_progress', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 60000);
     const nearFuture = new Date(Date.now() + 100).toISOString();
     const { released } = await releaseExpiredClaims(project, nearFuture);
@@ -256,7 +256,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('releaseExpiredClaims: retry cap exceeded → parked blocked + surfaced as exhausted', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     // Re-claim + expire repeatedly. The (MAX_CLAIM_RETRIES+1)-th expiry parks it blocked.
     const attempts = MAX_CLAIM_RETRIES + 1;
     let lastExhausted: string[] = [];
@@ -279,7 +279,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('reclaimClaim: force-reclaims a live claim to ready regardless of lease; null for non-claims', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 60_000); // long lease, NOT expired
     const next = await reclaimClaim(project, t.id);
     expect(next).toBe('ready'); // back-compat label
@@ -291,7 +291,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('reclaimOrphan (now merged with reclaimClaim): reclaims an in_progress todo with NO claimToken', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready', parentId: 'epic-1' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready', parentId: 'epic-1' });
     // Simulate an orphan: in_progress but claimedBy/claimToken NULL (e.g. wiped by a
     // daemon restart). updateTodo(status:'in_progress') now throws, so strand the row
     // via a raw DB write, then re-open the store so the cached handle re-hydrates.
@@ -309,7 +309,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('reclaimOrphan: parks to blocked once the retry cap is exceeded (budget-aware)', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     let status: 'ready' | 'blocked' | null = null;
     for (let i = 0; i <= MAX_CLAIM_RETRIES + 1; i++) {
       strandOrphan(project, t.id);
@@ -325,7 +325,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('FM1: a self-rejected leaf is NOT reclaimed even while in_progress (non-atomic rejection race)', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'rejected-racy', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rejected-racy', status: 'ready' });
     strandRejected(project, t.id); // in_progress + acceptanceStatus='rejected'
     // The reaper must REFUSE — else it resets to planned, clears the (about-to-clear)
     // claim, bumps retryCount, and the next tick re-runs terminally-rejected work.
@@ -335,13 +335,13 @@ describe('todo-store new fields and functions', () => {
     expect(after.retryCount).toBe(0); // never charged a retry
 
     // Control: the SAME in_progress orphan WITHOUT the rejection is still reclaimable.
-    const u = await createTodo(project, { ownerSession: 's1', title: 'plain-orphan', status: 'ready' });
+    const u = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'plain-orphan', status: 'ready' });
     strandOrphan(project, u.id);
     expect(await reclaimOrphan(project, u.id)).not.toBeNull();
   });
 
   test('releaseClaim: returns a live claim to ready with NO retry penalty; false for non-claims (DOGFOOD #3)', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'coordinator', 60_000);
     expect(getTodo(project, t.id)!.status).toBe('in_progress');
     const released = await releaseClaim(project, t.id);
@@ -359,11 +359,11 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('listReadyTodos: ready w/ no deps included; ready w/ all-done deps included; ready w/ pending dep excluded; unknown dep id excluded', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'a', status: 'ready' });
-    const b = await createTodo(project, { ownerSession: 's1', title: 'b', status: 'done' });
-    const c = await createTodo(project, { ownerSession: 's1', title: 'c', status: 'ready', dependsOn: [b.id] });
-    const d = await createTodo(project, { ownerSession: 's1', title: 'd', status: 'ready', dependsOn: [a.id] });
-    const e = await createTodo(project, { ownerSession: 's1', title: 'e', status: 'ready', dependsOn: ['unknown-id-xyz'] });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'a', status: 'ready' });
+    const b = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'b', status: 'done' });
+    const c = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c', status: 'ready', dependsOn: [b.id] });
+    const d = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'd', status: 'ready', dependsOn: [a.id] });
+    const e = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'e', status: 'ready', dependsOn: ['unknown-id-xyz'] });
     const ready = listReadyTodos(project);
     const ids = ready.map((t) => t.id);
     expect(ids).toContain(a.id); // ready, no deps
@@ -377,9 +377,9 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('computeWaves: linear A→B→C → [[A],[B],[C]]', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
-    const b = await createTodo(project, { ownerSession: 's1', title: 'B', dependsOn: [a.id] });
-    const c = await createTodo(project, { ownerSession: 's1', title: 'C', dependsOn: [b.id] });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'B', dependsOn: [a.id] });
+    const c = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'C', dependsOn: [b.id] });
     const waves = computeWaves([a, b, c]);
     expect(waves).toHaveLength(3);
     expect(waves[0].map((t) => t.id)).toEqual([a.id]);
@@ -388,10 +388,10 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('computeWaves: diamond A; B,C→A; D→B,C → wave0=[A], wave1={B,C}, wave2=[D]', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
-    const b = await createTodo(project, { ownerSession: 's1', title: 'B', dependsOn: [a.id] });
-    const c = await createTodo(project, { ownerSession: 's1', title: 'C', dependsOn: [a.id] });
-    const d = await createTodo(project, { ownerSession: 's1', title: 'D', dependsOn: [b.id, c.id] });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'B', dependsOn: [a.id] });
+    const c = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'C', dependsOn: [a.id] });
+    const d = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'D', dependsOn: [b.id, c.id] });
     const waves = computeWaves([a, b, c, d]);
     expect(waves).toHaveLength(3);
     expect(waves[0].map((t) => t.id)).toEqual([a.id]);
@@ -400,23 +400,23 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('computeWaves: two orphans → single wave of both', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
-    const b = await createTodo(project, { ownerSession: 's1', title: 'B' });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'B' });
     const waves = computeWaves([a, b]);
     expect(waves).toHaveLength(1);
     expect(waves[0].map((t) => t.id).sort()).toEqual([a.id, b.id].sort());
   });
 
   test('computeWaves: unknown dep → single wave', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'A', dependsOn: ['unknown-xyz'] });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'A', dependsOn: ['unknown-xyz'] });
     const waves = computeWaves([a]);
     expect(waves).toHaveLength(1);
     expect(waves[0][0].id).toBe(a.id);
   });
 
   test('computeWaves: cycle A↔B → terminates, both ids appear once across flattened waves', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
-    const b = await createTodo(project, { ownerSession: 's1', title: 'B', dependsOn: [a.id] });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'A' });
+    const b = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'B', dependsOn: [a.id] });
     await updateTodo(project, a.id, { dependsOn: [b.id] });
     const aFresh = getTodo(project, a.id)!;
     const bFresh = getTodo(project, b.id)!;
@@ -429,7 +429,7 @@ describe('todo-store new fields and functions', () => {
   });
 
   test('computeWaves: self-dep → terminates, one item', async () => {
-    const a = await createTodo(project, { ownerSession: 's1', title: 'A' });
+    const a = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'A' });
     await updateTodo(project, a.id, { dependsOn: [a.id] });
     const aFresh = getTodo(project, a.id)!;
     const waves = computeWaves([aFresh]);
@@ -441,7 +441,7 @@ describe('todo-store new fields and functions', () => {
 
 describe('completeTodo', () => {
   test('sets status done + completedAt + acceptanceStatus when given', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     const { completed } = await completeTodo(project, t.id, 'accepted');
     expect(completed.status).toBe('done');
     expect(completed.completed).toBe(true);
@@ -450,24 +450,24 @@ describe('completeTodo', () => {
   });
 
   test('makes a claimable dependent whose only dep is this todo claimable', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
     const { completed } = await completeTodo(project, dep.id);
     expect(completed.status).toBe('done');
     expect(listReadyTodos(project).map((t) => t.id)).toContain(blocker.id);
   });
 
   test('a claimable dependent with another still-pending dep stays unclaimable', async () => {
-    const dep1 = await createTodo(project, { ownerSession: 's1', title: 'dep1', status: 'ready' });
-    const dep2 = await createTodo(project, { ownerSession: 's1', title: 'dep2', status: 'ready' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep1.id, dep2.id] });
+    const dep1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep1', status: 'ready' });
+    const dep2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep2', status: 'ready' });
+    const blocker = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep1.id, dep2.id] });
     await completeTodo(project, dep1.id);
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(blocker.id);
   });
 
   test('does NOT make a planned todo claimable even if its deps are done', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
-    const planned = await createTodo(project, { ownerSession: 's1', title: 'planned', status: 'planned', dependsOn: [dep.id] });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', status: 'ready' });
+    const planned = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'planned', status: 'planned', dependsOn: [dep.id] });
     await completeTodo(project, dep.id);
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(planned.id);
     const after = getTodo(project, planned.id)!;
@@ -479,8 +479,8 @@ describe('completeTodo', () => {
   });
 
   test('acceptance gate: a REJECTED completion is NOT done and does NOT unblock dependents (SI-3)', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
     const { completed } = await completeTodo(project, dep.id, 'rejected');
     // SI-3 (de-conflate): rejected → non-terminal, stored 'planned' (not 'done'),
     // completedAt cleared + acceptanceStatus='rejected' the stored fact.
@@ -492,35 +492,35 @@ describe('completeTodo', () => {
 
   test('acceptance gate: a rejected todo is NOT auto-promoted by a later completion (SI-3)', async () => {
     // A rejected todo with no unsatisfied deps must stay parked, not re-promote to ready.
-    const rejected = await createTodo(project, { ownerSession: 's1', title: 'rejected', status: 'ready' });
+    const rejected = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rejected', status: 'ready' });
     await completeTodo(project, rejected.id, 'rejected');
     expect(getTodo(project, rejected.id)!.status).toBe('planned');
     expect(getTodo(project, rejected.id)!.acceptanceStatus).toBe('rejected');
     // An unrelated completion triggers the unblock pass — the rejected todo must NOT promote.
-    const other = await createTodo(project, { ownerSession: 's1', title: 'other', status: 'ready' });
+    const other = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'other', status: 'ready' });
     const { promoted } = await completeTodo(project, other.id, 'accepted');
     expect(promoted).not.toContain(rejected.id);
     expect(getTodo(project, rejected.id)!.status).toBe('planned');
   });
 
   test('acceptance gate: an ACCEPTED dep makes dependents claimable', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
     await completeTodo(project, dep.id, 'accepted');
     expect(listReadyTodos(project).map((t) => t.id)).toContain(blocker.id);
   });
 
   test('acceptance gate: a null/unspecified-acceptance done dep still makes dependents claimable (backward-compatible)', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
-    const blocker = await createTodo(project, { ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', status: 'ready' });
+    const blocker = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'blocker', status: 'ready', dependsOn: [dep.id] });
     await completeTodo(project, dep.id); // no acceptance arg
     expect(listReadyTodos(project).map((t) => t.id)).toContain(blocker.id);
   });
 
   test('acceptance gate: listReadyTodos excludes a ready todo whose dep was rejected', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', status: 'ready' });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', status: 'ready' });
     // dependent left in 'ready' to isolate the listReadyTodos dep-check from the unblock pass
-    const dependent = await createTodo(project, { ownerSession: 's1', title: 'dependent', status: 'ready', dependsOn: [dep.id] });
+    const dependent = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dependent', status: 'ready', dependsOn: [dep.id] });
     await completeTodo(project, dep.id, 'rejected');
     expect(listReadyTodos(project).some((t) => t.id === dependent.id)).toBe(false);
   });
@@ -528,9 +528,9 @@ describe('completeTodo', () => {
 
 describe('completeTodo epic roll-up', () => {
   test('auto-completes a parent when its last child completes', async () => {
-    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
-    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    const c2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
 
     const r1 = await completeTodo(project, c1.id, 'accepted');
     expect(r1.rolledUp).toEqual([]);
@@ -545,18 +545,18 @@ describe('completeTodo epic roll-up', () => {
   });
 
   test('partial completion leaves the parent open', async () => {
-    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
-    await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
     const { rolledUp } = await completeTodo(project, c1.id, 'accepted');
     expect(rolledUp).toEqual([]);
     expect(getTodo(project, epic.id)!.status).toBe('planned');
   });
 
   test('a REJECTED child blocks roll-up', async () => {
-    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
-    const c2 = await createTodo(project, { ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    const c2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
     await completeTodo(project, c1.id, 'rejected');
     const { rolledUp } = await completeTodo(project, c2.id, 'accepted');
     expect(rolledUp).toEqual([]);
@@ -564,18 +564,18 @@ describe('completeTodo epic roll-up', () => {
   });
 
   test('a DROPPED child is ignored — roll-up fires when all non-dropped children are done', async () => {
-    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
-    const c1 = await createTodo(project, { ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
-    await createTodo(project, { ownerSession: 's1', title: 'c2-dropped', status: 'dropped', parentId: epic.id });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c2-dropped', status: 'dropped', parentId: epic.id });
     const { rolledUp } = await completeTodo(project, c1.id, 'accepted');
     expect(rolledUp).toContain(epic.id);
     expect(getTodo(project, epic.id)!.status).toBe('done');
   });
 
   test('recurses upward: completing the last leaf closes the whole chain', async () => {
-    const grand = await createTodo(project, { ownerSession: 's1', title: 'grand', status: 'planned' });
-    const mid = await createTodo(project, { ownerSession: 's1', title: 'mid', status: 'planned', parentId: grand.id });
-    const leaf = await createTodo(project, { ownerSession: 's1', title: 'leaf', status: 'ready', parentId: mid.id });
+    const grand = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'grand', status: 'planned' });
+    const mid = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'mid', status: 'planned', parentId: grand.id });
+    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'leaf', status: 'ready', parentId: mid.id });
     const { rolledUp } = await completeTodo(project, leaf.id, 'accepted');
     expect(rolledUp).toEqual([mid.id, grand.id]); // deepest-first
     expect(getTodo(project, mid.id)!.status).toBe('done');
@@ -583,9 +583,9 @@ describe('completeTodo epic roll-up', () => {
   });
 
   test('does not roll up an epic with zero (non-dropped) children', async () => {
-    const epic = await createTodo(project, { ownerSession: 's1', title: 'epic', status: 'planned' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
     // a standalone child of NO epic — completing it must not touch the empty epic
-    const solo = await createTodo(project, { ownerSession: 's1', title: 'solo', status: 'ready' });
+    const solo = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'solo', status: 'ready' });
     const { rolledUp } = await completeTodo(project, solo.id, 'accepted');
     expect(rolledUp).toEqual([]);
     expect(getTodo(project, epic.id)!.status).toBe('planned');
@@ -602,7 +602,7 @@ describe('single-writer invariant (project-is-local)', () => {
   });
 
   test('claim/complete work normally for a local (existing) project', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     const claimed = await claimTodo(project, t.id, 'coordinator', 60_000);
     expect(claimed?.status).toBe('in_progress');
     const { completed } = await completeTodo(project, t.id, 'accepted');
@@ -614,10 +614,10 @@ describe('todo-store targetProject (cross-project todos)', () => {
   test('defaults to the tracking project (total field) and round-trips through create + update', async () => {
     // targetProject is now TOTAL: an omitted target defaults to this todo's own
     // tracking project, never NULL — so the Bridge can partition by it cleanly.
-    const def = await createTodo(project, { ownerSession: 's1', title: 'same-project' });
+    const def = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'same-project' });
     expect(def.targetProject).toBe(project);
 
-    const t = await createTodo(project, { ownerSession: 's1', title: 'cross', targetProject: '/repos/build123d' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'cross', targetProject: '/repos/build123d' });
     expect(t.targetProject).toBe('/repos/build123d');
     // survives reload (hydration from disk)
     expect(getTodo(project, t.id)!.targetProject).toBe('/repos/build123d');
@@ -632,7 +632,7 @@ describe('todo-store targetProject (cross-project todos)', () => {
 
 describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
   test('assigneeKind defaults to agent and round-trips; completedBy null for agent completion', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'agent task' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'agent task' });
     expect(t.assigneeKind).toBe('agent');
     expect(t.completedBy).toBeNull();
     const done = await completeTodo(project, t.id);
@@ -641,25 +641,25 @@ describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
   });
 
   test('explicit human assigneeKind persists through create + reload', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'review', assigneeKind: 'human' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'review', assigneeKind: 'human' });
     expect(t.assigneeKind).toBe('human');
     expect(getTodo(project, t.id)!.assigneeKind).toBe('human');
   });
 
   test('completing a HUMAN todo auto-stamps a default actor handle as completedBy', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'human review', assigneeKind: 'human' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'human review', assigneeKind: 'human' });
     const done = await completeTodo(project, t.id);
     expect(done.completed.completedBy).toMatch(/^local:/);
   });
 
   test('completeTodo honours an explicit completedBy actor', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'attributed', assigneeKind: 'human' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'attributed', assigneeKind: 'human' });
     const done = await completeTodo(project, t.id, 'accepted', 'local:alice');
     expect(done.completed.completedBy).toBe('local:alice');
   });
 
   test('updateTodo completing a human todo stamps completedBy; un-completing clears it', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'via update', assigneeKind: 'human' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'via update', assigneeKind: 'human' });
     const done = await updateTodo(project, t.id, { completed: true });
     expect(done.completedBy).toMatch(/^local:/);
     const reopened = await updateTodo(project, t.id, { completed: false });
@@ -667,23 +667,23 @@ describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
   });
 
   test('a rejected completion is not done and carries no completedBy', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'rej', assigneeKind: 'human' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rej', assigneeKind: 'human' });
     const res = await completeTodo(project, t.id, 'rejected');
     expect(res.completed.status).toBe('planned');
     expect(res.completed.completedBy).toBeNull();
   });
 
   test('B2: listReadyTodos excludes ready human todos (not coordinator-claimable)', async () => {
-    const agentT = await createTodo(project, { ownerSession: 's1', title: 'agent work', status: 'ready', assigneeKind: 'agent' });
-    const humanT = await createTodo(project, { ownerSession: 's1', title: 'human review', status: 'ready', assigneeKind: 'human' });
+    const agentT = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'agent work', status: 'ready', assigneeKind: 'agent' });
+    const humanT = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'human review', status: 'ready', assigneeKind: 'human' });
     const ids = listReadyTodos(project).map((t) => t.id);
     expect(ids).toContain(agentT.id);
     expect(ids).not.toContain(humanT.id); // human todo sits outside the claim path
   });
 
   test('B2: an agent todo depending on a human todo becomes claimable once the human marks it done (both-way flow)', async () => {
-    const humanDep = await createTodo(project, { ownerSession: 's1', title: 'human approves', status: 'ready', assigneeKind: 'human' });
-    const agentDependent = await createTodo(project, { ownerSession: 's1', title: 'agent follows', status: 'ready', assigneeKind: 'agent', dependsOn: [humanDep.id] });
+    const humanDep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'human approves', status: 'ready', assigneeKind: 'human' });
+    const agentDependent = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'agent follows', status: 'ready', assigneeKind: 'agent', dependsOn: [humanDep.id] });
     // human dep not done yet → agent dependent blocked from claim
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(agentDependent.id);
     // human marks their todo done → dep satisfied → agent todo now claimable
@@ -694,7 +694,7 @@ describe('todo-store assigneeKind + completedBy (B1 attribution)', () => {
 
 describe('readiness gates (createGate — design-readiness-gates P1)', () => {
   test('a gate-dep holds the work-todo blocked; completing the gate auto-promotes it to ready on the SAME tick (no reset_todo)', async () => {
-    const work = await createTodo(project, { ownerSession: 's1', title: 'build the thing', status: 'ready', assigneeKind: 'agent' });
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'build the thing', status: 'ready', assigneeKind: 'agent' });
     const { gate, workTodo } = await createGate(project, { workTodoId: work.id, title: 'review the spec', gateKind: 'spec-review' });
     // S3: the work-todo is parked behind the gate by the OPEN gate DEP (deps-pending,
     // derived) — NOT a manual hold. It stays approved + un-held so it re-derives
@@ -712,7 +712,7 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
   });
 
   test('the [GATE] human todo is never coordinator-claimable (excluded from listReadyTodos)', async () => {
-    const work = await createTodo(project, { ownerSession: 's1', title: 'w', status: 'ready', assigneeKind: 'agent' });
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'w', status: 'ready', assigneeKind: 'agent' });
     const { gate } = await createGate(project, { workTodoId: work.id, title: 'sign off' });
     expect(gate.approvedAt).not.toBeNull(); // approved → a human CAN act on it immediately
     expect(gate.heldAt).toBeNull();
@@ -720,7 +720,7 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
   });
 
   test('reverse-edge views: listGatesBlocking + listGatedBy', async () => {
-    const work = await createTodo(project, { ownerSession: 's1', title: 'w', status: 'ready', assigneeKind: 'agent' });
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'w', status: 'ready', assigneeKind: 'agent' });
     const { gate } = await createGate(project, { workTodoId: work.id, title: 'g' });
     expect(listGatesBlocking(project, work.id).map((t) => t.id)).toEqual([gate.id]);
     expect(listGatedBy(project, gate.id).map((t) => t.id)).toEqual([work.id]);
@@ -730,7 +730,7 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
   });
 
   test('P2: a gate carries its decisionRef; completeGatesForDecision auto-completes it + promotes the dependent (same tick)', async () => {
-    const work = await createTodo(project, { ownerSession: 's1', title: 'build on the design', status: 'ready', assigneeKind: 'agent' });
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'build on the design', status: 'ready', assigneeKind: 'agent' });
     const { gate, workTodo } = await createGate(project, { workTodoId: work.id, title: 'land the design', gateKind: 'design', decisionRef: 'dr-123' });
     expect(gate.decisionRef).toBe('dr-123');
     // S3: gated by the open gate DEP (deps-pending), not a manual hold.
@@ -745,13 +745,13 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
   });
 
   test('P2: completeGatesForDecision is a no-op when no gate references the decision', async () => {
-    await createGate(project, { workTodoId: (await createTodo(project, { ownerSession: 's1', title: 'w', status: 'ready' })).id, title: 'g', decisionRef: 'dr-A' });
+    await createGate(project, { workTodoId: (await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'w', status: 'ready' })).id, title: 'g', decisionRef: 'dr-A' });
     expect(await completeGatesForDecision(project, 'dr-OTHER')).toEqual([]);
   });
 
   test('regression: a plain agent-dep still gates + makes the dependent claimable once the dep completes', async () => {
-    const depA = await createTodo(project, { ownerSession: 's1', title: 'depA', status: 'ready', assigneeKind: 'agent' });
-    const dependent = await createTodo(project, { ownerSession: 's1', title: 'dependent', status: 'ready', assigneeKind: 'agent', dependsOn: [depA.id] });
+    const depA = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'depA', status: 'ready', assigneeKind: 'agent' });
+    const dependent = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dependent', status: 'ready', assigneeKind: 'agent', dependsOn: [depA.id] });
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(dependent.id);
     await completeTodo(project, depA.id, 'accepted');
     expect(listReadyTodos(project).map((t) => t.id)).toContain(dependent.id);
@@ -760,7 +760,7 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
 
 describe('steward verbs', () => {
   test('resetTodo clears retryCount/acceptance/claim and re-promotes a parked over-retried todo', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'stuck' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'stuck' });
     await updateTodo(project, t.id, { status: 'ready' }); // claimable
     // Drive it over the retry budget via repeated claim→reclaim until it parks 'blocked'.
     let status: 'ready' | 'blocked' | null = null;
@@ -786,14 +786,14 @@ describe('steward verbs', () => {
   });
 
   test('resetTodo honors an explicit target status', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'park-me' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'park-me' });
     const r = await resetTodo(project, t.id, 'planned');
     expect(r.status).toBe('planned');
     expect(r.retryCount).toBe(0);
   });
 
   test('resetTodo auto-resolves the todo\'s open escalations (re-promote supersedes stale red)', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'rejected-leaf', status: 'blocked' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rejected-leaf', status: 'blocked' });
     // A blocker raised against this todo (the 'paused on a human' red signal).
     const { escalation: e } = createEscalation({ project, session: 'leaf-exec-x', kind: 'blocker', todoId: t.id, questionText: 'rejected — gate failed' });
     // An UNRELATED open escalation (different todo) must NOT be touched.
@@ -807,7 +807,7 @@ describe('steward verbs', () => {
   });
 
   test('resetTodo reroutes targetProject when provided, leaves it untouched when omitted', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'misrouted', targetProject: '/old/repo' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'misrouted', targetProject: '/old/repo' });
     // omitted → unchanged
     const a = await resetTodo(project, t.id, 'ready');
     expect(a.targetProject).toBe('/old/repo');
@@ -820,10 +820,10 @@ describe('steward verbs', () => {
   });
 
   test('overrideAcceptTodo force-accepts a gate-rejected todo and unblocks its dependents', async () => {
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'verified-but-rejected', status: 'ready' });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'verified-but-rejected', status: 'ready' });
     // Approved dependent gated only by its pending dep (derived model: deps-pending,
     // not a stored 'blocked'). It must not be claimable while the dep is unsatisfied.
-    const child = await createTodo(project, { ownerSession: 's1', title: 'waiting', status: 'ready', dependsOn: [dep.id] });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'waiting', status: 'ready', dependsOn: [dep.id] });
     // Simulate the false-rejection: gate said no, dep parked 'blocked'/rejected.
     await completeTodo(project, dep.id, 'rejected');
     expect(getTodo(project, dep.id)!.status).toBe('planned');
@@ -844,7 +844,7 @@ describe('steward verbs', () => {
     // phantom-claim escalations (decision 20106f26): a worker whose project is its
     // worktree (<repo>/.collab/agent-sessions/worktrees/<lane>) must resolve to the
     // SAME todos.db as the repo root — never a worktree-local empty/absent db.
-    const created = await createTodo(project, { ownerSession: 's1', title: 'owned-by-repo' });
+    const created = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'owned-by-repo' });
     const worktreePath = join(project, '.collab', 'agent-sessions', 'worktrees', 'backend-2');
 
     // Read through the worktree path: must see the repo's row, not an empty db.
@@ -854,7 +854,7 @@ describe('steward verbs', () => {
     expect(listTodos(worktreePath).map((t) => t.id)).toContain(created.id);
 
     // Write through the worktree path: must land in the repo's db.
-    const fromWorktree = await createTodo(worktreePath, { ownerSession: 's2', title: 'created-in-worktree' });
+    const fromWorktree = await createTodo(worktreePath, { allowOrphan: true, ownerSession: 's2', title: 'created-in-worktree' });
     expect(getTodo(project, fromWorktree.id)!.title).toBe('created-in-worktree');
   });
 });
@@ -866,7 +866,7 @@ describe('steward verbs', () => {
 // ───────────────────────────────────────────────────────────────────────────
 describe('S3 write-side translation seam', () => {
   test("updateTodo status:'ready' → sets approvedAt, clears heldAt, never stores 'ready'", async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x' }); // 'todo', unapproved
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x' }); // 'todo', unapproved
     expect(t.approvedAt).toBeNull();
     const u = await updateTodo(project, t.id, { status: 'ready' });
     expect(u.approvedAt).not.toBeNull();
@@ -877,7 +877,7 @@ describe('S3 write-side translation seam', () => {
   });
 
   test("updateTodo status:'blocked' → sets heldAt + heldReason='manual', never stores 'blocked'", async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     expect(listReadyTodos(project).map((x) => x.id)).toContain(t.id); // claimable first
     const u = await updateTodo(project, t.id, { status: 'blocked' });
     expect(u.heldAt).not.toBeNull();
@@ -888,14 +888,14 @@ describe('S3 write-side translation seam', () => {
   });
 
   test("updateTodo status:'in_progress' → REJECTED (a manual claim is nonsensical)", async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await expect(updateTodo(project, t.id, { status: 'in_progress' })).rejects.toThrow(/in_progress/);
     // Unchanged: still claimable, no fabricated claim.
     expect(getTodo(project, t.id)!.claim).toBeNull();
   });
 
   test("createTodo status:'ready' → translates to approvedAt at create (not stored 'ready')", async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'born-approved', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'born-approved', status: 'ready' });
     expect(t.approvedAt).not.toBeNull();
     expect(t.heldAt).toBeNull();
     expect(t.status).not.toBe('ready');
@@ -903,19 +903,19 @@ describe('S3 write-side translation seam', () => {
   });
 
   test("createTodo status:'blocked' → translates to a manual hold at create", async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'born-held', status: 'blocked' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'born-held', status: 'blocked' });
     expect(t.heldAt).not.toBeNull();
     expect(t.heldReason).toBe('manual');
     expect(t.status).not.toBe('blocked');
   });
 
   test("createTodo status:'in_progress' → REJECTED", async () => {
-    await expect(createTodo(project, { ownerSession: 's1', title: 'x', status: 'in_progress' }))
+    await expect(createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'in_progress' }))
       .rejects.toThrow(/in_progress/);
   });
 
   test("status:'planned' un-approves (clears approvedAt) and stores 'planned'", async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     expect(t.approvedAt).not.toBeNull();
     const u = await updateTodo(project, t.id, { status: 'planned' });
     expect(u.status).toBe('planned');
@@ -924,7 +924,7 @@ describe('S3 write-side translation seam', () => {
   });
 
   test('a non-status patch does NOT mint a spurious decision', async () => {
-    const t = await createTodo(project, { ownerSession: 's1', title: 'x', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     const before = getTodo(project, t.id)!;
     const u = await updateTodo(project, t.id, { title: 'renamed' });
     expect(u.title).toBe('renamed');
@@ -934,12 +934,12 @@ describe('S3 write-side translation seam', () => {
 
   test('listReadyTodos uses isClaimable, not the stored status enum', async () => {
     // Approved + no deps + agent → claimable, even though stored status is NOT 'ready'.
-    const claimable = await createTodo(project, { ownerSession: 's1', title: 'a', status: 'ready' });
+    const claimable = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'a', status: 'ready' });
     expect(getTodo(project, claimable.id)!.status).not.toBe('ready');
     // Unapproved → not claimable.
-    const unapproved = await createTodo(project, { ownerSession: 's1', title: 'b' });
+    const unapproved = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'b' });
     // Approved human → not daemon-claimable (human-assignee).
-    const human = await createTodo(project, { ownerSession: 's1', title: 'c', status: 'ready', assigneeKind: 'human' });
+    const human = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c', status: 'ready', assigneeKind: 'human' });
     const ids = listReadyTodos(project).map((x) => x.id);
     expect(ids).toContain(claimable.id);
     expect(ids).not.toContain(unapproved.id);
@@ -951,8 +951,8 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
   test("approving via status:'ready' surfaces derivedStatus:'ready' while storedStatus stays 'planned'", async () => {
     // This is the exact planner scenario: write status:'ready' (translated to an
     // approval — stamps approvedAt, keeps stored status 'planned'), then READ it back.
-    const epic = await createTodo(project, { ownerSession: 's1', title: '[EPIC] E' });
-    const t = await createTodo(project, { ownerSession: 's1', title: 'C0', parentId: epic.id, status: 'planned' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'C0', parentId: epic.id, status: 'planned' });
     expect(t.status).toBe('planned');
     expect(t.approvedAt).toBeNull();
 
@@ -970,9 +970,9 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
   });
 
   test('unapproved todo derives planned + unapproved; blocked dep derives deps-pending', async () => {
-    const epic = await createTodo(project, { ownerSession: 's1', title: '[EPIC] E2' });
-    const dep = await createTodo(project, { ownerSession: 's1', title: 'dep', parentId: epic.id });
-    const child = await createTodo(project, { ownerSession: 's1', title: 'child', parentId: epic.id, dependsOn: [dep.id] });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E2' });
+    const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', parentId: epic.id });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child', parentId: epic.id, dependsOn: [dep.id] });
     await updateTodo(project, child.id, { status: 'ready' }); // approve, but dep not done
 
     const views = deriveTodoViews(project, [getTodo(project, dep.id)!, getTodo(project, child.id)!]);
@@ -988,8 +988,8 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
 
 describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
   test('stamps the passed epoch into the claim; absent when omitted', async () => {
-    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] E' });
-    const t = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id, status: 'planned' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] E' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: epic.id, status: 'planned' });
     await updateTodo(project, t.id, { status: 'ready' }); // approve so the CAS claim succeeds
 
     const claimed = await claimTodo(project, t.id, 'coordinator', 60_000, 'epoch-XYZ');
@@ -1008,9 +1008,9 @@ describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
 describe('Inbox = planning-only — approval block (updateSessionTodo)', () => {
   test('approving an Inbox child throws; re-homing then approving succeeds', async () => {
     const { updateSessionTodo } = await import('../../mcp/tools/session-todos');
-    const inbox = await createTodo(project, { ownerSession: 's', title: '[EPIC] Inbox' });
-    const realEpic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Real' });
-    const child = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
+    const inbox = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Inbox' });
+    const realEpic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Real' });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
 
     // Approve-in-Inbox is refused.
     await expect(updateSessionTodo(project, 's', child.id, { status: 'ready' })).rejects.toThrow(
@@ -1026,8 +1026,8 @@ describe('Inbox = planning-only — approval block (updateSessionTodo)', () => {
 
   test('non-approve status transitions on an Inbox child are NOT blocked', async () => {
     const { updateSessionTodo } = await import('../../mcp/tools/session-todos');
-    const inbox = await createTodo(project, { ownerSession: 's', title: '[EPIC] Inbox' });
-    const child = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
+    const inbox = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Inbox' });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
     // editing the title (no status:'ready') is fine
     const updated = await updateSessionTodo(project, 's', child.id, { title: 'renamed' });
     expect(updated.title).toBe('renamed');
@@ -1040,7 +1040,7 @@ describe('auto-unsubscribe on terminal transition', () => {
   afterEach(() => { __resetSubs(); delete process.env.MERMAID_DATA_DIR; });
 
   test('completeTodo(accepted) expires a subscription targeting that todo', async () => {
-    const t = await createTodo(project, { ownerSession: 's', title: 'leaf' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf' });
     addSubscription(project, 'watcher', 'todo', t.id);
     expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(1);
 
@@ -1049,8 +1049,8 @@ describe('auto-unsubscribe on terminal transition', () => {
   });
 
   test('completing the last child rolls up the epic and expires the EPIC subscription too', async () => {
-    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] roll' });
-    const child = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] roll' });
+    const child = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: epic.id });
     addSubscription(project, 'watcher', 'epic', epic.id);
 
     await completeTodo(project, child.id, 'accepted'); // epic rolls up to done
@@ -1059,15 +1059,46 @@ describe('auto-unsubscribe on terminal transition', () => {
   });
 
   test('updateTodo → dropped expires a subscription; a rejected completion does NOT', async () => {
-    const dropped = await createTodo(project, { ownerSession: 's', title: 'to-drop' });
+    const dropped = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'to-drop' });
     addSubscription(project, 'watcher', 'todo', dropped.id);
     await updateTodo(project, dropped.id, { status: 'dropped' });
     expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(0);
 
     // A rejected completion parks (non-terminal) → keeps its subscription.
-    const rejected = await createTodo(project, { ownerSession: 's', title: 'to-reject' });
+    const rejected = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'to-reject' });
     addSubscription(project, 'watcher', 'todo', rejected.id);
     await completeTodo(project, rejected.id, 'rejected');
     expect(listSubscriptionsForSession(project, 'watcher')).toHaveLength(1);
+  });
+});
+
+describe('createTodo — every-todo-needs-an-epic guard (orphan reject + explicit inbox)', () => {
+  test('a non-epic top-level create with no parentId/inbox THROWS OrphanTodoError', async () => {
+    await expect(createTodo(project, { ownerSession: 's', title: 'floating work' })).rejects.toThrow(OrphanTodoError);
+    expect(listTodos(project, { includeCompleted: true }).length).toBe(0); // nothing created
+  });
+
+  test('inbox:true homes under a find-or-create [EPIC] Inbox', async () => {
+    const a = await createTodo(project, { ownerSession: 's', title: 'thought one', inbox: true });
+    const b = await createTodo(project, { ownerSession: 's', title: 'thought two', inbox: true });
+    expect(a.parentId).toBeTruthy();
+    expect(a.parentId).toBe(b.parentId); // same Inbox epic reused
+    expect(getTodo(project, a.parentId!)?.title).toBe('[EPIC] Inbox');
+  });
+
+  test('an [EPIC] title is a legitimate root — never rejected, no parent', async () => {
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Real' });
+    expect(epic.parentId).toBeNull();
+  });
+
+  test('an explicit parentId is respected (no reject, no inbox)', async () => {
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Box' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'child', parentId: epic.id });
+    expect(child.parentId).toBe(epic.id);
+  });
+
+  test('allowOrphan:true is the internal escape hatch — top-level non-epic permitted', async () => {
+    const t = await createTodo(project, { ownerSession: 's', title: 'gate-like primitive', allowOrphan: true });
+    expect(t.parentId).toBeNull();
   });
 });
