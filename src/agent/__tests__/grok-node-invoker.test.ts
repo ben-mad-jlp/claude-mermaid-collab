@@ -9,6 +9,7 @@ import {
   resolveGrokBin,
   type NodeSpec,
 } from '../node-invoker.ts';
+import { parseVerdict } from '../../services/leaf-executor.ts';
 
 const base: NodeSpec = { prompt: 'hello', cwd: '/tmp/worktree' };
 
@@ -126,25 +127,32 @@ describe('parseGrokOutput', () => {
     expect(p.stopReason).toBe('Cancelled');
   });
 
-  it('parses streaming-json terminal line from end', () => {
+  it('assembles text from the REAL streaming-json: chunked type:"text" data + end terminal', () => {
+    // Captured verbatim from `grok --output-format streaming-json`: the reply streams as
+    // many {type:"text",data:"…"} chunks; the terminal {type:"end",stopReason} has NO text.
     const transcript = [
-      JSON.stringify({ type: 'thought', thought: 'thinking' }),
-      JSON.stringify({ type: 'text', text: 'partial ' }),
-      JSON.stringify({ type: 'text', text: 'answer' }),
-      JSON.stringify({ text: 'answer', stopReason: 'EndTurn', sessionId: 's' }),
+      JSON.stringify({ type: 'thought', data: 'The user wants ' }),
+      JSON.stringify({ type: 'text', data: 'VER' }),
+      JSON.stringify({ type: 'text', data: 'DI' }),
+      JSON.stringify({ type: 'text', data: 'CT' }),
+      JSON.stringify({ type: 'text', data: ':' }),
+      JSON.stringify({ type: 'text', data: ' PASS' }),
+      JSON.stringify({ type: 'end', stopReason: 'EndTurn', sessionId: 's', requestId: 'r' }),
     ].join('\n');
     const p = parseGrokOutput(transcript);
     expect(p.stopReason).toBe('EndTurn');
-    expect(p.text).toBe('answer');
+    expect(p.text).toBe('VERDICT: PASS'); // concatenated chunks, thought ignored
+    expect(p.parseError).toBeUndefined();
+    expect(parseVerdict(p.text)).toBe('pass'); // the verdict is now READABLE (the bug fix)
   });
 
-  it('extracts partial text from truncated stream', () => {
+  it('assembles partial text from a truncated stream (no terminal)', () => {
     const partial = [
-      JSON.stringify({ type: 'text', text: 'work in ' }),
-      JSON.stringify({ type: 'text', text: 'progress' }),
+      JSON.stringify({ type: 'text', data: 'work in ' }),
+      JSON.stringify({ type: 'text', data: 'progress' }),
     ].join('\n');
     const p = parseGrokOutput(partial);
-    expect(p.text).toBe('progress');
+    expect(p.text).toBe('work in progress');
     expect(p.stopReason).toBeUndefined();
     expect(p.parseError).toBeUndefined();
   });

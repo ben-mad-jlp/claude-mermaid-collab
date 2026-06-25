@@ -754,18 +754,27 @@ function extractGrokTerminal(stdout: string): GrokJsonTerminal | null {
   return null;
 }
 
-/** Best-effort last `text` chunk from streaming-json (partial / timeout). */
-function lastGrokTextChunk(stdout: string): string | undefined {
-  let last: string | undefined;
+/**
+ * Assemble the assistant text from grok streaming-json. Grok streams the reply as MANY
+ * chunked lines `{"type":"text","data":"VER"}` `{"type":"text","data":"DI"}` … — the full
+ * text is the CONCATENATION of every `type:"text"` line's `data`. Neither the per-chunk
+ * lines nor the terminal `{"type":"end","stopReason":...}` object carry a single `text`
+ * field, so the old `.text`-only scan always came back EMPTY → the review verdict was
+ * unreadable → infinite revise loop. Also tolerates a single-JSON object with a `.text`
+ * field (the `--output-format json` shape) and ignores `type:"thought"` reasoning chunks.
+ */
+function assembleGrokText(stdout: string): string {
+  let out = '';
   for (const line of stdout.split('\n')) {
     const t = line.trim();
     if (!t || t[0] !== '{') continue;
     try {
-      const obj = JSON.parse(t) as { text?: string; type?: string };
-      if (typeof obj.text === 'string' && obj.text.length > 0) last = obj.text;
-    } catch { /* skip */ }
+      const obj = JSON.parse(t) as { type?: string; data?: string; text?: string };
+      if (obj.type === 'text' && typeof obj.data === 'string') out += obj.data;
+      else if (obj.type !== 'thought' && typeof obj.text === 'string') out += obj.text; // single-json
+    } catch { /* skip non-JSON / partial lines */ }
   }
-  return last;
+  return out;
 }
 
 /** Parse grok `--output-format json|streaming-json` stdout. */
@@ -776,26 +785,28 @@ export function parseGrokOutput(stdout: string): {
   parseError?: string;
 } {
   const terminal = extractGrokTerminal(stdout);
-  if (!terminal) {
-    const partial = lastGrokTextChunk(stdout);
-    return {
-      text: partial,
-      parseError: partial ? undefined : 'grok: no parseable terminal object in node output',
-    };
+  // Prefer the terminal's own `text` (single-json shape); else assemble the streamed
+  // `type:"text"` chunks (the real streaming-json shape — the terminal has no text).
+  const assembled = assembleGrokText(stdout);
+  const text =
+    (typeof terminal?.text === 'string' && terminal.text.length > 0)
+      ? terminal.text
+      : (assembled.length > 0 ? assembled : undefined);
+
+  if (!terminal && text == null) {
+    return { text: undefined, parseError: 'grok: no parseable terminal object in node output' };
   }
-  const usage: NodeUsage = {
-    inputTokens: terminal.usage?.input_tokens,
-    outputTokens: terminal.usage?.output_tokens,
-    cacheReadTokens: terminal.usage?.cache_read_input_tokens,
-    cacheCreationTokens: terminal.usage?.cache_creation_input_tokens,
-    costUsd: terminal.total_cost_usd,
-    numTurns: terminal.num_turns,
-  };
-  return {
-    text: typeof terminal.text === 'string' ? terminal.text : undefined,
-    stopReason: terminal.stopReason,
-    usage,
-  };
+  const usage: NodeUsage | undefined = terminal
+    ? {
+        inputTokens: terminal.usage?.input_tokens,
+        outputTokens: terminal.usage?.output_tokens,
+        cacheReadTokens: terminal.usage?.cache_read_input_tokens,
+        cacheCreationTokens: terminal.usage?.cache_creation_input_tokens,
+        costUsd: terminal.total_cost_usd,
+        numTurns: terminal.num_turns,
+      }
+    : undefined;
+  return { text, stopReason: terminal?.stopReason, usage };
 }
 
 function writePromptTempFile(prompt: string): { dir: string; file: string } {
