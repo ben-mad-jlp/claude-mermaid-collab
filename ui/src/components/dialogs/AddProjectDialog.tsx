@@ -7,7 +7,7 @@
  * the selected parent and registers that.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { ServerInfo } from '../../contexts/ServerContext';
 
 interface AddProjectDialogProps {
@@ -23,13 +23,17 @@ interface FsListResponse {
   entries: Array<{ name: string; path: string }>;
 }
 
-/** In-app directory browser (used when the native picker isn't available, e.g. a
- *  plain browser). Backed by GET /api/fs/list on the current origin's server. */
-const FolderBrowser: React.FC<{ initialPath: string; onPick: (path: string) => void; onClose: () => void }> = ({
-  initialPath,
-  onPick,
-  onClose,
-}) => {
+/** In-app directory browser. Transport-agnostic: the caller supplies `list`,
+ *  which lists a directory on the SELECTED server (a same-origin fetch for the
+ *  local server, or an invokeOnServer call for a remote one) so this browses
+ *  the right machine's filesystem rather than always the local box. */
+const FolderBrowser: React.FC<{
+  initialPath: string;
+  serverLabel?: string;
+  list: (path: string) => Promise<FsListResponse>;
+  onPick: (path: string) => void;
+  onClose: () => void;
+}> = ({ initialPath, serverLabel, list, onPick, onClose }) => {
   const [cwd, setCwd] = useState(initialPath);
   const [data, setData] = useState<FsListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,33 +43,38 @@ const FolderBrowser: React.FC<{ initialPath: string; onPick: (path: string) => v
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetch(`/api/fs/list?path=${encodeURIComponent(cwd)}`)
-      .then(async (r) => {
-        const j = (await r.json()) as FsListResponse & { error?: string };
+    list(cwd)
+      .then((j) => {
         if (cancelled) return;
-        if (!r.ok) { setError(j.error || 'Failed to list folder'); return; }
         setData(j);
         if (j.path !== cwd) setCwd(j.path); // server normalized (~, .., etc.)
       })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [cwd]);
+  }, [cwd, list]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black bg-opacity-50" onClick={onClose}>
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full mx-4" onClick={(e) => e.stopPropagation()}>
-        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => data?.parent && setCwd(data.parent)}
-            disabled={!data?.parent}
-            className="px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
-            title="Up one level"
-          >
-            ↑
-          </button>
-          <span className="flex-1 min-w-0 truncate font-mono text-xs text-gray-700 dark:text-gray-300" title={cwd}>{cwd}</span>
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          {serverLabel && (
+            <div className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+              Browsing <span className="font-medium text-gray-700 dark:text-gray-300">{serverLabel}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => data?.parent && setCwd(data.parent)}
+              disabled={!data?.parent}
+              className="px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700"
+              title="Up one level"
+            >
+              ↑
+            </button>
+            <span className="flex-1 min-w-0 truncate font-mono text-xs text-gray-700 dark:text-gray-300" title={cwd}>{cwd}</span>
+          </div>
         </div>
         <div className="max-h-72 overflow-auto p-2">
           {loading && <div className="text-sm text-gray-500 px-2 py-1">Loading…</div>}
@@ -119,9 +128,61 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
 
   const hasNativePicker = typeof (window as any).mc?.pickFolder === 'function';
 
+  // Which server are we adding to, and is it remote? The native OS picker only
+  // ever sees the LOCAL filesystem, so for a remote server we must browse over
+  // the wire (invokeOnServer → the selected server's /api/fs/* endpoints).
+  const selectedServer = servers.find((s) => s.id === serverId);
+  const remote = !!selectedServer && selectedServer.source !== 'local';
+
+  // List subfolders on the SELECTED server. Routed through invokeOnServer for a
+  // remote server (so we browse the remote FS, with the token resolved in main);
+  // a same-origin fetch for the local server / plain browser. Memoized on
+  // (serverId, remote) so FolderBrowser's effect doesn't re-run every render.
+  const browseList = useCallback(
+    async (p: string): Promise<FsListResponse> => {
+      const mc = (window as any).mc;
+      if (mc?.invokeOnServer && remote) {
+        const res = await mc.invokeOnServer(serverId, { path: '/api/fs/list', method: 'GET', query: { path: p } });
+        const body = res?.body as (FsListResponse & { error?: string }) | string | undefined;
+        if (!res?.ok) {
+          throw new Error((body && typeof body === 'object' && body.error) || (typeof body === 'string' ? body : 'Failed to list folder'));
+        }
+        return body as FsListResponse;
+      }
+      const r = await fetch(`/api/fs/list?path=${encodeURIComponent(p)}`);
+      const j = (await r.json()) as FsListResponse & { error?: string };
+      if (!r.ok) throw new Error(j.error || 'Failed to list folder');
+      return j;
+    },
+    [serverId, remote],
+  );
+
+  // mkdir on the SELECTED server (same local/remote routing as browseList).
+  const fsMkdir = async (parent: string, name: string): Promise<string> => {
+    const mc = (window as any).mc;
+    if (mc?.invokeOnServer && remote) {
+      const res = await mc.invokeOnServer(serverId, { path: '/api/fs/mkdir', method: 'POST', body: { parent, name } });
+      const body = res?.body as { path?: string; error?: string } | string | undefined;
+      if (!res?.ok || !(body && typeof body === 'object' && body.path)) {
+        throw new Error((body && typeof body === 'object' && body.error) || 'Failed to create folder');
+      }
+      return body.path;
+    }
+    const res = await fetch('/api/fs/mkdir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent, name }),
+    });
+    const j = (await res.json()) as { path?: string; error?: string };
+    if (!res.ok || !j.path) throw new Error(j.error || 'Failed to create folder');
+    return j.path;
+  };
+
   const browse = async () => {
     const mc = (window as any).mc;
-    if (mc?.pickFolder) {
+    // Native picker only knows the local FS — use it solely for the local server.
+    // For a remote server, open the in-app browser pointed at that server.
+    if (mc?.pickFolder && !remote) {
       try {
         const picked: string | null = await mc.pickFolder({ defaultPath: path || undefined });
         if (picked) setPath(picked);
@@ -152,18 +213,13 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
     try {
       let finalPath = trimmed;
       if (createNew) {
-        const res = await fetch('/api/fs/mkdir', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ parent: trimmed, name: newName.trim() }),
-        });
-        const j = (await res.json()) as { path?: string; error?: string };
-        if (!res.ok || !j.path) {
-          setError(j.error || 'Failed to create folder');
+        try {
+          finalPath = await fsMkdir(trimmed, newName.trim());
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Failed to create folder');
           setBusy(false);
           return;
         }
-        finalPath = j.path;
       }
       await onSubmit(serverId, finalPath);
       onClose();
@@ -234,7 +290,7 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
                 onClick={browse}
                 disabled={busy}
                 className="shrink-0 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                title={hasNativePicker ? 'Choose a folder (native dialog)' : 'Browse folders'}
+                title={remote ? `Browse folders on ${selectedServer?.label ?? 'this server'}` : hasNativePicker ? 'Choose a folder (native dialog)' : 'Browse folders'}
               >
                 Browse…
               </button>
@@ -293,6 +349,8 @@ export const AddProjectDialog: React.FC<AddProjectDialogProps> = ({
       {browserOpen && (
         <FolderBrowser
           initialPath={path.trim().startsWith('/') ? path.trim() : ''}
+          serverLabel={remote ? selectedServer?.label : undefined}
+          list={browseList}
           onPick={(p) => { setPath(p); setBrowserOpen(false); }}
           onClose={() => setBrowserOpen(false)}
         />
