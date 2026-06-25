@@ -3124,6 +3124,17 @@ export async function handleAPI(
     );
   }
 
+  // GET /api/leaf-executor/inflight-projects
+  // The DISTINCT set of projects with >=1 HEADLESS leaf running right now (leaf_inflight,
+  // ALL projects in one read). Headless leaf runs leave no tmux and never flip a todo's
+  // local status, so a project's plan-stats alone read 'idle' (green) mid-build — the
+  // project-card list polls this to flip a building project AMBER. Plain read, no ws.
+  if (path === '/api/leaf-executor/inflight-projects' && req.method === 'GET') {
+    const { listLeafInflight } = await import('../services/worker-ledger');
+    const projects = Array.from(new Set(listLeafInflight({}).map((r) => r.project).filter(Boolean)));
+    return Response.json({ projects });
+  }
+
   // GET /api/leaf-executor/daemon?project=&epicId=&failLimit=
   // The LIVE "what is the daemon doing right now" read for the UI (UI fetches HTTP, not MCP).
   // Composes the same read-sides as the daemon_status MCP tool PLUS the breaker open-until,

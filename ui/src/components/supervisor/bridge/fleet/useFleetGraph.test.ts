@@ -81,6 +81,26 @@ describe('useFleetGraph', () => {
     expect(result.current.nodes.find((n) => n.id === 'E1')!.type).toBe('epic');
   });
 
+  it('colors an epic ownBucket = inflight when a child is headless in-flight', () => {
+    const todos = [todo({ id: 'E1' }), todo({ id: 'A', parentId: 'E1', status: 'ready' })];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(), inflightLeafIds: new Set(['A']) }),
+    );
+    const epic = result.current.nodes.find((n) => n.id === 'E1')!;
+    expect((epic.data as { ownBucket: string }).ownBucket).toBe('inflight');
+  });
+
+  it('colors an epic ownBucket = ready when the epic is approved and nothing is running/blocked', () => {
+    // Epic todo status 'ready' (approved); its child is plain backlog → not inflight,
+    // not blocked, not all-done → falls to the epic's own 'ready'.
+    const todos = [todo({ id: 'E1', status: 'ready' }), todo({ id: 'A', parentId: 'E1', status: 'planned' })];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
+    );
+    const epic = result.current.nodes.find((n) => n.id === 'E1')!;
+    expect((epic.data as { ownBucket: string }).ownBucket).toBe('ready');
+  });
+
   it('re-routes a cross-epic child dependency to the visible epics (edges survive collapse)', () => {
     const todos = [
       todo({ id: 'E1' }),

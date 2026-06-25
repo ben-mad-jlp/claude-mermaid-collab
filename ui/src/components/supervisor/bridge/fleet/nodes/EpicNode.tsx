@@ -56,6 +56,9 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
   const selectedNodeId = useDeckStore((s) => s.selectedNodeId);
   const selected = selectedNodeId === id;
   const ring = selected ? 'ring-2 ring-accent-500 border-accent-300' : 'border-gray-300 dark:border-gray-600';
+  // The epic's OWN status tint for the header band (planned epics resolve to the
+  // gray 'backlog' style, preserving the prior look). Reuses the canonical palette.
+  const headerTint = STATUS_STYLE[d.ownBucket].bg;
 
   // Expanded → a framed container: the header band (label + status bar) sits at
   // the top; the body is transparent so the nested child nodes show through.
@@ -66,7 +69,7 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
         style={{ width: d.width, height: d.height }}
       >
         <EdgeHandle type="target" position={Position.Left} />
-        <div className="px-3 pt-2 pb-1.5 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-t-lg">
+        <div className={`px-3 pt-2 pb-1.5 border-b border-gray-200 dark:border-gray-700 rounded-t-lg ${headerTint}`}>
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] uppercase tracking-wide text-gray-400">epic</span>
             <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate">{d.label}</span>
@@ -82,7 +85,7 @@ const EpicNodeImpl: React.FC<NodeProps> = ({ id, data }) => {
 
   return (
     <div
-      className={`rounded-lg bg-white dark:bg-gray-900 border px-3 py-2 ${ring}`}
+      className={`rounded-lg border px-3 py-2 ${headerTint} ${ring}`}
       style={{ width: 200 }}
     >
       <EdgeHandle type="target" position={Position.Left} />

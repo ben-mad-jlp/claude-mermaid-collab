@@ -13,6 +13,12 @@ export interface EpicNodeData extends Record<string, unknown> {
   counts: Record<FunnelKey, number>;
   total: number;
   /**
+   * The epic's OWN status bucket (distinct from the child-rollup `counts`): tints
+   * the epic header/border so an epic reads its own state at a glance, the same way
+   * leaf todos color by bucket. Resolved by `epicBucket` (funnel.ts).
+   */
+  ownBucket: FunnelKey;
+  /**
    * True when the epic is expanded into a framed container — its children are
    * nested React Flow nodes (parentId == this id) and this node paints only the
    * header band + frame at the given size. False/undefined = the compact chip.

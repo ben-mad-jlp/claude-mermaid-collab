@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeWaveMap } from '@/components/supervisor/roadmapToMermaid';
-import { bucketTodo, type FunnelKey } from '../funnel';
+import { bucketTodo, epicBucket, type FunnelKey } from '../funnel';
 import { currentTodoFor, deriveLiveness, roleGlyph } from '@/lib/liveness';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { Escalation } from '@/stores/supervisorStore';
@@ -357,10 +357,13 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
             total += 1;
           }
         }
+        // The epic's OWN status tint (header/border) — distinct from the child
+        // rollup bar. `t.status` is the epic todo's live derived status.
+        const ownBucket = epicBucket(counts, t.status);
         const size = epicSize.get(t.id);
         const data: EpicNodeData = size
-          ? { kind: 'epic', label: t.title, counts, total, expanded: true, width: size.width, height: size.height }
-          : { kind: 'epic', label: t.title, counts, total };
+          ? { kind: 'epic', label: t.title, counts, total, ownBucket, expanded: true, width: size.width, height: size.height }
+          : { kind: 'epic', label: t.title, counts, total, ownBucket };
         // An expanded epic is a framed container: give React Flow the box size so
         // it reserves space and the nested children render inside its bounds.
         out.push(

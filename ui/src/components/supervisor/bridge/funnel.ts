@@ -171,6 +171,26 @@ export function bucketTodo(t: SessionTodo, byId?: Map<string, SessionTodo>): Fun
   return null;
 }
 
+/**
+ * An epic's OWN status bucket, for tinting the epic node header (distinct from the
+ * child-rollup bar). An epic isn't a claimable leaf, so it has no `claimReason`
+ * bucket of its own — we read its live state from the child rollup first (what the
+ * epic is actually DOING dominates), then fall back to the epic todo's own derived
+ * status. Precedence: any child in-flight → inflight; else any child blocked →
+ * blocked; else all children done → done; else the epic is approved/ready → ready;
+ * else backlog. Reuses the canonical FunnelKey palette — no new tokens.
+ */
+export function epicBucket(counts: Record<FunnelKey, number>, ownStatus: string): FunnelKey {
+  const total = counts.backlog + counts.ready + counts.inflight + counts.blocked + counts.done;
+  if (counts.inflight > 0) return 'inflight';
+  if (counts.blocked > 0) return 'blocked';
+  // `done` keys off the epic's OWN status too: the graph hides done children, so an
+  // all-done epic has no visible children to count (counts.done would be 0).
+  if (ownStatus === 'done' || (total > 0 && counts.done === total)) return 'done';
+  if (ownStatus === 'ready') return 'ready';
+  return 'backlog';
+}
+
 /** Resolve a todo straight to its canonical status style (null if unbucketed). */
 export function statusStyle(t: SessionTodo, byId?: Map<string, SessionTodo>): StatusStyle | null {
   const k = bucketTodo(t, byId);

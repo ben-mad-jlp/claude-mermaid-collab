@@ -215,6 +215,30 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   const { servers } = useServers();
   const [collapsed, setCollapsed] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+
+  // Projects with a HEADLESS leaf running right now (daemon leaf_inflight, all
+  // projects). Headless runs leave no tmux and never flip a todo's local status,
+  // so plan-stats alone read a building project as 'idle' (GREEN). One poll lets
+  // the project card flip AMBER while the daemon is actually building it.
+  const [inflightProjects, setInflightProjects] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/leaf-executor/inflight-projects');
+        if (!res.ok || cancelled) return;
+        const d = await res.json();
+        const next: string[] = Array.isArray(d?.projects) ? d.projects : [];
+        // Stable Set reference when unchanged so per-project memos don't churn.
+        setInflightProjects((prev) =>
+          prev.size === next.length && next.every((p) => prev.has(p)) ? prev : new Set(next),
+        );
+      } catch { /* best-effort; keep last good */ }
+    };
+    void poll();
+    const id = setInterval(() => { void poll(); }, 4_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
   const [cleanupOpen, setCleanupOpen] = useState(false);
 
   // Live "now" tick so each card's last-active age (relAge) counts up in real
@@ -566,8 +590,14 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               // it reads AMBER (working) with a red count badge, never full RED. Only a
               // BLOCKER (not the positive 'ready to land' prompt) with NOTHING running is
               // truly paused → RED. (Matches red=paused / amber=working / green=done.)
+              // WORKING wins, and "working" must include HEADLESS leaf runs: the
+              // daemon leaf-executor leaves no tmux and never flips a todo to
+              // in_progress, so stats.inProgress misses it. A live leaf_inflight row
+              // for this project (inflightProjects) is the daemon-authoritative
+              // "building" signal — fold it in so the card reads AMBER, not green.
+              const hasHeadlessInflight = inflightProjects.has(project);
               const daemonStatus: SessionCardData['status'] =
-                stats.inProgress > 0
+                stats.inProgress > 0 || hasHeadlessInflight
                   ? 'active'
                   : blockerCount > 0
                     ? 'permission'
