@@ -383,7 +383,7 @@
 
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 
-    "electron-agent-bridge": ["electron-agent-bridge@github:ben-mad-jlp/electron-agent-bridge#9b65961", { "dependencies": { "chrome-remote-interface": "^0.34.0" } }, "ben-mad-jlp-electron-agent-bridge-9b65961"],
+    "electron-agent-bridge": ["electron-agent-bridge@github:ben-mad-jlp/electron-agent-bridge#9b65961", { "dependencies": { "chrome-remote-interface": "^0.34.0" } }, "ben-mad-jlp-electron-agent-bridge-9b65961", "sha512-FbmMHL3cMRm5I/ggKXSJdQgrFK64Zl0tea2nWFSa3jrKcPGcq1k9GDFpPfKbmAjJ8ahxn838PFonkytptgx28g=="],
 
     "elkjs": ["elkjs@0.9.3", "", {}, "sha512-f/ZeWvW/BCXbhGEf1Ujp29EASo/lk1FDnETgNKwJrsVvGZhUWCZyg3xLJjAsxfOmt8KjswHmI5EwCQcPMpOYhQ=="],
 

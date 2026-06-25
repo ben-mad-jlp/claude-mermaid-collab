@@ -122,25 +122,8 @@ if ! check_ttyd; then
   exit 1
 fi
 
-# Step 1: Install wireframe plugin dependencies (must happen before root install)
-info "Installing wireframe plugin dependencies..."
-cd plugins/wireframe
-npm install
-
-# Step 2: Build wireframe plugin (parser + bundle)
-info "Building wireframe plugin..."
-npm run build
-
-cd "$SCRIPT_DIR"
-
-# Step 3: Verify build output exists
-if [[ ! -f "plugins/wireframe/dist/mermaid-wireframe.mjs" ]]; then
-  error "Build failed - dist files not found"
-  exit 1
-fi
-
-# Step 4: Install/link root dependencies (now that wireframe is built)
-info "Installing root dependencies and linking wireframe plugin..."
+# Install root dependencies (postinstall also installs ui/ dependencies)
+info "Installing root dependencies..."
 bun install
 
 info "Setup complete!"

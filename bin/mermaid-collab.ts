@@ -10,7 +10,7 @@
 
 import { spawn } from 'child_process';
 import { readFile, writeFile, unlink, mkdir, readdir, symlink } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, openSync, closeSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { whereami } from './whereami';
@@ -78,7 +78,7 @@ function isProcessRunning(pid: number): boolean {
   }
 }
 
-async function waitForServer(maxWaitMs: number = 5000): Promise<boolean> {
+async function waitForServer(maxWaitMs: number = 30000): Promise<boolean> {
   const startTime = Date.now();
   const url = `http://localhost:${PORT}`;
 
@@ -132,16 +132,19 @@ async function cleanStaleVscodeServer(): Promise<void> {
 
   // Clean stale pid.txt files in both locations
   for (const base of [oldBase, newBase]) {
-    const glob = new Bun.Glob(join(base, 'Stable-*/pid.txt'));
-    for await (const pidFile of glob.scan('/')) {
-      try {
-        const pid = parseInt(await readFile(pidFile, 'utf-8'), 10);
-        if (!isNaN(pid) && !isProcessRunning(pid)) {
-          await unlink(pidFile);
-          console.log(`Cleaned stale VS Code Server pid (${pid})`);
-        }
-      } catch { /* ignore per-file errors */ }
-    }
+    if (!existsSync(base)) continue; // base dir absent (e.g. no VS Code) — scanning it would throw ENOENT
+    try {
+      const glob = new Bun.Glob(join(base, 'Stable-*/pid.txt'));
+      for await (const pidFile of glob.scan('/')) {
+        try {
+          const pid = parseInt(await readFile(pidFile, 'utf-8'), 10);
+          if (!isNaN(pid) && !isProcessRunning(pid)) {
+            await unlink(pidFile);
+            console.log(`Cleaned stale VS Code Server pid (${pid})`);
+          }
+        } catch { /* ignore per-file errors */ }
+      }
+    } catch { /* ignore scan errors (e.g. base dir vanished mid-scan) */ }
   }
 }
 
@@ -207,17 +210,18 @@ async function start(): Promise<void> {
     }
   }
 
-  // Spawn detached process
-  const logStream = Bun.file(LOG_FILE).writer();
+  // Spawn detached process. Redirect the child's stdout/stderr straight to the
+  // log file descriptor rather than piping through this parent: piping would
+  // (a) hold the parent's event loop open via the stream refs so `start` never
+  // returns to the shell, and (b) lose the child's logs once the parent exits.
+  // Writing to the fd lets the daemon keep logging after we detach.
+  const logFd = openSync(LOG_FILE, 'a');
   const child = spawn('bun', ['run', SERVER_SCRIPT], {
     detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', logFd, logFd],
     env: { ...process.env, PORT: String(PORT) },
   });
-
-  // Pipe output to log file
-  child.stdout?.on('data', (data) => logStream.write(data));
-  child.stderr?.on('data', (data) => logStream.write(data));
+  closeSync(logFd); // child inherited its own dup of the fd
 
   child.unref();
 

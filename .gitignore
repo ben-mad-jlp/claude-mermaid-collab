@@ -49,3 +49,7 @@ Thumbs.db
 
 # redundant npm lockfile — root installs with bun (see CI build-windows)
 /package-lock.json
+
+# bun --compile intermediate artifacts
+*.bun-build
+.*.bun-build
