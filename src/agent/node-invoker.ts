@@ -15,17 +15,19 @@
  * conformance pattern.
  */
 
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir, homedir } from 'node:os';
+import { resolveGrokModel } from './grok-model.js';
 
-export type AuthMode = 'subscription' | 'api' | 'unknown';
+export type AuthMode = 'subscription' | 'api' | 'unknown' | 'grok';
 
 /**
  * Append a node's raw stream-json transcript to the per-leaf file, preceded by a
  * synthetic boundary marker so the reader can split the file back into nodes.
  * Best-effort: a transcript-write failure must NEVER fail the node.
  */
-function captureTranscript(path: string, label: string, stdout: string, meta: { exitCode: number; durationMs: number }): void {
+export function captureTranscript(path: string, label: string, stdout: string, meta: { exitCode: number; durationMs: number }): void {
   try {
     mkdirSync(dirname(path), { recursive: true });
     const boundary = JSON.stringify({ type: 'node-boundary', label, at: new Date().toISOString(), ...meta });
@@ -67,6 +69,8 @@ export interface NodeSpec {
   /** Reasoning effort (--effort low|medium|high|xhigh|max). Optional → CLI/model
    *  default. The daemon sets this per node kind (judgment nodes run higher). */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** Grok-only: `--max-turns` cap (set by leaf-executor per node kind in PR-2). */
+  maxTurns?: number;
 }
 
 export interface NodeUsage {
@@ -577,4 +581,376 @@ export interface NodeInvoker {
 /** Default invoker — wraps `invokeNode`. */
 export const ClaudeNodeInvoker: NodeInvoker = {
   invoke: invokeNode,
+};
+
+// ---------------------------------------------------------------------------
+// Grok headless primitive (PR-1) — parallel to invokeNode / ClaudeNodeInvoker.
+// ---------------------------------------------------------------------------
+
+/** Narrow stderr rate-limit fallback — matches Claude invokeNode (4ec5a13c). */
+const GROK_RATE_LIMIT_STDERR_RE = /\b429\b|rate limit (?:exceeded|reached)|too many requests/i;
+
+/** Resolve the `grok` binary. Override with GROK_BIN for non-PATH installs. */
+export function resolveGrokBin(): string {
+  return process.env.GROK_BIN?.trim() || 'grok';
+}
+
+interface GrokAuthFile {
+  expires_at?: string | number;
+  access_token?: string;
+}
+
+interface GrokAuthStatus {
+  loggedIn?: boolean;
+  authenticated?: boolean;
+}
+
+/** Apply grok auth rule to a parsed status / auth-file snapshot. */
+export function authModeFromGrokStatus(s: GrokAuthStatus | GrokAuthFile | null): AuthMode {
+  if (!s) return 'unknown';
+  if ('loggedIn' in s && s.loggedIn === true) return 'grok';
+  if ('authenticated' in s && s.authenticated === true) return 'grok';
+  if ('access_token' in s && typeof s.access_token === 'string' && s.access_token.length > 0) {
+    const exp = s.expires_at;
+    if (exp == null) return 'grok';
+    const ms = typeof exp === 'number' ? exp : Date.parse(String(exp));
+    if (!Number.isFinite(ms) || ms > Date.now()) return 'grok';
+  }
+  return 'unknown';
+}
+
+function readGrokAuthStatus(): GrokAuthStatus | GrokAuthFile | null {
+  try {
+    const p = Bun.spawnSync([resolveGrokBin(), 'auth', 'status', '--json'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: process.env,
+    });
+    const out = p.stdout?.toString() ?? '';
+    if (out.trim() && p.exitCode === 0) {
+      return JSON.parse(out) as GrokAuthStatus;
+    }
+  } catch { /* fall through to auth.json */ }
+  try {
+    const raw = readFileSync(join(homedir(), '.grok', 'auth.json'), 'utf-8');
+    if (!raw.trim()) return null;
+    return JSON.parse(raw) as GrokAuthFile;
+  } catch {
+    return null;
+  }
+}
+
+let cachedGrokAuthMode: AuthMode | null = null;
+
+/**
+ * Pre-flight Grok OIDC guard — memoized, FAIL-CLOSED. Separate cache from Claude.
+ * Verifies `grok` is on PATH (or GROK_BIN) and credentials look valid.
+ */
+export function assertGrokAuth(): AuthMode {
+  if (cachedGrokAuthMode === null) {
+    if (!Bun.which(resolveGrokBin())) {
+      cachedGrokAuthMode = 'unknown';
+    } else {
+      cachedGrokAuthMode = authModeFromGrokStatus(readGrokAuthStatus());
+    }
+  }
+  if (cachedGrokAuthMode !== 'grok') {
+    throw new Error(
+      `refusing to run grok nodes: active auth is '${cachedGrokAuthMode}', expected grok OIDC ` +
+        `(grok on PATH + valid ~/.grok/auth.json or grok auth status). ` +
+        `Run 'grok login' or set GROK_BIN.`,
+    );
+  }
+  return cachedGrokAuthMode;
+}
+
+function resolveGrokAuthMode(): AuthMode {
+  if (cachedGrokAuthMode === null) {
+    if (!Bun.which(resolveGrokBin())) {
+      cachedGrokAuthMode = 'unknown';
+    } else {
+      cachedGrokAuthMode = authModeFromGrokStatus(readGrokAuthStatus());
+    }
+  }
+  return cachedGrokAuthMode;
+}
+
+/** For tests: drop memoized grok auth. */
+export function _resetGrokAuthCache(): void {
+  cachedGrokAuthMode = null;
+}
+
+interface GrokJsonTerminal {
+  text?: string;
+  stopReason?: string;
+  sessionId?: string;
+  thought?: string;
+  total_cost_usd?: number;
+  num_turns?: number;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+  errorCode?: string;
+}
+
+/**
+ * Build argv for headless `grok --prompt-file` (spawned as `[grokBin, ...argv]`).
+ * Exported for unit tests.
+ */
+export function buildGrokArgv(spec: NodeSpec, promptFile: string): string[] {
+  const absCwd = resolve(spec.cwd);
+  const argv: string[] = [
+    '--prompt-file', promptFile,
+    '--output-format', spec.transcriptPath ? 'streaming-json' : 'json',
+    '--permission-mode', spec.permissionMode ?? 'bypassPermissions',
+    '--cwd', absCwd,
+    '--no-plan', '--no-subagents', '--no-memory', '--disable-web-search',
+  ];
+  if (spec.model) argv.push('-m', resolveGrokModel(spec.model, spec.transcriptLabel));
+  if (spec.effort) argv.push('--effort', spec.effort);
+  if (spec.allowedTools !== undefined) argv.push('--allowedTools', spec.allowedTools);
+  if (spec.appendSystemPrompt) argv.push('--append-system-prompt', spec.appendSystemPrompt);
+  if (spec.maxTurns != null) argv.push('--max-turns', String(spec.maxTurns));
+  return argv;
+}
+
+function extractGrokTerminal(stdout: string): GrokJsonTerminal | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  try {
+    const j = JSON.parse(trimmed) as GrokJsonTerminal;
+    if (j && typeof j === 'object' && ('stopReason' in j || 'text' in j)) return j;
+  } catch { /* JSONL scan */ }
+  const lines = trimmed.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || line[0] !== '{') continue;
+    try {
+      const obj = JSON.parse(line) as GrokJsonTerminal & { type?: string };
+      if (obj && (obj.stopReason != null || obj.type === 'end')) return obj;
+    } catch { /* keep scanning */ }
+  }
+  return null;
+}
+
+/** Best-effort last `text` chunk from streaming-json (partial / timeout). */
+function lastGrokTextChunk(stdout: string): string | undefined {
+  let last: string | undefined;
+  for (const line of stdout.split('\n')) {
+    const t = line.trim();
+    if (!t || t[0] !== '{') continue;
+    try {
+      const obj = JSON.parse(t) as { text?: string; type?: string };
+      if (typeof obj.text === 'string' && obj.text.length > 0) last = obj.text;
+    } catch { /* skip */ }
+  }
+  return last;
+}
+
+/** Parse grok `--output-format json|streaming-json` stdout. */
+export function parseGrokOutput(stdout: string): {
+  text?: string;
+  stopReason?: string;
+  usage?: NodeUsage;
+  parseError?: string;
+} {
+  const terminal = extractGrokTerminal(stdout);
+  if (!terminal) {
+    const partial = lastGrokTextChunk(stdout);
+    return {
+      text: partial,
+      parseError: partial ? undefined : 'grok: no parseable terminal object in node output',
+    };
+  }
+  const usage: NodeUsage = {
+    inputTokens: terminal.usage?.input_tokens,
+    outputTokens: terminal.usage?.output_tokens,
+    cacheReadTokens: terminal.usage?.cache_read_input_tokens,
+    cacheCreationTokens: terminal.usage?.cache_creation_input_tokens,
+    costUsd: terminal.total_cost_usd,
+    numTurns: terminal.num_turns,
+  };
+  return {
+    text: typeof terminal.text === 'string' ? terminal.text : undefined,
+    stopReason: terminal.stopReason,
+    usage,
+  };
+}
+
+function writePromptTempFile(prompt: string): { dir: string; file: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'mermaid-node-'));
+  const file = join(dir, 'prompt.txt');
+  writeFileSync(file, prompt, 'utf-8');
+  return { dir, file };
+}
+
+function cleanupPromptTemp(dir: string, file: string): void {
+  try { unlinkSync(file); } catch { /* best-effort */ }
+  try { rmdirSync(dir); } catch { /* best-effort */ }
+}
+
+function grokParseError(msg: string): string {
+  return msg.startsWith('grok:') ? msg : `grok: ${msg}`;
+}
+
+/**
+ * Run ONE bounded headless `grok --prompt-file` node. Mirrors invokeNode structure.
+ */
+export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
+  const start = Date.now();
+  const authMode = resolveGrokAuthMode();
+
+  if (authMode !== 'grok') {
+    const msg =
+      `grok: HALT: node refused — active auth is '${authMode}', not grok OIDC. ` +
+      `Run 'grok login' and ensure grok is on PATH (or set GROK_BIN).`;
+    // eslint-disable-next-line no-console
+    console.error(`[node-invoker] ${msg}`);
+    return {
+      ok: false,
+      exitCode: -1,
+      stdout: '',
+      durationMs: Math.round(Date.now() - start),
+      rateLimited: false,
+      authMode,
+      parseError: msg,
+    };
+  }
+
+  let promptDir = '';
+  let promptFile = '';
+  try {
+    ({ dir: promptDir, file: promptFile } = writePromptTempFile(spec.prompt));
+  } catch (e) {
+    return {
+      ok: false,
+      exitCode: -1,
+      stdout: '',
+      durationMs: Math.round(Date.now() - start),
+      rateLimited: false,
+      authMode,
+      parseError: grokParseError(`prompt temp file failed: ${e instanceof Error ? e.message : String(e)}`),
+    };
+  }
+
+  const grokBin = resolveGrokBin();
+  const argv = buildGrokArgv(spec, promptFile);
+  const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn([grokBin, ...argv], {
+      cwd: spec.cwd,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: process.env,
+    });
+  } catch (e) {
+    cleanupPromptTemp(promptDir, promptFile);
+    return {
+      ok: false,
+      exitCode: -1,
+      stdout: '',
+      durationMs: Math.round(Date.now() - start),
+      rateLimited: false,
+      authMode,
+      parseError: grokParseError(`spawn failed: ${e instanceof Error ? e.message : String(e)}`),
+    };
+  }
+
+  const stdoutP = new Response(proc.stdout as ReadableStream).text().catch(() => '');
+  const stderrP = new Response(proc.stderr as ReadableStream).text().catch(() => '');
+
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let hardTimer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { proc.kill(); } catch { /* already gone */ }
+      hardTimer = setTimeout(() => { try { proc.kill(9); } catch { /* gone */ } }, KILL_GRACE_MS);
+      resolve();
+    }, timeoutMs);
+  });
+
+  const exited = proc.exited.then(() => undefined);
+  await Promise.race([exited, timeout]);
+
+  const capped = <T>(p: Promise<T>, fallback: T): Promise<T> =>
+    Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), DRAIN_CAP_MS))]);
+  const stdout = await capped(stdoutP, '');
+  const stderr = await capped(stderrP, '');
+  const exitCode = await capped(proc.exited, -1);
+  if (timer) clearTimeout(timer);
+  if (hardTimer) clearTimeout(hardTimer);
+
+  cleanupPromptTemp(promptDir, promptFile);
+
+  const durationMs = Math.round(Date.now() - start);
+
+  if (spec.transcriptPath) {
+    captureTranscript(spec.transcriptPath, spec.transcriptLabel ?? 'node', stdout, { exitCode, durationMs });
+  }
+
+  if (timedOut) {
+    const partial = parseGrokOutput(stdout);
+    return {
+      ok: false,
+      exitCode,
+      stdout,
+      durationMs,
+      rateLimited: false,
+      authMode,
+      text: partial.text,
+      parseError: grokParseError(`node timed out after ${timeoutMs}ms (killed)`),
+    };
+  }
+
+  const parsed = parseGrokOutput(stdout);
+
+  const rateLimited =
+    exitCode !== 0 &&
+    parsed.stopReason === undefined &&
+    GROK_RATE_LIMIT_STDERR_RE.test(stderr);
+
+  const unreachable =
+    !rateLimited &&
+    exitCode !== 0 &&
+    parsed.stopReason === undefined &&
+    CONN_ERR_RE.test(stderr);
+
+  const transient = rateLimited || unreachable;
+
+  let parseError = parsed.parseError;
+  if (!parseError && parsed.stopReason === 'Cancelled') {
+    parseError = grokParseError(`run cancelled${stderr.trim() ? ` — ${stderr.trim()}` : ''}`);
+  } else if (!parseError && /max turns reached/i.test(stderr)) {
+    parseError = grokParseError('max turns reached');
+  } else if (!parseError && exitCode !== 0 && parsed.stopReason !== 'EndTurn') {
+    parseError = grokParseError(stderr.trim() || `exit ${exitCode}`);
+  }
+
+  const ok = exitCode === 0 && !transient && parsed.stopReason === 'EndTurn';
+
+  return {
+    ok,
+    exitCode,
+    stdout,
+    durationMs,
+    usage: parsed.usage,
+    rateLimited: transient,
+    unreachable,
+    capReset: undefined,
+    authMode,
+    text: parsed.text,
+    parseError,
+  };
+}
+
+/** Grok headless invoker — wraps `invokeGrokNode`. */
+export const GrokNodeInvoker: NodeInvoker = {
+  invoke: invokeGrokNode,
 };
