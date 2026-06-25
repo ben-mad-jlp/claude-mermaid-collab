@@ -3187,7 +3187,7 @@ export async function handleAPI(
     // against — it's why a project with N claimable leaves only runs `project.max` at once.
     const limits = {
       global: { max: maxInflightGlobal(), active: inflightActive() },
-      ...(project ? { project: { max: maxInflightPerProject(), active: inflightActive(project) } } : {}),
+      ...(project ? { project: { max: maxInflightPerProject(project), active: inflightActive(project) } } : {}),
     };
     return Response.json({
       now,
