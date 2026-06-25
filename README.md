@@ -20,10 +20,23 @@ Mermaid Collab gives Claude Code a persistent collaboration layer — a browser 
 
 ## Quick Start
 
+### Prerequisites
+
+- [Bun](https://bun.sh) — runtime and package manager (`brew install bun`)
+- [ttyd](https://github.com/tsl0922/ttyd) — terminal sharing (`brew install ttyd`)
+
 ### 1. Install the Plugin
 
 ```
 /plugin install ben-mad-jlp/claude-mermaid-collab
+```
+
+Or, from a fresh clone, install dependencies first:
+
+```bash
+git clone https://github.com/ben-mad-jlp/claude-mermaid-collab
+cd claude-mermaid-collab
+./setup.sh          # installs dependencies (root + ui) and the statusline hook
 ```
 
 ### 2. Start the Server
@@ -32,7 +45,9 @@ Mermaid Collab gives Claude Code a persistent collaboration layer — a browser 
 bun run bin/mermaid-collab.ts start
 ```
 
-The API server runs on `http://localhost:9002` and the UI at `http://localhost:9102`.
+The server runs on `http://localhost:9002` — this serves both the API and the
+built UI. (In development, `bun run dev` instead serves the UI from Vite on
+`http://localhost:9102`; see [Development](#development).)
 
 ### 3. Start a Session
 

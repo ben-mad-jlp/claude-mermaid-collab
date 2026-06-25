@@ -38,6 +38,6 @@ Use `test` for interactive watch mode during development.
 
 - `src/` - Backend server and MCP
 - `ui/` - React frontend
+- `bin/` - CLI entrypoint (server start/stop/status)
 - `skills/` - Claude Code skill definitions
 - `.claude-plugin/` - Plugin configuration
-- `plugins/wireframe/` - Wireframe diagram plugin
