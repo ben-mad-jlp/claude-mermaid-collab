@@ -46,6 +46,27 @@ describe('worker-ledger', () => {
     expect(queryLedger({ since: 250 }).length).toBe(1);
   });
 
+  test('cache tokens round-trip through recordPhase, queryLedger, and summarize', () => {
+    expect(
+      recordPhase(entry({ phase: 'node', cacheReadTokens: 42000, cacheCreationTokens: 8000 }), 1000),
+    ).not.toBeNull();
+    const rows = queryLedger({ project: '/p' });
+    expect(rows[0].cacheReadTokens).toBe(42000);
+    expect(rows[0].cacheCreationTokens).toBe(8000);
+    const s = summarize({ project: '/p' });
+    expect(s.cacheReadTokens).toBe(42000);
+    expect(s.cacheCreationTokens).toBe(8000);
+    expect(s.byPhase.node.cacheReadTokens).toBe(42000);
+    expect(s.byPhase.node.cacheCreationTokens).toBe(8000);
+  });
+
+  test('legacy rows without cache tokens summarize as 0 (no NaN)', () => {
+    expect(recordPhase(entry({ phase: 'node' }), 1000)).not.toBeNull(); // no cache fields
+    const s = summarize({ project: '/p' });
+    expect(s.cacheReadTokens).toBe(0);
+    expect(s.cacheCreationTokens).toBe(0);
+  });
+
   test('summarize rolls up cost per phase and per model', () => {
     recordPhase(entry({ phase: 'research', model: 'claude-sonnet-4-6', provider: 'claude', costUsd: 0.01, inputTokens: 100, outputTokens: 50 }));
     recordPhase(entry({ phase: 'implement', model: 'grok-build-0.1', costUsd: 0.002, inputTokens: 1000, outputTokens: 500 }));

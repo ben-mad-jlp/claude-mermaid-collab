@@ -29,6 +29,15 @@ export interface LedgerEntry {
   source: string;
   inputTokens: number;
   outputTokens: number;
+  /** Cache READ input tokens (prompt-cache hits, billed ~0.1x). On the Max plan the
+   *  bulk of a node's input lands here — `inputTokens` is only the uncached delta, so
+   *  these two fields are what actually reveal plan-quota throughput. Optional →
+   *  legacy callers backfill 0. */
+  cacheReadTokens?: number;
+  /** Cache CREATION input tokens (prompt-cache writes, billed ~1.25x). A fresh per-node
+   *  process spawn pays a cache-write for its prefix → this is where the cross-node
+   *  "no caching across spawns" cost shows up. Optional → legacy callers backfill 0. */
+  cacheCreationTokens?: number;
   costUsd: number;
   /** False when the model had no known price (so costUsd=0 means unknown, not free). */
   knownPrice: boolean;
@@ -131,6 +140,10 @@ function openDb(): Database {
   add('durationMs', 'INTEGER');
   add('rateLimited', 'INTEGER'); // 0/1 like knownPrice
   add('leafId', 'TEXT');
+  // Additive migration: prompt-cache token visibility (Max-plan quota is paid in input
+  // incl. cache; the bare inputTokens column is only the uncached delta). Nullable → 0.
+  add('cacheReadTokens', 'INTEGER');
+  add('cacheCreationTokens', 'INTEGER');
   // Additive migration: P4a R1 verdict/outcome write-back (idempotent, nullable).
   add('verdict', 'TEXT'); // 'pass'|'fail'|null (review node)
   add('leafOutcome', 'TEXT'); // 'accepted'|'blocked'|'rejected'|'paused'|null (terminal)
@@ -189,13 +202,13 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
     const res = d
       .prepare(
         `INSERT INTO worker_ledger
-          (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, costUsd, knownPrice, steps, parseError,
+          (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, parseError,
            nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outputText, outcomeDetail, ts)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?)`,
       )
       .run(
         entry.project, entry.todoId, entry.epicId ?? null, entry.session, entry.phase, entry.provider, entry.model, entry.source,
-        entry.inputTokens, entry.outputTokens, entry.costUsd, entry.knownPrice ? 1 : 0, entry.steps,
+        entry.inputTokens, entry.outputTokens, entry.cacheReadTokens ?? null, entry.cacheCreationTokens ?? null, entry.costUsd, entry.knownPrice ? 1 : 0, entry.steps,
         entry.parseError ?? null,
         entry.nodeKind ?? null, entry.nodesSpent ?? null, entry.authMode ?? null, entry.exitCode ?? null,
         entry.durationMs ?? null, entry.rateLimited == null ? null : entry.rateLimited ? 1 : 0, entry.leafId ?? null,
@@ -262,6 +275,8 @@ export function recordNode(
       source: entry.source ?? 'node',
       inputTokens: entry.inputTokens ?? 0,
       outputTokens: entry.outputTokens ?? 0,
+      cacheReadTokens: entry.cacheReadTokens ?? 0,
+      cacheCreationTokens: entry.cacheCreationTokens ?? 0,
       costUsd: entry.costUsd ?? 0,
       knownPrice: entry.knownPrice ?? false,
       steps: entry.steps ?? 0,
@@ -428,23 +443,31 @@ export interface LedgerSummary {
   totalUsd: number;
   inputTokens: number;
   outputTokens: number;
-  byPhase: Record<string, { rows: number; usd: number; inputTokens: number; outputTokens: number }>;
-  byModel: Record<string, { rows: number; usd: number; inputTokens: number; outputTokens: number; unknownPrice?: boolean }>;
+  /** Prompt-cache READ tokens (hits) — the bulk of real input throughput on the Max plan. */
+  cacheReadTokens: number;
+  /** Prompt-cache CREATION tokens (writes) — the cross-node-spawn cost surface. */
+  cacheCreationTokens: number;
+  byPhase: Record<string, { rows: number; usd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }>;
+  byModel: Record<string, { rows: number; usd: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; unknownPrice?: boolean }>;
 }
 
 /** Aggregate summary (per-phase + per-model cost roll-up) for a project and/or todo —
  *  what makes the tier matrix tunable on real cost-per-completion. */
 export function summarize(q: LedgerQuery = {}): LedgerSummary {
   const rows = queryLedger({ ...q, limit: 2000 });
-  const s: LedgerSummary = { rows: rows.length, totalUsd: 0, inputTokens: 0, outputTokens: 0, byPhase: {}, byModel: {} };
+  const s: LedgerSummary = { rows: rows.length, totalUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, byPhase: {}, byModel: {} };
   for (const r of rows) {
+    const cr = r.cacheReadTokens ?? 0;
+    const cc = r.cacheCreationTokens ?? 0;
     s.totalUsd += r.costUsd;
     s.inputTokens += r.inputTokens;
     s.outputTokens += r.outputTokens;
-    const p = (s.byPhase[r.phase] ??= { rows: 0, usd: 0, inputTokens: 0, outputTokens: 0 });
-    p.rows += 1; p.usd += r.costUsd; p.inputTokens += r.inputTokens; p.outputTokens += r.outputTokens;
-    const m = (s.byModel[r.model] ??= { rows: 0, usd: 0, inputTokens: 0, outputTokens: 0 });
-    m.rows += 1; m.usd += r.costUsd; m.inputTokens += r.inputTokens; m.outputTokens += r.outputTokens;
+    s.cacheReadTokens += cr;
+    s.cacheCreationTokens += cc;
+    const p = (s.byPhase[r.phase] ??= { rows: 0, usd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
+    p.rows += 1; p.usd += r.costUsd; p.inputTokens += r.inputTokens; p.outputTokens += r.outputTokens; p.cacheReadTokens += cr; p.cacheCreationTokens += cc;
+    const m = (s.byModel[r.model] ??= { rows: 0, usd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 });
+    m.rows += 1; m.usd += r.costUsd; m.inputTokens += r.inputTokens; m.outputTokens += r.outputTokens; m.cacheReadTokens += cr; m.cacheCreationTokens += cc;
     if (!r.knownPrice) m.unknownPrice = true;
   }
   return s;

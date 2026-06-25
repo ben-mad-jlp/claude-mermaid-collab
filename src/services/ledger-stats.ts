@@ -40,8 +40,10 @@ export interface LeafNodeStat {
   parseError?: string | null;
   ts: number;
   verdict?: string | null;
-  inputTokens?: number | null; // context size in (a tiny value flags a starved node)
+  inputTokens?: number | null; // UNCACHED input only (a tiny value is normal once caching is warm)
   outputTokens?: number | null;
+  cacheReadTokens?: number | null; // prompt-cache hits — the bulk of real input on the Max plan
+  cacheCreationTokens?: number | null; // prompt-cache writes — the per-node-spawn cost surface
   outputText?: string | null; // the node's final message — drillable in the UI
 }
 
@@ -137,6 +139,8 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     verdict: r.verdict ?? null,
     inputTokens: r.inputTokens ?? null,
     outputTokens: r.outputTokens ?? null,
+    cacheReadTokens: r.cacheReadTokens ?? null,
+    cacheCreationTokens: r.cacheCreationTokens ?? null,
     outputText: r.outputText ?? null,
   }));
 

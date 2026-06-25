@@ -1016,6 +1016,8 @@ export async function runLeaf(
         rateLimited: res.rateLimited,
         inputTokens: res.usage?.inputTokens,
         outputTokens: res.usage?.outputTokens,
+        cacheReadTokens: res.usage?.cacheReadTokens,
+        cacheCreationTokens: res.usage?.cacheCreationTokens,
         costUsd: res.usage?.costUsd,
         steps: res.usage?.numTurns,
         parseError: res.parseError ?? null,
