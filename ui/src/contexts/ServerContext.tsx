@@ -84,6 +84,8 @@ interface ServerContextValue {
   unpairServer: (id: string) => Promise<void>;
   /** Persist a bearer token onto an existing connection (no-op outside Electron). */
   setServerToken: (id: string, token: string | undefined) => Promise<void>;
+  /** Gracefully shut down a remote server (POST /api/server/shutdown). No-op outside Electron. */
+  stopServer: (id: string) => Promise<void>;
 }
 
 const ServerContext = createContext<ServerContextValue | null>(null);
@@ -238,9 +240,23 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     [mc]
   );
 
+  // Ask a server to shut itself down. The button is only shown when the dot is
+  // green (so /api/health — and thus this authenticated call — is reachable);
+  // invokeOnServer resolves the stored bearer token in main. We optimistically
+  // flip the dot offline, then recheck once to confirm it actually went down.
+  const stopServer = useCallback(
+    async (id: string) => {
+      if (!mc?.invokeOnServer) return;
+      await mc.invokeOnServer(id, { path: '/api/server/shutdown', method: 'POST' });
+      setServers((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'offline' } : s)));
+      setTimeout(() => { void recheckServer(id); }, 1500);
+    },
+    [mc, recheckServer]
+  );
+
   const value = useMemo<ServerContextValue>(
-    () => ({ available, servers, refresh, recheckServer, addServer, removeServer, pairServer, unpairServer, setServerToken }),
-    [available, servers, refresh, recheckServer, addServer, removeServer, pairServer, unpairServer, setServerToken]
+    () => ({ available, servers, refresh, recheckServer, addServer, removeServer, pairServer, unpairServer, setServerToken, stopServer }),
+    [available, servers, refresh, recheckServer, addServer, removeServer, pairServer, unpairServer, setServerToken, stopServer]
   );
 
   return <ServerContext.Provider value={value}>{children}</ServerContext.Provider>;
@@ -256,6 +272,7 @@ const NO_PROVIDER: ServerContextValue = {
   pairServer: async () => {},
   unpairServer: async () => {},
   setServerToken: async () => {},
+  stopServer: async () => {},
 };
 
 /**

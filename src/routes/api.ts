@@ -681,6 +681,20 @@ export async function handleAPI(
     }
   }
 
+  // POST /api/server/shutdown - gracefully stop THIS server. Auth is enforced
+  // upstream (checkAuth in server.ts), so a 0.0.0.0-bound server can only be
+  // shut down by a caller presenting the bearer token (never anonymously over
+  // the LAN). We reply 200 first, then send ourselves SIGTERM so the existing
+  // graceful-shutdown handler runs (deregister instance, release lock, kill
+  // PTYs, exit). Used by the desktop "Stop" button via invokeOnServer.
+  if (path === '/api/server/shutdown' && req.method === 'POST') {
+    setTimeout(() => {
+      try { process.kill(process.pid, 'SIGTERM'); }
+      catch { process.exit(0); }
+    }, 150);
+    return Response.json({ ok: true, stopping: true });
+  }
+
   // GET /api/session-state?project=...&session=... - Get collab session state
   if (path === '/api/session-state' && req.method === 'GET') {
     const params = getSessionParams(url);

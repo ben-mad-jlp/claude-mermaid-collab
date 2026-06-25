@@ -28,7 +28,7 @@ export interface ServersTreeSectionHandle {
 
 const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSectionProps>(
   (props, ref) => {
-    const { available, servers, addServer, removeServer, pairServer, unpairServer, recheckServer, setServerToken } = useServers();
+    const { available, servers, addServer, removeServer, pairServer, unpairServer, recheckServer, setServerToken, stopServer } = useServers();
 
     const [internalCollapsed, setInternalCollapsed] = useState(false);
     const isCollapsed = props.collapsed ?? internalCollapsed;
@@ -180,6 +180,12 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
       try { await unpairServer(id); } catch { /* surface in toast later */ }
     };
 
+    const handleStop = async (id: string, host: string, port: number) => {
+      if (!available) return;
+      if (!window.confirm(`Stop the collab server on ${host}:${port}?\n\nThis shuts down the remote process. The server stays in your list and can be relaunched.`)) return;
+      try { await stopServer(id); } catch { /* surface in toast later */ }
+    };
+
     return (
       <div data-testid="sidebar-servers-section" className="border-b border-gray-200 dark:border-gray-700">
         {/* Header — mirrors the Watching panel */}
@@ -304,6 +310,21 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                       >
                         <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
                           <path d="M6.3 2.84A1 1 0 004.8 3.7v12.6a1 1 0 001.5.86l10.5-6.3a1 1 0 000-1.72L6.3 2.84z" />
+                        </svg>
+                      </button>
+                    )}
+                    {/* Stop — only for a reachable, non-home server. The home (source==='local')
+                        server is the desktop's own backend; stopping it would kill the app. */}
+                    {s.status === 'online' && s.source !== 'local' && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void handleStop(s.id, s.host, s.port); }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-danger-500 dark:hover:text-danger-400"
+                        title="Stop the collab server on this machine"
+                        aria-label={`Stop server ${s.label}`}
+                      >
+                        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                          <rect x="5" y="5" width="10" height="10" rx="1.5" />
                         </svg>
                       </button>
                     )}
