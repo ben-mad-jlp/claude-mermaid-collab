@@ -287,15 +287,18 @@ describe('runLeaf state machine', () => {
   });
 
   it('(ii) fail→fail across 2 attempts → escalation + no accepted completion', async () => {
+    // A REPEATED finding (no progress) is the deterministic stuck-bail to a fresh attempt;
+    // each attempt does exactly one in-place reuse, then the repeat bails. (Two DISTINCT
+    // findings would now fix in place under REVISE_REUSE_CAP=3 — that's the FM2 fix.)
     const { deps, spies } = makeDeps({
-      reviewVerdicts: ['VERDICT: FAIL — a', 'VERDICT: FAIL — b'],
+      reviewVerdicts: ['VERDICT: FAIL — x', 'VERDICT: FAIL — x', 'VERDICT: FAIL — y', 'VERDICT: FAIL — y'],
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('attempt-cap-exhausted');
     expect(res.attempts).toBe(2);
     // P6: each attempt spends 5 nodes (blueprint + implement + review + reuse-implement
-    // + reuse-review) before the in-place reuse is exhausted and a fresh attempt starts.
+    // + reuse-review) before the repeat-finding stuck-guard bails to a fresh attempt.
     expect(res.nodesSpent).toBe(10);
     // 2 fresh worktrees, one per attempt (the in-place reuse stays in the same worktree)
     expect(spies.ensureCalls.length).toBe(2);
@@ -347,8 +350,9 @@ describe('runLeaf state machine', () => {
   });
 
   it('(iv) every attempt uses a FRESH worktree off the epic branch', async () => {
+    // Repeated finding per attempt → stuck-bail → a fresh worktree for the next attempt.
     const { deps, spies } = makeDeps({
-      reviewVerdicts: ['VERDICT: FAIL — a', 'VERDICT: FAIL — b'],
+      reviewVerdicts: ['VERDICT: FAIL — x', 'VERDICT: FAIL — x', 'VERDICT: FAIL — y', 'VERDICT: FAIL — y'],
     });
     await runLeaf('proj', makeLeaf(), deps);
     expect(spies.ensureCalls.length).toBe(2);
@@ -418,6 +422,31 @@ describe('runLeaf state machine', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     expect(spies.markRejectingCalls).toEqual([]); // never stamps reject on an accept
+  });
+
+  it('FM2: fixes in place across multiple distinct review FAILs → lands in ONE attempt (no fresh-pipeline re-run)', async () => {
+    // Two distinct missing-logic findings then PASS. With the raised REVISE_REUSE_CAP the
+    // surgical-reuse loop keeps the near-correct worktree and re-implements with the
+    // findings in place, so the leaf accepts within a SINGLE attempt (one fresh worktree)
+    // — instead of discarding to a second attempt that re-runs blueprint+pipeline from
+    // scratch (the FM2 budget burn that sank b592428f). Pre-fix (cap=1) this needed 2 attempts.
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — missing test A', 'VERDICT: FAIL — missing test B', 'VERDICT: PASS'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.ensureCalls.length).toBe(1); // ONE worktree — surgical reuse, no fresh attempt
+  });
+
+  it('FM2: a REPEATED review finding still bails to a fresh attempt (stuck guard intact)', async () => {
+    // Same finding twice = no progress = a genuinely tainted tree → stop reusing and
+    // discard to a fresh attempt; a hopeless leaf must not burn the whole budget in place.
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — same', 'VERDICT: FAIL — same'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.ensureCalls.length).toBeGreaterThan(1); // bailed to a fresh attempt
   });
 });
 
@@ -938,11 +967,12 @@ describe('runLeaf 86b persistBlueprint (durable per-attempt)', () => {
 
   it('(b) invoked PER attempt — two FRESH attempts (reuse exhausted) → two persists', async () => {
     const persistCalls: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }> = [];
-    // Two DISTINCT fails exhaust the in-place reuse on attempt 1 → a fresh attempt 2
-    // (each fresh attempt re-blueprints → one persist per attempt).
+    // A REPEATED finding bails the in-place reuse on attempt 1 → a fresh attempt 2 which
+    // PASSes (each fresh attempt re-blueprints → one persist per attempt). (Two DISTINCT
+    // findings would now fix in place in one attempt — the FM2 fix.)
     const { deps } = makeWaveDeps({
       manifest: smallManifest,
-      reviewVerdicts: ['VERDICT: FAIL — a', 'VERDICT: FAIL — b', 'VERDICT: PASS'],
+      reviewVerdicts: ['VERDICT: FAIL — a', 'VERDICT: FAIL — a', 'VERDICT: PASS'],
       persistCalls,
     });
     const res = await runLeaf('proj', makeLeaf(), deps);

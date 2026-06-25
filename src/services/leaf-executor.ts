@@ -238,8 +238,17 @@ export function wavesBudget(taskCount: number, fileCount: number): number {
   return Math.min(WAVES_BUDGET_MAX, 1 + taskCount + fileCount * 4 + 6);
 }
 /** P6 surgical reuse: max in-place re-implement passes per attempt on a missing-logic
- *  review FAIL (a NEW finding) before discarding the worktree for a fresh attempt. */
-export const REVISE_REUSE_CAP = 1;
+ *  review FAIL (a NEW finding) before discarding the worktree for a fresh attempt.
+ *  FM2 (daemon-builder-trust-diagnostic): raised 1→3. The in-place loop already KEEPS
+ *  the near-correct worktree and re-implements with the review findings — the right
+ *  behaviour — but capping it at ONE fix discarded near-passing multi-file work after a
+ *  single remediation and fell through to a FRESH-worktree attempt that re-ran the whole
+ *  blueprint+waves pipeline from scratch (the dominant budget burn that sank b592428f).
+ *  3 keeps fixing in place while findings PROGRESS; the real bounds remain the node
+ *  budget (checkBudget gates every node) and the repeat-finding "stuck" guard (a
+ *  recurring finding ⇒ a genuinely tainted tree ⇒ bail to a fresh attempt), so a
+ *  hopeless leaf still gives up rather than burning the whole budget in place. */
+export const REVISE_REUSE_CAP = 3;
 
 /** P5 size-gate thresholds (tunable). A leaf is FLOOR-eligible iff it touches
  *  `<= FILE_THRESHOLD` files AND `<= TASK_THRESHOLD` tasks AND has no
