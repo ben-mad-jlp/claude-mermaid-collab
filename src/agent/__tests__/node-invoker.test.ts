@@ -52,6 +52,17 @@ describe('buildNodeArgv', () => {
     expect(argv).toEqual(expect.arrayContaining(['--permission-mode', 'acceptEdits']));
   });
 
+  it('adds --strict-mcp-config (no --mcp-config) when strictMcpConfig is set → no MCP loaded', () => {
+    const argv = buildNodeArgv({ ...base, strictMcpConfig: true });
+    expect(argv).toContain('--strict-mcp-config');
+    expect(argv).not.toContain('--mcp-config'); // strict + none = zero MCP servers
+  });
+
+  it('omits --strict-mcp-config by default (MCP-using nodes keep .mcp.json)', () => {
+    expect(buildNodeArgv({ ...base })).not.toContain('--strict-mcp-config');
+    expect(buildNodeArgv({ ...base, strictMcpConfig: false })).not.toContain('--strict-mcp-config');
+  });
+
   it('passes --effort only when set', () => {
     expect(buildNodeArgv({ ...base, effort: 'high' })).toEqual(expect.arrayContaining(['--effort', 'high']));
     expect(buildNodeArgv({ ...base })).not.toContain('--effort');

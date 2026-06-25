@@ -41,6 +41,12 @@ export interface NodeSpec {
   model?: string;
   /** Comma/space tool allowlist (--allowedTools). Optional → inherit defaults. '' = none. */
   allowedTools?: string;
+  /** When true, pass `--strict-mcp-config` so the CLI loads ONLY MCP servers from
+   *  --mcp-config flags (here: none) — i.e. it IGNORES the cwd's .mcp.json. Build nodes
+   *  use only built-in tools, so loading the project's MCP server (~200 tool schemas the
+   *  node can never call, plus an HTTP connect per spawn) is dead context weight. Set for
+   *  any node whose allowlist has no mcp__ tool. Optional → CLI default (loads .mcp.json). */
+  strictMcpConfig?: boolean;
   /** Appended system prompt (--append-system-prompt). Optional. */
   appendSystemPrompt?: string;
   /** Working dir set on the spawned process (NOT a CLI flag — no --cwd exists). Required. */
@@ -208,6 +214,10 @@ export function buildNodeArgv(spec: NodeSpec): string[] {
   ];
   if (spec.model) argv.push('--model', spec.model);
   if (spec.effort) argv.push('--effort', spec.effort);
+  // Strip MCP: --strict-mcp-config with NO --mcp-config flags = zero MCP servers, so the
+  // cwd's .mcp.json (the ~200-tool mermaid server) is not loaded into a node that can't
+  // call it. A boolean flag (no value), so it never collides with the variadic args below.
+  if (spec.strictMcpConfig) argv.push('--strict-mcp-config');
   // allowedTools may be '' (= no tools) — push it explicitly when defined (not just truthy).
   if (spec.allowedTools !== undefined) argv.push('--allowedTools', spec.allowedTools);
   if (spec.appendSystemPrompt) argv.push('--append-system-prompt', spec.appendSystemPrompt);

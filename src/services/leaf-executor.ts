@@ -1132,6 +1132,9 @@ export async function runLeaf(
     model: nodeModel(kind),
     effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
+    // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
+    // tool — build nodes use only built-ins, so the ~200-tool surface is dead context.
+    strictMcpConfig: !NODE_PROFILE[kind].allowedTools.includes('mcp__'),
     cwd,
     leafId: leaf.id,
     epicId,
@@ -1151,6 +1154,8 @@ export async function runLeaf(
     model: nodeModel(kind),
     effort: nodeEffort(kind),
     allowedTools: NODE_PROFILE[kind].allowedTools,
+    // Strip MCP from wave nodes too — research/wimplement/verify/fix use only built-ins.
+    strictMcpConfig: !NODE_PROFILE[kind].allowedTools.includes('mcp__'),
     cwd,
     leafId: leaf.id,
     epicId,
