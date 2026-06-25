@@ -27,7 +27,8 @@ import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-
 import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
 import type { WorktreeManager } from '../agent/worktree-manager';
-import { ClaudeNodeInvoker, assertSubscriptionAuth } from '../agent/node-invoker';
+import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth } from '../agent/node-invoker';
+import { resolveNodeProvider, anyGrokNodeConfigured, grokLedgerModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
@@ -65,6 +66,13 @@ export interface LeafSizeManifest {
 export interface LeafExecutorDeps {
   /** Node invoker. Default `ClaudeNodeInvoker` (real `claude -p`). */
   invoker: NodeInvoker;
+  /** Grok node invoker (real `grok -p`) — used per-node when a kind routes to grok-build.
+   *  Default `GrokNodeInvoker`. */
+  grokInvoker?: NodeInvoker;
+  /** Grok auth assertion — pre-flighted at leaf entry when any node may run on grok, so a
+   *  mixed leaf fails fast instead of stranding after the cheap grok work. Default
+   *  `assertGrokAuth`. */
+  assertGrokAuth?: () => AuthMode;
   /** Worktree manager for the TARGET repo. */
   wm: WorktreeManager;
   /** The epic id this leaf rolls up to (per-epic accumulation branch). */
@@ -923,8 +931,12 @@ export async function runLeaf(
   deps: LeafExecutorDeps,
 ): Promise<LeafRunResult> {
   // Fail-fast auth gate — ONCE, before any node. Throws under an API key; the
-  // launchWorker branch catches → release + escalate (no tmux fallback).
+  // launchWorker branch catches → release + escalate (no tmux fallback). Claude is always
+  // required (review + MCP nodes stay claude). When ANY node may route to grok, pre-flight
+  // grok auth too so a MIXED leaf fails fast rather than stranding after the cheap grok work
+  // (Grok review risk #3).
   deps.assertAuth();
+  if (anyGrokNodeConfigured()) (deps.assertGrokAuth ?? assertGrokAuth)();
 
   const sessionKey = leafSessionKey(leaf);
   const { epicId, epicBranch } = deps;
@@ -994,9 +1006,17 @@ export async function runLeaf(
     // so persist it BEFORE the slow spawn — a kill mid-node then recovers the spend
     // (the node counts toward budget whether or not it finishes, matching checkBudget).
     deps.persistResume?.({ project, leafId: leaf.id, nodesSpent: state.nodesSpent, phase: kind, attempt: state.attempt, epicBaseSha: deps.epicBaseSha });
+    // PER-NODE provider routing (PR-2). Resolve provider from the node's allowlist (MCP →
+    // forced claude) + config; default claude = no behaviour change. For grok, set the spec
+    // model to the kind's grok default so buildGrokArgv resolves a grok `-m` (not a claude
+    // alias). The recorded (provider, model) reflects what actually ran (Grok review note).
+    const provider = resolveNodeProvider(kind, spec.allowedTools);
+    const invoker = provider === 'grok-build' ? (deps.grokInvoker ?? GrokNodeInvoker) : deps.invoker;
+    const effSpec = provider === 'grok-build' ? { ...spec, model: grokLedgerModel(kind) } : spec;
+    const recordedModel = provider === 'grok-build' ? grokLedgerModel(kind) : nodeModel(kind);
     let res: NodeResult;
     try {
-      res = await deps.invoker.invoke(spec);
+      res = await invoker.invoke(effSpec);
     } finally {
       deps.clearInflight?.(leaf.id);
     }
@@ -1008,7 +1028,8 @@ export async function runLeaf(
         epicId,
         leafId: leaf.id,
         nodeKind: kind,
-        model: nodeModel(kind),
+        provider,
+        model: recordedModel,
         nodesSpent: 1,
         authMode: res.authMode,
         exitCode: res.exitCode,
@@ -1842,6 +1863,7 @@ export async function makeLeafExecutorDeps(
   }
   return {
     invoker: ClaudeNodeInvoker,
+    grokInvoker: GrokNodeInvoker,
     wm,
     epicId,
     epicBranch,
@@ -1849,6 +1871,7 @@ export async function makeLeafExecutorDeps(
     resumePlan,
     startNodesSpent: effectiveStart,
     assertAuth: assertSubscriptionAuth,
+    assertGrokAuth,
     complete: async (p, t, a) => {
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
       // leaf-executor's terminal record needs them (they were silently dropped before).
