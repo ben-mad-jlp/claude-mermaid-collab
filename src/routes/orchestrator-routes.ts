@@ -20,6 +20,10 @@ import type { EffortLevel } from '../agent/contracts.ts';
 import { NODE_PROFILE, LEAF_NODE_KINDS, NODE_KIND_DESCRIPTIONS } from '../services/leaf-executor.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 
+/** Node kinds shown in the daemon BUILD-nodes matrix. Excludes 'summary', which is the
+ *  Zen interpret-model knob (never run via runNode), not a build node. */
+const MATRIX_NODE_KINDS = LEAF_NODE_KINDS.filter((k) => k !== 'summary');
+
 /** Model aliases offered in the daemon-nodes matrix dropdown, per provider. */
 const CLAUDE_MODEL_CHOICES = ['opus', 'sonnet', 'haiku'];
 const GROK_MODEL_CHOICES = ['grok-build', 'grok-composer-2.5-fast'];
@@ -116,7 +120,7 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
     const overrides = listNodeProfileOverrides(project);
     const projectEffort = getProjectEffort(project); // per-project blanket fallback
     const projectProvider = getProjectNodeProvider(project); // per-project default provider
-    const rows = LEAF_NODE_KINDS.map((kind) => {
+    const rows = MATRIX_NODE_KINDS.map((kind) => {
       const def = NODE_PROFILE[kind];
       const o = overrides[kind] ?? { model: null, effort: null, provider: null };
       const mcpForced = kindRequiresMcp(kind);

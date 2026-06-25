@@ -153,7 +153,9 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(res!.status).toBe(200);
     const body = await res!.json() as any;
     expect(Array.isArray(body.rows)).toBe(true);
-    expect(body.rows.length).toBe(LEAF_NODE_KINDS.length);
+    // 'summary' is the Zen interpret-model knob, not a build node → excluded from the matrix.
+    expect(body.rows.length).toBe(LEAF_NODE_KINDS.filter((k) => k !== 'summary').length);
+    expect(body.rows.find((r: any) => r.kind === 'summary')).toBeUndefined();
     const bp = body.rows.find((r: any) => r.kind === 'blueprint');
     expect(bp.defaultModel).toBe('opus');
     expect(bp.defaultEffort).toBe('high');
