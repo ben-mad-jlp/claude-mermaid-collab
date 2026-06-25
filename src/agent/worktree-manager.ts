@@ -144,11 +144,31 @@ export class WorktreeManager {
   private pendingEnsures = new Map<string, Promise<SessionWorktree>>();
   private readonly spawnFn: (cmd: string[], opts: any) => any;
   private readonly now: () => number;
+  // Per-project worktree mutex. Git's worktree admin (.git/worktrees + the global
+  // `worktree prune`) is a SHARED per-repo resource that is NOT safe under concurrent
+  // add/remove/prune/merge-in-epic-worktree. Two leaves on the same epic running these
+  // concurrently could `prune` a sibling's still-live leaf-exec worktree → every
+  // subsequent node spawn ENOENTs (cwd gone) → churn + forced retry (todo 6bc2dc36).
+  // One WorktreeManager exists per projectRoot (memoised in getWorktreeManager), so an
+  // instance-level serial queue serialises all worktree mutations for the repo.
+  private worktreeLock: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly opts: WorktreeManagerOpts) {
     this.spawnFn =
       opts.spawn ?? ((cmd: string[], so: any) => (globalThis as any).Bun.spawn(cmd, so));
     this.now = opts.now ?? Date.now;
+  }
+
+  /** Serialise a worktree-mutating section behind the per-project lock. A prior section
+   *  failing never blocks the queue (the chain swallows errors); the caller still sees
+   *  this section's own result/error. */
+  private withWorktreeLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.worktreeLock.then(fn, fn);
+    this.worktreeLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   // ---------------------------------------------------------------------------
@@ -157,7 +177,8 @@ export class WorktreeManager {
   async ensure(sessionId: string, opts?: EnsureOpts): Promise<SessionWorktree> {
     const pending = this.pendingEnsures.get(sessionId);
     if (pending) return pending;
-    const p = this._ensureInner(sessionId, opts).finally(() =>
+    // Serialise the worktree add/remove/prune behind the per-project lock (6bc2dc36).
+    const p = this.withWorktreeLock(() => this._ensureInner(sessionId, opts)).finally(() =>
       this.pendingEnsures.delete(sessionId),
     );
     this.pendingEnsures.set(sessionId, p);
@@ -412,6 +433,12 @@ export class WorktreeManager {
   // remove — delete worktree + metadata. Idempotent.
   // ---------------------------------------------------------------------------
   async remove(sessionId: string): Promise<void> {
+    // Serialise behind the per-project worktree lock (6bc2dc36) — a `worktree remove`
+    // racing a sibling's add/prune is exactly the corruption this guards.
+    return this.withWorktreeLock(() => this._removeInner(sessionId));
+  }
+
+  private async _removeInner(sessionId: string): Promise<void> {
     const rec = await this.readRecord(sessionId);
     if (!rec) return;
     const res = await this.runGit(
@@ -881,6 +908,17 @@ export class WorktreeManager {
     _project?: string,
     baseRef: string = 'master',
   ): Promise<EpicWorktree | null> {
+    // Serialise behind the per-project worktree lock (6bc2dc36). Internal callers that
+    // already hold the lock (forwardIntegrateEpic, commitAndMergeToEpic) call
+    // `_ensureEpicInner` directly to avoid self-deadlock.
+    return this.withWorktreeLock(() => this._ensureEpicInner(epicId, _project, baseRef));
+  }
+
+  private async _ensureEpicInner(
+    epicId: string,
+    _project?: string,
+    baseRef: string = 'master',
+  ): Promise<EpicWorktree | null> {
     if (!(await this.isGitRepo())) return null;
     const branch = this.epicBranchName(epicId);
     const wtPath = path.join(this.opts.baseDir, `__epic-${this.epicId8(epicId)}__`);
@@ -976,15 +1014,27 @@ export class WorktreeManager {
     baseRef: string = 'master',
     opts?: { timeoutMs?: number; onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void },
   ): Promise<ForwardIntegrateResult> {
+    // Serialise behind the per-project worktree lock (6bc2dc36) — two leaves on the same
+    // epic merging trunk into the SHARED epic worktree concurrently was the original
+    // corruption trigger.
+    return this.withWorktreeLock(() => this._forwardIntegrateEpicInner(epicId, baseRef, opts));
+  }
+
+  private async _forwardIntegrateEpicInner(
+    epicId: string,
+    baseRef: string = 'master',
+    opts?: { timeoutMs?: number; onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void },
+  ): Promise<ForwardIntegrateResult> {
     if (!(await this.isGitRepo())) return { integrated: false, advanced: false, conflict: false, skippedReason: 'non-git' };
     const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
     const onProgress = opts?.onProgress;
     const epicBranch = this.epicBranchName(epicId);
     const trunk = await this.resolveBase(baseRef);
 
-    // The epic worktree must exist (it is where the merge runs). ensureEpic is
-    // idempotent — a fresh epic branched off trunk is already up to date.
-    const epic = await this.ensureEpic(epicId, undefined, baseRef);
+    // The epic worktree must exist (it is where the merge runs). _ensureEpicInner is
+    // idempotent — a fresh epic branched off trunk is already up to date. (Inner: we
+    // already hold the lock.)
+    const epic = await this._ensureEpicInner(epicId, undefined, baseRef);
     if (!epic) return { integrated: false, advanced: false, conflict: false, skippedReason: 'non-git' };
 
     // Resolve trunk's tip. Missing trunk → nothing to integrate.
@@ -1069,12 +1119,22 @@ export class WorktreeManager {
     epicId: string,
     opts: CommitMergeOpts,
   ): Promise<MergeBackResult> {
+    // Serialise behind the per-project worktree lock (6bc2dc36) — merging a lane branch
+    // into the SHARED epic worktree must not race a sibling's merge/add/prune.
+    return this.withWorktreeLock(() => this._commitAndMergeToEpicInner(sessionId, epicId, opts));
+  }
+
+  private async _commitAndMergeToEpicInner(
+    sessionId: string,
+    epicId: string,
+    opts: CommitMergeOpts,
+  ): Promise<MergeBackResult> {
     const rec = await this.readRecord(sessionId);
     if (!rec) throw new Error(`no worktree for session ${sessionId}`);
     const timeoutMs = opts.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
     const onProgress = opts.onProgress;
 
-    const epic = await this.ensureEpic(epicId);
+    const epic = await this._ensureEpicInner(epicId);
     if (!epic) throw new Error('cannot resolve epic worktree (non-git project)');
 
     // 1. Commit the worker's working tree (if dirty). Uncommitted work would
@@ -1326,6 +1386,13 @@ export class WorktreeManager {
   // backstop against a racing ref move). The land worktree is always torn down.
   // ---------------------------------------------------------------------------
   async landEpicToMaster(epicId: string, opts?: LandOpts): Promise<LandResult> {
+    // Serialise behind the per-project worktree lock (6bc2dc36) — the land's throwaway
+    // worktree add/remove + the global `worktree prune` in its finally must not race a
+    // concurrent leaf's worktree ops. (No re-entrancy: this method calls runGit directly.)
+    return this.withWorktreeLock(() => this._landEpicToMasterInner(epicId, opts));
+  }
+
+  private async _landEpicToMasterInner(epicId: string, opts?: LandOpts): Promise<LandResult> {
     if (!(await this.isGitRepo())) return { landed: false, conflict: false, reason: 'non-git' };
     const baseRef = opts?.baseRef ?? 'master';
     const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
@@ -1464,6 +1531,10 @@ export class WorktreeManager {
   // conflict (the branch must survive for the human to rebase + re-land).
   // ---------------------------------------------------------------------------
   async removeEpic(epicId: string, _project?: string): Promise<void> {
+    return this.withWorktreeLock(() => this._removeEpicInner(epicId));
+  }
+
+  private async _removeEpicInner(epicId: string): Promise<void> {
     if (!(await this.isGitRepo())) return;
     const branch = this.epicBranchName(epicId);
     const wtPath = path.join(this.opts.baseDir, `__epic-${this.epicId8(epicId)}__`);

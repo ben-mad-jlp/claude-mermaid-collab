@@ -1,10 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { resolveNodeProvider, anyGrokNodeConfigured, grokLedgerModel } from '../node-provider';
 
-// cfg() reads config.json first then env; in CI config.json has no MERMAID_NODE_PROVIDER*
-// keys, so env drives these. Clean up after each test.
+// cfg() reads env first then config.json. ISOLATE config.json (MERMAID_CONFIG_PATH → an
+// empty temp dir with no config.json) so these tests are driven purely by env and never
+// read the developer's real ~/.mermaid-collab/config.json (e.g. a leftover
+// MERMAID_NODE_PROVIDER_IMPLEMENT would otherwise pollute the result).
 const KEYS = ['MERMAID_NODE_PROVIDER', 'MERMAID_NODE_PROVIDER_IMPLEMENT', 'MERMAID_NODE_PROVIDER_BLUEPRINT', 'MERMAID_NODE_PROVIDER_REPORT'];
-function clearEnv() { for (const k of KEYS) delete process.env[k]; }
+let cfgDir: string;
+function clearEnv() {
+  for (const k of KEYS) delete process.env[k];
+  cfgDir ??= mkdtempSync(join(tmpdir(), 'np-cfg-'));
+  process.env.MERMAID_CONFIG_PATH = join(cfgDir, 'config.json'); // nonexistent → empty config
+}
 
 describe('resolveNodeProvider', () => {
   beforeEach(clearEnv);

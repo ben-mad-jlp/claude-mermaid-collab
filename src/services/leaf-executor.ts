@@ -21,6 +21,7 @@
  */
 
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
@@ -1050,6 +1051,18 @@ export async function runLeaf(
       });
     } catch {
       /* ledger is telemetry — never break the run */
+    }
+    // DEFENSE-IN-DEPTH (6bc2dc36): a spawn whose CWD (the lane worktree) vanished mid-run
+    // fails ENOENT for EVERY provider; the revise/WAVES loop would otherwise cascade ~14
+    // such nodes burning the budget before the review notices. The per-project worktree
+    // lock is the root-cause fix; this is the backstop — on the FIRST ENOENT into a
+    // now-missing cwd, fail LOUD so the leaf pauses/escalates instead of churning.
+    if (
+      res.exitCode != null && res.exitCode < 0 &&
+      /ENOENT/.test(res.parseError ?? '') &&
+      effSpec.cwd && !existsSync(effSpec.cwd)
+    ) {
+      throw new Error(`worktree-missing: lane worktree ${effSpec.cwd} was removed mid-run (node ${kind})`);
     }
     return res;
   };
