@@ -119,6 +119,13 @@ export interface LeafExecutorDeps {
   persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
   /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
   markMerged?: (leafId: string) => void;
+  /** FM1 Phase-B hardening: durably stamp the REJECT intent (acceptanceStatus='rejected')
+   *  BEFORE the slow `complete` gate runs. parkBlocked has already decided 'rejected', so
+   *  this lands the terminal marker first — then reclaimNow's rejected-guard protects the
+   *  leaf from being reclaimed+re-run even if the process restarts mid-gate (the residual
+   *  window inProcessLaneAlive can't cover, because a restart kills the in-process lane).
+   *  Best-effort; unwired in tests/floor. Awaited so the stamp lands before the gate. */
+  markRejecting?: (project: string, leafId: string) => void | Promise<void>;
   /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
   resumePlan?: ResumePlan;
   /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
@@ -1062,6 +1069,10 @@ export async function runLeaf(
     verdict: 'pass' | 'fail' | null = null,
   ): Promise<LeafRunResult> => {
     recordOutcome('blocked', verdict, { reason });
+    // Land the reject intent DURABLY before the slow gate so a mid-gate process
+    // restart can't reclaim+re-run this leaf (reclaimNow refuses acceptanceStatus
+    // 'rejected'). complete() re-stamps it idempotently below.
+    try { await deps.markRejecting?.(project, leaf.id); } catch { /* best-effort pre-stamp */ }
     try {
       await deps.complete(project, leaf.id, 'rejected');
     } catch {
@@ -1810,6 +1821,15 @@ export async function makeLeafExecutorDeps(
     clearInflight: clearLeafInflight,
     persistResume: recordLeafResume,
     markMerged: markLeafMerged,
+    // FM1 Phase-B hardening: durably land the reject intent before the slow gate so a
+    // mid-gate restart can't reclaim+re-run it (reclaimNow refuses acceptanceStatus
+    // 'rejected'). Idempotent with complete()'s own terminal write.
+    markRejecting: async (p, leafId) => {
+      try {
+        const { updateTodo } = await import('./todo-store');
+        await updateTodo(p, leafId, { acceptanceStatus: 'rejected' });
+      } catch { /* best-effort */ }
+    },
     restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
     readBlueprint: async (cwd, lf) => {

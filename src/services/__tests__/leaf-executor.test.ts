@@ -104,6 +104,10 @@ interface Spies {
   mergeCalls: number;
   escalations: Array<{ kind: string; questionText: string }>;
   removeCalls: string[];
+  markRejectingCalls: string[];
+  /** Ordered log of 'mark' (markRejecting) vs 'complete:<acceptance>' to assert the
+   *  reject pre-stamp lands BEFORE the slow gate. */
+  seq: string[];
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -122,6 +126,8 @@ function makeDeps(opts: {
     mergeCalls: 0,
     escalations: [],
     removeCalls: [],
+    markRejectingCalls: [],
+    seq: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -164,7 +170,12 @@ function makeDeps(opts: {
     },
     async complete(_p, _t, acceptance) {
       spies.completeCalls.push({ acceptance });
+      spies.seq.push(`complete:${acceptance}`);
       return { effective: opts.gateEffective ?? acceptance };
+    },
+    async markRejecting(_p, leafId) {
+      spies.markRejectingCalls.push(leafId);
+      spies.seq.push('mark');
     },
     async mergeToEpic() {
       spies.mergeCalls += 1;
@@ -390,6 +401,23 @@ describe('runLeaf state machine', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('pending');
     expect(spies.removeCalls).toEqual([]); // a paused leaf reuses its tree on resume
+  });
+
+  it('FM1 Phase-B: parkBlocked stamps the reject intent BEFORE the slow gate', async () => {
+    // A review FAIL after the attempt cap → parkBlocked → reject. The durable reject
+    // pre-stamp must land FIRST so a mid-gate restart can't reclaim+re-run the leaf.
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(spies.markRejectingCalls.length).toBe(1);
+    expect(spies.seq).toEqual(['mark', 'complete:rejected']); // mark precedes the gate
+  });
+
+  it('FM1 Phase-B: the ACCEPT path does NOT pre-stamp a reject', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.markRejectingCalls).toEqual([]); // never stamps reject on an accept
   });
 });
 
@@ -1088,6 +1116,8 @@ function makeVerifyDeps(opts: {
     mergeCalls: 0,
     escalations: [] as Spies['escalations'],
     removeCalls: [] as Spies['removeCalls'],
+    markRejectingCalls: [] as Spies['markRejectingCalls'],
+    seq: [] as Spies['seq'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
