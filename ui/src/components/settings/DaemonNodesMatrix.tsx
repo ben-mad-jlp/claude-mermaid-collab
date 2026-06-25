@@ -5,10 +5,14 @@
  * "inherit" to fall back to the node kind's NODE_PROFILE default. Mirrors the
  * TieringEditor pattern (in-context, scoped to the lane's project).
  *
+ * Per-node hybrid routing — grok `implement`, claude `blueprint`+`review` is the
+ * validated sweet spot. MCP-forced kinds (report/driveexec) lock to claude.
+ *
  * GET  /api/orchestrator/node-profiles?project=<abs>
- *   → { rows: [{ kind, defaultModel, defaultEffort, modelOverride, effortOverride,
- *                effectiveModel, effectiveEffort }], models, levels }
- * POST /api/orchestrator/node-profiles { project, kind, model, effort }  (null = inherit)
+ *   → { rows: [{ kind, …, modelOverride, effortOverride, providerOverride,
+ *                effectiveModel, effectiveEffort, effectiveProvider, mcpForced }],
+ *        claudeModels, grokModels, providers, levels }
+ * POST /api/orchestrator/node-profiles { project, kind, model, effort, provider }
  */
 import React, { useCallback, useEffect, useState } from 'react';
 
@@ -19,8 +23,11 @@ interface Row {
   defaultEffort: string;
   modelOverride: string | null;
   effortOverride: string | null;
+  providerOverride: string | null;
   effectiveModel: string;
   effectiveEffort: string;
+  effectiveProvider: string;
+  mcpForced: boolean;
 }
 
 const INHERIT = '';
@@ -40,7 +47,9 @@ async function apiPost(path: string, body: unknown): Promise<any> {
 
 export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) => {
   const [rows, setRows] = useState<Row[]>([]);
-  const [models, setModels] = useState<string[]>([]);
+  const [claudeModels, setClaudeModels] = useState<string[]>([]);
+  const [grokModels, setGrokModels] = useState<string[]>([]);
+  const [providers, setProviders] = useState<string[]>([]);
   const [levels, setLevels] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busyKind, setBusyKind] = useState<string | null>(null);
@@ -51,22 +60,27 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
     if (!project) return;
     const data = await apiGet(`/api/orchestrator/node-profiles?project=${encodeURIComponent(project)}`);
     setRows(Array.isArray(data.rows) ? data.rows : []);
-    setModels(Array.isArray(data.models) ? data.models : []);
+    setClaudeModels(Array.isArray(data.claudeModels) ? data.claudeModels : (Array.isArray(data.models) ? data.models : []));
+    setGrokModels(Array.isArray(data.grokModels) ? data.grokModels : []);
+    setProviders(Array.isArray(data.providers) ? data.providers : ['claude', 'grok-build']);
     setLevels(Array.isArray(data.levels) ? data.levels : []);
     setLoaded(true);
   }, [project]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const update = useCallback((kind: string, patch: { model?: string | null; effort?: string | null }) => {
+  const update = useCallback((kind: string, patch: { model?: string | null; effort?: string | null; provider?: string | null }) => {
     const cur = rows.find((r) => r.kind === kind);
     if (!cur) return;
     const model = patch.model !== undefined ? patch.model : cur.modelOverride;
     const effort = patch.effort !== undefined ? patch.effort : cur.effortOverride;
+    const provider = patch.provider !== undefined ? patch.provider : cur.providerOverride;
+    // Switching provider invalidates a cross-provider model override → clear it.
+    const modelToSend = patch.provider !== undefined && patch.provider !== cur.providerOverride ? null : model;
     setBusyKind(kind);
     void (async () => {
       try {
-        await apiPost('/api/orchestrator/node-profiles', { project, kind, model, effort });
+        await apiPost('/api/orchestrator/node-profiles', { project, kind, model: modelToSend, effort, provider });
         await load(); // re-pull so effective columns reflect the server's resolution
       } finally {
         setBusyKind(null);
@@ -76,7 +90,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
 
   const broadcast = useCallback(() => {
     if (broadcasting || !project) return;
-    if (!window.confirm('Push this project’s node model + effort settings to ALL other projects? This replaces their per-node settings.')) return;
+    if (!window.confirm('Push this project’s provider + model + effort settings to ALL other projects? This replaces their per-node settings.')) return;
     setBroadcasting(true);
     setBroadcastMsg(null);
     void (async () => {
@@ -100,6 +114,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
       <thead>
         <tr className="text-gray-500 dark:text-gray-400 text-left">
           <th className="font-medium pr-2 py-0.5">node</th>
+          <th className="font-medium px-2 py-0.5">provider</th>
           <th className="font-medium px-2 py-0.5">model</th>
           <th className="font-medium px-2 py-0.5">effort</th>
           <th className="font-medium pl-2 py-0.5">resolves to</th>
@@ -108,12 +123,36 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
       <tbody>
         {rows.map((r) => {
           const busy = busyKind === r.kind;
-          const overridden = r.modelOverride != null || r.effortOverride != null;
+          const overridden = r.modelOverride != null || r.effortOverride != null || r.providerOverride != null;
+          // Model choices follow the row's EFFECTIVE provider (grok rows show grok models).
+          const modelChoices = r.effectiveProvider === 'grok-build' ? grokModels : claudeModels;
           return (
             <tr key={r.kind} data-testid={`node-row-${r.kind}`} className={`border-t border-gray-100 dark:border-gray-800 ${busy ? 'opacity-60' : ''}`}>
               <td className="pr-2 py-0.5 align-top">
                 <div className={`font-mono ${overridden ? 'text-info-600 dark:text-info-400' : 'text-gray-700 dark:text-gray-200'}`}>{r.kind}</div>
                 <div className="text-3xs text-gray-600 dark:text-gray-300 max-w-[260px] leading-tight">{r.desc}</div>
+              </td>
+              <td className="px-2 py-0.5">
+                {r.mcpForced ? (
+                  <span
+                    data-testid={`node-provider-${r.kind}-locked`}
+                    title="Uses MCP tools — must run on Claude (Grok has no MCP)"
+                    className="text-2xs text-gray-400 dark:text-gray-500 italic"
+                  >
+                    claude 🔒
+                  </span>
+                ) : (
+                  <select
+                    data-testid={`node-provider-${r.kind}`}
+                    disabled={busy}
+                    value={r.providerOverride ?? INHERIT}
+                    onChange={(e) => update(r.kind, { provider: e.target.value === INHERIT ? null : e.target.value })}
+                    className="text-2xs bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <option value={INHERIT}>inherit ({r.effectiveProvider})</option>
+                    {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                )}
               </td>
               <td className="px-2 py-0.5">
                 <select
@@ -124,7 +163,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
                   className="text-2xs bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
                 >
                   <option value={INHERIT}>inherit ({r.defaultModel})</option>
-                  {models.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {modelChoices.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </td>
               <td className="px-2 py-0.5">
@@ -139,7 +178,10 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
                   {levels.map((l) => <option key={l} value={l}>{l}</option>)}
                 </select>
               </td>
-              <td className="pl-2 py-0.5 font-mono text-gray-500 dark:text-gray-400">{r.effectiveModel} · {r.effectiveEffort}</td>
+              <td className="pl-2 py-0.5 font-mono text-gray-500 dark:text-gray-400">
+                <span className={r.effectiveProvider === 'grok-build' ? 'text-purple-600 dark:text-purple-400' : ''}>{r.effectiveProvider}</span>
+                {' · '}{r.effectiveModel} · {r.effectiveEffort}
+              </td>
             </tr>
           );
         })}
@@ -151,7 +193,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
         data-testid="node-profiles-broadcast"
         disabled={broadcasting}
         onClick={broadcast}
-        title="Copy this project's per-node model + effort settings to every other project (replaces theirs)"
+        title="Copy this project's per-provider + model + effort settings to every other project (replaces theirs)"
         className="text-2xs px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
       >
         {broadcasting ? 'pushing…' : 'Push to all projects'}
