@@ -8,7 +8,7 @@ import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, getLeafResume, clearLeafResume } from './worker-ledger';
 import { reapOrphanedLeafWorktrees } from './leaf-worktree-reaper.js';
-import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
+import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
 
@@ -21,8 +21,8 @@ import { sendTmuxKeysRaw } from './tmux-send';
 import { mux, argvHasSession, argvKillSession, argvListPanesPanePid, argvCapturePane, argvPsComm } from './session-mux/index.ts';
 import { runTick, handleWorkerComplete, type CoordinatorDeps, type GateVerdict } from './coordinator-daemon';
 import { reserveLeafSlot, releaseLeafSlot } from './inflight-limiter';
-import { loadProjectManifest } from '../config/project-manifest';
-import { runRegistryGate } from './gate-runner';
+import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
+import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
@@ -1283,6 +1283,77 @@ export async function surfaceEpicLand(
   }
 }
 
+/** Machine-checkable verdict for the land path (L3): an epic L1 flagged stale was
+ *  forward-integrated and re-gated in its accumulation worktree. */
+export type RevalidateResult =
+  | { ok: true; note?: 'no-gate' }                                  // gate green (or no gate applies)
+  | { ok: false; reason: 'forward-integrate-conflict'; conflictedPaths: string[] }
+  | { ok: false; reason: 'revalidation-gate-failed'; output: string }
+  | { ok: false; reason: 'non-git' | 'epic-missing' };             // could not provision/integrate
+
+/** Seam for testing: stub forwardIntegrate + the gate without real git. Defaults
+ *  bind to the live WorktreeManager + runRegistryGate for `project`. */
+export interface RevalidateDeps {
+  forwardIntegrate(epicId: string, baseRef: string): Promise<ForwardIntegrateResult>;
+  ensureEpicPath(epicId: string): Promise<string | null>;
+  runGate(subject: GateSubject): Promise<GateVerdict | null>;
+  manifest: ProjectManifest | null;
+  getEpicTodo(epicId: string): Todo | null;
+  exec: GateExec;
+}
+
+/**
+ * Forward-integrate trunk into an epic's accumulation worktree and re-run the
+ * project's acceptance gate *inside* that epic worktree. Cross-project aware:
+ * `project` is the target project (child.targetProject ?? project as resolved by
+ * the L3 caller, matching landEpic's targetProject resolution).
+ */
+export async function revalidateStaleEpic(
+  project: string,
+  epicId: string,
+  baseRef: string = 'master',
+  deps?: Partial<RevalidateDeps>,
+): Promise<RevalidateResult> {
+  const wm = getWorktreeManager(project);
+  const d: RevalidateDeps = {
+    forwardIntegrate: (e, b) => wm.forwardIntegrateEpic(e, b),
+    ensureEpicPath: async (e) => (await wm.ensureEpic(e).catch(() => null))?.path ?? null,
+    runGate: runRegistryGate,
+    manifest: loadProjectManifest(project),
+    getEpicTodo: (e) => getTodo(project, e),
+    exec: execAsync,
+    ...deps,
+  };
+
+  // 1. Forward-integrate trunk INTO the epic branch.
+  const fi = await d.forwardIntegrate(epicId, baseRef);
+  if (fi.conflict) {
+    return { ok: false, reason: 'forward-integrate-conflict', conflictedPaths: fi.conflictedPaths ?? [] };
+  }
+  // skippedReason (non-git / trunk-missing / dirty) is NOT a conflict — proceed to gate
+  // on the current epic tip (no worse than today; matches forwardIntegrate's own contract).
+
+  // 2. Resolve the epic worktree (where deps resolve) + re-run the gate THERE.
+  const epicPath = await d.ensureEpicPath(epicId);
+  if (!epicPath) return { ok: false, reason: 'epic-missing' };
+
+  const verdict = await d.runGate({
+    project,
+    gateProject: project,
+    todoId: epicId,
+    todo: d.getEpicTodo(epicId),
+    manifest: d.manifest,
+    exec: d.exec,
+    laneCwd: epicPath,        // ← runs the manifest gateCommand IN the epic worktree (f27d5e91 rule)
+    // integrationBase intentionally omitted: re-validate the FULL epic, not a change-set.
+  });
+
+  // 3. Verdict → machine-checkable result.
+  if (verdict === null) return { ok: true, note: 'no-gate' };   // no applicable gate — honor self-report
+  if (verdict.passed) return { ok: true };
+  return { ok: false, reason: 'revalidation-gate-failed', output: (verdict.reasons ?? []).join('\n') };
+}
+
 /**
  * The land click (FBPE P4). Given an open 'epic-ready-to-land' escalation, RE-DERIVE
  * land-readiness server-side at click time (never trust the summary baked into the
@@ -1361,6 +1432,47 @@ export async function landEpic(
       if (!verdict.ok) {
         recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'rejected', reason: verdict.reason }) });
         return { ok: false, landed: false, reason: verdict.reason, epicId, epicBranch };
+      }
+
+      // L3 — LAND-TIME FRESHNESS GUARD. Before advancing trunk, check whether the epic's
+      // build-base drifted from CURRENT trunk (L1 `epicBuildBaseStaleness`). If stale,
+      // forward-integrate trunk + re-run the gate INSIDE the epic worktree (L2
+      // `revalidateStaleEpic`, where deps resolve) so we never advance trunk on a tree that
+      // was only ever gated against an OLDER trunk tip — the semantic-drift / build123d
+      // importorskip false-green class. FRESH → fall straight through to the merge (the fast,
+      // common path; no behaviour change). STALE + revalidation-fail → master UNTOUCHED, raise
+      // one escalation, refuse. Both land routes inherit this: the human land_epic MCP path AND
+      // the daemon auto-land (reconcile-pass surfaceEpicLand → landEpic at level>=drive) call
+      // THIS function. (The OI-1 reachability reconcile's landEpicToMaster lands a leaf onto the
+      // INTEGRATION ref during acceptance — not trunk at epic-completion — so it is intentionally
+      // NOT guarded here.)
+      const staleness = await wm.epicBuildBaseStaleness(epicId).catch(() => null);
+      if (staleness?.stale) {
+        const rev = await revalidateStaleEpic(targetProject, epicId);
+        if (!rev.ok) {
+          const failReason = `stale-build-base:${rev.reason}`;
+          const detail =
+            rev.reason === 'forward-integrate-conflict'
+              ? `re-integration hit a merge conflict (${rev.conflictedPaths.join(', ') || 'unknown'})`
+              : rev.reason === 'revalidation-gate-failed'
+                ? `the re-run gate FAILED:\n${rev.output}`
+                : rev.reason;
+          createEscalation({
+            project,
+            session: esc.session,
+            todoId,
+            kind: 'assumption-invalidated',
+            questionText:
+              `Land blocked — epic ${epicBranch} was built against a stale trunk base ` +
+              `(${staleness.commitsAhead} trunk commit(s) ahead; ${staleness.reason}` +
+              `${staleness.overlap.length ? `; overlapping files: ${staleness.overlap.join(', ')}` : ''}). ` +
+              `${detail}. Master is UNTOUCHED — merge master into ${epicBranch}, resolve/fix, re-gate, then re-land.`,
+          });
+          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: failReason, commitsAhead: staleness.commitsAhead, overlap: staleness.overlap }) });
+          return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
+        }
+        // rev.ok → epic now carries trunk + re-gated green → fall through to the real merge.
+        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'revalidated', commitsAhead: staleness.commitsAhead, reason: staleness.reason }) });
       }
 
       // Green proof → perform the real single --no-ff epic→master merge.

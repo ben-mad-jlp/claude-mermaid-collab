@@ -116,6 +116,20 @@ export interface LandResult {
   reason?: string;
 }
 
+/** Result of checking whether an epic's accumulation branch has drifted behind trunk.
+ *  Pure-read staleness detector: reports trunk commits not yet integrated and/or
+ *  overlapping file changes since the epic fork point. Never mutates. */
+export interface StalenessResult {
+  stale: boolean;
+  commitsAhead: number;          // trunk commits the epic has NOT integrated
+  maxAhead: number;              // the threshold N actually used
+  trunkSha: string;              // resolved trunk tip ('' if unresolved)
+  epicSha: string;               // epic branch tip ('' if branch missing)
+  mergeBase: string;             // '' if no merge-base / branch missing
+  overlap: string[];             // files touched on BOTH sides since mergeBase
+  reason: 'fresh' | 'ahead-exceeds-max' | 'file-overlap';
+}
+
 export interface EnsureOpts {
   /** Branch the new worktree off this ref instead of the detected base branch.
    *  Used by the isolation model to branch each worker off the LATEST integration
@@ -772,6 +786,112 @@ export class WorktreeManager {
     ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
     if (res.code !== 0) return 0;
     return parseInt(res.stdout.trim() || '0', 10) || 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // epicBuildBaseStaleness — pure-read staleness detector for epic build base.
+  // Reports whether an epic's accumulation branch has drifted behind trunk:
+  // counts trunk commits not yet integrated (`<epic>..<trunk>`) and detects
+  // overlapping file changes since the fork point. No merge, no land, no mutation.
+  // Mirrors the never-throw discipline of epicBehindBase / epicAheadOfMaster.
+  // ---------------------------------------------------------------------------
+  async epicBuildBaseStaleness(
+    epicId: string,
+    baseRef: string = 'master',
+    opts: { maxAhead?: number } = {},
+  ): Promise<StalenessResult> {
+    const N = opts.maxAhead ?? (Number(process.env.MERMAID_LAND_STALE_MAX_AHEAD) || 20);
+    const fresh: StalenessResult = {
+      stale: false,
+      commitsAhead: 0,
+      maxAhead: N,
+      trunkSha: '',
+      epicSha: '',
+      mergeBase: '',
+      overlap: [],
+      reason: 'fresh',
+    };
+
+    if (!(await this.isGitRepo())) return fresh;
+
+    const trunk = await this.resolveBase(baseRef);
+    const epicBranch = this.epicBranchName(epicId);
+
+    // Epic branch existence: capture epicSha if present.
+    const epicRev = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${epicBranch}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (epicRev.code !== 0 || !epicRev.stdout.trim()) return fresh;
+    const epicSha = epicRev.stdout.trim();
+
+    // Trunk sha (best-effort).
+    const trunkRev = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${trunk}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (trunkRev.code !== 0 || !trunkRev.stdout.trim()) return fresh;
+    const trunkSha = trunkRev.stdout.trim();
+
+    // Merge base.
+    const mb = await this.runGit(
+      this.opts.projectRoot,
+      ['merge-base', epicBranch, trunk],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (mb.code !== 0 || !mb.stdout.trim()) return fresh;
+    const mergeBase = mb.stdout.trim();
+
+    // Trunk commits not yet in epic: <epic>..<trunk>
+    const aheadRes = await this.runGit(
+      this.opts.projectRoot,
+      ['rev-list', '--count', `${epicBranch}..${trunk}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    const commitsAhead = parseInt(aheadRes.stdout.trim() || '0', 10) || 0;
+
+    // Changed files on each side since mergeBase.
+    const trunkFilesRes = await this.runGit(
+      this.opts.projectRoot,
+      ['diff', '--name-only', `${mergeBase}..${trunk}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    const trunkChangedFiles = trunkFilesRes.stdout
+      .split('\n')
+      .map((f) => f.trim())
+      .filter(Boolean);
+
+    const epicFilesRes = await this.runGit(
+      this.opts.projectRoot,
+      ['diff', '--name-only', `${mergeBase}..${epicBranch}`],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    const epicChangedFiles = epicFilesRes.stdout
+      .split('\n')
+      .map((f) => f.trim())
+      .filter(Boolean);
+
+    const epicSet = new Set(epicChangedFiles);
+    const overlap = trunkChangedFiles.filter((f) => epicSet.has(f));
+
+    const overlapHit = overlap.length > 0;
+    const aheadHit = commitsAhead > N;
+    const stale = commitsAhead > 0 && (aheadHit || overlapHit);
+    const reason: StalenessResult['reason'] =
+      !stale ? 'fresh' : overlapHit ? 'file-overlap' : 'ahead-exceeds-max';
+
+    return {
+      stale,
+      commitsAhead,
+      maxAhead: N,
+      trunkSha,
+      epicSha,
+      mergeBase,
+      overlap,
+      reason,
+    };
   }
 
   /** Count the commits a LANE worktree's HEAD carries beyond its epic's
