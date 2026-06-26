@@ -1936,6 +1936,10 @@ export async function makeLeafExecutorDeps(
   startNodesSpent = 0,
 ): Promise<LeafExecutorDeps> {
   const wm = getWorktreeManager(targetProject);
+  // bf2eaf84: this run's claim token, captured at deps-construction (claim time). Threaded
+  // into the terminal CAS (complete/markRejecting) so a run that lost the todo to a
+  // re-claim cannot apply its outcome to the new owner. undefined ⇒ legacy status-only.
+  const runClaimToken = leaf.claim?.token ?? leaf.claimToken ?? undefined;
   const epicId = resolveEpicId(leaf, project);
   // Materialise the epic accumulation branch so the off-tip base exists.
   const epic = await wm.ensureEpic(epicId, targetProject);
@@ -2001,7 +2005,7 @@ export async function makeLeafExecutorDeps(
     complete: async (p, t, a) => {
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
       // leaf-executor's terminal record needs them (they were silently dropped before).
-      const r = await handleWorkerComplete(makeCoordinatorDeps(), p, t, a);
+      const r = await handleWorkerComplete(makeCoordinatorDeps(), p, t, a, runClaimToken);
       return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons };
     },
     mergeToEpic: (sessionKey, eId, message, todoId) =>
@@ -2023,7 +2027,7 @@ export async function makeLeafExecutorDeps(
       // (e.g. accepted) → parkBlocked discards the blocked outcome instead of clobbering.
       try {
         const { markRejectingIfOwned } = await import('./todo-store');
-        return await markRejectingIfOwned(p, leafId);
+        return await markRejectingIfOwned(p, leafId, runClaimToken);
       } catch { return true; /* best-effort: don't change legacy behaviour on error */ }
     },
     restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),

@@ -1314,7 +1314,7 @@ function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined
  * Only the planner moves planned→ready/blocked (approval). This (the coordinator core)
  * only promotes blocked→ready when the last dep completes — it never touches 'planned'.
  */
-export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected', completedBy?: string | null, opts?: { requireInProgress?: boolean }): Promise<CompleteTodoResult> {
+export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected', completedBy?: string | null, opts?: { requireInProgress?: boolean; claimToken?: string }): Promise<CompleteTodoResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
@@ -1330,8 +1330,16 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // NO-OP (no status write, no roll-up, no kick) and signal `skipped` so the caller
     // skips the merge. Direct callers (override_accept_todo, human, tests) omit the
     // flag and keep today's unconditional behaviour.
-    if (opts?.requireInProgress && existing.status !== 'in_progress') {
-      return { completed: existing, promoted: [], rolledUp: [], skipped: true };
+    // E2 status CAS + token-scope (bf2eaf84): a run owns the todo only if it's in_progress
+    // AND the live claim still carries THIS run's token. Status-only let run A's late
+    // completion apply to a row run B had already re-claimed (in_progress again, different
+    // token) → wrong-run accept/reject. Token mismatch ⇒ no-op skip. (claimToken omitted ⇒
+    // legacy status-only behaviour for callers that don't thread it.)
+    if (opts?.requireInProgress) {
+      const liveToken = existing.claim?.token ?? existing.claimToken ?? null;
+      if (existing.status !== 'in_progress' || (opts.claimToken != null && liveToken !== opts.claimToken)) {
+        return { completed: existing, promoted: [], rolledUp: [], skipped: true };
+      }
     }
     const ts = nowIso();
     const accept = acceptanceStatus !== undefined ? acceptanceStatus : existing.acceptanceStatus;
@@ -1424,12 +1432,15 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
  * run no longer owns it → caller DISCARDS the whole blocked outcome (no escalation, no
  * complete). Atomic under withLock.
  */
-export function markRejectingIfOwned(project: string, id: string): Promise<boolean> {
+export function markRejectingIfOwned(project: string, id: string, claimToken?: string): Promise<boolean> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
     const existing = getTodo(project, id);
     if (!existing || existing.status !== 'in_progress') return false; // not ours — don't clobber
+    // Token-scope (bf2eaf84): if the caller threads its claim token, the live claim must
+    // still carry it — else a re-claimed-by-another-run row would be clobbered.
+    if (claimToken != null && (existing.claim?.token ?? existing.claimToken ?? null) !== claimToken) return false;
     db.prepare(`UPDATE todos SET acceptanceStatus='rejected', updatedAt=? WHERE id=?`).run(nowIso(), id);
     return true;
   });

@@ -32,7 +32,7 @@ export interface CoordinatorDeps {
   claimGuard?: (project: string, todos: Todo[]) => Promise<Todo[]>;
   claimTodo: (project: string, id: string, claimedBy: string, leaseMs: number) => Promise<Todo | null>;
   releaseExpiredClaims: (project: string, now?: string) => Promise<{ released: string[]; exhausted: string[] }>;
-  completeTodo: (project: string, id: string, acceptance?: 'pending' | 'accepted' | 'rejected') => Promise<{ completed: Todo; promoted: string[] }>;
+  completeTodo: (project: string, id: string, acceptance?: 'pending' | 'accepted' | 'rejected', claimToken?: string) => Promise<{ completed: Todo; promoted: string[] }>;
   launchWorker: (project: string, todo: Todo) => Promise<boolean>;
   /** Max leaves to dispatch CONCURRENTLY this tick (the per-project pool size). The
    *  claim+launchWorker step awaits a full leaf run (minutes), so without this the
@@ -268,6 +268,9 @@ export async function handleWorkerComplete(
   project: string,
   todoId: string,
   acceptance: 'accepted' | 'rejected',
+  /** bf2eaf84: the completing run's claim token — forwarded to the completeTodo CAS so a
+   *  run that lost the todo to a re-claim cannot apply its outcome to the new owner. */
+  claimToken?: string,
 ): Promise<{ promoted: string[]; escalated: boolean; gateOverride?: GateVerdict; effective?: 'accepted' | 'rejected' | 'pending'; pendingReason?: string }> {
   // AUTHORITATIVE RESOLUTION (5374e299 + PAW P1): a worker can only PROPOSE an
   // acceptance. The server-authoritative completion-resolver decides the effective
@@ -281,7 +284,7 @@ export async function handleWorkerComplete(
     todoId,
     acceptance,
   );
-  const { promoted } = await deps.completeTodo(project, todoId, effective);
+  const { promoted } = await deps.completeTodo(project, todoId, effective, claimToken);
   let escalated = false;
   if (effective === 'rejected' && deps.escalateRejected) {
     try { await deps.escalateRejected(project, todoId); escalated = true; } catch { /* never block the report */ }

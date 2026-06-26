@@ -1581,11 +1581,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     // would spawn a duplicate run). isRunLive = whole run (incl. between nodes);
     // isLeafInflightLive = an active node. Either ⇒ skip the lease release for that row.
     releaseExpiredClaims: (project, now) => releaseExpiredClaims(project, now, (id) => isRunLive(id) || isLeafInflightLive(id)),
-    completeTodo: async (project, id, acceptance) => {
-      // E2 ownership-CAS: this is the fire-and-track worker continuation. A run can
-      // finish minutes after it claimed — pass requireInProgress so the store applies
-      // the completion ONLY if the todo is still the in_progress claim this run owns.
-      const r = await completeTodo(project, id, acceptance, undefined, { requireInProgress: true });
+    completeTodo: async (project, id, acceptance, claimToken) => {
+      // E2 ownership-CAS + token-scope (bf2eaf84): this is the fire-and-track worker
+      // continuation. A run can finish minutes after it claimed — requireInProgress AND
+      // the claim token gate the write so the completion applies ONLY if the todo is still
+      // the in_progress claim THIS run owns (not a row re-claimed by another run).
+      const r = await completeTodo(project, id, acceptance, undefined, { requireInProgress: true, claimToken });
       if (r.skipped) {
         // The todo was dropped / held / re-claimed / already terminal while this run
         // was in flight — it is no longer ours. DISCARD the outcome: no merge-back, no
