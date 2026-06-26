@@ -1102,3 +1102,38 @@ describe('createTodo — every-todo-needs-an-epic guard (orphan reject + explici
     expect(t.parentId).toBeNull();
   });
 });
+
+describe('epic close → cascade-drop undone descendants', () => {
+  test('closing an [EPIC] drops non-terminal descendants (transitively), keeps terminal ones', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me' });
+    const open1 = await createTodo(project, { ownerSession: 's', title: 'open child', parentId: epic.id });
+    const open2 = await createTodo(project, { ownerSession: 's', title: 'open child 2', parentId: epic.id });
+    const doneChild = await createTodo(project, { ownerSession: 's', title: 'done child', parentId: epic.id });
+    await updateTodo(project, doneChild.id, { completed: true });
+    const grandchild = await createTodo(project, { ownerSession: 's', title: 'grandchild', parentId: open1.id });
+
+    await updateTodo(project, epic.id, { completed: true });
+
+    expect((await getTodo(project, epic.id))!.status).toBe('done');
+    expect((await getTodo(project, open1.id))!.status).toBe('dropped');
+    expect((await getTodo(project, open2.id))!.status).toBe('dropped');
+    expect((await getTodo(project, grandchild.id))!.status).toBe('dropped'); // transitive
+    expect((await getTodo(project, doneChild.id))!.status).toBe('done');     // terminal untouched
+  });
+
+  test('completing an epic with no open descendants is a cascade no-op', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] all done' });
+    const c = await createTodo(project, { ownerSession: 's', title: 'child', parentId: epic.id });
+    await updateTodo(project, c.id, { completed: true });
+    await updateTodo(project, epic.id, { completed: true });
+    expect((await getTodo(project, c.id))!.status).toBe('done'); // unchanged, not re-dropped
+  });
+
+  test('closing a NON-[EPIC] parent does NOT cascade', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root' });
+    const mid = await createTodo(project, { ownerSession: 's', title: 'plain parent', parentId: epic.id });
+    const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: mid.id });
+    await updateTodo(project, mid.id, { completed: true }); // mid is not an [EPIC]
+    expect((await getTodo(project, leaf.id))!.status).not.toBe('dropped');
+  });
+});

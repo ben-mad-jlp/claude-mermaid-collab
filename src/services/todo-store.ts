@@ -857,6 +857,24 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     const nowTerminal = status === 'done' || status === 'dropped';
     if (nowTerminal && !wasTerminal) {
       try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
+      // CASCADE-CLOSE: closing an EPIC abandons its still-open work — DROP every non-terminal
+      // transitive descendant so the plan's epic lane goes fully terminal (and hides), instead
+      // of a closed epic lingering on the board because of orphaned undone children. No-op on
+      // the normal auto-complete path (an epic that completes has no open descendants). Inline
+      // [EPIC] check — importing isEpicTodo would cycle (invariant-check imports todo-store).
+      if (/^\s*\[EPIC\]/i.test(next.title ?? '')) {
+        try {
+          db.prepare(
+            `WITH RECURSIVE descendants(did) AS (
+               SELECT id FROM todos WHERE parentId = ?1
+               UNION
+               SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
+             )
+             UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL}, claim=NULL
+             WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`,
+          ).run(id, nowIso());
+        } catch { /* best-effort — never block the epic close on the cascade */ }
+      }
     }
     return getTodo(project, id)!;
   });
