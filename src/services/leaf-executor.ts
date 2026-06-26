@@ -1764,6 +1764,24 @@ export async function runLeaf(
       ])];
       if (splitFiles.length > SPLIT_CEILING) {
         await deps.splitInto(leaf, splitFiles);
+        // 5dffee35: the split children are created PLANNED (proposed), not auto-claimed.
+        // Surface the proposal so the planner can review + promote (or reset the leaf to
+        // build linear) — otherwise the planned children sit invisibly un-runnable. This
+        // restores the planner-promotes-ready gate the autonomous auto-split bypassed.
+        try {
+          deps.escalate({
+            project,
+            session: sessionKey,
+            kind: 'decision',
+            todoId: leaf.id,
+            questionText:
+              `Leaf "${leaf.title ?? leaf.id}" exceeded the size gate (${splitFiles.length} files) and was ` +
+              `auto-split into ${splitFiles.length} PLANNED file-children (not yet runnable). Review the ` +
+              `decomposition: PROMOTE the children to ready (approve) if the split is sound, or reset this ` +
+              `leaf to build it LINEARLY in one run if the files are interdependent (shared modules don't ` +
+              `parallelize as atoms). Nothing runs until you promote.`,
+          });
+        } catch { /* escalation best-effort — never block the split outcome */ }
         return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
       }
     }

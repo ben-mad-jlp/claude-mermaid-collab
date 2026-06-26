@@ -1371,8 +1371,11 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       ).run(accept, ts, id);
     } else {
       db.prepare(
+        // 54362542/c544b9cb: clear a stale manual hold on terminal-accept — a done todo
+        // must not carry heldAt/heldReason (it rendered a misleading 'held' chip on a
+        // completed todo). Same write that clears the claim.
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
+          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
       ).run(ts, actor, accept, ts, id);
     }
     // S4 (epic b2c858d4): the blocked→ready FAN-OUT is DELETED. Readiness is no longer
@@ -1390,14 +1393,17 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     let parentId = existing.parentId;
     while (parentId) {
       const parent = getTodo(project, parentId);
-      if (!parent || parent.status === 'done' || parent.status === 'dropped') break;
+      // 54362542: never auto-roll-up a HELD parent — a manual hold (heldAt) is an explicit
+      // human decision ("don't close this") that the rollup must respect, else completing a
+      // sibling silently overrides the hold and marks abandoned/held work as a deliverable.
+      if (!parent || parent.status === 'done' || parent.status === 'dropped' || parent.heldAt != null) break;
       const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId && t.status !== 'dropped');
       if (children.length === 0) break;
       const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
       if (!allChildrenDone) break;
       db.prepare(
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
+          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
       ).run(ts, 'accepted', nowIso(), parentId);
       rolledUp.push(parentId);
       parentId = parent.parentId;
@@ -1529,7 +1535,11 @@ export async function splitLeafInto(
         `Split child of leaf ${leaf.id.slice(0, 8)} (auto-decomposed: too many files for one run).\n` +
         `Implement ONLY this file: ${file}\n\n` +
         `Parent leaf spec:\n${leaf.description ?? '(no description)'}`,
-      status: 'ready',
+      // 5dffee35: split children are PROPOSED (planned), NOT auto-promoted to ready. The
+      // planner-promotes-ready invariant: a worker proposes a split; only the planner (human)
+      // promotes the children. Auto-readying them let the daemon immediately claim 14
+      // un-reviewed file-atoms (incl. interdependent shared modules) → broken parallel build.
+      status: 'planned',
       priority: leaf.priority,
       parentId: leaf.id,
       dependsOn: leaf.dependsOn ?? [],
@@ -1586,7 +1596,9 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
         // ones. A 'planned'/'ready'/'blocked' epic whose children all completed
         // (e.g. children worked before the epic was activated) would otherwise
         // linger forever. Terminal epics (done/dropped) are left alone.
-        if (epic.status === 'done' || epic.status === 'dropped') continue;
+        // 54362542: a HELD epic is off-limits to the rollup sweep too (same reason as the
+        // event-path guard) — a manual hold must survive an all-children-settled sweep.
+        if (epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) continue; // not an epic / no live children
         if (!children.every((c) => c.status === 'done')) continue; // a child still open
@@ -1597,7 +1609,7 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
           const ts = nowIso();
           db.prepare(
             `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
-              ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+              ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
           ).run(ts, ts, epic.id);
           rolledUp.push(epic.id);
           closedThisPass++;
