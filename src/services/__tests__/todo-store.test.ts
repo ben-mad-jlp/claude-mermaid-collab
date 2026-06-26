@@ -264,6 +264,38 @@ describe('todo-store new fields and functions', () => {
     expect(getTodo(project, t.id)!.acceptanceStatus).toBe('rejected');
   });
 
+  // bf2eaf84 — token-scope: a run that LOST the todo to a re-claim cannot write the new owner's row.
+  test('completeTodo requireInProgress+claimToken: row re-claimed under a NEW token → old run skipped, no write', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    const a = await claimTodo(project, t.id, 'agent-A', 60000);
+    const tokenA = a!.claimToken!;
+    await releaseClaim(project, t.id);                       // run A loses the claim
+    const b = await claimTodo(project, t.id, 'agent-B', 60000); // run B re-claims → in_progress again
+    const tokenB = b!.claimToken!;
+    expect(tokenB).not.toBe(tokenA);
+    // run A finishes late and tries to accept — must NO-OP (it's B's row now):
+    const rA = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true, claimToken: tokenA });
+    expect(rA.skipped).toBe(true);
+    expect(getTodo(project, t.id)!.status).toBe('in_progress'); // still B's live claim, not done
+    // run B (correct token) completes normally:
+    const rB = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true, claimToken: tokenB });
+    expect(rB.skipped).toBeFalsy();
+    expect(getTodo(project, t.id)!.status).toBe('done');
+  });
+
+  test('markRejectingIfOwned token-scope: row re-claimed under a NEW token → old run returns false, no clobber', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    const a = await claimTodo(project, t.id, 'agent-A', 60000);
+    const tokenA = a!.claimToken!;
+    await releaseClaim(project, t.id);
+    const b = await claimTodo(project, t.id, 'agent-B', 60000);
+    const tokenB = b!.claimToken!;
+    expect(await markRejectingIfOwned(project, t.id, tokenA)).toBe(false); // A no longer owns it
+    expect(getTodo(project, t.id)!.acceptanceStatus).not.toBe('rejected');
+    expect(await markRejectingIfOwned(project, t.id, tokenB)).toBe(true);  // B does
+    expect(getTodo(project, t.id)!.acceptanceStatus).toBe('rejected');
+  });
+
   test('markRejectingIfOwned: NOT in_progress (already accepted) → no-op, returns false (no false-block clobber)', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 60000);
