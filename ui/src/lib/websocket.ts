@@ -135,9 +135,14 @@ export class WebSocketClient {
   private isIntentionallyClosed = false;
   private pendingMessages: WebSocketMessage[] = [];
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** When true, announce this socket as a human-facing UI client on every open
+   *  (see `ui_connected`). Only the app's shared client sets this — the raw
+   *  transport stays identity-neutral so it can be reused for non-UI sockets. */
+  private announceAsUi: boolean;
 
-  constructor(url: string) {
+  constructor(url: string, options: { announceAsUi?: boolean } = {}) {
     this.url = url;
+    this.announceAsUi = options.announceAsUi ?? false;
   }
 
   /**
@@ -155,6 +160,19 @@ export class WebSocketClient {
           this.reconnectAttempts = 0;
           this.isIntentionallyClosed = false;
           logConn('socket open', 'ok');
+
+          // Announce ourselves as a human-facing UI client so the server's health
+          // check can report a reachable UI even when this browser/desktop app
+          // runs on a different machine than the server (the server's local
+          // dev/dist probe can't see across the network). Re-sent on every
+          // reconnect because the server tracks this per-socket.
+          if (this.announceAsUi && typeof window !== 'undefined') {
+            this.send({
+              type: 'ui_connected',
+              href: window.location?.href,
+              userAgent: window.navigator?.userAgent,
+            });
+          }
 
           // Send any pending messages
           const queued = this.pendingMessages.length;
@@ -388,7 +406,9 @@ let sharedClient: WebSocketClient | null = null;
  */
 export function getWebSocketClient(url: string = getDefaultWebSocketURL()): WebSocketClient {
   if (!sharedClient) {
-    sharedClient = new WebSocketClient(url);
+    // The shared client is the app's human-facing UI socket — announce it as
+    // such so the server health check can detect a reachable UI across the network.
+    sharedClient = new WebSocketClient(url, { announceAsUi: true });
     if (typeof window !== 'undefined') {
       (window as unknown as { __WS_CLIENT__: WebSocketClient }).__WS_CLIENT__ = sharedClient;
     }

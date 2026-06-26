@@ -104,6 +104,12 @@ export type WSMessage =
   | { type: 'ide_open_diff'; filePath: string }
   | { type: 'ide_open_terminal'; session: string; project: string; tmuxSession: string }
   | { type: 'ide_connected'; vscodeVersion: string; extensionVersion: string; workspaceFolders?: string[] }
+  // Browser/desktop UI handshake. Sent by the collab UI client immediately after
+  // its /ws socket opens (and on every reconnect) so the server can tell a
+  // human-facing UI socket apart from other /ws clients (IDE, peers). This is the
+  // ONLY reliable signal that a UI is reachable in a networked deploy, where the
+  // UI runs on a different machine and the local dev/dist probe is a false negative.
+  | { type: 'ui_connected'; href?: string; userAgent?: string }
   | { type: 'ide_reattach'; claudePid: number; claudeSessionId: string; project: string; session: string; tmuxSession: string; boundAt: string }
   | { type: 'ide_disconnected'; reason?: string }
   | { type: 'browser_tab_update'; session: string; active: boolean }
@@ -179,6 +185,11 @@ export type BrowserQualityMsg = Extract<WSMessage, { type: 'browser_quality' }>;
 
 export class WebSocketHandler {
   private connections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
+  // Subset of `connections` that have announced themselves as human-facing UI
+  // clients via a `ui_connected` handshake. Used by the health check to report
+  // whether a UI is reachable even when it runs on a different machine (the local
+  // dev/dist probe can't see across the network).
+  private uiConnections: Set<ServerWebSocket<{ subscriptions: Set<string> }>> = new Set();
   private onConnectionsChanged: ((n: number) => void) | null = null;
   private onChannelSubscriptionChange: ((channel: string, count: number) => void) | null = null;
   private onBrowserInput: ((msg: BrowserInputMsg) => void) | null = null;
@@ -226,6 +237,7 @@ export class WebSocketHandler {
 
   handleDisconnection(ws: ServerWebSocket<{ subscriptions: Set<string> }>): void {
     this.connections.delete(ws);
+    this.uiConnections.delete(ws);
     this.fireConnectionsChanged();
     ideState.ideDisconnected(ws);
     this.broadcastToChannel('ide', { type: 'ide_status', connected: false } as unknown as WSMessage);
@@ -300,6 +312,10 @@ export class WebSocketHandler {
         ideState.ideConnected(ws, d.workspaceFolders ?? []).then(() => {
           this.broadcastToChannel('ide', { type: 'ide_status', connected: true } as unknown as WSMessage);
         });
+      } else if (data.type === 'ui_connected') {
+        // Mark this socket as a human-facing UI client so the health check can
+        // report a reachable UI even when it lives on another machine.
+        this.uiConnections.add(ws);
       } else if (data.type === 'peer_registry') {
         // Loopback-gate ingest (P1 §2): the desktop aggregator always dials its
         // local servers over loopback, so only a 127.0.0.1 remote may set the
@@ -543,5 +559,12 @@ export class WebSocketHandler {
 
   getConnectionCount(): number {
     return this.connections.size;
+  }
+
+  /** Number of connected human-facing UI clients (browser/desktop) that have
+   *  completed the `ui_connected` handshake. >0 means a UI is reachable, even
+   *  on another machine. */
+  getUiClientCount(): number {
+    return this.uiConnections.size;
   }
 }
