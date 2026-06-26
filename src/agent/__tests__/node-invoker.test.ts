@@ -12,10 +12,31 @@ import {
   RATE_LIMIT_RE,
   CONN_ERR_RE,
   parseCapReset,
+  worktreeSpawnEnv,
   type NodeSpec,
 } from '../node-invoker.ts';
 
 const base: NodeSpec = { prompt: 'hello', cwd: '/tmp/x' };
+
+describe('worktreeSpawnEnv (E3 git isolation)', () => {
+  it('strips GIT_DIR/GIT_WORK_TREE and ceilings discovery at the worktree parent', () => {
+    const env = worktreeSpawnEnv('/repo/.claude/worktrees/wt-1', {
+      PATH: '/usr/bin',
+      GIT_DIR: '/repo/.git',
+      GIT_WORK_TREE: '/repo',
+    } as NodeJS.ProcessEnv);
+    expect(env.GIT_DIR).toBeUndefined();
+    expect(env.GIT_WORK_TREE).toBeUndefined();
+    expect(env.GIT_CEILING_DIRECTORIES).toBe('/repo/.claude/worktrees');
+    expect(env.PATH).toBe('/usr/bin'); // other env preserved
+  });
+
+  it('does not mutate the base env', () => {
+    const baseEnv = { GIT_DIR: '/repo/.git' } as NodeJS.ProcessEnv;
+    worktreeSpawnEnv('/repo/wt', baseEnv);
+    expect(baseEnv.GIT_DIR).toBe('/repo/.git');
+  });
+});
 
 describe('buildNodeArgv', () => {
   it('always headless stream-json (+verbose, for the transcript), no-session-persistence, bypassPermissions, never --bare', () => {

@@ -23,6 +23,30 @@ import { resolveGrokModel } from './grok-model.js';
 export type AuthMode = 'subscription' | 'api' | 'unknown' | 'grok';
 
 /**
+ * E3 — WORKTREE WRITE ISOLATION. A node CLI (claude -p / grok) runs in a lane/epic
+ * worktree (`spec.cwd`), but inheriting the server's raw `process.env` lets its `git`
+ * invocations ESCAPE that worktree two ways: (1) an inherited `GIT_DIR`/`GIT_WORK_TREE`
+ * pins git to a different repo regardless of cwd; (2) git repo-discovery walks UP the
+ * tree, and because a linked worktree shares the main repo's `.git` (gitlink/common-dir),
+ * discovery can resolve operations against the MAIN checkout — so a commit/checkout the
+ * node runs corrupts the live repo and leaves the branch's work incomplete (bug 7cf3c08f,
+ * observed live: src/services/*.ts + tests appeared dirty in the main checkout after a run).
+ *
+ * Fix: build the child env from process.env but (a) DELETE GIT_DIR + GIT_WORK_TREE so they
+ * can't override the worktree, and (b) set GIT_CEILING_DIRECTORIES to the worktree's PARENT
+ * so git discovery cannot climb past the worktree. Exported + pure for unit testing.
+ */
+export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  // Ceiling at the worktree's parent: discovery may find the worktree's own `.git` file
+  // but must not climb above it to the main checkout. (No-effect for a non-worktree cwd.)
+  env.GIT_CEILING_DIRECTORIES = dirname(cwd);
+  return env;
+}
+
+/**
  * Append a node's raw stream-json transcript to the per-leaf file, preceded by a
  * synthetic boundary marker so the reader can split the file back into nodes.
  * Best-effort: a transcript-write failure must NEVER fail the node.
@@ -442,7 +466,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       stdin: new TextEncoder().encode(spec.prompt),
       stdout: 'pipe',
       stderr: 'pipe',
-      env: process.env,
+      env: worktreeSpawnEnv(spec.cwd), // E3: isolate git to the worktree (no main-checkout escape)
     });
   } catch (e) {
     return {
@@ -900,7 +924,7 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
       cwd: spec.cwd,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: process.env,
+      env: worktreeSpawnEnv(spec.cwd), // E3: isolate git to the worktree (no main-checkout escape)
     });
   } catch (e) {
     cleanupPromptTemp(promptDir, promptFile);
