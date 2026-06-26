@@ -1187,6 +1187,7 @@ function makeVerifyDeps(opts: {
     removeCalls: [] as Spies['removeCalls'],
     markRejectingCalls: [] as Spies['markRejectingCalls'],
     seq: [] as Spies['seq'],
+    inflightSeq: [] as Spies['inflightSeq'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
