@@ -214,6 +214,18 @@ describe('planResume (resume decision — conservative, fresh on any doubt)', ()
     expect(planResume({ merged: false, phase: 'implement', epicBaseSha: SHA }, SHA)).toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
     expect(planResume({ merged: false, phase: 'review', epicBaseSha: SHA }, SHA).mode).toBe('reattach-blueprint');
   });
+  it('blueprint phase + durable blueprint output + base unchanged → reattach (no re-burn)', () => {
+    expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: SHA }, SHA, true))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+  });
+  it('blueprint phase + durable output but base moved → fresh (never reuse a stale plan)', () => {
+    expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: 'old' }, SHA, true).reason)
+      .toBe('epic-base-moved');
+  });
+  it('blueprint phase + NO durable output → still fresh (killed-before-blueprint)', () => {
+    expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: SHA }, SHA, false).reason)
+      .toBe('killed-before-blueprint');
+  });
 });
 
 describe('parseVerdict (fail-closed)', () => {
@@ -1495,5 +1507,29 @@ describe('runLeaf resume consumption (slice 2)', () => {
     expect(res.outcome).toBe('accepted');
     const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
     expect(ranBlueprint).toBe(true); // had to author it after all
+  });
+
+  it('reattach-blueprint: resumed reattach dispatch does NOT increment blueprint nodesSpent', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => '# prior blueprint\n\n```json\n{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["x.ts"],"tasks":[{"id":"t1","files":["x.ts"],"description":"x"}]}\n```';
+    // Stub invoker to throw if blueprint kind is ever invoked (Write profile).
+    const originalInvoke = deps.invoker.invoke;
+    deps.invoker = {
+      async invoke(spec: NodeSpec): Promise<NodeResult> {
+        if ((spec.allowedTools ?? '').includes('Write')) {
+          throw new Error('BLUEPRINT_SHOULD_NOT_BE_INVOKED_ON_REATTACH');
+        }
+        return originalInvoke(spec);
+      },
+    };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // Blueprint invoker was never called.
+    const ranBlueprint = spies.invokeSpecs.some((s) => (s.allowedTools ?? '').includes('Write'));
+    expect(ranBlueprint).toBe(false);
+    // nodesSpent reflects only implement+review (2), not 3.
+    expect(res.nodesSpent).toBe(2);
+    expect(spies.invokeSpecs.length).toBe(2);
   });
 });
