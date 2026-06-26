@@ -186,7 +186,18 @@ async function invokeOnServer(
     const r = await fetch(`http://${entry.host}:${entry.port}${opts.path}${qs}`, {
       method: opts.method ?? 'GET',
       headers,
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      // `body` arrives either as a plain object (most store callers) or as an
+      // already-serialized JSON string (apiFetch forwards the fetch-style
+      // string body verbatim). Stringify objects once; pass strings through
+      // as-is — otherwise we double-encode and hand the backend a JSON
+      // string-of-a-string, so `req.json()` yields a string and every field
+      // destructures to undefined ("project and session required").
+      body:
+        opts.body === undefined
+          ? undefined
+          : typeof opts.body === 'string'
+            ? opts.body
+            : JSON.stringify(opts.body),
       signal: AbortSignal.timeout(8000),
     });
     const text = await r.text();
