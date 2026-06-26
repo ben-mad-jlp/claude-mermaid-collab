@@ -30,6 +30,23 @@ interface TrackedProc {
 
 const tracked = new Map<string, TrackedProc>();
 
+/**
+ * E4 — run-level liveness. The per-node `tracked` map above is gappy (empty between a
+ * leaf's nodes), so it can't answer "is this leaf's RUN still going?". This set is added
+ * when the daemon launches a leaf run and removed in its finally (covering normal return,
+ * abort, AND throw). It is the liveness source for the same-epoch orphan-inflight sweep:
+ * a current-epoch leaf_inflight row whose leafId is NOT in here belongs to a run that
+ * already ended without clearing its row (an aborted/errored run) → safe to drop.
+ */
+const liveRuns = new Set<string>();
+
+/** Mark a leaf run live (daemon fire-and-track launch). */
+export function markRunLive(leafId: string): void { liveRuns.add(leafId); }
+/** Mark a leaf run done (the launch's finally — normal/abort/throw). */
+export function markRunDone(leafId: string): void { liveRuns.delete(leafId); }
+/** Is this leaf's run live in THIS process? */
+export function isRunLive(leafId: string): boolean { return liveRuns.has(leafId); }
+
 /** Record the live node subprocess for a leaf. No-op without a leafId/pid. */
 export function registerLeafProc(leafId: string | undefined, pid: number | undefined, project: string): void {
   if (!leafId || !pid) return;
@@ -90,4 +107,5 @@ export function listTrackedLeaves(): Array<{ leafId: string; pid: number; projec
 /** TEST-ONLY: clear the registry between cases. */
 export function _resetLeafProcRegistry(): void {
   tracked.clear();
+  liveRuns.clear();
 }

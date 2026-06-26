@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -118,6 +118,26 @@ describe('leaf_inflight epoch heal (reapStaleInflight)', () => {
     setLeafInflight({ project: '/p', leafId: 'mine' });
     expect(reapStaleInflight()).toBe(0);
     expect(listLeafInflight().map((r) => r.leafId)).toContain('mine');
+  });
+});
+
+describe('leaf_inflight same-epoch orphan sweep (E4 — reapSameEpochOrphanInflight)', () => {
+  test('drops a current-epoch row whose run is not live; keeps live runs', () => {
+    setLeafInflight({ project: '/p', leafId: 'live-run', nodeKind: 'blueprint' });
+    setLeafInflight({ project: '/p', leafId: 'dead-run', nodeKind: 'implement' });
+    // 'live-run' is still executing (e.g. between nodes); 'dead-run' errored without
+    // clearing its row → a same-epoch phantom that reapStaleInflight can't touch.
+    const live = new Set(['live-run']);
+    expect(reapSameEpochOrphanInflight((id) => live.has(id))).toBe(1);
+    expect(listLeafInflight().map((r) => r.leafId)).toEqual(['live-run']);
+  });
+
+  test('no live runs → drops every current-epoch row; idempotent', () => {
+    setLeafInflight({ project: '/p', leafId: 'a' });
+    setLeafInflight({ project: '/p', leafId: 'b' });
+    expect(reapSameEpochOrphanInflight(() => false)).toBe(2);
+    expect(listLeafInflight()).toEqual([]);
+    expect(reapSameEpochOrphanInflight(() => false)).toBe(0);
   });
 });
 
