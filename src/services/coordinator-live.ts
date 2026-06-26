@@ -1434,6 +1434,47 @@ export async function landEpic(
         return { ok: false, landed: false, reason: verdict.reason, epicId, epicBranch };
       }
 
+      // L3 — LAND-TIME FRESHNESS GUARD. Before advancing trunk, check whether the epic's
+      // build-base drifted from CURRENT trunk (L1 `epicBuildBaseStaleness`). If stale,
+      // forward-integrate trunk + re-run the gate INSIDE the epic worktree (L2
+      // `revalidateStaleEpic`, where deps resolve) so we never advance trunk on a tree that
+      // was only ever gated against an OLDER trunk tip — the semantic-drift / build123d
+      // importorskip false-green class. FRESH → fall straight through to the merge (the fast,
+      // common path; no behaviour change). STALE + revalidation-fail → master UNTOUCHED, raise
+      // one escalation, refuse. Both land routes inherit this: the human land_epic MCP path AND
+      // the daemon auto-land (reconcile-pass surfaceEpicLand → landEpic at level>=drive) call
+      // THIS function. (The OI-1 reachability reconcile's landEpicToMaster lands a leaf onto the
+      // INTEGRATION ref during acceptance — not trunk at epic-completion — so it is intentionally
+      // NOT guarded here.)
+      const staleness = await wm.epicBuildBaseStaleness(epicId).catch(() => null);
+      if (staleness?.stale) {
+        const rev = await revalidateStaleEpic(targetProject, epicId);
+        if (!rev.ok) {
+          const failReason = `stale-build-base:${rev.reason}`;
+          const detail =
+            rev.reason === 'forward-integrate-conflict'
+              ? `re-integration hit a merge conflict (${rev.conflictedPaths.join(', ') || 'unknown'})`
+              : rev.reason === 'revalidation-gate-failed'
+                ? `the re-run gate FAILED:\n${rev.output}`
+                : rev.reason;
+          createEscalation({
+            project,
+            session: esc.session,
+            todoId,
+            kind: 'assumption-invalidated',
+            questionText:
+              `Land blocked — epic ${epicBranch} was built against a stale trunk base ` +
+              `(${staleness.commitsAhead} trunk commit(s) ahead; ${staleness.reason}` +
+              `${staleness.overlap.length ? `; overlapping files: ${staleness.overlap.join(', ')}` : ''}). ` +
+              `${detail}. Master is UNTOUCHED — merge master into ${epicBranch}, resolve/fix, re-gate, then re-land.`,
+          });
+          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'refused', reason: failReason, commitsAhead: staleness.commitsAhead, overlap: staleness.overlap }) });
+          return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
+        }
+        // rev.ok → epic now carries trunk + re-gated green → fall through to the real merge.
+        recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'revalidated', commitsAhead: staleness.commitsAhead, reason: staleness.reason }) });
+      }
+
       // Green proof → perform the real single --no-ff epic→master merge.
       const land = await wm.landEpicToMaster(epicId, dirty.length > 0 && opts?.allowDirty ? { allowDirtyPaths: dirty } : undefined);
       if (land.conflict) {
