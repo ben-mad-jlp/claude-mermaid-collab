@@ -6,7 +6,7 @@ import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, g
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, getLeafResume, clearLeafResume } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume } from './worker-ledger';
 import { reapOrphanedLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
@@ -2056,6 +2056,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         if (!session) continue;           // never-spawned leaf → grace sweep handles it
         const pulseAt = lanePulseAt(project, session);
         if (pulseAt == null || nowMs - pulseAt <= PULSE_STALE_MS) continue; // fresh/absent → fall back
+        if (isLeafInflightLive(t.id)) continue; // bug 0f1df3d2: a live current-epoch node (e.g. a long blueprint) is NOT an orphan — inProcessLaneAlive is blind to the node-invoker `claude -p` subprocess, so the leaf_inflight row is the authoritative signal
         if (await inProcessLaneAlive(session)) continue; // live in-process lane — no tmux to probe (§6.7)
         const tmux = tmuxBaseName(project, session);
         const dead = await laneConfirmedDead(tmux, snap);
@@ -2079,6 +2080,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const candidates = planOrphanReap(inProgress, now, DEFAULT_ORPHAN_GRACE_MS);
       for (const c of candidates) {
         if (priorEpochReaped.has(c.id) || fastReaped.has(c.id)) continue; // already reclaimed (prior-epoch or pulse)
+        // bug 0f1df3d2: a live current-epoch leaf_inflight row means a node is running
+        // RIGHT NOW (e.g. a >lease blueprint) — never reap it via the age/lease grace
+        // path. Authoritative for headless leaves, which inProcessLaneAlive can't see.
+        if (isLeafInflightLive(c.id)) continue;
         // Live in-process lane (no tmux) → never reap on tmux absence (§6.7 bootstrap).
         if (c.sessionName && await inProcessLaneAlive(c.sessionName)) continue;
         // Case B (claim past lease): only reap once the worker's tmux is confirmed

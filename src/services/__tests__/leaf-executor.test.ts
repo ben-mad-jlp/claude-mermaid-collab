@@ -108,6 +108,9 @@ interface Spies {
   /** Ordered log of 'mark' (markRejecting) vs 'complete:<acceptance>' to assert the
    *  reject pre-stamp lands BEFORE the slow gate. */
   seq: string[];
+  /** Ordered log of 'set:<kind>' (setInflight) and 'clear' (clearInflight) — bug
+   *  0f1df3d2: the row must span the whole run (set per-node, cleared ONCE at the end). */
+  inflightSeq: string[];
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -128,6 +131,7 @@ function makeDeps(opts: {
     removeCalls: [],
     markRejectingCalls: [],
     seq: [],
+    inflightSeq: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -186,6 +190,8 @@ function makeDeps(opts: {
       spies.escalations.push({ kind: input.kind, questionText: input.questionText });
     },
     recordNode: () => null,
+    setInflight: (e) => { spies.inflightSeq.push(`set:${e.nodeKind ?? '?'}`); },
+    clearInflight: () => { spies.inflightSeq.push('clear'); },
   };
   return { deps, spies };
 }
@@ -287,6 +293,23 @@ describe('runLeaf state machine', () => {
     expect(spies.mergeCalls).toBe(1);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
     expect(spies.escalations.length).toBe(0);
+  });
+
+  // bug 0f1df3d2: the leaf_inflight row must SPAN the whole run so the daemon's
+  // orphan-reclaim guard (isLeafInflightLive) never reclaims a live leaf mid-run or
+  // in the between-nodes window. setInflight fires per-node (fresh nodeKind); the row
+  // is cleared exactly ONCE, at the terminal funnel — not after each node.
+  it('inflight row spans the run: set per-node, cleared exactly once at the end', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    await runLeaf('proj', makeLeaf(), deps);
+    // exactly one clear, and it is the LAST event (no per-node clears interleaved).
+    const clears = spies.inflightSeq.filter((s) => s === 'clear');
+    expect(clears.length).toBe(1);
+    expect(spies.inflightSeq[spies.inflightSeq.length - 1]).toBe('clear');
+    // all node sets land BEFORE the single clear (no between-nodes gap with no row).
+    const sets = spies.inflightSeq.slice(0, -1);
+    expect(sets.length).toBeGreaterThanOrEqual(3); // blueprint, implement, review
+    expect(sets.every((s) => s.startsWith('set:'))).toBe(true);
   });
 
   it('merge-and-merge order: commitAndMergeToEpic happens BEFORE complete(accepted)', async () => {

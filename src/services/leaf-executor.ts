@@ -1001,6 +1001,14 @@ export async function runLeaf(
   // blocked/rejected work stays recoverable on demand. A `pending` (paused/resumable)
   // leaf KEEPS its worktree. Best-effort: never let cleanup change the outcome.
   const finishWith = async (r: LeafRunResult): Promise<LeafRunResult> => {
+    // RUN-LEVEL inflight clear (bug 0f1df3d2): the leaf_inflight row now SPANS the
+    // whole run (runNode no longer deletes it per-node — that left a between-nodes
+    // window with no row, momentarily reclaimable). finishWith is the single terminal
+    // funnel for every outcome (terminal AND pending/paused), so clearing here drops
+    // the row exactly when the run stops executing a node. A paused leaf is no longer
+    // live → correctly becomes re-dispatchable. The ownership-CAS discard path clears
+    // it independently; process death is handled by reapStaleInflight (stale epoch).
+    try { deps.clearInflight?.(leaf.id); } catch { /* best-effort */ }
     // Keep the worktree for RESUMABLE outcomes (pending = gate-deferred, paused =
     // rate-limited) — those re-dispatch and reuse/rebuild from it. Reap on every
     // TERMINAL outcome (accepted/blocked/rejected/split).
@@ -1085,12 +1093,11 @@ export async function runLeaf(
       invoker = deps.invoker;
       recordedModel = nodeModel(kind);
     }
-    let res: NodeResult;
-    try {
-      res = await invoker.invoke(effSpec);
-    } finally {
-      deps.clearInflight?.(leaf.id);
-    }
+    // NOTE (bug 0f1df3d2): do NOT clear the inflight row here. It is set per-node
+    // (above) so nodeKind stays fresh, but the row must SPAN the whole run — including
+    // the between-nodes window — so the daemon's orphan-reclaim guard (isLeafInflightLive)
+    // never reclaims a live leaf mid-run. The single clear lives in finishWith.
+    const res: NodeResult = await invoker.invoke(effSpec);
     try {
       deps.recordNode({
         project,
