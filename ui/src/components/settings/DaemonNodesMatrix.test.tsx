@@ -82,3 +82,72 @@ describe('DaemonNodesMatrix — effort gating', () => {
     expect(screen.getByTestId('node-effort-report')).toBeTruthy();
   });
 });
+
+describe('DaemonNodesMatrix — grouped by pipeline', () => {
+  const GROUPS_GET_BODY = {
+    project: '/abs/p',
+    claudeModels: ['opus', 'sonnet', 'haiku'],
+    grokModels: ['grok-build', 'grok-composer-2.5-fast'],
+    providers: ['claude', 'grok-build'],
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    groups: [
+      { key: 'floor', label: 'Floor', firesWhen: 'Always — the default code-leaf path.', kinds: ['blueprint', 'implement', 'review'], defaultCollapsed: false },
+      { key: 'waves', label: 'Waves', firesWhen: 'Only for multi-file manifests.', kinds: ['research', 'wimplement', 'verify', 'fix'], defaultCollapsed: true },
+      { key: 'verify-cad', label: 'Verify / CAD', firesWhen: 'Only for verify/cad leaves.', kinds: ['driveplan', 'driveexec', 'report'], defaultCollapsed: true },
+      { key: 'zen', label: 'Zen', firesWhen: 'Session-summary loop.', kinds: ['summary'], defaultCollapsed: true },
+    ],
+    rows: [
+      {
+        kind: 'blueprint', desc: 'plan', defaultModel: 'opus', defaultEffort: 'high',
+        modelOverride: null, effortOverride: null, providerOverride: null,
+        effectiveModel: 'opus', effectiveEffort: 'high', effectiveProvider: 'claude', mcpForced: false,
+      },
+      {
+        kind: 'implement', desc: 'code', defaultModel: 'sonnet', defaultEffort: 'medium',
+        modelOverride: null, effortOverride: null, providerOverride: null,
+        effectiveModel: 'sonnet', effectiveEffort: 'medium', effectiveProvider: 'claude', mcpForced: false,
+      },
+      {
+        kind: 'review', desc: 'review', defaultModel: 'opus', defaultEffort: 'high',
+        modelOverride: null, effortOverride: null, providerOverride: null,
+        effectiveModel: 'opus', effectiveEffort: 'high', effectiveProvider: 'claude', mcpForced: false,
+      },
+      {
+        kind: 'research', desc: 'investigate', defaultModel: 'sonnet', defaultEffort: 'medium',
+        modelOverride: null, effortOverride: null, providerOverride: null,
+        effectiveModel: 'sonnet', effectiveEffort: 'medium', effectiveProvider: 'claude', mcpForced: false,
+      },
+    ],
+  };
+
+  it('renders all 4 group headers and seeds default collapse (Floor expanded, others collapsed)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GROUPS_GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-group-header-floor')).toBeTruthy());
+    expect(screen.getByTestId('node-group-header-waves')).toBeTruthy();
+    expect(screen.getByTestId('node-group-header-verify-cad')).toBeTruthy();
+    expect(screen.getByTestId('node-group-header-zen')).toBeTruthy();
+    // Floor rows visible (defaultCollapsed: false)
+    expect(screen.getByTestId('node-row-blueprint')).toBeTruthy();
+    // Waves row absent (collapsed by default)
+    expect(screen.queryByTestId('node-row-research')).toBeNull();
+    // Verify/CAD and Zen rows absent (collapsed + no summary row for Zen)
+    expect(screen.queryByTestId('node-row-driveplan')).toBeNull();
+  });
+
+  it('clicking a collapsed header reveals its rows', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GROUPS_GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-group-header-waves')).toBeTruthy());
+    expect(screen.queryByTestId('node-row-research')).toBeNull();
+    fireEvent.click(screen.getByTestId('node-group-header-waves'));
+    await waitFor(() => expect(screen.getByTestId('node-row-research')).toBeTruthy());
+  });
+
+  it('Zen header renders the "(not configurable here)" hint when no summary row exists', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GROUPS_GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-group-header-zen')).toBeTruthy());
+    expect(screen.getByText(/not configurable here/)).toBeTruthy();
+  });
+});

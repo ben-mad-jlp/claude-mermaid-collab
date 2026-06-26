@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, reapStaleInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, reapStaleInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -121,20 +121,6 @@ describe('leaf_inflight epoch heal (reapStaleInflight)', () => {
   });
 });
 
-describe('leaf_inflight live-pause clear', () => {
-  test('same-epoch row survives reapStaleInflight but is removed by clearLeafInflight (live pause gap)', () => {
-    setLeafInflight({ leafId: 'pause-leaf', project: 'p', nodeKind: 'blueprint' });
-    expect(listLeafInflight({ project: 'p' }).map((r) => r.leafId)).toContain('pause-leaf');
-
-    // The reaper only drops OTHER-epoch (dead process) rows; same-epoch live rows survive.
-    reapStaleInflight();
-    expect(listLeafInflight({ project: 'p' }).map((r) => r.leafId)).toContain('pause-leaf');
-
-    clearLeafInflight('pause-leaf');
-    expect(listLeafInflight({ project: 'p' }).map((r) => r.leafId)).not.toContain('pause-leaf');
-  });
-});
-
 describe('leaf_resume durable budget recovery (slice 1b)', () => {
   test('records and reads back nodesSpent + phase + attempt', () => {
     recordLeafResume({ project: '/p', leafId: 'L1', nodesSpent: 7, phase: 'implement', attempt: 1 });
@@ -172,5 +158,16 @@ describe('leaf_resume durable budget recovery (slice 1b)', () => {
     recordLeafResume({ project: '/a', leafId: 'L1', nodesSpent: 9 });
     expect(getLeafResume('/b', 'L1')).toBeNull();
     expect(getLeafResume('/a', 'L1')?.nodesSpent).toBe(9);
+  });
+});
+
+describe('isLeafInflightLive', () => {
+  test('returns true for a same-epoch setLeafInflight row; false after clear; false for unknown', () => {
+    expect(isLeafInflightLive('L1')).toBe(false);
+    setLeafInflight({ project: '/p', leafId: 'L1', nodeKind: 'implement' });
+    expect(isLeafInflightLive('L1')).toBe(true);
+    expect(isLeafInflightLive('L2')).toBe(false);
+    clearLeafInflight('L1');
+    expect(isLeafInflightLive('L1')).toBe(false);
   });
 });
