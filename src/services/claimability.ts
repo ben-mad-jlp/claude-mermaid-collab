@@ -59,7 +59,9 @@ export type ClaimReason =
  * soak in design-todo-model-refactor) — it alters live claim behavior, not just labeling.
  */
 export function depSatisfied(dep: Todo | undefined): boolean {
-  return !!dep && dep.status === 'done' && dep.acceptanceStatus !== 'rejected';
+  if (!dep) return false;
+  if (dep.acceptanceStatus === 'rejected') return false;
+  return dep.status === 'done' || dep.acceptanceStatus === 'accepted';
 }
 
 /**
@@ -70,7 +72,13 @@ export function depSatisfied(dep: Todo | undefined): boolean {
  * actionable-by-a-human, not auto-claimed).
  */
 export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
-  if (t.status === 'done' || t.status === 'dropped') return 'terminal';
+  // An ACCEPTED leaf is terminal regardless of the stored `status` enum: completeTodo
+  // writes status='done'+acceptanceStatus='accepted' atomically, but a later reset/reaper
+  // can reset status to a non-terminal value while leaving acceptanceStatus='accepted'
+  // (the 75f7e304 re-claim bug — an accepted L1 re-claimed, re-run, re-rejected). Keying
+  // terminality on acceptanceStatus too (symmetric with the 'rejected' branch below) keeps
+  // such a leaf OUT of the claimable set so done work never re-enters the pipeline.
+  if (t.status === 'done' || t.status === 'dropped' || t.acceptanceStatus === 'accepted') return 'terminal';
   if (t.claim != null) return 'in-flight';
   // A self-rejected completion (gate failed) is NOT done and must NOT be auto-
   // reclaimed — it stays parked for a human to re-open/split/drop. The old hold
