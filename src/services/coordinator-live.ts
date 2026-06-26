@@ -1887,6 +1887,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               // loop re-dispatches it once the breaker closes.
               tripBreaker(res.paused?.capReset);
               enqueuePausedLeaf(project, todo.id, res.paused!);
+              // A live-process pause leaves no terminal node-finally to clear the leaf's
+              // live in-flight row, and reapStaleInflight() only deletes OTHER-epoch
+              // (dead-process) rows — so the row would linger and inflate daemon_status'
+              // in-flight count until re-dispatch. The daemon owns the pause response, so
+              // it also owns clearing the row here. Best-effort (telemetry never blocks).
+              clearLeafInflight(todo.id);
               try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
               return;
             }
