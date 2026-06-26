@@ -333,6 +333,41 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
   summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
 };
 
+/** Pipeline grouping for the node-kind matrix editor (UI: DaemonNodesMatrix).
+ *  The single source of truth for which kinds belong to which pipeline + when
+ *  each pipeline actually fires. Ordered; Floor first. `defaultCollapsed` drives
+ *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS. */
+export interface LeafNodeGroup {
+  key: 'floor' | 'waves' | 'verify-cad' | 'zen';
+  label: string;
+  firesWhen: string;
+  kinds: LeafNodeKind[];
+  defaultCollapsed: boolean;
+}
+
+export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
+  {
+    key: 'floor', label: 'Floor', defaultCollapsed: false,
+    firesWhen: 'Always — the default code-leaf path (blueprint → implement → review).',
+    kinds: ['blueprint', 'implement', 'review'],
+  },
+  {
+    key: 'waves', label: 'Waves', defaultCollapsed: true,
+    firesWhen: "Only when a code leaf's blueprint manifest is multi-file / non-enumerable (!shouldUseFloor).",
+    kinds: ['research', 'wimplement', 'verify', 'fix'],
+  },
+  {
+    key: 'verify-cad', label: 'Verify / CAD', defaultCollapsed: true,
+    firesWhen: 'Only when leaf.type ∈ verify | cad-dogfood | dogfood (build-assembly geometry gate) — never for ordinary backend/ui leaves.',
+    kinds: ['driveplan', 'driveexec', 'report'],
+  },
+  {
+    key: 'zen', label: 'Zen', defaultCollapsed: true,
+    firesWhen: 'Session-summary loop, not a build leaf (not configurable here).',
+    kinds: ['summary'],
+  },
+];
+
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
   blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
   implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' },
@@ -913,6 +948,9 @@ export interface ResumePlan { mode: ResumeMode; reason: string }
  *                                     re-verifies it — safe regardless of further
  *                                     epic advance; redoing the leaf is pure waste)
  * - killed at/before blueprint     → fresh (nothing durable to reuse)
+ *                                     (EXCEPT: when hasBlueprintOutput=true, a
+ *                                     completed blueprint was durably recorded;
+ *                                     treat as reattach-blueprint instead)
  * - epic base missing/moved        → fresh (the blueprint was authored against the
  *                                     old tip; resuming against a changed world is
  *                                     Grok's #1 risk — never do it)
@@ -924,10 +962,16 @@ export interface ResumePlan { mode: ResumeMode; reason: string }
 export function planResume(
   resume: { phase?: string | null; merged: boolean; epicBaseSha?: string | null } | null,
   currentEpicSha: string | null,
+  hasBlueprintOutput = false,
 ): ResumePlan {
   if (!resume) return { mode: 'fresh', reason: 'no-resume-state' };
   if (resume.merged) return { mode: 'skip-to-gate', reason: 'work-merged' };
-  if (!resume.phase || resume.phase === 'blueprint') return { mode: 'fresh', reason: 'killed-before-blueprint' };
+  // Paused/killed at-or-before the blueprint node. If a COMPLETED blueprint was
+  // durably recorded (the leaf rate-paused after authoring it), reuse it instead of
+  // re-burning the ~opus blueprint node — the 1.8M-token re-burn loop. Only treat as
+  // genuinely fresh when no usable blueprint output exists.
+  if ((!resume.phase || resume.phase === 'blueprint') && !hasBlueprintOutput)
+    return { mode: 'fresh', reason: 'killed-before-blueprint' };
   if (!resume.epicBaseSha || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
   if (resume.epicBaseSha !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
@@ -1910,7 +1954,10 @@ export async function makeLeafExecutorDeps(
   // stale row (e.g. the epic base moved under a killed run), drop the row and ignore
   // any carried budget so the clean run starts at 0; otherwise carry it forward.
   const existingResume = getLeafResume(project, leaf.id);
-  const resumePlan = planResume(existingResume, epicBaseSha);
+  // A durable blueprint output (recorded by a prior dispatch's blueprint node) means a
+  // blueprint-phase pause is REUSABLE, not fresh — avoid re-running the blueprint node.
+  const hasBlueprintOutput = !!getLatestNodeOutput(leaf.id, 'blueprint')?.trim();
+  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput);
   let effectiveStart = startNodesSpent;
   if (resumePlan.mode === 'fresh' && existingResume) {
     clearLeafResume(leaf.id);

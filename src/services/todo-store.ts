@@ -912,7 +912,9 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
     const claimJson = JSON.stringify({ by: claimedBy, token, at: now, leaseMs, ...(epoch ? { epoch } : {}) } satisfies ClaimStruct);
     const res = db.prepare(
       `UPDATE todos SET status='in_progress', claimedBy=?, claimToken=?, claimedAt=?, claimLeaseMs=?, claim=?, updatedAt=?
-       WHERE id=? AND claim IS NULL AND status NOT IN ('done','dropped') AND approvedAt IS NOT NULL AND heldAt IS NULL`
+       WHERE id=? AND claim IS NULL AND status NOT IN ('done','dropped')
+         AND (acceptanceStatus IS NOT 'accepted')
+         AND approvedAt IS NOT NULL AND heldAt IS NULL`
     ).run(claimedBy, token, now, leaseMs, claimJson, now, id);
     return res.changes === 1 ? getTodo(project, id) : null;
   });
@@ -1016,6 +1018,9 @@ export function reclaimNow(project: string, id: string): Promise<'ready' | 'bloc
     // rate-limited account. (Phase-B will make the terminal/claim write atomic; this
     // is the cheap, authoritative choke-point guard.)
     if (row.acceptanceStatus === 'rejected') return null;
+    // Symmetric to FM1 (75f7e304): an ACCEPTED leaf is terminal even if a prior reset left its
+    // stored status non-terminal — never reclaim it (else the next tick re-runs done work).
+    if (row.acceptanceStatus === 'accepted') return null;
     const hasClaim = readClaim(row) != null;
     if (!hasClaim && row.status !== 'in_progress') return null;
     const exhausted = (row.retryCount ?? 0) + 1 > MAX_CLAIM_RETRIES;

@@ -11,7 +11,7 @@ const dir = mkdtempSync(join(tmpdir(), 'orch-routes-'));
 process.env.MERMAID_SUPERVISOR_DIR = dir;
 
 import { handleOrchestratorRoutes } from '../orchestrator-routes';
-import { LEAF_NODE_KINDS } from '../../services/leaf-executor';
+import { LEAF_NODE_KINDS, LEAF_NODE_GROUPS } from '../../services/leaf-executor';
 import { _closeDb } from '../../services/orchestrator-config';
 
 const PROJECT = '/tmp/orch-routes-proj';
@@ -182,6 +182,19 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     const res = await call('POST', '/api/orchestrator/node-profiles', { project: NP_PROJECT, kind: 'review', effort: 'turbo' });
     expect(res!.status).toBe(400);
   });
+
+  it('GET returns groups (4) whose kinds union equals LEAF_NODE_KINDS (partition/drift guard)', async () => {
+    const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(NP_PROJECT)}`);
+    expect(res!.status).toBe(200);
+    const body = await res!.json() as any;
+    expect(Array.isArray(body.groups)).toBe(true);
+    expect(body.groups.length).toBe(4);
+    const union = (body.groups as any[]).flatMap((g) => g.kinds);
+    expect(new Set(union)).toEqual(new Set(LEAF_NODE_KINDS));
+    // Also verify against the exported constant directly (single source)
+    const fromConst = LEAF_NODE_GROUPS.flatMap((g) => g.kinds);
+    expect(new Set(fromConst)).toEqual(new Set(LEAF_NODE_KINDS));
+  });
 });
 
 describe('handleOrchestratorRoutes — node provider (per-node hybrid)', () => {
@@ -191,7 +204,7 @@ describe('handleOrchestratorRoutes — node provider (per-node hybrid)', () => {
     const res = await call('GET', `/api/orchestrator/node-provider?project=${encodeURIComponent(PV)}`);
     const body = await res!.json() as any;
     expect(body.nodeProvider).toBeNull();
-    expect(body.choices).toEqual(['claude', 'grok-build']);
+    expect(body.choices).toEqual(['claude', 'grok-build', 'grok-api']);
   });
 
   it('POST node-provider persists grok-build and GET reads it back', async () => {

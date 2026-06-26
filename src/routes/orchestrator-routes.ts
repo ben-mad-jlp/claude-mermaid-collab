@@ -17,7 +17,7 @@ import {
   type NodeProviderId,
 } from '../services/orchestrator-config.ts';
 import type { EffortLevel } from '../agent/contracts.ts';
-import { NODE_PROFILE, LEAF_NODE_KINDS, NODE_KIND_DESCRIPTIONS } from '../services/leaf-executor.ts';
+import { NODE_PROFILE, LEAF_NODE_KINDS, NODE_KIND_DESCRIPTIONS, LEAF_NODE_GROUPS } from '../services/leaf-executor.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 
 /** Node kinds shown in the daemon BUILD-nodes matrix. Excludes 'summary', which is the
@@ -144,6 +144,10 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
     return Response.json({
       project,
       rows,
+      groups: LEAF_NODE_GROUPS.map((g) => ({
+        key: g.key, label: g.label, firesWhen: g.firesWhen,
+        kinds: g.kinds, defaultCollapsed: g.defaultCollapsed,
+      })),
       models: MODEL_CHOICES,
       claudeModels: CLAUDE_MODEL_CHOICES,
       grokModels: GROK_MODEL_CHOICES,

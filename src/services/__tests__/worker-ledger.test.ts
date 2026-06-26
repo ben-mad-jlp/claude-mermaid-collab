@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, reapStaleInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -158,5 +158,16 @@ describe('leaf_resume durable budget recovery (slice 1b)', () => {
     recordLeafResume({ project: '/a', leafId: 'L1', nodesSpent: 9 });
     expect(getLeafResume('/b', 'L1')).toBeNull();
     expect(getLeafResume('/a', 'L1')?.nodesSpent).toBe(9);
+  });
+});
+
+describe('isLeafInflightLive', () => {
+  test('returns true for a same-epoch setLeafInflight row; false after clear; false for unknown', () => {
+    expect(isLeafInflightLive('L1')).toBe(false);
+    setLeafInflight({ project: '/p', leafId: 'L1', nodeKind: 'implement' });
+    expect(isLeafInflightLive('L1')).toBe(true);
+    expect(isLeafInflightLive('L2')).toBe(false);
+    clearLeafInflight('L1');
+    expect(isLeafInflightLive('L1')).toBe(false);
   });
 });
