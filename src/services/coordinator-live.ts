@@ -1578,7 +1578,22 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
     },
     releaseExpiredClaims,
     completeTodo: async (project, id, acceptance) => {
-      const r = await completeTodo(project, id, acceptance);
+      // E2 ownership-CAS: this is the fire-and-track worker continuation. A run can
+      // finish minutes after it claimed — pass requireInProgress so the store applies
+      // the completion ONLY if the todo is still the in_progress claim this run owns.
+      const r = await completeTodo(project, id, acceptance, undefined, { requireInProgress: true });
+      if (r.skipped) {
+        // The todo was dropped / held / re-claimed / already terminal while this run
+        // was in flight — it is no longer ours. DISCARD the outcome: no merge-back, no
+        // accept side effects, no escalation. Clear the inflight row (the Bridge would
+        // otherwise show a phantom in-flight run), free the slot, and audit the discard.
+        try { clearLeafInflight(id); } catch { /* best-effort */ }
+        const discardSession = r.completed.sessionName ?? '';
+        const discardSlotProject = r.completed.targetProject ?? project;
+        if (discardSession) markIdle(discardSlotProject, discardSession);
+        recordSupervisorAudit({ kind: 'complete', project, session: discardSession, detail: JSON.stringify({ todoId: id, discarded: 'todo-no-longer-owned', status: r.completed.status }) });
+        return r;
+      }
       // POOL-4 keep-warm: the worker's pool session is NOT killed on complete —
       // mark its slot idle so it can take the next matching todo (context is bounded
       // only by the context-watchdog, never an idle-kill here). The slot frees on

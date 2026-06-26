@@ -1280,6 +1280,13 @@ export interface CompleteTodoResult {
    *  when the completed todo was the last outstanding child. Empty when nothing
    *  rolled up. */
   rolledUp: string[];
+  /** Ownership-CAS outcome (E2): TRUE when the caller passed `requireInProgress`
+   *  but the todo was no longer `in_progress` at completion time (dropped / held /
+   *  re-claimed / already terminal) — so NO mutation was applied (no done/accept,
+   *  no roll-up, no merge should follow). The fire-and-track continuation checks
+   *  this to discard a zombie/stale run's outcome instead of merging it. Absent on
+   *  a normal completion. */
+  skipped?: boolean;
 }
 
 /**
@@ -1302,12 +1309,25 @@ function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined
  * Only the planner moves planned→ready/blocked (approval). This (the coordinator core)
  * only promotes blocked→ready when the last dep completes — it never touches 'planned'.
  */
-export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected', completedBy?: string | null): Promise<CompleteTodoResult> {
+export function completeTodo(project: string, id: string, acceptanceStatus?: 'pending' | 'accepted' | 'rejected', completedBy?: string | null, opts?: { requireInProgress?: boolean }): Promise<CompleteTodoResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
     const db = openDb(project);
     const existing = getTodo(project, id);
     if (!existing) throw new Error(`todo not found: ${id}`);
+    // E2 ownership-CAS (opt-in via requireInProgress; only the fire-and-track
+    // worker continuation passes it). A leaf run launched against a claim can finish
+    // minutes later — by then the todo may have been DROPPED, HELD, re-claimed, or
+    // already completed. Applying the outcome blind merges/accepts work the run no
+    // longer owns (the zombie false-accept: a dropped todo read 'accepted', its work
+    // merged to the epic branch). Gate on the live stored status: a claimed, still-
+    // owned leaf is `in_progress`; anything else means this run lost the todo →
+    // NO-OP (no status write, no roll-up, no kick) and signal `skipped` so the caller
+    // skips the merge. Direct callers (override_accept_todo, human, tests) omit the
+    // flag and keep today's unconditional behaviour.
+    if (opts?.requireInProgress && existing.status !== 'in_progress') {
+      return { completed: existing, promoted: [], rolledUp: [], skipped: true };
+    }
     const ts = nowIso();
     const accept = acceptanceStatus !== undefined ? acceptanceStatus : existing.acceptanceStatus;
     // Attribution (B1): an explicit completer wins; otherwise a HUMAN todo
