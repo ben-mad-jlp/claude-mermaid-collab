@@ -1635,16 +1635,16 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // BLOCKED. If the todo's commit is already on the epic branch, the merge is done —
           // synthesize a clean integrated result and skip the re-merge. The legacy tmux lane
           // is NOT yet on the branch at accept-time, so it still merges here as before.
-          // DUP-DISPATCH ROOT (60e99489): the leaf-executor self-merges its lane AND sets a
-          // durable `merged` flag (markLeafMerged → leaf_resume.merged) BEFORE proposing
-          // acceptance. That flag is authoritative + race-free. The git todoOnEpicBranch
-          // query, by contrast, can FALSE-NEGATIVE under concurrency (two lanes merging at
-          // once) — which sent an already-self-merged leaf into a doomed pool-session
-          // commitAndMergeToEpic → 'no worktree' throw → reopenStrandedAccept REVERSED the
-          // (correct) acceptance → the leaf re-dispatched. Trust the durable flag first; the
-          // git check remains the fallback for the legacy tmux lane (which never self-merges).
-          const selfMerged = (() => { try { return getLeafResume(project, id)?.merged === true; } catch { return false; } })();
-          const alreadyOnEpic = selfMerged || await wm.todoOnEpicBranch(epicId, id).catch(() => false);
+          // REVERTED 60e99489 (caused data loss): trusting the durable `merged` flag here
+          // is UNSAFE — under concurrency a leaf's self-merge can set merged=1 yet its merge
+          // commit never persists on the epic TIP (a sibling lane's simultaneous merge
+          // overwrites the ref). The flag then LIES, and synthesizing integrated=true skips
+          // the stranded-accept recovery → the leaf's work is silently lost (observed: BETA
+          // orphaned, GAMMA=ALPHA+BETA tsc-broke). `todoOnEpicBranch` (reachable-from-tip) is
+          // the AUTHORITATIVE check; its false-negative-under-concurrency re-dispatch is a
+          // wasteful-but-SAFE recovery that actually re-lands the work. Real fix = serialize
+          // the concurrent merge-back (bug 60e99489), not trust a stale flag.
+          const alreadyOnEpic = await wm.todoOnEpicBranch(epicId, id).catch(() => false);
           const merge = alreadyOnEpic
             ? { merged: true, conflict: false, committed: false, integrated: true, workerBranch: '', epicBranch: wm.epicBranchName(epicId) }
             : await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
