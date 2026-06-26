@@ -114,3 +114,21 @@ export function xaiApiLedgerModel(_kind: string): string {
 export function grokLedgerModel(kind: string): string {
   return kindDefaultGrokModel((GROK_NODE_KINDS as readonly string[]).includes(kind) ? (kind as GrokNodeKind) : undefined);
 }
+
+/** Valid grok CLI model ids selectable per-kind (the UI matrix model column for grok rows). */
+const GROK_CLI_MODELS = new Set(['grok-build', 'grok-build-0.1', 'grok-composer-2.5-fast']);
+
+/** Resolve the grok CLI model for a node, HONORING the per-kind DB model override (UI matrix)
+ *  when it names a real grok model, else the kind default. Without this, every grok node was
+ *  pinned to its kind default — e.g. `implement` was forced to grok-composer-2.5-fast (the fast
+ *  model), so you could NOT route implement to grok-build (grok-build-0.1, xAI's agentic coding
+ *  model). A claude alias (opus/sonnet) set on a grok row is ignored → kind default. Defensive
+ *  on DB access. */
+export function grokModelForKind(project: string | undefined, kind: string): string {
+  const override = project
+    ? (() => { try { return listNodeProfileOverrides(project)[kind]?.model ?? null; } catch { return null; } })()
+    : null;
+  const v = override?.trim();
+  if (v && GROK_CLI_MODELS.has(v)) return v;
+  return grokLedgerModel(kind);
+}

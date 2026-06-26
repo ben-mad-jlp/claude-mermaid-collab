@@ -30,7 +30,7 @@ import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-confi
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, xaiApiLedgerModel } from './node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
@@ -1028,8 +1028,11 @@ export async function runLeaf(
     let recordedModel: string;
     if (provider === 'grok-build') {
       invoker = deps.grokInvoker ?? GrokNodeInvoker;
-      effSpec = { ...spec, model: grokLedgerModel(kind) };
-      recordedModel = grokLedgerModel(kind);
+      // Honor the per-kind model override (UI matrix) so e.g. implement can be pinned to
+      // grok-build (grok-build-0.1) instead of the composer-fast kind default.
+      const grokModel = grokModelForKind(project, kind);
+      effSpec = { ...spec, model: grokModel };
+      recordedModel = grokModel;
     } else if (provider === 'grok-api') {
       invoker = deps.xaiInvoker ?? XaiApiNodeInvoker;
       effSpec = { ...spec, model: xaiApiLedgerModel(kind) };

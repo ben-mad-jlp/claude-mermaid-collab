@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, xaiApiLedgerModel } from '../node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, grokModelForKind, xaiApiLedgerModel } from '../node-provider';
 import { setNodeProfileOverride, setProjectNodeProvider, _closeDb } from '../orchestrator-config';
 
 // resolveNodeProvider precedence: mcp → per-kind DB → project DB → per-kind env → project
@@ -50,6 +50,17 @@ describe('resolveNodeProvider — precedence', () => {
   it('xaiApiLedgerModel is the flagship reasoner', () => {
     expect(xaiApiLedgerModel('review')).toBe('grok-4.3');
     expect(xaiApiLedgerModel('blueprint')).toBe('grok-4.3');
+  });
+
+  it('grokModelForKind defaults implement→composer-fast but honors a grok model override', () => {
+    // default: implement is non-reasoning → composer-fast
+    expect(grokModelForKind(P, 'implement')).toBe('grok-composer-2.5-fast');
+    // override implement → grok-build (grok-build-0.1, the agentic coding model)
+    setNodeProfileOverride(P, 'implement', 'grok-build', null, 'grok-build');
+    expect(grokModelForKind(P, 'implement')).toBe('grok-build');
+    // a claude alias override on a grok row is ignored → kind default
+    setNodeProfileOverride(P, 'review', 'opus', null, 'grok-build');
+    expect(grokModelForKind(P, 'review')).toBe('grok-build'); // review's own kind default (reasoning)
   });
 
   it('per-kind DB override wins over project DB default and env', () => {
