@@ -8,6 +8,7 @@ import {
   buildEpicBranchStatus,
   epicBranchName,
   epicId8,
+  pickBaseRef,
   type BranchProbe,
   type GitProbe,
 } from '../epic-branch-status';
@@ -146,3 +147,27 @@ describe('buildEpicBranchStatus', () => {
     expect(e.stranded).toBe(false); // land leaf done ⇒ not stranded even with ahead>0
   });
 });
+
+describe('pickBaseRef — main vs master auto-detect', () => {
+  const has = (...refs: string[]) => (r: string) => refs.includes(r);
+
+  test('uses the requested ref when it exists', () => {
+    expect(pickBaseRef('master', has('master', 'main'), () => null)).toBe('master');
+  });
+
+  test('a main-default repo (no master) falls back to main', () => {
+    expect(pickBaseRef('master', has('main'), () => null)).toBe('main');
+  });
+
+  test('falls back to origin/HEAD when neither main nor master is a local branch', () => {
+    expect(pickBaseRef('master', has(), () => 'develop')).toBe('develop');
+  });
+
+  test('gives up to the requested ref when nothing resolves (probes go null, as before)', () => {
+    expect(pickBaseRef('master', has(), () => null)).toBe('master');
+  });
+
+  test('respects an explicit non-default ref that exists', () => {
+    expect(pickBaseRef('release/2', has('release/2', 'main'), () => null)).toBe('release/2');
+  });
+})

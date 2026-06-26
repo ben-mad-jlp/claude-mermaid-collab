@@ -190,11 +190,41 @@ export function makeGitProbe(project: string): GitProbe {
   };
 }
 
+/**
+ * Pure base-ref picker: resolve the trunk to compare against. If the requested ref exists,
+ * use it. Otherwise fall back to the repo's ACTUAL default branch — a `main`-default repo
+ * (e.g. build123d) has no `master`, so a literal 'master' default made every probe null and
+ * the report read strandedCount:0 against a nonexistent ref (a dangerous false all-clear).
+ * Tries main/master, then origin/HEAD. Hermetic — git access is injected for unit tests.
+ */
+export function pickBaseRef(
+  requested: string,
+  refExists: (ref: string) => boolean,
+  originHead: () => string | null,
+): string {
+  if (refExists(requested)) return requested;
+  for (const cand of ['main', 'master']) {
+    if (cand !== requested && refExists(cand)) return cand;
+  }
+  const head = originHead();
+  if (head) return head;
+  return requested; // give up — probes return null, exactly as before
+}
+
 /** DB-backed wrapper: load the project's work-graph and report each epic's branch status. */
 export function getEpicBranchStatus(
   project: string,
   baseRef: string = 'master',
 ): EpicBranchStatusReport {
+  const resolved = pickBaseRef(
+    baseRef,
+    (ref) => runGit(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${ref}`]).code === 0,
+    () => {
+      const r = runGit(project, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+      const short = r.code === 0 ? r.stdout.trim().replace(/^origin\//, '') : '';
+      return short || null;
+    },
+  );
   const todos = listTodos(project, { includeCompleted: true });
-  return buildEpicBranchStatus(todos, makeGitProbe(project), baseRef, project);
+  return buildEpicBranchStatus(todos, makeGitProbe(project), resolved, project);
 }
