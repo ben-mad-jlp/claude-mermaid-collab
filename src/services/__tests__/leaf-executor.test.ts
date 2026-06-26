@@ -297,9 +297,13 @@ describe('runLeaf state machine', () => {
     expect(res.outcome).toBe('blocked');
     expect(res.reason).toBe('attempt-cap-exhausted');
     expect(res.attempts).toBe(2);
-    // P6: each attempt spends 5 nodes (blueprint + implement + review + reuse-implement
-    // + reuse-review) before the repeat-finding stuck-guard bails to a fresh attempt.
-    expect(res.nodesSpent).toBe(10);
+    // Attempt 1 spends 5 nodes (blueprint + implement + review + reuse-implement + reuse-review).
+    // Attempt 2 REUSES attempt 1's blueprint (in-run carry, no node spent) → only 4 nodes
+    // (implement + review + reuse-implement + reuse-review). Total 9 (was 10 before bfc915dc).
+    expect(res.nodesSpent).toBe(9);
+    // IN-RUN BLUEPRINT CARRY: the blueprint node runs exactly ONCE across both attempts.
+    const blueprintRuns = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Write')).length;
+    expect(blueprintRuns).toBe(1);
     // 2 fresh worktrees, one per attempt (the in-place reuse stays in the same worktree)
     expect(spies.ensureCalls.length).toBe(2);
     // no 'accepted' completion ever; only the final blocked-path reject

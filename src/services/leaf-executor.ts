@@ -1593,6 +1593,12 @@ export async function runLeaf(
 
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
   // iteration (no surgical reuse of the prior attempt's edits — that's P6).
+  // IN-RUN blueprint carry (token-burn lever bfc915dc): a SUCCESSFUL blueprint from a prior
+  // attempt of THIS run is reused by later attempts instead of re-running the ~opus blueprint
+  // node. The epic base is fixed for the run, so the plan stays valid; a fresh worktree still
+  // reuses ONLY the plan text, never partial work. Only set after a good blueprint, so a
+  // blueprint-failure attempt still re-runs it. Complements the cross-dispatch reattach.
+  let carriedBlueprint: string | null = null;
   for (state.attempt = 0; state.attempt < ATTEMPT_CAP; ) {
     state.attempt += 1; // 1-based count for telemetry/escalation
     const isLastAttempt = state.attempt >= ATTEMPT_CAP;
@@ -1607,9 +1613,13 @@ export async function runLeaf(
     // plan, never partial implementation — so this can't be "worse than fresh". If the
     // durable plan is gone, fall back to running the blueprint node normally.
     let bp: NodeResult;
+    // Reuse a durable blueprint EITHER from a cross-dispatch resume (attempt 1) OR from a
+    // prior attempt of THIS run (attempt > 1, in-run carry) — both write the plan to the
+    // fresh worktree and skip the blueprint node (no node spent).
     const reattach = state.attempt === 1 && deps.resumePlan?.mode === 'reattach-blueprint';
-    const restored = reattach ? (deps.restoreBlueprint?.(leaf.id) ?? null) : null;
-    if (reattach && restored && restored.trim()) {
+    const inRunCarry = state.attempt > 1 && carriedBlueprint != null && carriedBlueprint.trim().length > 0;
+    const restored = reattach ? (deps.restoreBlueprint?.(leaf.id) ?? null) : (inRunCarry ? carriedBlueprint : null);
+    if ((reattach || inRunCarry) && restored && restored.trim()) {
       await deps.writeArtifact?.(cwd, blueprintPath(leaf), restored);
       // Synthetic OK result — no node spent (the whole point); text feeds the size
       // gate + implement just like a fresh blueprint node's final message.
@@ -1649,6 +1659,12 @@ export async function runLeaf(
     // the executor build the wrong feature). The blueprint node is instructed to emit
     // its full text as its final message, so bp.text is a reliable fallback.
     const blueprintBody = manifestText && manifestText.trim() ? manifestText : bp.text;
+
+    // Carry this good blueprint forward so a later attempt of THIS run reuses it (in-run
+    // reattach) instead of re-running the blueprint node. Prefer the read-back .md (carries
+    // the size manifest); fall back to the node's final-message text.
+    const carryText = manifestText && manifestText.trim() ? manifestText : bp.text;
+    if (carryText && carryText.trim()) carriedBlueprint = carryText;
 
     // Persist the just-written blueprint per ATTEMPT (durable telemetry + UI source).
     // Best-effort: a throw must NEVER break the run. Only when we actually have the
