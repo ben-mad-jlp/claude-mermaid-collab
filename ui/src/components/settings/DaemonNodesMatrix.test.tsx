@@ -24,6 +24,16 @@ const GET_BODY = {
       modelOverride: null, effortOverride: null, providerOverride: null,
       effectiveModel: 'sonnet', effectiveEffort: 'medium', effectiveProvider: 'claude', mcpForced: true,
     },
+    {
+      kind: 'blueprint', desc: 'plan work', defaultModel: 'sonnet', defaultEffort: 'medium',
+      modelOverride: null, effortOverride: null, providerOverride: null,
+      effectiveModel: 'sonnet', effectiveEffort: 'medium', effectiveProvider: 'claude', mcpForced: false,
+    },
+    {
+      kind: 'review', desc: 'review changes', defaultModel: 'sonnet', defaultEffort: 'medium',
+      modelOverride: null, effortOverride: null, providerOverride: 'grok-api',
+      effectiveModel: 'grok-4.3', effectiveEffort: 'medium', effectiveProvider: 'grok-api', mcpForced: false,
+    },
   ],
 };
 
@@ -53,5 +63,22 @@ describe('DaemonNodesMatrix — provider column', () => {
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes('/node-profiles') && c.body?.kind === 'implement' && c.body?.provider === 'claude')).toBe(true),
     );
+  });
+});
+
+describe('DaemonNodesMatrix — effort gating', () => {
+  it('hides effort select and shows n/a for grok-build and grok-api rows; shows effort select for claude rows', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    // grok-build row (implement): no effort select, n/a present
+    await waitFor(() => expect(screen.getByTestId('node-effort-implement-na')).toBeTruthy());
+    expect(screen.queryByTestId('node-effort-implement')).toBeNull();
+    // grok-api row (review): no effort select, n/a present
+    await waitFor(() => expect(screen.getByTestId('node-effort-review-na')).toBeTruthy());
+    expect(screen.queryByTestId('node-effort-review')).toBeNull();
+    // claude non-MCP row (blueprint): effort select present
+    await waitFor(() => expect(screen.getByTestId('node-effort-blueprint')).toBeTruthy());
+    // report (MCP-forced claude) still renders a normal effort select (mcpForced only locks provider)
+    expect(screen.getByTestId('node-effort-report')).toBeTruthy();
   });
 });

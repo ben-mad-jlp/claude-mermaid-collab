@@ -130,6 +130,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
             r.effectiveProvider === 'grok-build' ? grokModels :
             r.effectiveProvider === 'grok-api' ? ['grok-4.3'] :
             claudeModels;
+          const isGrokProvider = r.effectiveProvider === 'grok-build' || r.effectiveProvider === 'grok-api';
           return (
             <tr key={r.kind} data-testid={`node-row-${r.kind}`} className={`border-t border-gray-100 dark:border-gray-800 ${busy ? 'opacity-60' : ''}`}>
               <td className="pr-2 py-0.5 align-top">
@@ -171,16 +172,26 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
                 </select>
               </td>
               <td className="px-2 py-0.5">
-                <select
-                  data-testid={`node-effort-${r.kind}`}
-                  disabled={busy}
-                  value={r.effortOverride ?? INHERIT}
-                  onChange={(e) => update(r.kind, { effort: e.target.value === INHERIT ? null : e.target.value })}
-                  className="text-2xs bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <option value={INHERIT}>inherit ({r.defaultEffort})</option>
-                  {levels.map((l) => <option key={l} value={l}>{l}</option>)}
-                </select>
+                {isGrokProvider ? (
+                  <span
+                    data-testid={`node-effort-${r.kind}-na`}
+                    title="grok invokers ignore effort — only Claude nodes use it"
+                    className="text-2xs text-gray-400 dark:text-gray-500 italic"
+                  >
+                    n/a
+                  </span>
+                ) : (
+                  <select
+                    data-testid={`node-effort-${r.kind}`}
+                    disabled={busy}
+                    value={r.effortOverride ?? INHERIT}
+                    onChange={(e) => update(r.kind, { effort: e.target.value === INHERIT ? null : e.target.value })}
+                    className="text-2xs bg-gray-100 dark:bg-gray-800 rounded px-1 py-0.5 outline-none cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <option value={INHERIT}>inherit ({r.defaultEffort})</option>
+                    {levels.map((l) => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                )}
               </td>
               <td className="pl-2 py-0.5 font-mono text-gray-500 dark:text-gray-400">
                 <span className={r.effectiveProvider === 'grok-build' ? 'text-purple-600 dark:text-purple-400' : r.effectiveProvider === 'grok-api' ? 'text-emerald-600 dark:text-emerald-400' : ''}>{r.effectiveProvider}</span>
