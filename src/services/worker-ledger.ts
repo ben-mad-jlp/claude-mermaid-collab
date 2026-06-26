@@ -326,6 +326,21 @@ export function clearLeafInflight(leafId: string): void {
   try { openDb().prepare('DELETE FROM leaf_inflight WHERE leafId = ?').run(leafId); } catch { /* best-effort */ }
 }
 
+/** TRUE iff a leaf has a LIVE in-flight row written by THIS process (epoch ===
+ *  LEDGER_EPOCH). A stale/foreign-epoch row (a phantom from a dead daemon awaiting
+ *  reap) reads false. Pure read; best-effort (false on any error). The claim guard
+ *  uses this to keep a still-running leaf out of the claimable set. */
+export function isLeafInflightLive(leafId: string): boolean {
+  try {
+    const row = openDb()
+      .prepare('SELECT epoch FROM leaf_inflight WHERE leafId = ?')
+      .get(leafId) as { epoch?: string | null } | undefined;
+    return !!row && row.epoch === LEDGER_EPOCH;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Reap stranded in-flight rows: delete every row NOT written by THIS process
  * (epoch != LEDGER_EPOCH, or NULL/legacy). Such a row's executor died with its

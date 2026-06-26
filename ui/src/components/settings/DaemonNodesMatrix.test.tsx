@@ -4,7 +4,7 @@
  * provider POSTs it to node-profiles.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { DaemonNodesMatrix } from './DaemonNodesMatrix';
 
 const GET_BODY = {
@@ -148,6 +148,9 @@ describe('DaemonNodesMatrix — grouped by pipeline', () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GROUPS_GET_BODY) }) as any;
     render(<DaemonNodesMatrix project="/abs/p" />);
     await waitFor(() => expect(screen.getByTestId('node-group-header-zen')).toBeTruthy());
-    expect(screen.getByText(/not configurable here/)).toBeTruthy();
+    // Scope to the Zen group: with a partial rows mock other empty groups also render the
+    // hint, so a bare getByText would match multiple. In production node-profiles returns
+    // every configurable kind, leaving only Zen (summary) without a row.
+    expect(within(screen.getByTestId('node-group-zen')).getByText(/not configurable here/)).toBeTruthy();
   });
 });

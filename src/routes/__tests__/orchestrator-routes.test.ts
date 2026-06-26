@@ -204,7 +204,7 @@ describe('handleOrchestratorRoutes — node provider (per-node hybrid)', () => {
     const res = await call('GET', `/api/orchestrator/node-provider?project=${encodeURIComponent(PV)}`);
     const body = await res!.json() as any;
     expect(body.nodeProvider).toBeNull();
-    expect(body.choices).toEqual(['claude', 'grok-build']);
+    expect(body.choices).toEqual(['claude', 'grok-build', 'grok-api']);
   });
 
   it('POST node-provider persists grok-build and GET reads it back', async () => {
