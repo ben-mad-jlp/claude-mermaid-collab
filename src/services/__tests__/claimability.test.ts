@@ -40,6 +40,12 @@ describe('depSatisfied', () => {
     expect(depSatisfied(mk({ status: 'in_progress' }))).toBe(false);
     expect(depSatisfied(undefined)).toBe(false);
   });
+  it('accepted dep is satisfied even if status not done (75f7e304 symmetry; rejected still blocks)', () => {
+    expect(depSatisfied(mk({ status: 'planned', acceptanceStatus: 'accepted' }))).toBe(true);
+    expect(depSatisfied(mk({ status: 'ready', acceptanceStatus: 'accepted' }))).toBe(true);
+    expect(depSatisfied(mk({ status: 'in_progress', acceptanceStatus: 'accepted' }))).toBe(true);
+    expect(depSatisfied(mk({ status: 'done', acceptanceStatus: 'rejected' }))).toBe(false);
+  });
 });
 
 describe('claimReason — each branch', () => {
@@ -47,6 +53,12 @@ describe('claimReason — each branch', () => {
   it('terminal: done|dropped (wins over everything)', () => {
     expect(claimReason(mk({ status: 'done', claim: CLAIM }), map())).toBe('terminal');
     expect(claimReason(mk({ status: 'dropped' }), map())).toBe('terminal');
+  });
+  it('terminal: accepted (even if status reset to non-done; 75f7e304 symmetry)', () => {
+    // An accepted-but-reset leaf must be terminal regardless of stored status.
+    expect(claimReason(mk({ status: 'planned', acceptanceStatus: 'accepted', approvedAt: APPROVED }), map())).toBe('terminal');
+    expect(claimReason(mk({ status: 'ready', acceptanceStatus: 'accepted', approvedAt: APPROVED }), map())).toBe('terminal');
+    expect(claimReason(mk({ status: 'in_progress', acceptanceStatus: 'accepted', approvedAt: APPROVED }), map())).toBe('terminal');
   });
   it('in-flight: claim != null', () => {
     expect(claimReason(mk({ status: 'planned', claim: CLAIM, ...approved }), map())).toBe('in-flight');
@@ -63,6 +75,12 @@ describe('claimReason — each branch', () => {
     const t = mk({ ...approved, status: 'planned', acceptanceStatus: 'rejected' });
     expect(claimReason(t, map())).toBe('rejected');
     expect(isClaimable(t, map())).toBe(false);
+  });
+  it('isClaimable false for accepted even with non-done status (75f7e304)', () => {
+    const approved = { approvedAt: APPROVED };
+    expect(isClaimable(mk({ status: 'planned', acceptanceStatus: 'accepted', ...approved }), map())).toBe(false);
+    expect(isClaimable(mk({ status: 'ready', acceptanceStatus: 'accepted', ...approved }), map())).toBe(false);
+    expect(isClaimable(mk({ status: 'in_progress', acceptanceStatus: 'accepted', ...approved }), map())).toBe(false);
   });
   it('dep-rejected BEFORE deps-pending', () => {
     const dep = mk({ id: 'D', status: 'done', acceptanceStatus: 'rejected' });

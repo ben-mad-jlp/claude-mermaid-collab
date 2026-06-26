@@ -52,6 +52,15 @@ function strandRejected(proj: string, id: string) {
   _closeProject(proj);
 }
 
+/** Symmetric (75f7e304): strand an ACCEPTED leaf with a non-terminal status.
+ *  A prior reset/reaper left status off 'done' while acceptanceStatus='accepted'. */
+function strandAccepted(proj: string, id: string) {
+  const db = new Database(join(proj, '.collab', 'todos.db'));
+  db.exec(`UPDATE todos SET status='in_progress', acceptanceStatus='accepted' WHERE id='${id}'`);
+  db.close();
+  _closeProject(proj);
+}
+
 beforeEach(() => {
   project = mkdtempSync(join(tmpdir(), 'todo-store-'));
   // resetTodo now auto-resolves a todo's open escalations → isolate the supervisor.db
@@ -338,6 +347,34 @@ describe('todo-store new fields and functions', () => {
     const u = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'plain-orphan', status: 'ready' });
     strandOrphan(project, u.id);
     expect(await reclaimOrphan(project, u.id)).not.toBeNull();
+  });
+
+  test('an ACCEPTED leaf is NOT reclaimed even if its status was reset (75f7e304 re-claim guard)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'accepted-racy', status: 'ready' });
+    await completeTodo(project, t.id, 'accepted'); // sets done + accepted
+    strandAccepted(project, t.id); // simulate reset: in_progress + acceptanceStatus='accepted'
+    // The reaper must REFUSE (reclaimNow guard) — else it would re-run done work.
+    expect(await reclaimOrphan(project, t.id)).toBeNull();
+    const after = getTodo(project, t.id)!;
+    expect(after.acceptanceStatus).toBe('accepted'); // untouched
+    expect(after.retryCount).toBe(0); // never charged a retry
+
+    // CAS backstop: claimTodo also refuses it (even if somehow passed listReadyTodos)
+    expect(await claimTodo(project, t.id, 'agent-1', 60000)).toBeNull();
+
+    // listReadyTodos excludes it (via claimability predicate)
+    expect(listReadyTodos(project).some((x) => x.id === t.id)).toBe(false);
+
+    // Control: a reset accepted with status 'planned' is also not reclaimable/claimable
+    const v = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'accepted-planned', status: 'ready' });
+    await completeTodo(project, v.id, 'accepted');
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    db.exec(`UPDATE todos SET status='planned', acceptanceStatus='accepted' WHERE id='${v.id}'`);
+    db.close();
+    _closeProject(project);
+    expect(await reclaimOrphan(project, v.id)).toBeNull();
+    expect(await claimTodo(project, v.id, 'agent-1', 60000)).toBeNull();
+    expect(listReadyTodos(project).some((x) => x.id === v.id)).toBe(false);
   });
 
   test('releaseClaim: returns a live claim to ready with NO retry penalty; false for non-claims (DOGFOOD #3)', async () => {
