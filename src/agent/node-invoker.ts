@@ -15,7 +15,7 @@
  * conformance pattern.
  */
 
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { resolveGrokModel } from './grok-model.js';
@@ -590,10 +590,22 @@ export const ClaudeNodeInvoker: NodeInvoker = {
 /** Narrow stderr rate-limit fallback — matches Claude invokeNode (4ec5a13c). */
 const GROK_RATE_LIMIT_STDERR_RE = /\b429\b|rate limit (?:exceeded|reached)|too many requests/i;
 
-/** Resolve the `grok` binary. Override with GROK_BIN for non-PATH installs. */
+let cachedGrokBin: string | null = null;
+/** Resolve the `grok` binary to an ABSOLUTE path. Override with GROK_BIN.
+ *  The deployed sidecar is a macOS GUI app whose PATH is minimal (/usr/bin:/bin:…) and omits
+ *  ~/.grok/bin / ~/.local/bin, so a bare `grok` intermittently fails `posix_spawn` with ENOENT.
+ *  Resolve a known absolute install path once; fall back to bare 'grok' (PATH) only if none exist. */
 export function resolveGrokBin(): string {
-  return process.env.GROK_BIN?.trim() || 'grok';
+  const override = process.env.GROK_BIN?.trim();
+  if (override) return override;
+  if (cachedGrokBin) return cachedGrokBin;
+  for (const c of [join(homedir(), '.grok', 'bin', 'grok'), join(homedir(), '.local', 'bin', 'grok')]) {
+    if (existsSync(c)) { cachedGrokBin = c; return c; }
+  }
+  return 'grok';
 }
+/** For tests: drop the memoized grok binary path. */
+export function _resetGrokBinCache(): void { cachedGrokBin = null; }
 
 interface GrokAuthFile {
   expires_at?: string | number;
@@ -869,6 +881,19 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
   const argv = buildGrokArgv(spec, promptFile);
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  // TRANSIENT guard: a not-yet-materialized worktree cwd makes posix_spawn fail with ENOENT
+  // (Bun attributes it to the command, e.g. "ENOENT … 'grok'"). That is INFRA, not a node
+  // failure — report it as transient (rateLimited+unreachable) so the executor pauses & retries
+  // the SAME node in place rather than discarding the attempt and re-running the (opus) blueprint.
+  if (!existsSync(spec.cwd)) {
+    cleanupPromptTemp(promptDir, promptFile);
+    return {
+      ok: false, exitCode: -1, stdout: '', durationMs: Math.round(Date.now() - start),
+      rateLimited: true, unreachable: true, authMode,
+      parseError: grokParseError(`worktree cwd not present yet: ${spec.cwd}`),
+    };
+  }
+
   let proc: ReturnType<typeof Bun.spawn>;
   try {
     proc = Bun.spawn([grokBin, ...argv], {
@@ -879,14 +904,19 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
     });
   } catch (e) {
     cleanupPromptTemp(promptDir, promptFile);
+    // An ENOENT here is transient infra (binary path race / cwd vanished mid-spawn) — classify
+    // as transient so it's retried in place, never a hard fail that re-runs the blueprint.
+    const msg = e instanceof Error ? e.message : String(e);
+    const transient = /ENOENT|posix_spawn|EAGAIN|ENOMEM/i.test(msg);
     return {
       ok: false,
       exitCode: -1,
       stdout: '',
       durationMs: Math.round(Date.now() - start),
-      rateLimited: false,
+      rateLimited: transient,
+      unreachable: transient || undefined,
       authMode,
-      parseError: grokParseError(`spawn failed: ${e instanceof Error ? e.message : String(e)}`),
+      parseError: grokParseError(`spawn failed: ${msg}`),
     };
   }
 

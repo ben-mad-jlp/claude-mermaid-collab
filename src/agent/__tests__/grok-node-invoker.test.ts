@@ -7,6 +7,7 @@ import {
   parseGrokOutput,
   authModeFromGrokStatus,
   resolveGrokBin,
+  _resetGrokBinCache,
   type NodeSpec,
 } from '../node-invoker.ts';
 import { parseVerdict } from '../../services/leaf-executor.ts';
@@ -14,11 +15,23 @@ import { parseVerdict } from '../../services/leaf-executor.ts';
 const base: NodeSpec = { prompt: 'hello', cwd: '/tmp/worktree' };
 
 describe('resolveGrokBin', () => {
-  it('defaults to grok', () => {
+  it('honors GROK_BIN override verbatim', () => {
+    const prev = process.env.GROK_BIN;
+    process.env.GROK_BIN = '/custom/grok';
+    _resetGrokBinCache();
+    expect(resolveGrokBin()).toBe('/custom/grok');
+    if (prev === undefined) delete process.env.GROK_BIN; else process.env.GROK_BIN = prev;
+    _resetGrokBinCache();
+  });
+  it('resolves an ABSOLUTE path (or bare grok if no known install exists)', () => {
     const prev = process.env.GROK_BIN;
     delete process.env.GROK_BIN;
-    expect(resolveGrokBin()).toBe('grok');
-    if (prev) process.env.GROK_BIN = prev;
+    _resetGrokBinCache();
+    const bin = resolveGrokBin();
+    // Either an absolute install path (GUI-app PATH-safe) or the bare fallback — never empty.
+    expect(bin === 'grok' || bin.startsWith('/')).toBe(true);
+    if (prev !== undefined) process.env.GROK_BIN = prev;
+    _resetGrokBinCache();
   });
 });
 
