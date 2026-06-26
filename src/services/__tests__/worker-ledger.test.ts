@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, reapStaleInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, reapStaleInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -118,6 +118,20 @@ describe('leaf_inflight epoch heal (reapStaleInflight)', () => {
     setLeafInflight({ project: '/p', leafId: 'mine' });
     expect(reapStaleInflight()).toBe(0);
     expect(listLeafInflight().map((r) => r.leafId)).toContain('mine');
+  });
+});
+
+describe('leaf_inflight live-pause clear', () => {
+  test('same-epoch row survives reapStaleInflight but is removed by clearLeafInflight (live pause gap)', () => {
+    setLeafInflight({ leafId: 'pause-leaf', project: 'p', nodeKind: 'blueprint' });
+    expect(listLeafInflight({ project: 'p' }).map((r) => r.leafId)).toContain('pause-leaf');
+
+    // The reaper only drops OTHER-epoch (dead process) rows; same-epoch live rows survive.
+    reapStaleInflight();
+    expect(listLeafInflight({ project: 'p' }).map((r) => r.leafId)).toContain('pause-leaf');
+
+    clearLeafInflight('pause-leaf');
+    expect(listLeafInflight({ project: 'p' }).map((r) => r.leafId)).not.toContain('pause-leaf');
   });
 });
 
