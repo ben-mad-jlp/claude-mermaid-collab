@@ -740,10 +740,11 @@ export class WorktreeManager {
   // ---------------------------------------------------------------------------
   async epicBehindBase(epicId: string, baseRef: string = 'master'): Promise<number> {
     if (!(await this.isGitRepo())) return 0;
+    const trunk = await this.resolveBase(baseRef); // main vs master — a `main` repo has no master
     const epicBranch = this.epicBranchName(epicId);
     const res = await this.runGit(
       this.opts.projectRoot,
-      ['rev-list', '--count', `${epicBranch}..${baseRef}`],
+      ['rev-list', '--count', `${epicBranch}..${trunk}`],
       QUICK_TIMEOUT_MS,
     ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
     if (res.code !== 0) return 0;
@@ -762,10 +763,11 @@ export class WorktreeManager {
   // ---------------------------------------------------------------------------
   async epicAheadOfMaster(epicId: string, baseRef: string = 'master'): Promise<number> {
     if (!(await this.isGitRepo())) return 0;
+    const trunk = await this.resolveBase(baseRef); // main vs master — a `main` repo has no master
     const epicBranch = this.epicBranchName(epicId);
     const res = await this.runGit(
       this.opts.projectRoot,
-      ['rev-list', '--count', `${baseRef}..${epicBranch}`],
+      ['rev-list', '--count', `${trunk}..${epicBranch}`],
       QUICK_TIMEOUT_MS,
     ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
     if (res.code !== 0) return 0;
@@ -799,6 +801,7 @@ export class WorktreeManager {
    *  readout (design-epic-landing P1). Returns [] off a non-git repo or on error. */
   async listUnlandedEpics(baseRef: string = 'master'): Promise<Array<{ branch: string; epicId8: string; ahead: number }>> {
     if (!(await this.isGitRepo())) return [];
+    const trunk = await this.resolveBase(baseRef); // main vs master — a `main` repo has no master
     const list = await this.runGit(
       this.opts.projectRoot,
       ['branch', '--list', 'collab/epic/*', '--format=%(refname:short)'],
@@ -810,7 +813,7 @@ export class WorktreeManager {
     for (const branch of branches) {
       const res = await this.runGit(
         this.opts.projectRoot,
-        ['rev-list', '--count', `${baseRef}..${branch}`],
+        ['rev-list', '--count', `${trunk}..${branch}`],
         QUICK_TIMEOUT_MS,
       ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
       if (res.code !== 0) continue;
@@ -1394,7 +1397,10 @@ export class WorktreeManager {
 
   private async _landEpicToMasterInner(epicId: string, opts?: LandOpts): Promise<LandResult> {
     if (!(await this.isGitRepo())) return { landed: false, conflict: false, reason: 'non-git' };
-    const baseRef = opts?.baseRef ?? 'master';
+    // Resolve the real trunk (main vs master): a `main`-default repo (e.g. build123d) has no
+    // `master`, so a literal default landed NOTHING (`base-ref-missing:master`) and epics
+    // stranded ahead forever. resolveBase falls back to detectBaseBranch when the ref is absent.
+    const baseRef = await this.resolveBase(opts?.baseRef ?? 'master');
     const timeoutMs = opts?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS;
     const onProgress = opts?.onProgress;
     const epicBranch = this.epicBranchName(epicId);
