@@ -111,6 +111,15 @@ describe('getLeafRun', () => {
     expect(run!.rateLimitedCount).toBe(1);
     expect(getLeafRun('nope')).toBeNull();
   });
+
+  test('cache-token rollup sums cacheRead/cacheCreation across nodes (todo 7c6b7289)', () => {
+    node({ leafId: 'L3', ts: 100, nodeKind: 'blueprint', model: 'opus', cacheReadTokens: 200_000, cacheCreationTokens: 20_000 });
+    node({ leafId: 'L3', ts: 200, nodeKind: 'implement', cacheReadTokens: 150_000, cacheCreationTokens: 10_000 });
+    node({ leafId: 'L3', ts: 300, nodeKind: 'review', model: 'opus', cacheReadTokens: 50_000 }); // creation null → 0
+    const run = getLeafRun('L3');
+    expect(run!.totalCacheReadTokens).toBe(400_000);
+    expect(run!.totalCacheCreationTokens).toBe(30_000);
+  });
 });
 
 describe('getFleetStats', () => {

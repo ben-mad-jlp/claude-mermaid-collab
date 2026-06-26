@@ -58,6 +58,12 @@ export interface LeafRunStats {
   budgetPct: number; // nodesSpent / nodeBudget
   wallClockMs: number; // last.ts − first.ts (fallback Σ durationMs)
   rateLimitedCount: number; // nodes where rateLimited===true
+  /** Σ prompt-cache READ tokens across all nodes — the bulk of real input on the Max plan and
+   *  the per-leaf token-burn signal (re-runs scale this). Surfaced in the terminal rollup so
+   *  cache_read is visible alongside nodesSpent/cost without summing nodes by hand (todo 7c6b7289). */
+  totalCacheReadTokens: number;
+  /** Σ prompt-cache CREATION tokens across all nodes — the per-node-spawn write cost surface. */
+  totalCacheCreationTokens: number;
   authModes: Record<string, number>; // count by authMode (the per-leaf audit)
   finalOutcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | null;
   reviewVerdict: 'pass' | 'fail' | null;
@@ -160,6 +166,11 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
 
   const rateLimitedCount = nodeRows.filter((r) => r.rateLimited === true).length;
 
+  // Per-leaf prompt-cache rollup (todo 7c6b7289): cache_read dominates Max-plan input and is
+  // the token-burn ruler; surface the leaf total so leaf_inspect shows it without hand-summing.
+  const totalCacheReadTokens = nodeRows.reduce((s, r) => s + (r.cacheReadTokens ?? 0), 0);
+  const totalCacheCreationTokens = nodeRows.reduce((s, r) => s + (r.cacheCreationTokens ?? 0), 0);
+
   const authModes: Record<string, number> = {};
   for (const r of nodeRows) {
     const k = r.authMode ?? 'unknown';
@@ -193,6 +204,8 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     budgetPct: NODE_BUDGET > 0 ? nodesSpent / NODE_BUDGET : 0,
     wallClockMs,
     rateLimitedCount,
+    totalCacheReadTokens,
+    totalCacheCreationTokens,
     authModes,
     finalOutcome,
     reviewVerdict,
