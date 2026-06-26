@@ -226,11 +226,11 @@ export function setProjectInflightCap(project: string, cap: number | null): void
 // --- Per-project DEFAULT node provider (per-node hybrid) ---
 
 /** Valid daemon node providers (codex is not selectable for daemon nodes). */
-export const NODE_PROVIDERS = ['claude', 'grok-build'] as const;
+export const NODE_PROVIDERS = ['claude', 'grok-build', 'grok-api'] as const;
 export type NodeProviderId = (typeof NODE_PROVIDERS)[number];
 
 function asNodeProvider(v: string | null | undefined): NodeProviderId | null {
-  return v === 'claude' || v === 'grok-build' ? v : null;
+  return v === 'claude' || v === 'grok-build' || v === 'grok-api' ? v : null;
 }
 
 /** The persisted per-project DEFAULT provider, or null when unset (→ env/config → claude).

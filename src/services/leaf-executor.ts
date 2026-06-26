@@ -29,7 +29,8 @@ import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth } from '../agent/node-invoker';
-import { resolveNodeProvider, anyGrokNodeConfigured, grokLedgerModel } from './node-provider';
+import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, xaiApiLedgerModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
@@ -70,10 +71,16 @@ export interface LeafExecutorDeps {
   /** Grok node invoker (real `grok -p`) — used per-node when a kind routes to grok-build.
    *  Default `GrokNodeInvoker`. */
   grokInvoker?: NodeInvoker;
+  /** xAI-API node invoker (grok-4.3 read-only loop) — used per-node when a kind routes to
+   *  grok-api. Default `XaiApiNodeInvoker`. */
+  xaiInvoker?: NodeInvoker;
   /** Grok auth assertion — pre-flighted at leaf entry when any node may run on grok, so a
    *  mixed leaf fails fast instead of stranding after the cheap grok work. Default
    *  `assertGrokAuth`. */
   assertGrokAuth?: () => AuthMode;
+  /** xAI-API auth assertion (XAI_API_KEY) — pre-flighted at leaf entry when any node routes to
+   *  grok-api. Default `assertXaiApiAuth`. */
+  assertXaiApiAuth?: () => AuthMode;
   /** Worktree manager for the TARGET repo. */
   wm: WorktreeManager;
   /** The epic id this leaf rolls up to (per-epic accumulation branch). */
@@ -938,6 +945,7 @@ export async function runLeaf(
   // (Grok review risk #3).
   deps.assertAuth();
   if (anyGrokNodeConfigured(project)) (deps.assertGrokAuth ?? assertGrokAuth)();
+  if (anyXaiApiNodeConfigured(project)) (deps.assertXaiApiAuth ?? assertXaiApiAuth)();
 
   const sessionKey = leafSessionKey(leaf);
   const { epicId, epicBranch } = deps;
@@ -1012,9 +1020,24 @@ export async function runLeaf(
     // model to the kind's grok default so buildGrokArgv resolves a grok `-m` (not a claude
     // alias). The recorded (provider, model) reflects what actually ran (Grok review note).
     const provider = resolveNodeProvider(project, kind, spec.allowedTools);
-    const invoker = provider === 'grok-build' ? (deps.grokInvoker ?? GrokNodeInvoker) : deps.invoker;
-    const effSpec = provider === 'grok-build' ? { ...spec, model: grokLedgerModel(kind) } : spec;
-    const recordedModel = provider === 'grok-build' ? grokLedgerModel(kind) : nodeModel(kind);
+    // Three lanes: grok-build (CLI coding proxy), grok-api (public api.x.ai → grok-4.3 reasoner,
+    // read-only loop for review/blueprint), else claude. Each sets the spec model + ledger model
+    // so the recorded (provider, model) reflects what actually ran.
+    let invoker: NodeInvoker;
+    let effSpec = spec;
+    let recordedModel: string;
+    if (provider === 'grok-build') {
+      invoker = deps.grokInvoker ?? GrokNodeInvoker;
+      effSpec = { ...spec, model: grokLedgerModel(kind) };
+      recordedModel = grokLedgerModel(kind);
+    } else if (provider === 'grok-api') {
+      invoker = deps.xaiInvoker ?? XaiApiNodeInvoker;
+      effSpec = { ...spec, model: xaiApiLedgerModel(kind) };
+      recordedModel = xaiApiLedgerModel(kind);
+    } else {
+      invoker = deps.invoker;
+      recordedModel = nodeModel(kind);
+    }
     let res: NodeResult;
     try {
       res = await invoker.invoke(effSpec);
@@ -1877,6 +1900,7 @@ export async function makeLeafExecutorDeps(
   return {
     invoker: ClaudeNodeInvoker,
     grokInvoker: GrokNodeInvoker,
+    xaiInvoker: XaiApiNodeInvoker,
     wm,
     epicId,
     epicBranch,
@@ -1885,6 +1909,7 @@ export async function makeLeafExecutorDeps(
     startNodesSpent: effectiveStart,
     assertAuth: assertSubscriptionAuth,
     assertGrokAuth,
+    assertXaiApiAuth,
     complete: async (p, t, a) => {
       // Carry the gate's pendingReason + failing-gate reasons OUT of the funnel — the
       // leaf-executor's terminal record needs them (they were silently dropped before).

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveNodeProvider, anyGrokNodeConfigured, grokLedgerModel } from '../node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, xaiApiLedgerModel } from '../node-provider';
 import { setNodeProfileOverride, setProjectNodeProvider, _closeDb } from '../orchestrator-config';
 
 // resolveNodeProvider precedence: mcp → per-kind DB → project DB → per-kind env → project
@@ -36,6 +36,20 @@ describe('resolveNodeProvider — precedence', () => {
     setProjectNodeProvider(P, 'grok-build');
     setNodeProfileOverride(P, 'report', null, null, 'grok-build'); // even an explicit per-kind grok…
     expect(resolveNodeProvider(P, 'report', 'Read Grep Glob mcp__mermaid__add_session_todo')).toBe('claude');
+  });
+
+  it('grok-api resolves as a provider (per-kind DB + env) and reports via anyXaiApiNodeConfigured', () => {
+    setNodeProfileOverride(P, 'review', null, null, 'grok-api');
+    expect(resolveNodeProvider(P, 'review', 'Read Grep Glob Bash')).toBe('grok-api');
+    expect(anyXaiApiNodeConfigured(P)).toBe(true);
+    expect(anyGrokNodeConfigured(P)).toBe(false); // grok-api is NOT grok-build (separate auth)
+    // MCP still forces claude even over grok-api
+    expect(resolveNodeProvider(P, 'review', 'Read mcp__x__y')).toBe('claude');
+  });
+
+  it('xaiApiLedgerModel is the flagship reasoner', () => {
+    expect(xaiApiLedgerModel('review')).toBe('grok-4.3');
+    expect(xaiApiLedgerModel('blueprint')).toBe('grok-4.3');
   });
 
   it('per-kind DB override wins over project DB default and env', () => {

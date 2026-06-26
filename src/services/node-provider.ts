@@ -25,11 +25,11 @@ import { getConfig } from './config-file';
 import { kindDefaultGrokModel, type GrokNodeKind, GROK_NODE_KINDS } from '../agent/grok-model';
 import { getProjectNodeProvider, listNodeProfileOverrides } from './orchestrator-config';
 
-export type NodeProvider = 'claude' | 'grok-build';
+export type NodeProvider = 'claude' | 'grok-build' | 'grok-api';
 
 function asProvider(v: string | null | undefined): NodeProvider | null {
   const t = v?.trim();
-  return t === 'grok-build' || t === 'claude' ? t : null;
+  return t === 'grok-build' || t === 'claude' || t === 'grok-api' ? t : null;
 }
 
 /** config.json / env knob value, or null. */
@@ -83,6 +83,29 @@ export function anyGrokNodeConfigured(project?: string): boolean {
     if (asProvider(cfg(`MERMAID_NODE_PROVIDER_${k.toUpperCase()}`)) === 'grok-build') return true;
   }
   return false;
+}
+
+/** True when ANY node provider (DB or env/config) is grok-api — drives the leaf-entry auth
+ *  pre-flight for the xAI-API lane (XAI_API_KEY), separate from grok-build's OIDC pre-flight. */
+export function anyXaiApiNodeConfigured(project?: string): boolean {
+  if (dbProjectProvider(project) === 'grok-api') return true;
+  if (project) {
+    try {
+      for (const ov of Object.values(listNodeProfileOverrides(project))) {
+        if (asProvider(ov.provider) === 'grok-api') return true;
+      }
+    } catch { /* no store → skip */ }
+  }
+  if (asProvider(cfg('MERMAID_NODE_PROVIDER')) === 'grok-api') return true;
+  for (const k of GROK_NODE_KINDS) {
+    if (asProvider(cfg(`MERMAID_NODE_PROVIDER_${k.toUpperCase()}`)) === 'grok-api') return true;
+  }
+  return false;
+}
+
+/** The model recorded in the ledger for a grok-api node — the flagship reasoner. */
+export function xaiApiLedgerModel(_kind: string): string {
+  return 'grok-4.3';
 }
 
 /** The OPAQUE model recorded in the ledger for a grok node (contract A — not the CLI id).

@@ -124,8 +124,12 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
         {rows.map((r) => {
           const busy = busyKind === r.kind;
           const overridden = r.modelOverride != null || r.effortOverride != null || r.providerOverride != null;
-          // Model choices follow the row's EFFECTIVE provider (grok rows show grok models).
-          const modelChoices = r.effectiveProvider === 'grok-build' ? grokModels : claudeModels;
+          // Model choices follow the row's EFFECTIVE provider. grok-build → CLI grok models;
+          // grok-api → the flagship reasoner (fixed); else claude models.
+          const modelChoices =
+            r.effectiveProvider === 'grok-build' ? grokModels :
+            r.effectiveProvider === 'grok-api' ? ['grok-4.3'] :
+            claudeModels;
           return (
             <tr key={r.kind} data-testid={`node-row-${r.kind}`} className={`border-t border-gray-100 dark:border-gray-800 ${busy ? 'opacity-60' : ''}`}>
               <td className="pr-2 py-0.5 align-top">
@@ -179,7 +183,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
                 </select>
               </td>
               <td className="pl-2 py-0.5 font-mono text-gray-500 dark:text-gray-400">
-                <span className={r.effectiveProvider === 'grok-build' ? 'text-purple-600 dark:text-purple-400' : ''}>{r.effectiveProvider}</span>
+                <span className={r.effectiveProvider === 'grok-build' ? 'text-purple-600 dark:text-purple-400' : r.effectiveProvider === 'grok-api' ? 'text-emerald-600 dark:text-emerald-400' : ''}>{r.effectiveProvider}</span>
                 {' · '}{r.effectiveModel} · {r.effectiveEffort}
               </td>
             </tr>
