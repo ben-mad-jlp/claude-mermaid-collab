@@ -160,4 +160,15 @@ describe('PlanKanban', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect.mock.calls[0][0].id).toBe('A');
   });
+
+  it('wraps a long unbroken title within the card (break-words)', () => {
+    const longPath = 'src/components/' + 'x'.repeat(110); // ~125 chars, no break point
+    const todos = [
+      todo({ id: 'E', title: 'Feature-Epic' }),
+      todo({ id: 'L', title: longPath, parentId: 'E' }),
+    ];
+    render(<PlanKanban todos={todos} showCompleted={false} />);
+    const titleEl = screen.getByText(longPath);
+    expect(titleEl.className).toContain('break-words');
+  });
 });
