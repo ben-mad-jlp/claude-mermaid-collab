@@ -1249,6 +1249,7 @@ export async function runLeaf(
     cwd,
     leafId: leaf.id,
     epicId,
+    project, // E1: recorded in the leaf-subprocess registry for per-project brake
     permissionMode: 'bypassPermissions',
     transcriptPath: leafTranscriptPath(project, leaf.id),
     transcriptLabel: kind,
@@ -1270,6 +1271,7 @@ export async function runLeaf(
     cwd,
     leafId: leaf.id,
     epicId,
+    project, // E1: recorded in the leaf-subprocess registry for per-project brake
     permissionMode: 'bypassPermissions',
     transcriptPath: leafTranscriptPath(project, leaf.id),
     transcriptLabel: `${kind}:${target.ref}`,
@@ -1402,6 +1404,7 @@ export async function runLeaf(
     cwd,
     leafId: leaf.id,
     epicId,
+    project, // E1: recorded in the leaf-subprocess registry for per-project brake
     permissionMode: 'bypassPermissions',
     // The execute node runs a heavy CAD build — give it a longer wall-clock cap (L4: the
     // default 600s killed it mid-build). Other verify nodes use the default.

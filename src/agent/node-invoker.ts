@@ -19,6 +19,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdi
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { resolveGrokModel } from './grok-model.js';
+import { registerLeafProc, unregisterLeafProc, groupKillPid } from '../services/leaf-subprocess-registry.js';
 
 export type AuthMode = 'subscription' | 'api' | 'unknown' | 'grok';
 
@@ -82,6 +83,9 @@ export interface NodeSpec {
   /** Ledger correlation (optional but recommended). */
   leafId?: string;
   epicId?: string;
+  /** Tracking project — recorded in the leaf-subprocess registry (E1) so a per-project
+   *  brake (level→off) can kill only this project's live node subprocesses. Optional. */
+  project?: string;
   /** If set, the raw stream-json transcript for this node is appended to this file
    *  (best-effort; never fails the node). The leaf-executor points all of a leaf's
    *  nodes at one per-leaf file so the run reads as a single transcript. */
@@ -467,6 +471,9 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       stdout: 'pipe',
       stderr: 'pipe',
       env: worktreeSpawnEnv(spec.cwd), // E3: isolate git to the worktree (no main-checkout escape)
+      // E1: own process group (group leader pid == pgid) so the daemon can kill the
+      // whole subtree (CLI + model subprocess) via process.kill(-pid) on off/drop/hold.
+      detached: true,
     });
   } catch (e) {
     return {
@@ -479,6 +486,10 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       parseError: `spawn failed: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
+
+  // E1: track this node's process-group leader so a brake (off/drop/hold/shutdown) can
+  // kill the whole subtree mid-run. Cleared after collection below.
+  registerLeafProc(spec.leafId, proc.pid, spec.project ?? '');
 
   // Start draining stdout/stderr IMMEDIATELY (concurrent with the run) — NOT after the
   // timeout. Reading the pipes after a kill is exactly what wedged the daemon: a
@@ -496,8 +507,9 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
       timedOut = true;
-      try { proc.kill(); } catch { /* already gone */ }
-      hardTimer = setTimeout(() => { try { proc.kill(9); } catch { /* gone */ } }, KILL_GRACE_MS);
+      // E1: group-kill (detached → leader pid) so the model subprocess the CLI forked
+      // dies too, not just the CLI leader. groupKillPid does the SIGTERM→SIGKILL grace.
+      groupKillPid(proc.pid);
       resolve();
     }, timeoutMs);
   });
@@ -515,6 +527,9 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
   const exitCode = await capped(proc.exited, -1);
   if (timer) clearTimeout(timer);
   if (hardTimer) clearTimeout(hardTimer);
+  // E1: the subprocess has exited (or been killed) — forget it so a later brake doesn't
+  // signal a recycled pid. Guard on proc.pid so a fast next-node spawn's entry survives.
+  unregisterLeafProc(spec.leafId, proc.pid);
 
   const durationMs = Math.round(Date.now() - start);
 
@@ -925,6 +940,7 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
       stdout: 'pipe',
       stderr: 'pipe',
       env: worktreeSpawnEnv(spec.cwd), // E3: isolate git to the worktree (no main-checkout escape)
+      detached: true, // E1: own process group so a brake can kill the subtree
     });
   } catch (e) {
     cleanupPromptTemp(promptDir, promptFile);
@@ -944,6 +960,9 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
     };
   }
 
+  // E1: track this grok node's process-group leader (see invokeNode). Cleared below.
+  registerLeafProc(spec.leafId, proc.pid, spec.project ?? '');
+
   const stdoutP = new Response(proc.stdout as ReadableStream).text().catch(() => '');
   const stderrP = new Response(proc.stderr as ReadableStream).text().catch(() => '');
 
@@ -953,8 +972,9 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
       timedOut = true;
-      try { proc.kill(); } catch { /* already gone */ }
-      hardTimer = setTimeout(() => { try { proc.kill(9); } catch { /* gone */ } }, KILL_GRACE_MS);
+      // E1: group-kill (detached → leader pid) so the model subprocess the CLI forked
+      // dies too, not just the CLI leader. groupKillPid does the SIGTERM→SIGKILL grace.
+      groupKillPid(proc.pid);
       resolve();
     }, timeoutMs);
   });
@@ -969,6 +989,7 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
   const exitCode = await capped(proc.exited, -1);
   if (timer) clearTimeout(timer);
   if (hardTimer) clearTimeout(hardTimer);
+  unregisterLeafProc(spec.leafId, proc.pid); // E1: forget the exited/killed subprocess
 
   cleanupPromptTemp(promptDir, promptFile);
 

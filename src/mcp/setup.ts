@@ -4873,8 +4873,13 @@ IMPORTANT - Common pitfalls to avoid:
             const target = project || process.cwd();
             const { orchestratorOff } = await import('../services/orchestrator-config.js');
             const level = orchestratorOff(target);
-            recordSupervisorDecision('override', target, 'steward', JSON.stringify({ action: 'orchestrator_off' }));
-            return JSON.stringify({ project: target, level }, null, 2);
+            // E1: braking the project must STOP its live runs, not just gate new claims —
+            // kill each in-flight leaf's subprocess group. The aborted run's late
+            // completion is a no-op via E2's ownership-CAS (no merge/accept).
+            const { killLeafProcsForProject } = await import('../services/leaf-subprocess-registry.js');
+            const killedLeaves = killLeafProcsForProject(target);
+            recordSupervisorDecision('override', target, 'steward', JSON.stringify({ action: 'orchestrator_off', killedLeaves }));
+            return JSON.stringify({ project: target, level, killedLeaves }, null, 2);
           }
           case 'runtime_config': {
             const { project } = args as { project: string };
