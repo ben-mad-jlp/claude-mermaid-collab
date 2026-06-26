@@ -1390,7 +1390,10 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     let parentId = existing.parentId;
     while (parentId) {
       const parent = getTodo(project, parentId);
-      if (!parent || parent.status === 'done' || parent.status === 'dropped') break;
+      // 54362542: never auto-roll-up a HELD parent — a manual hold (heldAt) is an explicit
+      // human decision ("don't close this") that the rollup must respect, else completing a
+      // sibling silently overrides the hold and marks abandoned/held work as a deliverable.
+      if (!parent || parent.status === 'done' || parent.status === 'dropped' || parent.heldAt != null) break;
       const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId && t.status !== 'dropped');
       if (children.length === 0) break;
       const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
@@ -1586,7 +1589,9 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
         // ones. A 'planned'/'ready'/'blocked' epic whose children all completed
         // (e.g. children worked before the epic was activated) would otherwise
         // linger forever. Terminal epics (done/dropped) are left alone.
-        if (epic.status === 'done' || epic.status === 'dropped') continue;
+        // 54362542: a HELD epic is off-limits to the rollup sweep too (same reason as the
+        // event-path guard) — a manual hold must survive an all-children-settled sweep.
+        if (epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) continue; // not an epic / no live children
         if (!children.every((c) => c.status === 'done')) continue; // a child still open

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
+  createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError,
@@ -728,6 +728,44 @@ describe('completeTodo epic roll-up', () => {
     const { rolledUp } = await completeTodo(project, solo.id, 'accepted');
     expect(rolledUp).toEqual([]);
     expect(getTodo(project, epic.id)!.status).toBe('planned');
+  });
+
+  // bug 54362542: a HELD epic must never be auto-rolled-up (a manual hold is an explicit
+  // human decision the rollup must respect).
+  test('does NOT roll up a HELD epic when its last child completes', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    await updateTodo(project, epic.id, { status: 'blocked' }); // manual hold → heldAt set
+    expect(getTodo(project, epic.id)!.heldAt).not.toBeNull();
+    const { rolledUp } = await completeTodo(project, c1.id, 'accepted');
+    expect(rolledUp).toEqual([]);
+    expect(getTodo(project, epic.id)!.status).not.toBe('done');
+    expect(getTodo(project, epic.id)!.acceptanceStatus).not.toBe('accepted');
+  });
+});
+
+describe('sweepEpicRollups (54362542 — held + all-dropped)', () => {
+  test('does NOT roll up a HELD epic even when all children are done+accepted', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'blocked' }); // held
+    const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    // complete the child directly in the store (bypassing completeTodo's own rollup) by sweeping:
+    await updateTodo(project, c1.id, { status: 'done', acceptanceStatus: 'accepted', completed: true });
+    expect(getTodo(project, epic.id)!.heldAt).not.toBeNull();
+    const { rolledUp } = await sweepEpicRollups(project);
+    expect(rolledUp).not.toContain(epic.id);
+    expect(getTodo(project, epic.id)!.status).not.toBe('done');
+  });
+
+  test('does NOT roll up a container whose children are ALL dropped (no vacuous accept)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
+    const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
+    const c2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
+    await updateTodo(project, c1.id, { status: 'dropped' });
+    await updateTodo(project, c2.id, { status: 'dropped' });
+    const { rolledUp } = await sweepEpicRollups(project);
+    expect(rolledUp).not.toContain(epic.id);
+    expect(getTodo(project, epic.id)!.status).not.toBe('done');
+    expect(getTodo(project, epic.id)!.acceptanceStatus).not.toBe('accepted');
   });
 });
 
