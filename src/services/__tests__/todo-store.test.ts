@@ -730,6 +730,19 @@ describe('completeTodo epic roll-up', () => {
     expect(getTodo(project, epic.id)!.status).toBe('planned');
   });
 
+  // bug c544b9cb: accepting a HELD todo must clear the stale hold marker (a done todo
+  // must not carry heldAt/heldReason — it rendered a misleading 'held' chip).
+  test('accepting a held todo clears heldAt/heldReason', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'blocked' }); // born held
+    expect(getTodo(project, t.id)!.heldAt).not.toBeNull();
+    await completeTodo(project, t.id, 'accepted'); // override-accept routes through here too
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('done');
+    expect(after.acceptanceStatus).toBe('accepted');
+    expect(after.heldAt).toBeNull();
+    expect(after.heldReason).toBeNull();
+  });
+
   // bug 54362542: a HELD epic must never be auto-rolled-up (a manual hold is an explicit
   // human decision the rollup must respect).
   test('does NOT roll up a HELD epic when its last child completes', async () => {

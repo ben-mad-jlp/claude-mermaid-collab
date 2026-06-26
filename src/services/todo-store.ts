@@ -1371,8 +1371,11 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       ).run(accept, ts, id);
     } else {
       db.prepare(
+        // 54362542/c544b9cb: clear a stale manual hold on terminal-accept — a done todo
+        // must not carry heldAt/heldReason (it rendered a misleading 'held' chip on a
+        // completed todo). Same write that clears the claim.
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
+          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
       ).run(ts, actor, accept, ts, id);
     }
     // S4 (epic b2c858d4): the blocked→ready FAN-OUT is DELETED. Readiness is no longer
@@ -1400,7 +1403,7 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       if (!allChildrenDone) break;
       db.prepare(
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
+          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
       ).run(ts, 'accepted', nowIso(), parentId);
       rolledUp.push(parentId);
       parentId = parent.parentId;
@@ -1602,7 +1605,7 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
           const ts = nowIso();
           db.prepare(
             `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), acceptanceStatus='accepted',
-              ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+              ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
           ).run(ts, ts, epic.id);
           rolledUp.push(epic.id);
           closedThisPass++;
