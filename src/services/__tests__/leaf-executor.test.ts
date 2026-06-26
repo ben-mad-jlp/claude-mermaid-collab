@@ -121,6 +121,7 @@ function makeDeps(opts: {
   authThrows?: boolean;
   mergeThrows?: boolean;
   blueprintFails?: number; // first N blueprint-node invocations return ok:false (non-rate-limited)
+  markRejectingOwned?: boolean; // bug aadd927b: markRejecting returns this (false ⇒ run lost the todo)
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -180,6 +181,7 @@ function makeDeps(opts: {
     async markRejecting(_p, leafId) {
       spies.markRejectingCalls.push(leafId);
       spies.seq.push('mark');
+      return opts.markRejectingOwned ?? true; // default owned (legacy behaviour)
     },
     async mergeToEpic() {
       spies.mergeCalls += 1;
@@ -344,6 +346,22 @@ describe('runLeaf state machine', () => {
     // no 'accepted' completion ever; only the final blocked-path reject
     expect(spies.completeCalls).toEqual([{ acceptance: 'rejected' }]);
     expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
+  });
+
+  // bug aadd927b: a trailing/duplicate run that BLOCKS but no longer owns the todo
+  // (markRejecting → false, e.g. a concurrent run already accepted it) must DISCARD the
+  // blocked outcome — no reject-completion, no spurious blocker escalation, no clobber.
+  it('(ii-b) blocked but markRejecting says NOT-OWNED → discard: no complete(rejected), no escalation', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — x', 'VERDICT: FAIL — x', 'VERDICT: FAIL — y', 'VERDICT: FAIL — y'],
+      markRejectingOwned: false, // a concurrent run already took the todo terminal
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^discarded-not-owned:/); // the discard path, not a real reject
+    expect(spies.markRejectingCalls.length).toBeGreaterThan(0); // it DID consult ownership
+    expect(spies.completeCalls).toEqual([]); // never wrote a rejected completion
+    expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(false); // no spurious blocker
   });
 
   it('P6: fail then SURGICAL REUSE → PASS in ONE attempt, same worktree (no fresh discard)', async () => {
