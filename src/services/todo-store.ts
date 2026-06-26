@@ -939,7 +939,7 @@ export interface ReleaseResult {
  * it for a human. Stored status is the non-derived 'planned' in both cases —
  * readiness/hold are DERIVED from the cleared claim / heldAt, not the enum.
  */
-export function releaseExpiredClaims(project: string, now: string = nowIso()): Promise<ReleaseResult> {
+export function releaseExpiredClaims(project: string, now: string = nowIso(), isLive?: (id: string) => boolean): Promise<ReleaseResult> {
   return withLock(project, () => {
     const db = openDb(project);
     const nowMs = new Date(now).getTime();
@@ -949,7 +949,12 @@ export function releaseExpiredClaims(project: string, now: string = nowIso()): P
     const expired = rows
       .map((r) => ({ r, c: readClaim(r) }))
       .filter((x): x is { r: TodoRow; c: ClaimStruct } => x.c != null
-        && new Date(x.c.at).getTime() + x.c.leaseMs < nowMs);
+        && new Date(x.c.at).getTime() + x.c.leaseMs < nowMs)
+      // HARDENING (dup-dispatch root): never lease-reap a leaf whose RUN is still live in
+      // this process — the lease can elapse mid-run (a long/opus leaf, or a resumed one),
+      // and reaping it clears the claim + bumps retryCount → the claim loop launches a
+      // DUPLICATE run. The live run keeps its claim; the lease backstops only a dead run.
+      .filter((x) => !(isLive?.(x.r.id)));
     if (expired.length === 0) return { released: [], exhausted: [] };
     const ts = nowIso();
     // On expiry: clear the claim and bump retryCount (re-derives claimable). Past

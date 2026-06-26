@@ -1577,7 +1577,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       if (c) recordSupervisorAudit({ kind: 'claim', project, session: c.sessionName ?? '', detail: JSON.stringify({ todoId: id, claimedBy }) });
       return c;
     },
-    releaseExpiredClaims,
+    // HARDENING: pass run-liveness so a live leaf's claim is never lease-reaped (which
+    // would spawn a duplicate run). isRunLive = whole run (incl. between nodes);
+    // isLeafInflightLive = an active node. Either ⇒ skip the lease release for that row.
+    releaseExpiredClaims: (project, now) => releaseExpiredClaims(project, now, (id) => isRunLive(id) || isLeafInflightLive(id)),
     completeTodo: async (project, id, acceptance) => {
       // E2 ownership-CAS: this is the fire-and-track worker continuation. A run can
       // finish minutes after it claimed — pass requireInProgress so the store applies
@@ -1986,6 +1989,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // spawned under a lane (or its persist raced); treat as dead and reclaim,
         // rather than fabricating a `worker-<id8>` name that points at no real tmux.
         const session = t.sessionName;
+        // HARDENING (audit aadd927b/dup-dispatch root): a headless leaf-exec lane has NO
+        // tmux and NO registered in-process harness, and BETWEEN nodes its per-node
+        // leaf_inflight row is gone — so a genuinely-running leaf caught between nodes read
+        // as a "dead worker" here, got its claim reclaimed, and the claim loop launched a
+        // DUPLICATE run (same worktree+row) → false-block + retryCount inflation. The
+        // run-level liveness set (E4) is true for the whole run incl. between-nodes; the
+        // inflight row covers an active node. Either ⇒ a live current-epoch run, never reap.
+        if (isRunLive(t.id) || isLeafInflightLive(t.id)) continue; // live leaf run — not a dead claim
         // In-process lanes have no tmux — ask the harness before the tmux probe, or a
         // healthy in-process worker reads as dead (§6.7 bootstrap).
         if (session && await inProcessLaneAlive(session)) continue; // live in-process lane
