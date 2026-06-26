@@ -1535,7 +1535,11 @@ export async function splitLeafInto(
         `Split child of leaf ${leaf.id.slice(0, 8)} (auto-decomposed: too many files for one run).\n` +
         `Implement ONLY this file: ${file}\n\n` +
         `Parent leaf spec:\n${leaf.description ?? '(no description)'}`,
-      status: 'ready',
+      // 5dffee35: split children are PROPOSED (planned), NOT auto-promoted to ready. The
+      // planner-promotes-ready invariant: a worker proposes a split; only the planner (human)
+      // promotes the children. Auto-readying them let the daemon immediately claim 14
+      // un-reviewed file-atoms (incl. interdependent shared modules) → broken parallel build.
+      status: 'planned',
       priority: leaf.priority,
       parentId: leaf.id,
       dependsOn: leaf.dependsOn ?? [],

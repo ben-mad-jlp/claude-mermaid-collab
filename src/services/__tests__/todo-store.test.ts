@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, _closeProject,
+  createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError,
@@ -754,6 +754,20 @@ describe('completeTodo epic roll-up', () => {
     expect(rolledUp).toEqual([]);
     expect(getTodo(project, epic.id)!.status).not.toBe('done');
     expect(getTodo(project, epic.id)!.acceptanceStatus).not.toBe('accepted');
+  });
+});
+
+describe('splitLeafInto (5dffee35 — children proposed, not auto-promoted)', () => {
+  test('split children are created PLANNED + un-claimable (await planner promotion), not ready', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'epic', status: 'planned' });
+    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'big leaf', status: 'ready', parentId: epic.id });
+    const { childIds } = await splitLeafInto(project, getTodo(project, leaf.id)!, ['a.ts', 'b.ts', 'c.ts']);
+    expect(childIds.length).toBe(3);
+    for (const cid of childIds) {
+      const c = getTodo(project, cid)!;
+      expect(c.approvedAt).toBeNull();            // never auto-approved
+      expect(derivedClaimable(c)).toBe(false);    // daemon cannot claim it until promoted
+    }
   });
 });
 
