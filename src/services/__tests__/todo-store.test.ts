@@ -227,6 +227,35 @@ describe('todo-store new fields and functions', () => {
     expect(claimed).toBeNull();
   });
 
+  // E2 ownership-CAS: a fire-and-track run that finishes after its todo left
+  // in_progress (dropped/held/re-claimed) must NOT apply its outcome.
+  test('completeTodo requireInProgress: todo NOT in_progress → skipped, no mutation', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    // never claimed → status is not in_progress
+    const r = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true });
+    expect(r.skipped).toBe(true);
+    const after = getTodo(project, t.id)!;
+    expect(after.status).not.toBe('done');
+    expect(after.acceptanceStatus).not.toBe('accepted');
+  });
+
+  test('completeTodo requireInProgress: claimed (in_progress) todo → completes normally', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 60000); // → in_progress
+    const r = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true });
+    expect(r.skipped).toBeFalsy();
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('done');
+    expect(after.acceptanceStatus).toBe('accepted');
+  });
+
+  test('completeTodo WITHOUT requireInProgress: non-in_progress todo still completes (default unchanged)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    const r = await completeTodo(project, t.id, 'accepted');
+    expect(r.skipped).toBeFalsy();
+    expect(getTodo(project, t.id)!.status).toBe('done');
+  });
+
   test('claimTodo: claiming status blocked → null', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'blocked' });
     const claimed = await claimTodo(project, t.id, 'agent-1', 60000);
