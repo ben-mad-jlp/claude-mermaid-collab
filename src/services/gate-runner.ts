@@ -354,6 +354,31 @@ export function netNewFailures(failing: readonly string[], baseline: readonly st
   return failing.filter((f) => !pats.some((p) => f.includes(p)));
 }
 
+/** Default matcher for "a test file": `*.test.*` / `*.spec.*` with a JS/TS ext. */
+export const SPEC_FILE_RE = /\.(test|spec)\.(tsx?|jsx?|mts|cts|mjs|cjs)$/;
+
+/** The change-set members that are spec files, with `cwd` stripped to the path
+ *  the test runner resolves (e.g. `ui/src/x.test.ts` + cwd `ui` → `src/x.test.ts`).
+ *  Returns paths relative to `cwd` (or root-relative when cwd omitted). */
+export function specFilesInChangeSet(
+  changeSet: readonly string[],
+  cwdRel?: string,
+): string[] {
+  const prefix = cwdRel ? cwdRel.replace(/\/+$/, '') + '/' : '';
+  const out: string[] = [];
+  for (const raw of changeSet) {
+    const p = normPath(raw);
+    if (!SPEC_FILE_RE.test(p)) continue;
+    if (prefix) {
+      if (!p.startsWith(prefix)) continue; // a spec outside the test cwd — skip
+      out.push(p.slice(prefix.length));
+    } else {
+      out.push(p);
+    }
+  }
+  return [...new Set(out)];
+}
+
 export const frontendSuiteGatePlugin: GatePlugin = {
   id: 'frontend-suite',
   tier: 'project',
@@ -398,40 +423,86 @@ export const frontendSuiteGatePlugin: GatePlugin = {
 
 registerGatePlugin(frontendSuiteGatePlugin);
 
-export const manifestCommandGatePlugin: GatePlugin = {
-  id: 'manifest-command',
+export const changeSetTestGatePlugin: GatePlugin = {
+  id: 'changeset-test',
   tier: 'project',
-  appliesTo: (obj) => Boolean(obj.manifest?.gateCommand?.trim()),
+  appliesTo: (obj, type) =>
+    (type === 'frontend' || type === 'ui') &&
+    Boolean(obj.manifest?.changeSetTestCommand?.trim()) &&
+    !obj.manifest?.frontendGateCommand?.trim(),
   run: async (ctx): Promise<GateVerdict | null> => {
-    const cmd = ctx.manifest?.gateCommand?.trim();
-    if (!cmd) return null;
+    // 1. tsc first (shared helper). A tsc failure rejects before we bother with tests.
+    const base = await runManifestCommand(ctx);
+    if (base && !base.passed) return base;
+
+    // 2. The leaf's OWN spec files (added or modified), from its change-set.
+    const tmpl = ctx.manifest!.changeSetTestCommand!.trim();
+    const cwdRel = ctx.manifest?.changeSetTestCwd?.trim() || undefined;
+    const changeSet = await fetchChangeSet(ctx);
+    if (!changeSet) {
+      // Can't read the change-set → fail CLOSED (don't accept unverified tests).
+      return { passed: false, reasons: ['change-set test gate: could not read change-set'] };
+    }
+    const specs = specFilesInChangeSet(changeSet, cwdRel);
+    if (specs.length === 0) return base ?? { passed: true, reasons: [] }; // no new tests → tsc verdict stands
+
+    // 3. Run them. cwd = <lane|gateProject>/<changeSetTestCwd>.
+    const root = ctx.laneCwd ?? ctx.gateProject;
+    const cwd = cwdRel ? `${root}/${cwdRel}` : root;
+    const filesArg = specs.map((f) => `'${f.replace(/'/g, "'\\''")}'`).join(' ');
+    const cmd = tmpl.replace(/\{files\}/g, filesArg);
     try {
-      // ASYNC (944408c2): the gate runs tsc + tests — seconds to minutes. Await it
-      // so the single-threaded sidecar keeps serving while the gate child runs.
-      // Run in the lane worktree under isolation (its HEAD = THIS leaf's work), else the
-      // gate repo — MIRRORS the frontend gate (:367). Running the manifest gate in the
-      // main checkout silently tested STALE main code for any cwd-relative resolution: e.g.
-      // a Python gate `pytest bsync-tools/tests/...` imports the path-resident `bsync` from
-      // CWD, so a main-cwd gate never exercised the leaf's worktree changes (→ false-green
-      // importorskip hacks). cwd-per-process is concurrency-safe (no shared-venv mutation).
-      const cwd = ctx.laneCwd ?? ctx.gateProject;
       const proc = await ctx.exec(['sh', '-c', cmd], { cwd, capture: true });
       const out = proc.stdout + '\n' + proc.stderr;
       const structured = parseTrailingVerdict(out);
       if (structured) return structured;
-      if (proc.code === 0) return { passed: true, reasons: [] };
-      // FAILED whole-tree run: scope to the change-set (todo 63dcca2f) so a
-      // sibling lane's foreign error doesn't false-reject green work. Attributable
-      // foreign-only failure → pass; in-scope failure → keep reject; unattributable
-      // → fall through and FAIL CLOSED with the full tail.
-      const scoped = scopeFailureToChangeSet(out, await fetchChangeSet(ctx));
-      if (scoped) return scoped;
-      return { passed: false, reasons: [`gate command exited ${proc.code}: ${lastLines(out, 20)}`] };
+      if (proc.code === 0) {
+        return { passed: true, reasons: [], metrics: { changeSetTestGate: true, ranSpecs: specs } };
+      }
+      const failing = extractFailingTests(out);
+      return {
+        passed: false,
+        reasons: [
+          `change-set test gate: ${failing.length || 'unattributed'} failing test(s) in this leaf's own change-set`,
+          ...(failing.length ? failing.slice(0, 20) : [lastLines(out, 20)]),
+        ],
+        metrics: { changeSetTestGate: true, ranSpecs: specs, failingTests: failing },
+      };
     } catch (e) {
-      // Fail CLOSED — an un-runnable gate blocks acceptance, never passes it.
-      return { passed: false, reasons: [`gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };
+      return { passed: false, reasons: [`change-set test gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };
     }
   },
+};
+
+registerGatePlugin(changeSetTestGatePlugin);
+
+/** Run the project's generic `gateCommand` (e.g. `npx tsc --noEmit`) with
+ *  change-set narrowing on failure. Returns null when no gateCommand is declared
+ *  (caller treats as "nothing to run"). Shared by manifestCommandGatePlugin and
+ *  changeSetTestGatePlugin so the tsc gate runs exactly once, identically. */
+export async function runManifestCommand(ctx: GateSubject): Promise<GateVerdict | null> {
+  const cmd = ctx.manifest?.gateCommand?.trim();
+  if (!cmd) return null;
+  try {
+    const cwd = ctx.laneCwd ?? ctx.gateProject;
+    const proc = await ctx.exec(['sh', '-c', cmd], { cwd, capture: true });
+    const out = proc.stdout + '\n' + proc.stderr;
+    const structured = parseTrailingVerdict(out);
+    if (structured) return structured;
+    if (proc.code === 0) return { passed: true, reasons: [] };
+    const scoped = scopeFailureToChangeSet(out, await fetchChangeSet(ctx));
+    if (scoped) return scoped;
+    return { passed: false, reasons: [`gate command exited ${proc.code}: ${lastLines(out, 20)}`] };
+  } catch (e) {
+    return { passed: false, reasons: [`gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };
+  }
+}
+
+export const manifestCommandGatePlugin: GatePlugin = {
+  id: 'manifest-command',
+  tier: 'project',
+  appliesTo: (obj) => Boolean(obj.manifest?.gateCommand?.trim()),
+  run: (ctx) => runManifestCommand(ctx),
 };
 
 registerGatePlugin(manifestCommandGatePlugin);
