@@ -356,6 +356,29 @@ export function reapStaleInflight(): number {
   } catch { return 0; }
 }
 
+/**
+ * E4 (epic e5acda93): drop a SAME-epoch in-flight row whose run is no longer live in
+ * THIS process. `reapStaleInflight` only deletes OTHER-epoch (dead-daemon) rows; this
+ * closes the within-epoch gap — an aborted (E1 kill) or errored run that ended without
+ * its finally clearing the row would otherwise leave a CURRENT-epoch phantom that
+ * inflates daemon_status' in-flight count AND (post lease-fix 0f1df3d2) permanently
+ * blocks the leaf from being reclaimed (isLeafInflightLive stays true). `isLive` is the
+ * run-level liveness predicate (leaf-subprocess-registry.isRunLive). Returns count
+ * deleted. Idempotent + best-effort.
+ */
+export function reapSameEpochOrphanInflight(isLive: (leafId: string) => boolean): number {
+  try {
+    const rows = openDb().prepare('SELECT leafId FROM leaf_inflight WHERE epoch = ?').all(LEDGER_EPOCH) as Array<{ leafId: string }>;
+    let n = 0;
+    for (const r of rows) {
+      if (isLive(r.leafId)) continue; // a genuinely-running leaf (incl. between its nodes)
+      openDb().prepare('DELETE FROM leaf_inflight WHERE leafId = ?').run(r.leafId);
+      n++;
+    }
+    return n;
+  } catch { return 0; }
+}
+
 // --- DURABLE resume state (leaf-phase-checkpoint-design, slice 1b) ------------
 // Unlike leaf_inflight (cleared on node-finish, epoch-reaped on process death),
 // THIS table must SURVIVE a process death — it's how a hard kill (daemon crash /

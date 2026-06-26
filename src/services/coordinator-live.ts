@@ -6,8 +6,8 @@ import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, g
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume } from './worker-ledger';
-import { listTrackedLeaves, killLeafSubtree } from './leaf-subprocess-registry';
+import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume } from './worker-ledger';
+import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
@@ -1887,6 +1887,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // claim + escalates, exactly as the prior inline path did.
         const ledProject = todo.targetProject ?? project;
         void (async () => {
+          // E4: mark the run live for the same-epoch orphan-inflight sweep — removed in
+          // the finally below on EVERY exit (normal/abort/throw), so a row left behind by
+          // an aborted/errored run becomes reapable within a tick.
+          markRunLive(todo.id);
           try {
             // P3 resume: carry the paused leaf's prior nodesSpent forward so the master
             // NODE_BUDGET bounds total spawns across all pause/resume cycles. The in-memory
@@ -1923,6 +1927,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             if (res.outcome === 'accepted') resetBreakerStreak();
           } catch (e) {
             try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
+            // E4: an errored run never reached finishWith, so its run-spanning inflight
+            // row would linger as a current-epoch phantom (and block reclaim via the
+            // lease-fix guard). Clear it here. Best-effort — telemetry never blocks.
+            try { clearLeafInflight(todo.id); } catch { /* best-effort */ }
             try {
               createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
                 questionText: `Leaf-executor failed for "${todo.title ?? todo.id}": ${e instanceof Error ? e.message : String(e)}` });
@@ -1931,6 +1939,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // Release the in-flight slot the tick reserved for this leaf (fire-and-track
             // ownership: the tick handed the slot to this run when launchWorker returned true).
             releaseLeafSlot(ledProject);
+            markRunDone(todo.id); // E4: run is over (any outcome) — drop run-level liveness
           }
         })();
         // Launched (fired). The tick records it as spawned and moves on without awaiting
@@ -2008,6 +2017,10 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the row) so daemon_status stops showing phantom running leaves. Global +
       // idempotent; cheap to run each tick (epic 8e7386e4).
       reapStaleInflight();
+      // E4: also drop SAME-epoch phantom rows whose run already ended without clearing
+      // them (aborted/errored). isRunLive (run-level liveness) keeps a genuinely-running
+      // leaf's row even between its nodes, where the per-node subprocess registry is empty.
+      reapSameEpochOrphanInflight(isRunLive);
 
       // E1 (epic e5acda93): stop a leaf whose todo was DROPPED or HELD while a node is
       // live — kill its subprocess group within a tick. (level→off kills immediately via

@@ -7,6 +7,9 @@ import {
   killAllLeafSubtrees,
   listTrackedLeaves,
   groupKillPid,
+  markRunLive,
+  markRunDone,
+  isRunLive,
   _resetLeafProcRegistry,
 } from '../leaf-subprocess-registry';
 
@@ -82,5 +85,15 @@ describe('leaf-subprocess-registry', () => {
   it('groupKillPid(undefined) is a no-op', () => {
     groupKillPid(undefined);
     expect(killed).toEqual([]);
+  });
+
+  it('run-level liveness (E4): markRunLive/Done are independent of the per-node pid map', () => {
+    expect(isRunLive('R1')).toBe(false);
+    markRunLive('R1');
+    expect(isRunLive('R1')).toBe(true);
+    // a run is live even with NO tracked subprocess (the between-nodes gap).
+    expect(listTrackedLeaves()).toEqual([]);
+    markRunDone('R1');
+    expect(isRunLive('R1')).toBe(false);
   });
 });
