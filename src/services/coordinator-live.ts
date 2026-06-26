@@ -7,6 +7,7 @@ import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { summarize as summarizeLedger, reapStaleInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume } from './worker-ledger';
+import { listTrackedLeaves, killLeafSubtree } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
@@ -2007,6 +2008,25 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the row) so daemon_status stops showing phantom running leaves. Global +
       // idempotent; cheap to run each tick (epic 8e7386e4).
       reapStaleInflight();
+
+      // E1 (epic e5acda93): stop a leaf whose todo was DROPPED or HELD while a node is
+      // live — kill its subprocess group within a tick. (level→off kills immediately via
+      // the orchestrator_off hook; this catches drop/hold, which have no single MCP
+      // chokepoint.) The registry only holds leaves with a LIVE node, so this is a tiny
+      // set. The aborted run's late completion is a no-op via E2's ownership-CAS.
+      for (const tracked of listTrackedLeaves()) {
+        if (tracked.project !== project) continue;
+        const todo = getTodo(project, tracked.leafId);
+        const stop = !todo || todo.status === 'dropped' || todo.heldAt != null;
+        if (stop && killLeafSubtree(tracked.leafId)) {
+          recordSupervisorAudit({
+            kind: 'reconcile',
+            project,
+            session: todo?.sessionName ?? '',
+            detail: JSON.stringify({ source: 'e1-stop-leaf', todoId: tracked.leafId, reason: !todo ? 'gone' : todo.status === 'dropped' ? 'dropped' : 'held' }),
+          });
+        }
+      }
 
       // Safety-net: reap leaf-exec-* worktrees whose todo is terminal but worktree
       // survived (epoch-death case — process killed before finishWith ran). Throttled

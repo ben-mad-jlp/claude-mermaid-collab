@@ -11,6 +11,7 @@ import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERM
 import { checkAuth } from './auth';
 import { handlePairRoutes } from './routes/pair-routes.js';
 import { migrateEnvAuthToken } from './services/config-file.js';
+import { killAllLeafSubtrees } from './services/leaf-subprocess-registry.js';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { writeLock, releaseLock, currentExePath, serverOwner } from './services/port-ownership';
 import { SERVER_VERSION } from './mcp/server';
@@ -727,6 +728,7 @@ process.on('SIGINT', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);
@@ -744,6 +746,7 @@ process.on('SIGTERM', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
     process.exit(0);
