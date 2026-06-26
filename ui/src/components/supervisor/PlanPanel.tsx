@@ -7,7 +7,8 @@ import { PlanKanban } from './PlanKanban';
 import { PlanTotalsBar } from './PlanTotals';
 import { isBucketEpic } from './bucketEpic';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
-import { bucketTodo, STATUS_STYLE } from './bridge/funnel';
+import { liveBucketTodo, STATUS_STYLE } from './bridge/funnel';
+import { useInflightLeafIds } from './bridge/useInflightLeafIds';
 import { derivedStatus, buildById } from '@/lib/claimability';
 
 /**
@@ -42,8 +43,12 @@ const STATUS_GLYPH: Record<string, string> = {
 };
 
 /** Glyph tint sourced from the canonical funnel palette (bucket → tint). */
-function statusTint(todo: SessionTodo, byId?: Map<string, SessionTodo>): string {
-  const key = bucketTodo(todo, byId);
+function statusTint(
+  todo: SessionTodo,
+  byId?: Map<string, SessionTodo>,
+  inflightLeafIds?: ReadonlySet<string>,
+): string {
+  const key = liveBucketTodo(todo, byId, inflightLeafIds);
   return key ? STATUS_STYLE[key].tint : 'text-gray-500 dark:text-gray-400';
 }
 
@@ -78,14 +83,16 @@ function PlanRow({
   depth,
   byId,
   onSelect,
+  inflightLeafIds,
 }: {
   todo: SessionTodo;
   depth: number;
   byId?: Map<string, SessionTodo>;
   onSelect?: (todo: SessionTodo) => void;
+  inflightLeafIds?: ReadonlySet<string>;
 }) {
   const glyph = STATUS_GLYPH[todo.status] ?? '○';
-  const colorCls = statusTint(todo, byId);
+  const colorCls = statusTint(todo, byId, inflightLeafIds);
   const depCount = todo.dependsOn?.length ?? 0;
   const isInProgress = todo.status === 'in_progress';
   return (
@@ -125,6 +132,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   const deleteTodo = useSupervisorStore((s) => s.deleteTodo);
 
   const todos: SessionTodo[] = todosByProject[project] ?? [];
+  const inflightLeafIds = useInflightLeafIds(project);
   const [mode, setMode] = useState<Mode>('kanban');
   const [graphEpicId, setGraphEpicId] = useState<string | null>(null);
   // Graph mode: the epic list is a collapsible LEFT rail (was a top tab bar).
@@ -404,12 +412,12 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
         ) : mode === 'list' ? (
           <div className="h-full overflow-auto p-2 space-y-0.5">
             {tree.map(({ todo, depth }) => (
-              <PlanRow key={todo.id} todo={todo} depth={depth} byId={byIdAll} onSelect={onSelectTodo} />
+              <PlanRow key={todo.id} todo={todo} depth={depth} byId={byIdAll} onSelect={onSelectTodo} inflightLeafIds={inflightLeafIds} />
             ))}
           </div>
         ) : (
           <div className="h-full p-2">
-            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} />
+            <PlanKanban todos={todos} onSelectTodo={onSelectTodo} showCompleted={showCompleted} onClearCompleted={handleClearCompleted} inflightLeafIds={inflightLeafIds} />
           </div>
         )}
       </div>
