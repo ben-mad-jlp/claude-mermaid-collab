@@ -141,7 +141,10 @@ export interface LeafExecutorDeps {
    *  leaf from being reclaimed+re-run even if the process restarts mid-gate (the residual
    *  window inProcessLaneAlive can't cover, because a restart kills the in-process lane).
    *  Best-effort; unwired in tests/floor. Awaited so the stamp lands before the gate. */
-  markRejecting?: (project: string, leafId: string) => void | Promise<void>;
+  /** Ownership-gated reject pre-stamp. Returns TRUE if the run still owns the todo (it
+   *  stamped 'rejected'), FALSE if a concurrent run already took it terminal → caller
+   *  discards the blocked outcome. (void/undefined = legacy: treat as owned.) */
+  markRejecting?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
   /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
   resumePlan?: ResumePlan;
   /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
@@ -1194,7 +1197,16 @@ export async function runLeaf(
     // Land the reject intent DURABLY before the slow gate so a mid-gate process
     // restart can't reclaim+re-run this leaf (reclaimNow refuses acceptanceStatus
     // 'rejected'). complete() re-stamps it idempotently below.
-    try { await deps.markRejecting?.(project, leaf.id); } catch { /* best-effort pre-stamp */ }
+    // OWNERSHIP-CAS (bug aadd927b): markRejecting only stamps if this run still owns the
+    // todo. FALSE ⇒ a concurrent run already took it terminal (e.g. accepted) — this is a
+    // trailing/duplicate run (the classic case: merge-to-epic-failed because the accepted
+    // run already reaped the worktree). DISCARD the blocked outcome: do NOT clobber the
+    // todo to rejected, do NOT escalate a spurious blocker. Mirrors completeTodo's E2 skip.
+    let owned: void | boolean = true;
+    try { owned = await deps.markRejecting?.(project, leaf.id); } catch { /* best-effort pre-stamp */ }
+    if (owned === false) {
+      return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason: `discarded-not-owned: ${reason}` });
+    }
     try {
       await deps.complete(project, leaf.id, 'rejected');
     } catch {
@@ -2006,10 +2018,13 @@ export async function makeLeafExecutorDeps(
     // mid-gate restart can't reclaim+re-run it (reclaimNow refuses acceptanceStatus
     // 'rejected'). Idempotent with complete()'s own terminal write.
     markRejecting: async (p, leafId) => {
+      // Ownership-gated (bug aadd927b): only stamp 'rejected' if this run still OWNS the
+      // todo (in_progress). Returns false when a concurrent run already took it terminal
+      // (e.g. accepted) → parkBlocked discards the blocked outcome instead of clobbering.
       try {
-        const { updateTodo } = await import('./todo-store');
-        await updateTodo(p, leafId, { acceptanceStatus: 'rejected' });
-      } catch { /* best-effort */ }
+        const { markRejectingIfOwned } = await import('./todo-store');
+        return await markRejectingIfOwned(p, leafId);
+      } catch { return true; /* best-effort: don't change legacy behaviour on error */ }
     },
     restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).

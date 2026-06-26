@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, _closeProject,
-  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, MAX_CLAIM_RETRIES,
+  claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError,
 } from '../todo-store';
@@ -254,6 +254,25 @@ describe('todo-store new fields and functions', () => {
     const r = await completeTodo(project, t.id, 'accepted');
     expect(r.skipped).toBeFalsy();
     expect(getTodo(project, t.id)!.status).toBe('done');
+  });
+
+  // bug aadd927b — the false-BLOCK sibling of the E2 false-accept fix.
+  test('markRejectingIfOwned: in_progress todo → stamps rejected, returns true', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 60000); // → in_progress
+    expect(await markRejectingIfOwned(project, t.id)).toBe(true);
+    expect(getTodo(project, t.id)!.acceptanceStatus).toBe('rejected');
+  });
+
+  test('markRejectingIfOwned: NOT in_progress (already accepted) → no-op, returns false (no false-block clobber)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 60000);
+    await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true }); // → done/accepted
+    // a trailing duplicate run tries to reject the already-accepted todo:
+    expect(await markRejectingIfOwned(project, t.id)).toBe(false);
+    const after = getTodo(project, t.id)!;
+    expect(after.acceptanceStatus).toBe('accepted'); // NOT clobbered to rejected
+    expect(after.status).toBe('done');
   });
 
   test('claimTodo: claiming status blocked → null', async () => {

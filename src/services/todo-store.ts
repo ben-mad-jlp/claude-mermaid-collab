@@ -1408,6 +1408,28 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
   });
 }
 
+/**
+ * Ownership-gated reject pre-stamp (E2 sibling — the false-BLOCK fix, bug aadd927b).
+ * parkBlocked durably stamps acceptanceStatus='rejected' BEFORE the slow gate so a
+ * mid-gate restart can't reclaim+re-run the leaf. But that pre-stamp was unguarded, so a
+ * TRAILING/duplicate run whose todo was already ACCEPTED by a concurrent run would
+ * clobber it to 'rejected' (the false-block that stranded epic b8c5175f). Gate it on the
+ * same liveness as completeTodo's CAS: only stamp when the todo is still `in_progress`
+ * (owned by a live run). Returns TRUE if it stamped (run owns the todo), FALSE if the
+ * run no longer owns it → caller DISCARDS the whole blocked outcome (no escalation, no
+ * complete). Atomic under withLock.
+ */
+export function markRejectingIfOwned(project: string, id: string): Promise<boolean> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const existing = getTodo(project, id);
+    if (!existing || existing.status !== 'in_progress') return false; // not ours — don't clobber
+    db.prepare(`UPDATE todos SET acceptanceStatus='rejected', updatedAt=? WHERE id=?`).run(nowIso(), id);
+    return true;
+  });
+}
+
 /** An epic the sweep left in_progress because every child is `done` but at least
  *  one is not explicitly `accepted` (policy (b): never silently close ungated
  *  work — surface it as a flag instead). */
