@@ -30,6 +30,7 @@ import { EpicNode } from './nodes/EpicNode';
 import { TodoNode } from './nodes/TodoNode';
 import { WorkerNode } from './nodes/WorkerNode';
 import { useFleetGraph, type WorkerSub } from './useFleetGraph';
+import { useInflightLeafIds } from '../useInflightLeafIds';
 
 const NODE_TYPES: NodeTypes = {
   epic: EpicNode,
@@ -142,27 +143,7 @@ const FleetGraphInner: React.FC<FleetGraphProps> = ({ todos, subs = [], openEsca
     () => project ?? todos.find((t) => t.targetProject)?.targetProject ?? null,
     [project, todos],
   );
-  const [inflightLeafIds, setInflightLeafIds] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    if (!graphProject) { setInflightLeafIds(new Set()); return; }
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/leaf-executor/daemon?project=${encodeURIComponent(graphProject)}`);
-        if (!res.ok || cancelled) return;
-        const d = await res.json();
-        if (cancelled) return;
-        const ids: string[] = Array.isArray(d?.inflight)
-          ? d.inflight.map((r: { leafId?: string }) => r.leafId).filter((x: unknown): x is string => typeof x === 'string')
-          : [];
-        // Keep a stable Set reference when unchanged so the nodes memo never churns.
-        setInflightLeafIds((prev) => (prev.size === ids.length && ids.every((i) => prev.has(i)) ? prev : new Set(ids)));
-      } catch { /* best-effort; keep last good (graph falls back to local buckets) */ }
-    };
-    void poll();
-    const id = setInterval(() => { void poll(); }, 4_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [graphProject]);
+  const inflightLeafIds = useInflightLeafIds(graphProject);
 
   // The fleet graph flows left→right (LR): dependency waves read as columns
   // advancing rightward, which suits the full-width bottom graph strip.

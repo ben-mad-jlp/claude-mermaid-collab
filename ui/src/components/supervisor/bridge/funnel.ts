@@ -43,13 +43,11 @@ const isInflight = (s: TodoStatus, t: SessionTodo) =>
   s === 'in_progress' || (!!t.claim || !!t.claimedBy) && s !== 'done' && s !== 'dropped';
 
 export const FUNNEL_SEGMENTS: FunnelSegment[] = [
-  {
-    key: 'backlog',
-    label: 'Backlog',
-    tint: 'text-gray-500 dark:text-gray-400',
-    bg: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
-    match: (t) => (t.status === 'backlog' || t.status === 'planned' || t.status === 'todo') && !t.heldAt,
-  },
+  // ORDER MATTERS (first-match-wins). The derived, byId-aware buckets (ready/blocked/
+  // inflight) must be evaluated BEFORE backlog — an APPROVED `planned` todo derives
+  // ready/blocked via claimReason, and a backlog-first ordering that matched any
+  // `planned` row swallowed it as backlog (f5cab8d4 gate-escape: claimable todo read
+  // 'backlog' instead of 'ready'). backlog is the CATCH-ALL fallthrough, last.
   {
     key: 'ready',
     label: 'Ready',
@@ -98,6 +96,16 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     tint: 'text-success-600 dark:text-success-400',
     bg: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
     match: (t) => t.status === 'done',
+  },
+  {
+    // CATCH-ALL (last): a backlog/planned/todo row that none of the derived buckets
+    // claimed — i.e. genuinely not-yet-actionable work. heldAt is handled by `blocked`
+    // above, so it never reaches here.
+    key: 'backlog',
+    label: 'Backlog',
+    tint: 'text-gray-500 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
+    match: (t) => (t.status === 'backlog' || t.status === 'planned' || t.status === 'todo') && !t.heldAt,
   },
 ];
 
@@ -169,6 +177,33 @@ export function bucketTodo(t: SessionTodo, byId?: Map<string, SessionTodo>): Fun
     if (seg.match(t, byId)) return seg.key;
   }
   return null;
+}
+
+/**
+ * The LIVE status bucket: the daemon-ledger ∪ local-status union. A todo the
+ * leaf-executor daemon reports as running (id ∈ inflightLeafIds) is `inflight`
+ * even though its stored status never flips claimedBy/in_progress (headless runs);
+ * otherwise it falls back to the stored-status bucket via bucketTodo(t, byId).
+ * This is the SINGLE selector every Plan surface (list, kanban, plan graph,
+ * fleet graph) reads, so their status colors can never drift apart.
+ */
+export function liveBucketTodo(
+  t: SessionTodo,
+  byId?: Map<string, SessionTodo>,
+  inflightLeafIds?: ReadonlySet<string>,
+): FunnelKey | null {
+  if (inflightLeafIds?.has(t.id)) return 'inflight';
+  return bucketTodo(t, byId);
+}
+
+/** Live status style (color set) — liveBucketTodo + STATUS_STYLE. */
+export function liveStatusStyle(
+  t: SessionTodo,
+  byId?: Map<string, SessionTodo>,
+  inflightLeafIds?: ReadonlySet<string>,
+): StatusStyle | null {
+  const k = liveBucketTodo(t, byId, inflightLeafIds);
+  return k ? STATUS_STYLE[k] : null;
 }
 
 /**
