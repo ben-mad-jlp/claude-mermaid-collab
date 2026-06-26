@@ -19,7 +19,7 @@ import React, { useMemo, useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
-import { bucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
+import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 import { isBucketEpic } from './bucketEpic';
 import { CopyId } from '@/components/CopyId';
 
@@ -31,6 +31,7 @@ export interface PlanKanbanProps {
   /** Clear (hard-delete) a lane's completed children — Inbox/orphan housekeeping.
    *  `epicId === null` ⇒ the synthetic "No epic" (orphan) lane. */
   onClearCompleted?: (epicId: string | null) => void;
+  inflightLeafIds?: Set<string>;
 }
 
 /**
@@ -84,12 +85,16 @@ function PlanCard({
   todo,
   unblocks,
   onSelect,
+  byId,
+  inflightLeafIds,
 }: {
   todo: SessionTodo;
   unblocks: number;
   onSelect?: (t: SessionTodo) => void;
+  byId?: Map<string, SessionTodo>;
+  inflightLeafIds?: Set<string>;
 }) {
-  const bucket = bucketTodo(todo) ?? 'backlog';
+  const bucket = liveBucketTodo(todo, byId, inflightLeafIds) ?? 'backlog';
   const depCount = todo.dependsOn?.length ?? 0;
   return (
     <button
@@ -133,17 +138,17 @@ interface Lane {
   rank: number; // min child wave, for lane ordering
 }
 
-export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted, onClearCompleted }) => {
+export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, showCompleted, onClearCompleted, inflightLeafIds }) => {
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
   const unblocks = useMemo(() => unblocksCount(todos), [todos]);
+  const byId = useMemo(() => new Map(todos.map((t) => [t.id, t])), [todos]);
 
   // Build epic swimlanes: an epic is any todo that is some other todo's parent.
   // Children go in their epic's lane; everything else (no epic parent, not an
   // epic itself) falls into a synthetic "No epic" lane. Within a lane, todos
   // flow left→right by wave then plan order. Lanes order by their min child wave.
   const lanes = useMemo<Lane[]>(() => {
-    const byId = new Map(todos.map((t) => [t.id, t]));
     const childrenByEpic = new Map<string, SessionTodo[]>();
     for (const t of todos) {
       if (t.parentId != null && byId.has(t.parentId)) {
@@ -162,7 +167,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     };
     const tally = (items: SessionTodo[]): Record<FunnelKey, number> => {
       const c: Record<FunnelKey, number> = { backlog: 0, ready: 0, inflight: 0, blocked: 0, done: 0 };
-      for (const t of items) c[bucketTodo(t, byId) ?? 'backlog']++;
+      for (const t of items) c[liveBucketTodo(t, byId, inflightLeafIds) ?? 'backlog']++;
       return c;
     };
     const minWave = (items: SessionTodo[]) =>
@@ -202,7 +207,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     }
 
     return out.sort((a, b) => a.rank - b.rank);
-  }, [todos, waveMap]);
+  }, [todos, waveMap, inflightLeafIds]);
 
   const visibleLanes = useMemo(
     () =>
@@ -304,7 +309,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
             <div className="overflow-x-auto p-1.5">
               <div className="flex gap-2 items-start">
                 {lane.items.map((t) => (
-                  <PlanCard key={t.id} todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} />
+                  <PlanCard key={t.id} todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} />
                 ))}
               </div>
             </div>

@@ -172,6 +172,33 @@ export function bucketTodo(t: SessionTodo, byId?: Map<string, SessionTodo>): Fun
 }
 
 /**
+ * The LIVE status bucket: the daemon-ledger ∪ local-status union. A todo the
+ * leaf-executor daemon reports as running (id ∈ inflightLeafIds) is `inflight`
+ * even though its stored status never flips claimedBy/in_progress (headless runs);
+ * otherwise it falls back to the stored-status bucket via bucketTodo(t, byId).
+ * This is the SINGLE selector every Plan surface (list, kanban, plan graph,
+ * fleet graph) reads, so their status colors can never drift apart.
+ */
+export function liveBucketTodo(
+  t: SessionTodo,
+  byId?: Map<string, SessionTodo>,
+  inflightLeafIds?: ReadonlySet<string>,
+): FunnelKey | null {
+  if (inflightLeafIds?.has(t.id)) return 'inflight';
+  return bucketTodo(t, byId);
+}
+
+/** Live status style (color set) — liveBucketTodo + STATUS_STYLE. */
+export function liveStatusStyle(
+  t: SessionTodo,
+  byId?: Map<string, SessionTodo>,
+  inflightLeafIds?: ReadonlySet<string>,
+): StatusStyle | null {
+  const k = liveBucketTodo(t, byId, inflightLeafIds);
+  return k ? STATUS_STYLE[k] : null;
+}
+
+/**
  * An epic's OWN status bucket, for tinting the epic node header (distinct from the
  * child-rollup bar). An epic isn't a claimable leaf, so it has no `claimReason`
  * bucket of its own — we read its live state from the child rollup first (what the

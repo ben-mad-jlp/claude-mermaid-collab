@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeWaveMap } from '@/components/supervisor/roadmapToMermaid';
-import { bucketTodo, epicBucket, type FunnelKey } from '../funnel';
+import { liveBucketTodo, epicBucket, type FunnelKey } from '../funnel';
 import { currentTodoFor, deriveLiveness, roleGlyph } from '@/lib/liveness';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { Escalation } from '@/stores/supervisorStore';
@@ -339,11 +339,6 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       openEscalations.some(
         (e) => e.session === t.claimedBy || e.session === t.assigneeSession || e.session === t.sessionName,
       );
-    // Daemon-ledger ∪ local-status bucket: a headless leaf the daemon reports as
-    // running (id in inflightLeafIds) is `inflight` even though its todo never
-    // flips claimedBy/in_progress; otherwise fall back to the local-status bucket.
-    const bucketOf = (t: SessionTodo): FunnelKey | null =>
-      inflightLeafIds?.has(t.id) ? 'inflight' : bucketTodo(t, struct.byId);
 
     for (const t of visibleTodos) {
       const pos = positions.get(t.id) ?? { x: 0, y: 0 };
@@ -351,7 +346,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         const counts = EMPTY_COUNTS();
         let total = 0;
         for (const c of struct.childrenByEpic.get(t.id) ?? []) {
-          const b = bucketOf(c);
+          const b = liveBucketTodo(c, struct.byId, inflightLeafIds);
           if (b) {
             counts[b] += 1;
             total += 1;
@@ -375,7 +370,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         const data: TodoNodeData = {
           kind: 'todo',
           title: t.title,
-          bucket: bucketOf(t) ?? 'backlog',
+          bucket: liveBucketTodo(t, struct.byId, inflightLeafIds) ?? 'backlog',
           retryCount: t.retryCount ?? 0,
           danger: dangerFor(t),
         };
