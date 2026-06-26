@@ -1635,7 +1635,16 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           // BLOCKED. If the todo's commit is already on the epic branch, the merge is done —
           // synthesize a clean integrated result and skip the re-merge. The legacy tmux lane
           // is NOT yet on the branch at accept-time, so it still merges here as before.
-          const alreadyOnEpic = await wm.todoOnEpicBranch(epicId, id).catch(() => false);
+          // DUP-DISPATCH ROOT (60e99489): the leaf-executor self-merges its lane AND sets a
+          // durable `merged` flag (markLeafMerged → leaf_resume.merged) BEFORE proposing
+          // acceptance. That flag is authoritative + race-free. The git todoOnEpicBranch
+          // query, by contrast, can FALSE-NEGATIVE under concurrency (two lanes merging at
+          // once) — which sent an already-self-merged leaf into a doomed pool-session
+          // commitAndMergeToEpic → 'no worktree' throw → reopenStrandedAccept REVERSED the
+          // (correct) acceptance → the leaf re-dispatched. Trust the durable flag first; the
+          // git check remains the fallback for the legacy tmux lane (which never self-merges).
+          const selfMerged = (() => { try { return getLeafResume(project, id)?.merged === true; } catch { return false; } })();
+          const alreadyOnEpic = selfMerged || await wm.todoOnEpicBranch(epicId, id).catch(() => false);
           const merge = alreadyOnEpic
             ? { merged: true, conflict: false, committed: false, integrated: true, workerBranch: '', epicBranch: wm.epicBranchName(epicId) }
             : await wm.commitAndMergeToEpic(session, epicId, { message, todoId: id });
