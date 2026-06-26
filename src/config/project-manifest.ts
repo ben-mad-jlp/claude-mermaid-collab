@@ -91,6 +91,22 @@ export interface ProjectManifest {
    *  is treated as a pre-existing baseline red, not a regression this leaf caused.
    *  Only failures matching NONE of these (net-new) reject the leaf. */
   frontendBaselineFailures?: string[];
+  /** Acceptance-gate command for FRONTEND/UI leaves that runs ONLY the leaf's OWN
+   *  change-set spec files (added/modified `*.test.*` / `*.spec.*`), so a leaf can
+   *  never be accepted while a test IT added is red (the f5cab8d4 escape: tsc was
+   *  clean but the leaf's new vitest spec failed and the gate never ran it). The
+   *  `{files}` placeholder is replaced with the change-set's spec paths (relative
+   *  to `changeSetTestCwd`), space-separated and shell-quoted. Run via `sh -c` in
+   *  `<laneCwd|gateProject>/<changeSetTestCwd>`. A non-zero exit REJECTS. Absent →
+   *  ui/frontend leaves fall through to the generic `gateCommand` (today's
+   *  behavior). Distinct from `frontendGateCommand`: that runs the FULL suite vs a
+   *  baseline; this runs only the touched specs (fast, no baseline to maintain). */
+  changeSetTestCommand?: string;
+  /** Subdirectory (relative to the gate repo / lane worktree) the
+   *  `changeSetTestCommand` runs in, and the prefix stripped from change-set spec
+   *  paths before `{files}` substitution (e.g. `ui` so vitest sees `src/...`
+   *  paths it can resolve). Omitted → repo root, no prefix stripped. */
+  changeSetTestCwd?: string;
   /** Which metric-vocabulary entries (from a project's fitness/analysis tools)
    *  the gate references — documents the seam between the gate and the metrics. */
   metricRefs?: string[];

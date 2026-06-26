@@ -1,4 +1,6 @@
 {
   "version": 1,
-  "gateCommand": "npx tsc --noEmit"
+  "gateCommand": "npx tsc --noEmit",
+  "changeSetTestCommand": "bunx vitest --run {files}",
+  "changeSetTestCwd": "ui"
 }
