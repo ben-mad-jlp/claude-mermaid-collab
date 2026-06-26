@@ -302,6 +302,28 @@ describe('todo-store new fields and functions', () => {
     expect(after.retryCount).toBe(1);
   });
 
+  // HARDENING (dup-dispatch root): a live run's expired lease must NOT be reaped.
+  test('releaseExpiredClaims: expired lease but isLive(id)=true → NOT released, claim kept, retryCount unchanged', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 1000);
+    const future = new Date(Date.now() + 2000).toISOString();
+    const { released } = await releaseExpiredClaims(project, future, (id) => id === t.id); // run still live
+    expect(released).toEqual([]);
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('in_progress');   // claim retained
+    expect(after.claimedBy).not.toBeNull();
+    expect(after.retryCount).toBe(0);            // no spurious retry bump
+  });
+
+  test('releaseExpiredClaims: expired lease and isLive(id)=false → released as before (dead run)', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    await claimTodo(project, t.id, 'agent-1', 1000);
+    const future = new Date(Date.now() + 2000).toISOString();
+    const { released } = await releaseExpiredClaims(project, future, () => false);
+    expect(released).toContain(t.id);
+    expect(getTodo(project, t.id)!.retryCount).toBe(1);
+  });
+
   test('releaseExpiredClaims: claim with 60000ms lease, release with now+100ms → not released, still in_progress', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
     await claimTodo(project, t.id, 'agent-1', 60000);
