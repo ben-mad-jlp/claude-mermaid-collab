@@ -19,12 +19,20 @@ Args: {}
 
 **If `healthy: true`:** Continue to Step 2.
 
-**If `healthy: false` but `services.api.running: true` (UI not active):** Warn the user:
+**If `healthy: false` but `services.api.running: true` (no UI reachable):** Warn the user:
 ```
 The collab UI is not active (run `bun run dev` or `bun run start` to enable it).
 Continuing anyway — MCP tools will work but the browser UI won't be available.
 ```
 Then continue to Step 2.
+
+Note on the UI signal: `healthy` is `api.running && services.ui.available`. `services.ui.available`
+is true when EITHER the UI server is reachable locally (`services.ui.running` — dev server or built
+UI on this machine) OR a UI client is attached over the websocket (`services.ui.clientConnected`,
+count in `services.ui.clients`). The websocket case covers networked deploys where the UI runs on a
+different machine than the server. Do NOT warn just because `services.ui.running` is false — key off
+`healthy` / `services.ui.available`. (`websocket.connections` counts ALL socket clients, including
+IDE and peer servers, so it is not a reliable UI signal on its own.)
 
 **If MCP tools unavailable or API not reachable:** Tell the user:
 ```

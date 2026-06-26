@@ -208,8 +208,16 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
   // Get WebSocket connection count
   const connections = wsHandler.getConnectionCount();
 
+  // Count human-facing UI clients connected over the websocket. In a networked
+  // deploy the UI runs on a different machine, so the local dev/dist probe above
+  // (uiRunning) is a false negative — but a connected UI client still proves a UI
+  // is reachable. Treat the UI as available if EITHER signal is present.
+  const uiClients = wsHandler.getUiClientCount();
+  const uiClientConnected = uiClients > 0;
+  const uiAvailable = uiRunning || uiClientConnected;
+
   // Determine overall health
-  const healthy = apiRunning && uiRunning;
+  const healthy = apiRunning && uiAvailable;
 
   return Response.json({
     healthy,
@@ -223,7 +231,11 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
     owner: serverOwner(),
     services: {
       api: { running: apiRunning, port },
-      ui: { running: uiRunning, port: uiPort },
+      // `running` = UI server reachable on THIS machine (dev server or built UI
+      // served from dist). `clientConnected` = a human-facing UI is attached over
+      // the websocket, which may be on another machine. `available` = either —
+      // this is what the "is the UI usable?" decision should key off, not `running`.
+      ui: { running: uiRunning, port: uiPort, clientConnected: uiClientConnected, clients: uiClients, available: uiAvailable },
       websocket: { connections },
     },
     pid: process.pid,

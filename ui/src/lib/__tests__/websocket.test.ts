@@ -440,6 +440,29 @@ describe('WebSocketClient', () => {
       expect(parsed.channel).toBe('documents');
     });
 
+    it('should NOT announce ui_connected from a raw client', async () => {
+      // The raw transport stays identity-neutral; only the shared app client
+      // announces itself as a UI. (Guards the gating that keeps these tests'
+      // positional sentMessages assertions valid.)
+      const client = new WebSocketClient('ws://localhost:3737/ws');
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const messages = mockWebSocketInstance!.sentMessages.map((m) => JSON.parse(m));
+      expect(messages.some((m) => m.type === 'ui_connected')).toBe(false);
+    });
+
+    it('should announce ui_connected from the shared app client on open', async () => {
+      const client = getWebSocketClient('ws://localhost:3737/ws');
+      const connectPromise = client.connect();
+      mockWebSocketInstance!.simulateOpen();
+      await connectPromise;
+
+      const messages = mockWebSocketInstance!.sentMessages.map((m) => JSON.parse(m));
+      expect(messages.some((m) => m.type === 'ui_connected')).toBe(true);
+    });
+
     it('should queue subscription while disconnected', async () => {
       const client = new WebSocketClient('ws://localhost:3737/ws');
 
