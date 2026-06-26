@@ -333,6 +333,41 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
   summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
 };
 
+/** Pipeline grouping for the node-kind matrix editor (UI: DaemonNodesMatrix).
+ *  The single source of truth for which kinds belong to which pipeline + when
+ *  each pipeline actually fires. Ordered; Floor first. `defaultCollapsed` drives
+ *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS. */
+export interface LeafNodeGroup {
+  key: 'floor' | 'waves' | 'verify-cad' | 'zen';
+  label: string;
+  firesWhen: string;
+  kinds: LeafNodeKind[];
+  defaultCollapsed: boolean;
+}
+
+export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
+  {
+    key: 'floor', label: 'Floor', defaultCollapsed: false,
+    firesWhen: 'Always — the default code-leaf path (blueprint → implement → review).',
+    kinds: ['blueprint', 'implement', 'review'],
+  },
+  {
+    key: 'waves', label: 'Waves', defaultCollapsed: true,
+    firesWhen: "Only when a code leaf's blueprint manifest is multi-file / non-enumerable (!shouldUseFloor).",
+    kinds: ['research', 'wimplement', 'verify', 'fix'],
+  },
+  {
+    key: 'verify-cad', label: 'Verify / CAD', defaultCollapsed: true,
+    firesWhen: 'Only when leaf.type ∈ verify | cad-dogfood | dogfood (build-assembly geometry gate) — never for ordinary backend/ui leaves.',
+    kinds: ['driveplan', 'driveexec', 'report'],
+  },
+  {
+    key: 'zen', label: 'Zen', defaultCollapsed: true,
+    firesWhen: 'Session-summary loop, not a build leaf (not configurable here).',
+    kinds: ['summary'],
+  },
+];
+
 export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: string; effort: EffortLevel }> = {
   blueprint: { model: 'opus', allowedTools: 'Read Write Grep Glob Bash', effort: 'high' },
   implement: { model: 'sonnet', allowedTools: 'Read Edit Grep Glob Bash', effort: 'medium' },
