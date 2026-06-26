@@ -408,7 +408,14 @@ export const manifestCommandGatePlugin: GatePlugin = {
     try {
       // ASYNC (944408c2): the gate runs tsc + tests — seconds to minutes. Await it
       // so the single-threaded sidecar keeps serving while the gate child runs.
-      const proc = await ctx.exec(['sh', '-c', cmd], { cwd: ctx.gateProject, capture: true });
+      // Run in the lane worktree under isolation (its HEAD = THIS leaf's work), else the
+      // gate repo — MIRRORS the frontend gate (:367). Running the manifest gate in the
+      // main checkout silently tested STALE main code for any cwd-relative resolution: e.g.
+      // a Python gate `pytest bsync-tools/tests/...` imports the path-resident `bsync` from
+      // CWD, so a main-cwd gate never exercised the leaf's worktree changes (→ false-green
+      // importorskip hacks). cwd-per-process is concurrency-safe (no shared-venv mutation).
+      const cwd = ctx.laneCwd ?? ctx.gateProject;
+      const proc = await ctx.exec(['sh', '-c', cmd], { cwd, capture: true });
       const out = proc.stdout + '\n' + proc.stderr;
       const structured = parseTrailingVerdict(out);
       if (structured) return structured;
