@@ -14,6 +14,7 @@ import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useSession } from '@/hooks/useSession';
 import { NavMenu } from './NavMenu';
+import { SettingsPanel, type SettingsTab } from '@/components/settings/SettingsPanel';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { useUIStore, type PaneKey } from '@/stores/uiStore';
@@ -202,6 +203,14 @@ export const Header: React.FC<HeaderProps> = ({
   const handleThemeToggle = useCallback(() => {
     toggleTheme();
   }, [toggleTheme]);
+
+  // Settings slide-over: opened from the gear button. Defaults to the Secrets
+  // tab (the most common reason to reach Settings from here — e.g. setting
+  // XAI_API_KEY for consult_grok). The terminal-drawer composer forwards slash
+  // commands straight to the REPL, so the in-composer `/config` intercept never
+  // fires there; this gear is the reliable entry point to the panel.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab] = useState<SettingsTab>('secrets');
 
 
   // Get display name for project (basename)
@@ -493,6 +502,27 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
+          {/* Settings (gear) — opens the Settings slide-over on the Secrets tab */}
+          <button
+            data-testid="settings-gear"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+            title="Settings (API keys, MCP, permissions…)"
+            className="
+              p-2
+              text-gray-600 dark:text-gray-300
+              hover:text-gray-900 dark:hover:text-white
+              hover:bg-gray-100 dark:hover:bg-gray-700
+              rounded-lg
+              transition-colors
+            "
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+
           {/* Theme Toggle */}
           <button
             data-testid="theme-toggle"
@@ -531,6 +561,13 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
       </div>
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        openTab={settingsTab}
+        project={currentSession?.project}
+      />
     </header>
   );
 };
