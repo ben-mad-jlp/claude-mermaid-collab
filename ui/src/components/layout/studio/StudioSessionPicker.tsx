@@ -97,7 +97,11 @@ export const StudioSessionPicker: React.FC = () => {
   const handleNavigate = useCallback(
     (sub: SessionCardData) => {
       const match = sessions.find((s) => s.project === sub.project && s.name === sub.session);
-      const session: Session = match ?? {
+      // The sessions list carries no serverId, so a `match` would drop the card's
+      // owning server and strand document reads on the local origin. Keep any
+      // display fields from `match` but always pin the real serverId.
+      const session: Session = {
+        ...(match ?? {}),
         project: sub.project,
         name: sub.session,
         serverId: sub.serverId,

@@ -370,18 +370,23 @@ export const SubscriptionsPanel: React.FC<SubscriptionsPanelProps> = ({ currentP
 
   // Navigate to a watched row. Side-effects (create terminal, focus browser
   // tab) fire via per-server IPC in the row click handler — they target the
-  // row's serverId without touching the active server. Here we only update
-  // local state for SAME-server rows. For cross-server rows we do nothing:
-  // the active server stays put, the URL stays put, and the row's per-server
-  // actions still fire.
+  // row's serverId. Watched rows are cross-server by nature: the whole point of
+  // the Watching panel is to open a session that may live on a different server
+  // than the one currently selected. So select it by its OWN serverId — that's
+  // what routes artifact reads (documents/diagrams/…) to the right backend.
+  // The local `sessions` list is serverId-less and never contains remote
+  // sessions, so we build the target from the row itself, keeping any matching
+  // local display fields but always pinning the row's serverId.
   const setActiveProject = useUIStore((s) => s.setActiveProject);
   const handleNavigate = useCallback(
     (sub: SubscribedSession) => {
-      if (sub.serverId && activeId && sub.serverId !== activeId) {
-        return; // cross-server — never switch active or update local context
-      }
-      const target = sessions.find((s) => s.project === sub.project && s.name === sub.session);
-      if (target) setCurrentSession(target);
+      const match = sessions.find((s) => s.project === sub.project && s.name === sub.session);
+      setCurrentSession({
+        ...(match ?? {}),
+        project: sub.project,
+        name: sub.session,
+        serverId: sub.serverId ?? activeId ?? '',
+      });
       // The Bridge is per-project — clicking a watched session drives the Bridge
       // to that session's project.
       setActiveProject(sub.project);

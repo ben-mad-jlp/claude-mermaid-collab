@@ -210,7 +210,9 @@ export const ZenMode: React.FC = () => {
     // click. Exiting Zen (toggleZenMode) reveals the pre-Zen layout unchanged; the only
     // delta is the card click itself, which is what the user asked for.
     const match = allSessions.find((s) => s.project === project && s.name === session);
-    setCurrentSession(match ?? { project, name: session, serverId });
+    // Keep `match`'s display fields but always pin the owning serverId (the
+    // sessions list carries none) so document reads route to the right server.
+    setCurrentSession({ ...(match ?? {}), project, name: session, serverId: match?.serverId || serverId });
     setActiveProject(project);
     const card: SessionCardData = {
       serverId: match?.serverId ?? serverId,

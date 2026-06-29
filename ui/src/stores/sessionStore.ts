@@ -231,8 +231,20 @@ export const useSessionStore = create<SessionState>()(persist((set, get) => ({
   setCurrentSession: (session: Session | null) => {
     const current = get().currentSession;
 
-    // Only clear state if actually changing sessions
+    // Only clear state if actually changing sessions. A session's identity
+    // really is (project, name, serverId) — the same project+name can exist on
+    // different servers — but we key the "same session" check on project+name so
+    // re-selecting doesn't needlessly wipe loaded artifacts. The subtlety: a
+    // remote session can arrive here first with an empty/stale serverId (the
+    // sessions list carries no serverId) and later be re-selected with the real
+    // one. If we early-return without applying it, document reads keep routing to
+    // the local origin and the artifact panes stay empty. So when only serverId
+    // changes, repair it in place (no artifact wipe) — but never downgrade a good
+    // id back to empty.
     if (current?.project === session?.project && current?.name === session?.name) {
+      if (session && current && session.serverId && current.serverId !== session.serverId) {
+        set({ currentSession: { ...current, serverId: session.serverId } });
+      }
       return;
     }
 

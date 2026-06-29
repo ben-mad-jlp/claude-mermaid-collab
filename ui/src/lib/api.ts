@@ -96,6 +96,21 @@ export async function apiFetch(serverId: string, path: string, init: RequestInit
       headers: respHeaders,
     });
   }
+  // A falsy serverId is a legitimate "local origin" target (e.g. cross-project
+  // sessions discovered without a server binding), so we still fall back to a
+  // direct fetch. But in the native shell every addressable server — including
+  // the local/home one — has a concrete id, so an empty serverId here usually
+  // means a session lost track of its owning server and the read will silently
+  // return an empty list against the wrong backend. Surface that loudly in the
+  // console (without changing behavior) so it's diagnosable instead of looking
+  // like "no documents".
+  if (mc && !serverId) {
+    console.warn(
+      `[apiFetch] empty serverId for ${path} with a native bridge present — ` +
+        `falling back to the local origin. If this is a remote session, its ` +
+        `documents/items will appear empty; the session likely lost its serverId.`
+    );
+  }
   const url = serverId
     ? new URL('/srv/' + encodeURIComponent(serverId) + path, window.location.origin).toString()
     : path;
