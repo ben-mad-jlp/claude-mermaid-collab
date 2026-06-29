@@ -72,20 +72,45 @@ function registerIpc(): void {
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
   });
   // Probe a server's reachability from the main process (the renderer can't
-  // cross-origin fetch other servers). Returns true iff /api/health responds OK.
+  // cross-origin fetch other servers). Returns the resolved status string.
+  //
+  // Two-stage so an auth failure can't masquerade as a healthy server:
+  //   1. /api/health — auth-exempt (src/auth.ts), so this only proves the
+  //      process is up and answering. A token mismatch passes it.
+  //   2. /api/sessions — authed. If health is up but this 401s, the saved token
+  //      is missing/wrong/undecryptable → 'unauthorized' (NOT 'offline', which
+  //      would imply the server is down and hide the real, fixable problem).
+  // Only an explicit 401 demotes to 'unauthorized'; a transient error on the
+  // authed call leaves the server 'online' rather than flapping on a blip.
   ipcMain.handle('mc:probeServer', async (_e, opts: { host: string; port: number }) => {
-    let ok = false;
+    let status: 'online' | 'offline' | 'unauthorized' = 'offline';
     try {
-      const r = await fetch(`http://${opts.host}:${opts.port}/api/health`, { signal: AbortSignal.timeout(1500) });
-      ok = r.ok;
+      const health = await fetch(`http://${opts.host}:${opts.port}/api/health`, { signal: AbortSignal.timeout(1500) });
+      if (health.ok) {
+        status = 'online';
+        // Authed reachability check. Resolve the saved token (loopback/local is
+        // auth-exempt server-side, so it 200s tokenless and stays 'online').
+        const entry = store?.getByHostPort(opts.host, opts.port);
+        const headers: Record<string, string> = {};
+        if (entry?.token) headers['Authorization'] = `Bearer ${entry.token}`;
+        try {
+          const authed = await fetch(`http://${opts.host}:${opts.port}/api/sessions`, {
+            headers,
+            signal: AbortSignal.timeout(1500),
+          });
+          if (authed.status === 401) status = 'unauthorized';
+        } catch {
+          // authed probe blipped — keep 'online' from the health check
+        }
+      }
     } catch {
-      ok = false;
+      status = 'offline';
     }
     // Persist the probe result so the entry's status reflects reachability —
     // it was initialized 'offline' and never updated, so the live local server
     // read offline forever.
-    store?.setStatusByHostPort(opts.host, opts.port, ok ? 'online' : 'offline');
-    return ok;
+    store?.setStatusByHostPort(opts.host, opts.port, status);
+    return status;
   });
   ipcMain.handle('mc:setWatchedServers', (_e, ids: string[]) => {
     if (!store || !aggregator) return;

@@ -3,6 +3,16 @@ import { evictSessionItemsCache } from '@/lib/sessionItemsCache';
 
 export interface SubscribedSession {
   serverId: string;
+  /**
+   * Host:port of the owning server, captured while `serverId` was valid. A
+   * server's `serverId` is a random UUID minted on add, so removing and
+   * re-adding the same machine yields a DIFFERENT id and orphans this
+   * subscription (→ peer_not_paired). host:port is the stable identity we use to
+   * retag the subscription onto the re-added server. Optional: legacy entries
+   * (pre this field) have none and are retagged via the single-remote fallback.
+   */
+  serverHost?: string;
+  serverPort?: number;
   project: string;
   session: string;
   claudeSessionId?: string;
@@ -29,6 +39,7 @@ interface SubscriptionState {
   updateStatus: (serverId: string, claudeSessionId: string, status: string, project: string, session: string, claudePid?: number) => void;
   updateContextPercent: (serverId: string, project: string, session: string, pct: number) => void;
   migrateLegacyEntries: (defaultServerId: string | null) => void;
+  reconcileServerIds: (servers: Array<{ id: string; host: string; port: number; source?: string }>) => void;
 }
 
 const STORAGE_KEY = 'session-subscriptions';
@@ -67,6 +78,8 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
       const coerced = lastKnown === 'active' ? 'waiting' : lastKnown;
       out[k] = {
         serverId: typeof v.serverId === 'string' ? v.serverId : '',
+        serverHost: typeof v.serverHost === 'string' ? v.serverHost : undefined,
+        serverPort: typeof v.serverPort === 'number' ? v.serverPort : undefined,
         project: v.project,
         session: v.session,
         status: coerced,
@@ -198,6 +211,78 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
         nextSubs[newKey] = { ...entry, serverId };
         oldToNewKey.set(oldKey, newKey);
       }
+      const nextOrder = state.order.map((k) => oldToNewKey.get(k) ?? k);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSubs));
+      localStorage.setItem(ORDER_KEY, JSON.stringify(nextOrder));
+      return { subscriptions: nextSubs, order: nextOrder };
+    });
+  },
+
+  /**
+   * Keep subscriptions bound to the right server across remove/re-add. A server
+   * id is a random UUID minted on add, so re-adding the same machine yields a new
+   * id and strands every subscription on the dead id (→ peer_not_paired when the
+   * row is clicked). Run on each server-list change:
+   *
+   *  1. BACKFILL — for a subscription whose serverId IS a known server, capture
+   *     that server's host:port (its stable identity) so a LATER re-add can find
+   *     it. This is how new orphans become self-healing.
+   *  2. RETAG — for a subscription whose serverId is NOT known but whose captured
+   *     host:port matches a current server, adopt that server's id (and re-key).
+   *  3. LEGACY FALLBACK — a stranded subscription with no captured host:port
+   *     (created before step 1 existed) can't be matched precisely; if there is
+   *     exactly ONE remote (non-local) server it's unambiguous, so adopt it.
+   *     Otherwise leave it (harmless; the user can re-subscribe).
+   */
+  reconcileServerIds: (servers) => {
+    set((state) => {
+      const byId = new Map(servers.map((s) => [s.id, s]));
+      const byHostPort = new Map(servers.map((s) => [`${s.host}:${s.port}`, s]));
+      const remotes = servers.filter((s) => s.source !== 'local');
+      const soleRemote = remotes.length === 1 ? remotes[0] : null;
+
+      let changed = false;
+      const nextSubs: Record<string, SubscribedSession> = {};
+      const oldToNewKey = new Map<string, string>();
+
+      for (const [oldKey, entry] of Object.entries(state.subscriptions)) {
+        let serverId = entry.serverId;
+        let serverHost = entry.serverHost;
+        let serverPort = entry.serverPort;
+
+        const known = byId.get(serverId);
+        if (known) {
+          // (1) Backfill the stable identity while the id is valid.
+          if (serverHost !== known.host || serverPort !== known.port) {
+            serverHost = known.host;
+            serverPort = known.port;
+            changed = true;
+          }
+        } else if (serverId && serverId !== 'local') {
+          // Stale id → try to resolve the current server.
+          const match =
+            // (2) precise: same host:port as captured.
+            (serverHost != null && serverPort != null
+              ? byHostPort.get(`${serverHost}:${serverPort}`)
+              : undefined) ??
+            // (3) legacy: no captured host:port + a single remote → adopt it.
+            (serverHost == null ? soleRemote ?? undefined : undefined);
+          if (match) {
+            serverId = match.id;
+            serverHost = match.host;
+            serverPort = match.port;
+            changed = true;
+          }
+        }
+
+        const newKey = compositeKey(serverId, entry.project, entry.session);
+        if (newKey !== oldKey) oldToNewKey.set(oldKey, newKey);
+        // Last write wins if a retag collides with an existing key (same
+        // project/session already on the new id) — acceptable dedupe.
+        nextSubs[newKey] = { ...entry, serverId, serverHost, serverPort };
+      }
+
+      if (!changed) return state;
       const nextOrder = state.order.map((k) => oldToNewKey.get(k) ?? k);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSubs));
       localStorage.setItem(ORDER_KEY, JSON.stringify(nextOrder));

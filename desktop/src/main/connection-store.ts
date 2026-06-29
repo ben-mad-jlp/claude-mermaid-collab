@@ -32,7 +32,10 @@ export interface ServerEntry {
   host: string;
   port: number;
   token?: string;
-  status: 'online' | 'offline' | 'connecting';
+  // 'unauthorized': reachable (health OK) but an authed endpoint returned 401 —
+  // the saved token is missing/wrong/undecryptable. Distinct from 'offline' so
+  // the UI can prompt a token re-entry instead of implying the server is down.
+  status: 'online' | 'offline' | 'connecting' | 'unauthorized';
   lastProject?: string;
   lastSession?: string;
   source: 'local' | 'manual';
@@ -188,7 +191,17 @@ export class ConnectionStore {
           try {
             entry.token = this.safeStorage.decryptString(Buffer.from(encryptedToken));
           } catch {
-            // undecryptable (e.g. keyring changed) — drop the token, keep the entry
+            // Undecryptable (e.g. the OS keyring/encryption key changed across a
+            // reboot) — drop the token but keep the entry. WARN rather than fail
+            // silently: the entry now sends no Authorization header, so an
+            // auth-required server will 401 every authed call (terminal open,
+            // session list) while still passing the auth-exempt health probe.
+            // The probe's authed check (mc:probeServer) surfaces this as the
+            // 'unauthorized' status so the user can re-enter the token.
+            console.warn(
+              `[connection-store] could not decrypt saved token for "${entry.label}" (${entry.host}:${entry.port}); ` +
+                `re-enter it if the server requires auth`,
+            );
           }
         }
         this.entries.set(entry.id, entry);
@@ -316,6 +329,15 @@ export class ConnectionStore {
     // Returning false here caused a deadlock — the client gates create-terminal
     // on caps.tmux, so caps would never get learned.
     return this.capabilities.get(id) ?? { tmux: true };
+  }
+
+  /** Resolve the entry matching a host:port (first match), or null. Used by the
+   *  probe to fetch the saved token for an authed reachability check. */
+  getByHostPort(host: string, port: number): ServerEntry | null {
+    for (const e of this.entries.values()) {
+      if (e.host === host && e.port === port) return e;
+    }
+    return null;
   }
 
   /**

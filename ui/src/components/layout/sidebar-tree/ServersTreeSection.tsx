@@ -15,6 +15,9 @@ const STATUS_DOT: Record<string, string> = {
   online: '#3fb950',
   offline: '#6e7681',
   connecting: '#d29922',
+  // Reachable but rejecting the saved token (401) — red, distinct from the grey
+  // 'offline' (down) so a fixable auth problem doesn't read as an outage.
+  unauthorized: '#f85149',
 };
 
 export interface ServersTreeSectionProps {
@@ -122,11 +125,16 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
         });
         const body = await res.json().catch(() => ({}));
         if (res.ok && body.ok) {
-          // The launched server now requires this token — persist it onto the
+          // The launched server requires this token — persist it onto the
           // connection so the immediate recheck/connect authenticates instead of
-          // hitting a 401. (No-op outside Electron / when no token was minted.)
-          if (launchForm.token) {
-            try { await setServerToken(launchFor!, launchForm.token); } catch { /* best-effort */ }
+          // hitting a 401. Prefer the detect-resolved token; otherwise pull it
+          // straight out of the start command so a Launch WITHOUT a prior Detect
+          // (e.g. a localStorage-prefilled command after a reboot) still syncs the
+          // desktop to the server's token. (No-op outside Electron / no token.)
+          const effectiveToken =
+            launchForm.token || launchForm.command.match(/MERMAID_AUTH_TOKEN=(\S+)/)?.[1];
+          if (effectiveToken) {
+            try { await setServerToken(launchFor!, effectiveToken); } catch { /* best-effort */ }
           }
           // Remember the non-secret bits for next time.
           try {
@@ -277,6 +285,15 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                         title="This server is discovered but not yet trusted"
                       >
                         Pending
+                      </span>
+                    )}
+                    {s.status === 'unauthorized' && (
+                      <span
+                        data-testid={`server-unauthorized-badge-${s.id}`}
+                        className="shrink-0 px-1 py-px text-[10px] leading-none rounded bg-danger-100 text-danger-700 dark:bg-danger-900/40 dark:text-danger-300"
+                        title="Reachable, but the server rejected the saved token (401). The token is missing, wrong, or could not be decrypted (e.g. after a reboot). Re-enter it in this server's Secrets (Settings gear), then Recheck."
+                      >
+                        Auth
                       </span>
                     )}
                     {isPending && (

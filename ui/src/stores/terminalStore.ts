@@ -144,6 +144,7 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
       const mc = getMc();
       let data: { id?: string; tmuxSession?: string; error?: string; code?: string };
       let ok: boolean;
+      let httpStatus = 0;
       if (mc?.invokeOnServer) {
         const env = await mc.invokeOnServer(serverId, {
           path: '/api/terminal/sessions',
@@ -151,6 +152,7 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
           body: { project, session },
         });
         ok = !!env.ok;
+        httpStatus = env.status;
         data = (typeof env.body === 'object' && env.body ? env.body : { error: String(env.body ?? env.status) }) as typeof data;
       } else {
         // Plain-browser fallback (dev / tests): legacy relative URL.
@@ -160,18 +162,31 @@ export const useTerminalStore = create<TerminalState>()(persist((set, get) => ({
           body: JSON.stringify({ project, session }),
         });
         ok = res.ok;
+        httpStatus = res.status;
         data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       }
       if (!ok || !data.id) {
-        // Surface server-side failures (notably tmux-unavailable) instead of
-        // opening a dead pane. The terminal needs tmux on the server; a missing
-        // binary used to fail silently and leave the user staring at nothing.
+        // Surface server-side failures instead of opening a dead pane.
         const isTmux = data.code === 'tmux-unavailable';
+        // A 401 means the server is up but rejected our token — the request never
+        // reached the terminal route (auth gate runs first). The raw body is just
+        // "Unauthorized", which tells the user nothing; point them at the fix.
+        // (Common after a reboot drops an undecryptable token, or a remote restart
+        // rotates it — see the 'unauthorized' server status in the Servers list.)
+        const isAuth = httpStatus === 401;
+        const title = isTmux
+          ? 'Terminal unavailable'
+          : isAuth
+            ? `${serverLabel}: token rejected`
+            : 'Could not open terminal';
+        const message = isAuth
+          ? `The server rejected the saved access token (401). Re-enter this server's token in its Secrets (Settings gear), then try again.`
+          : data.error ?? 'The server could not start a terminal session.';
         useNotificationStore.getState().addToast({
           type: 'error',
-          title: isTmux ? 'Terminal unavailable' : 'Could not open terminal',
-          message: data.error ?? 'The server could not start a terminal session.',
-          duration: isTmux ? 10000 : 6000,
+          title,
+          message,
+          duration: isTmux || isAuth ? 10000 : 6000,
         });
         return;
       }

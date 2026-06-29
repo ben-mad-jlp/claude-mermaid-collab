@@ -17,13 +17,17 @@ import React, {
   useState,
 } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 
 export interface ServerInfo {
   id: string;
   label: string;
   host: string;
   port: number;
-  status: 'online' | 'offline' | 'connecting';
+  // 'unauthorized': reachable but an authed endpoint 401'd — the saved token is
+  // missing/wrong/undecryptable. Surfaced distinctly so the UI prompts a token
+  // re-entry instead of implying the server is down.
+  status: 'online' | 'offline' | 'connecting' | 'unauthorized';
   source: 'local' | 'manual';
   lastProject?: string;
   lastSession?: string;
@@ -53,7 +57,7 @@ export interface McBridge {
   unpairServer?(id: string): Promise<ServerInfo[]>;
   /** Set/clear a connection's bearer token (e.g. after a remote launch mints one). */
   setServerToken?(id: string, token: string | undefined): Promise<void>;
-  probeServer?(host: string, port: number): Promise<boolean>;
+  probeServer?(host: string, port: number): Promise<'online' | 'offline' | 'unauthorized'>;
   setWatchedServers?(ids: string[]): Promise<void>;
   onWatchEvent?(cb: (e: WatchEvent) => void): () => void;
   /** Fetch a server's session list directly from main (no proxy / no active-server switch). */
@@ -123,12 +127,12 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     async (list: ServerInfo[]) => {
       if (!mc?.probeServer) return;
       const results = await Promise.all(
-        list.map((s) => mc.probeServer!(s.host, s.port).catch(() => false))
+        list.map((s) => mc.probeServer!(s.host, s.port).catch(() => 'offline' as const))
       );
       setServers((prev) =>
         prev.map((s) => {
           const i = list.findIndex((x) => x.id === s.id);
-          return i >= 0 ? { ...s, status: results[i] ? 'online' : 'offline' } : s;
+          return i >= 0 ? { ...s, status: results[i] } : s;
         })
       );
     },
@@ -151,8 +155,8 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
       const target = servers.find((s) => s.id === id);
       if (!target) return;
       setServers((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'connecting' } : s)));
-      const ok = await mc.probeServer(target.host, target.port).catch(() => false);
-      setServers((prev) => prev.map((s) => (s.id === id ? { ...s, status: ok ? 'online' : 'offline' } : s)));
+      const status = await mc.probeServer(target.host, target.port).catch(() => 'offline' as const);
+      setServers((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
     },
     [mc, servers]
   );
@@ -182,6 +186,11 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     const key = servers.map((s) => `${s.id}:${s.status}`).sort().join('|');
     if (lastValidatedRef.current === key) return;
     lastValidatedRef.current = key;
+    // Retag watching-list subscriptions onto the current server ids BEFORE
+    // validating the session — a server removed and re-added gets a new id, and
+    // without this the persisted subscription stays bound to the dead id and
+    // clicking it 403s with peer_not_paired.
+    useSubscriptionStore.getState().reconcileServerIds(servers);
     validateAgainstServers(servers);
   }, [servers]);
   // Also re-check when hydration flips to true after the first server-list load.

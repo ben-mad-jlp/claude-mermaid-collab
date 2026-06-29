@@ -42,6 +42,30 @@ export function generateAuthToken(): string {
 }
 
 /**
+ * Decide which bearer token a launch should use, in priority order:
+ *   1. `configToken` — what the remote server ALREADY has in its config.json.
+ *      The server is config-authoritative (getSecret: config.json-first), so on
+ *      relaunch it KEEPS this and ignores any new env token ('diverged'). If the
+ *      server already has a token, that token is the only one that will work —
+ *      adopt it so the desktop can never diverge from it (this self-heals a
+ *      desktop that cached a stale/minted token).
+ *   2. `callerToken` — a token the caller already had (e.g. baked into the saved
+ *      start command). Used when the server has NO token yet (fresh box).
+ *   3. mint a fresh one — genuinely first-time provisioning; the server's
+ *      env→config migration then pins it.
+ * Extracted as a pure function so the precedence is unit-testable without SSH.
+ */
+export function resolveLaunchToken(
+  opts: { configToken?: string; callerToken?: string },
+): { token: string; source: 'config' | 'caller' | 'minted' } {
+  const cfg = opts.configToken?.trim();
+  if (cfg) return { token: cfg, source: 'config' };
+  const caller = opts.callerToken?.trim();
+  if (caller) return { token: caller, source: 'caller' };
+  return { token: generateAuthToken(), source: 'minted' };
+}
+
+/**
  * Pure synthesis of the suggested start command from the remote probe results.
  * Extracted from {@link detectRemoteLaunch} so the security-critical invariant
  * "0.0.0.0 implies a token" is unit-testable without a real SSH session.
@@ -210,6 +234,12 @@ export interface RemoteDetectResult {
    * authenticates. Present whenever a command was synthesized.
    */
   token?: string;
+  /**
+   * Where {@link token} came from: 'config' = adopted the server's existing
+   * config.json token (the desktop should use exactly this), 'caller' = reused
+   * the caller's cached token, 'minted' = freshly generated (fresh server).
+   */
+  tokenSource?: 'config' | 'caller' | 'minted';
   note?: string;
   output?: string;
   error?: string;
@@ -229,16 +259,20 @@ export async function detectRemoteLaunch(
 ): Promise<RemoteDetectResult> {
   const { host, port, user, password } = opts;
   if (!host) return { ok: false, suggestedCommand: '', error: 'host is required' };
-  // Reuse a caller-supplied token (e.g. an existing connection's) or mint one.
-  const token = opts.token || generateAuthToken();
 
   // One probe script; prints KEY=value lines we parse. Prefer ~/.bun/bin/bun.
+  // CFGTOKEN reads the server's CURRENT config.json bearer token (the value it
+  // is config-authoritative on) so we adopt it rather than minting a token the
+  // server would reject. config.json is pretty-printed, so a line reads:
+  //   "MERMAID_AUTH_TOKEN": "<hex>",
+  // awk splitting on '"' yields the value as field 4 — no fragile regex/escaping.
   const probe =
     `B=""; for c in "$HOME/.bun/bin/bun" "$(command -v bun 2>/dev/null)"; do ` +
     `if [ -n "$c" ] && [ -x "$c" ]; then B="$c"; break; fi; done; ` +
     `echo "BUN=$B"; ` +
     `echo "MC=$(command -v mermaid-collab 2>/dev/null)"; ` +
-    `echo "CACHE=$(ls -d $HOME/.claude/plugins/cache/mermaid-collab*/mermaid-collab/[0-9]* 2>/dev/null | sort -V | tail -1)"`;
+    `echo "CACHE=$(ls -d $HOME/.claude/plugins/cache/mermaid-collab*/mermaid-collab/[0-9]* 2>/dev/null | sort -V | tail -1)"; ` +
+    `echo "CFGTOKEN=$(awk -F'"' '/MERMAID_AUTH_TOKEN/{print $4; exit}' "$HOME/.mermaid-collab/config.json" 2>/dev/null)"`;
 
   const { exitCode, output, error } = await sshRun({ host, user, password, remoteCommand: probe, killAfterMs: 20_000 });
   if (error) return { ok: false, suggestedCommand: '', output, error };
@@ -255,6 +289,14 @@ export async function detectRemoteLaunch(
   const cache = get('CACHE');
   const snapBun = !!bun && bun.startsWith('/snap/');
 
+  // Adopt the server's existing config.json token if it has one (authoritative);
+  // else the caller's cached token; else mint. This is what stops the desktop
+  // from ever diverging from the token the server actually enforces.
+  const { token, source: tokenSource } = resolveLaunchToken({
+    configToken: get('CFGTOKEN'),
+    callerToken: opts.token,
+  });
+
   const { suggestedCommand, note } = synthesizeStartCommand({ port, token, mc, cache, bun, snapBun });
 
   return {
@@ -266,6 +308,7 @@ export async function detectRemoteLaunch(
     snapBun: snapBun || undefined,
     // Only hand back the token when it's actually wired into a command.
     token: suggestedCommand ? token : undefined,
+    tokenSource: suggestedCommand ? tokenSource : undefined,
     note,
     output: output.slice(-2000),
   };
