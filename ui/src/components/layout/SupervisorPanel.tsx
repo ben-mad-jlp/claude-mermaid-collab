@@ -20,6 +20,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   useSupervisorStore,
   type SupervisedSession,
+  type WatchedProject,
 } from '@/stores/supervisorStore';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -193,10 +194,11 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     loadLiveness,
   } = useSupervisorStore();
 
-  // Unified Bridge tree (design-tabbed-bridge PIVOT): the watched-project set is
-  // the project index; escalation counts + coordinator state badge each row;
-  // clicking a row drives the Bridge. watch === supervise (add/remove couples).
-  const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
+  // Unified Bridge tree (design-tabbed-bridge PIVOT): escalation counts +
+  // coordinator state badge each row; clicking a row drives the Bridge. The
+  // project index now comes from the cross-server feed (projectsByServer) below,
+  // not the store's single-server watchedProjects (which still feeds the Bridge
+  // view + other consumers via loadProjects).
   // Coherence: the open slice, read through the shared scoped selector below.
   const openEscalations = useSupervisorStore((s) => s.openEscalations);
   const loadProjects = useSupervisorStore((s) => s.loadProjects);
@@ -267,7 +269,38 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
     return () => clearInterval(id);
   }, [serverScope, loadSupervised, loadConfig, loadLiveness, loadProjects]);
 
-  const watchedList = Array.isArray(watchedProjects) ? watchedProjects : [];
+  // Cross-server project feed: fan out `/api/supervisor/projects` to EVERY connected
+  // server and keep each server's list tagged by serverId (mirrors the Watching
+  // panel's cross-server model and the add-session dropdown's existing fan-out).
+  // The shared supervisor store stays single-server (it feeds the Bridge view and
+  // other consumers) — this local feed is what makes the sidebar Projects list show
+  // projects from all servers at once. Per-server-as-it-resolves so a slow/offline
+  // peer can't blank the others.
+  const [projectsByServer, setProjectsByServer] = useState<Record<string, WatchedProject[]>>({});
+  useEffect(() => {
+    const mc = (window as any).mc;
+    let cancelled = false;
+    const fetchAll = () => {
+      if (mc?.invokeOnServer && servers.length > 0) {
+        const ids = new Set(servers.map((s) => s.id));
+        // Drop any server that went away so its rows disappear.
+        setProjectsByServer((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => ids.has(id))));
+        servers.forEach(async (s) => {
+          const res = await mc.invokeOnServer(s.id, { path: '/api/supervisor/projects', method: 'GET' }).catch(() => null);
+          if (cancelled || !res?.ok) return;
+          const list = ((res.body as { projects?: WatchedProject[] } | undefined)?.projects ?? []) as WatchedProject[];
+          setProjectsByServer((prev) => ({ ...prev, [s.id]: list }));
+        });
+      } else {
+        // Browser / no native bridge: only the page-origin server is reachable, so
+        // fall back to the single-server store list under the current scope.
+        setProjectsByServer({ [serverScope]: useSupervisorStore.getState().watchedProjects ?? [] });
+      }
+    };
+    fetchAll();
+    const id = setInterval(fetchAll, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [servers, serverScope]);
 
   // Front-door state: no config saved → 'none' (Become the Supervisor); config
   // present but the heartbeat has gone stale (or never registered) → 'crashed'
@@ -294,10 +327,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // stats (open/in-progress/blocked + idle-with-work). One fetch per project on the
   // watched-set changing — cached in todosByProject; this index isn't live-critical.
   useEffect(() => {
-    for (const w of watchedProjects) {
-      if (w.project) void loadProjectTodos(serverScope, w.project);
+    for (const [sid, list] of Object.entries(projectsByServer)) {
+      for (const w of list) {
+        if (w.project) void loadProjectTodos(sid, w.project);
+      }
     }
-  }, [watchedProjects, serverScope, loadProjectTodos]);
+  }, [projectsByServer, loadProjectTodos]);
 
   // The global role workspaces (~/.mermaid-collab/supervisor, .../steward) are not
   // user projects — never list them in the Bridge tree.
@@ -315,13 +350,29 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
       arr.push(s);
       m.set(s.project, arr);
     }
-    const paths = new Set<string>();
-    watchedList.forEach((w) => w.project && !isRoleWorkspace(w.project) && paths.add(w.project));
-    for (const p of m.keys()) if (!isRoleWorkspace(p)) paths.add(p);
-    return Array.from(paths)
-      .map((project) => {
+    // Rows are tagged with their owning serverId. Sources: every connected server's
+    // project list (the cross-server feed) plus any project that has supervised
+    // sessions on the active server. NOTE: applyBridgeOrder() below dedupes by
+    // project PATH, so the same path registered on two servers collapses to a single
+    // row (last writer wins) rather than showing twice — intentional for now, since
+    // a user rarely wants the same project listed under multiple servers.
+    const rows = new Map<string, { serverId: string; project: string }>();
+    const add = (serverId: string, project: string) => {
+      if (project && !isRoleWorkspace(project)) rows.set(`${serverId}:${project}`, { serverId, project });
+    };
+    const activeScope = activeId ?? 'local';
+    // The cross-server feed already includes EVERY server (local + remotes), so it
+    // is the authoritative source for the project list. We intentionally do NOT also
+    // seed from the store's single-server list: it's tagged with the 'local' sentinel
+    // while the feed uses the real local-server id, which would double-list every
+    // local project.
+    for (const [sid, list] of Object.entries(projectsByServer)) list.forEach((w) => add(sid, w.project));
+    for (const p of m.keys()) add(activeScope, p);
+    return Array.from(rows.values())
+      .map(({ serverId, project }) => {
         const esc = selectEscalationKindCounts(openEscalations, { kind: 'project', project });
         return {
+          serverId,
           project,
           sessions: (m.get(project) ?? []).slice().sort((a, b) => a.session.localeCompare(b.session)),
           escalationCount: esc.total,
@@ -339,7 +390,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         if (a.blockerCount !== b.blockerCount) return b.blockerCount - a.blockerCount;
         return a.project.localeCompare(b.project);
       });
-  }, [supervised, watchedList, openEscalations]);
+  }, [supervised, projectsByServer, openEscalations, activeId]);
 
   // Manual project order (drag-reorder; option 1 — fully wins over the urgency
   // sort). Also drives the Ctrl+Shift+F# project mapping. New projects append.
@@ -373,47 +424,59 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
   // Click a project row → make it the active Bridge project and jump to Bridge
   // mode (decision C: the left column is the single master).
   const handleSelectProject = useCallback(
-    (project: string) => {
+    (serverId: string, project: string) => {
+      // Switch context to this project's server so the rest of the app (Items,
+      // sessions, per-server supervisor data) follows it. Prefer a known live
+      // session in this project on that server (mirrors the Watching-card select);
+      // pinning its serverId is what reroutes artifact reads to the right backend.
+      const known =
+        Object.values(subscriptions).find((s) => s.project === project && (s.serverId ?? '') === serverId) ??
+        Object.values(subscriptions).find((s) => s.project === project);
+      if (known) {
+        setCurrentSession({ project, name: known.session, serverId: known.serverId ?? serverId });
+      }
       setActiveProject(project);
       setMode('bridge');
     },
-    [setActiveProject, setMode],
+    [subscriptions, setCurrentSession, setActiveProject, setMode],
   );
 
   // watch === supervise (decision B). Adding a project watches it AND supervises
   // every session of it currently known (from subscriptions); removing unwatches
   // and stops supervising those sessions. Per-session shield still opts out.
   const superviseSession = useCallback(
-    async (project: string, session: string, on: boolean) => {
+    async (serverId: string, project: string, session: string, on: boolean) => {
       const mc = (window as any).mc;
       const path = '/api/supervisor/supervised';
       const body = on ? { project, session, source: 'manual' } : { project, session };
       const method = on ? 'POST' : 'DELETE';
-      if (mc?.invokeOnServer) await mc.invokeOnServer(serverScope, { path, method, body });
+      if (mc?.invokeOnServer) await mc.invokeOnServer(serverId, { path, method, body });
       else await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
     },
-    [serverScope],
+    [],
   );
   const handleAddProject = useCallback(
-    async (path: string) => {
-      await addProject(serverScope, path);
-      // Couple: supervise the project's currently-known sessions.
-      const sess = Object.values(subscriptions).filter((s) => s.project === path).map((s) => s.session);
-      await Promise.all(sess.map((s) => superviseSession(path, s, true)));
+    async (serverId: string, path: string) => {
+      await addProject(serverId, path);
+      // Couple: supervise the project's currently-known sessions on that server.
+      const sess = Object.values(subscriptions)
+        .filter((s) => s.project === path && (s.serverId ?? '') === serverId)
+        .map((s) => s.session);
+      await Promise.all(sess.map((s) => superviseSession(serverId, path, s, true)));
       void loadSupervised(serverScope);
-      handleSelectProject(path);
+      handleSelectProject(serverId, path);
     },
-    [serverScope, addProject, subscriptions, superviseSession, loadSupervised, handleSelectProject],
+    [addProject, subscriptions, superviseSession, loadSupervised, serverScope, handleSelectProject],
   );
   const handleRemoveProjectRow = useCallback(
-    async (path: string) => {
+    async (serverId: string, path: string) => {
       const sess = (byProject.find((r) => r.project === path)?.sessions ?? []).map((s) => s.session);
-      await Promise.all(sess.map((s) => superviseSession(path, s, false)));
-      void removeProject(serverScope, path);
+      await Promise.all(sess.map((s) => superviseSession(serverId, path, s, false)));
+      void removeProject(serverId, path);
       if (activeProject === path) setActiveProject(null);
       void loadSupervised(serverScope);
     },
-    [serverScope, byProject, superviseSession, removeProject, activeProject, setActiveProject, loadSupervised],
+    [byProject, superviseSession, removeProject, activeProject, setActiveProject, loadSupervised, serverScope],
   );
 
   // Find the Watching-feed subscription that matches a project+session (any
@@ -558,7 +621,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
               No projects yet — add one below
             </div>
           ) : (
-            orderedProjects.map(({ project, sessions: projSessions, escalationCount, blockerCount, landReadyCount }, i) => {
+            orderedProjects.map(({ serverId: rowServerId, project, sessions: projSessions, escalationCount, blockerCount, landReadyCount }, i) => {
               const cards = projSessions.map((s) => cardDataFor(s));
               // Combined per-project health: reduce every card's status to one.
               const combined = combineCardStatus(cards.map((c) => c.status));
@@ -620,8 +683,9 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                 .filter(Boolean)
                 .join('\n');
               const hasIndicators = escalationCount > 0 || visibleCount > 0 || stats.open > 0 || lastActive > 0;
+              const rowServerLabel = serverLabelById.get(rowServerId) ?? rowServerId;
               return (
-                <div key={project} className={i > 0 ? 'mt-2' : ''}>
+                <div key={`${rowServerId}:${project}`} className={i > 0 ? 'mt-2' : ''}>
                   {/* Per-project row: click the name → activate the Bridge for this
                       project; the chevron collapses its sessions. Escalation badge
                       (red) + coordinator dot ride the row; active row gets a ring. */}
@@ -639,7 +703,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                     }}
                     // The whole card selects the project — the avatar (expand) and
                     // the remove button stopPropagation so they keep their own clicks.
-                    onClick={() => handleSelectProject(project)}
+                    onClick={() => handleSelectProject(rowServerId, project)}
                     className={`group w-full flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-black cursor-pointer ${projectHeaderBg(daemonStatus)} ${isActive ? 'ring-2 ring-accent-500' : ''}`}
                   >
                     {/* Avatar reacts to the project daemon's activity, not just live
@@ -657,12 +721,24 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                         <button
                           type="button"
                           data-bridge-project={project}
-                          onClick={() => handleSelectProject(project)}
-                          title={`Open ${projName} in the Bridge`}
+                          onClick={() => handleSelectProject(rowServerId, project)}
+                          title={`Open ${projName} in the Bridge (${rowServerLabel})`}
                           className="flex-1 min-w-0 truncate text-left"
                         >
                           {projName}
                         </button>
+                        {/* Which server this project lives on — only shown when more
+                            than one server is connected, so single-server users see
+                            no change. */}
+                        {servers.length > 1 && (
+                          <span
+                            data-testid="supervisor-project-server"
+                            className="shrink-0 text-3xs text-gray-600 font-normal max-w-[6rem] truncate"
+                            title={`On server: ${rowServerLabel}`}
+                          >
+                            {rowServerLabel}
+                          </span>
+                        )}
                         <button
                           type="button"
                           data-testid="supervisor-project-remove"
@@ -670,7 +746,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                           onClick={(e) => {
                             e.stopPropagation();
                             if (window.confirm(`Remove "${projName}" from the Bridge?\n\nStops watching + supervising its sessions; files on disk are untouched.`)) {
-                              void handleRemoveProjectRow(project);
+                              void handleRemoveProjectRow(rowServerId, project);
                             }
                           }}
                           className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded text-gray-500 hover:text-danger-600"
@@ -729,7 +805,12 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                   key={p}
                   type="button"
                   data-testid="supervisor-detected"
-                  onClick={() => void handleAddProject(p)}
+                  onClick={() => {
+                    // A detected project came from a live subscription — add it on
+                    // that subscription's own server, not just the active one.
+                    const sub = Object.values(subscriptions).find((s) => s.project === p);
+                    void handleAddProject(sub?.serverId ?? serverScope, p);
+                  }}
                   title={`Watch + supervise ${p}`}
                   className="w-full flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
                 >
@@ -759,7 +840,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
         <AddProjectDialog
           servers={servers}
           defaultServerId={servers.find((s) => s.id === serverScope)?.id ?? localServerOf(servers)?.id ?? servers[0]?.id ?? serverScope}
-          onSubmit={async (_sid, path) => { await handleAddProject(path); }}
+          onSubmit={async (sid, path) => { await handleAddProject(sid || serverScope, path); }}
           onClose={() => setAddOpen(false)}
         />
       )}
