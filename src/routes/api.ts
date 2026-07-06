@@ -17,6 +17,7 @@ import { statusManager } from '../services/status-manager';
 import { projectRegistry } from '../services/project-registry';
 import { UpdateLogManager } from '../services/update-log-manager';
 import { launchRemoteServer, detectRemoteLaunch } from '../services/remote-launch';
+import { getProcessGuardStats } from '../services/process-guards.js';
 import { join, isAbsolute } from 'path';
 import { homedir } from 'os';
 import { existsSync, readdirSync } from 'fs';
@@ -219,8 +220,18 @@ async function handleHealthCheck(wsHandler: WebSocketHandler): Promise<Response>
   // Determine overall health
   const healthy = apiRunning && uiAvailable;
 
+  // Surface caught detached-work crashes (daemon tick escapes) so a server that
+  // is "up but its daemon keeps throwing" is visible instead of silent. Only
+  // included when non-zero to keep the normal health payload (and the
+  // port-ownership handshake that reads it) lean.
+  const guardStats = getProcessGuardStats();
+  const processGuards = (guardStats.unhandledRejections || guardStats.uncaughtExceptions)
+    ? guardStats
+    : undefined;
+
   return Response.json({
     healthy,
+    ...(processGuards ? { processGuards } : {}),
     // Identity block (design-ubuntu-native §4a) — the canonical port-ownership
     // handshake reads these to tell a current/rightful owner from a stale shadow.
     // `ok` is always true here: if this route answers, the API is up.

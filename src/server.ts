@@ -12,6 +12,7 @@ import { checkAuth } from './auth';
 import { handlePairRoutes } from './routes/pair-routes.js';
 import { migrateEnvAuthToken } from './services/config-file.js';
 import { killAllLeafSubtrees } from './services/leaf-subprocess-registry.js';
+import { installProcessGuards } from './services/process-guards.js';
 import { writeInstance, removeInstance, deriveSessionId, installSignalHandlers } from './services/instance-discovery';
 import { writeLock, releaseLock, currentExePath, serverOwner } from './services/port-ownership';
 import { SERVER_VERSION } from './mcp/server';
@@ -157,6 +158,13 @@ try {
     console.error('Failed to register scratch session on startup:', error);
   }
 }
+
+// Process-level safety net — install BEFORE the daemon starts so a first-tick
+// failure is caught. The Orchestrator daemon spawns detached work whose
+// rejections/child-error events escape the per-pass try/catch in
+// orchestrator-live.ts and would otherwise terminate the whole server (one bad
+// tick killing every attached client). These guards log and keep the server up.
+installProcessGuards();
 
 // Orchestrator Daemon Phase 1: a single daemon enumerates all registered
 // projects each tick and dispatches build/reconcile by per-project level.
