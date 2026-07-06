@@ -2182,6 +2182,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'invariant_check', description: "Read-only work-graph health check. Returns only the VIOLATIONS of the documented invariants (not the whole graph): orphan (non-epic todo with no [EPIC] ancestor), stranded-epic ([EPIC] with no [LAND] leaf beneath it), epic-planned-ready-child (epic still 'planned' with a 'ready' child), broken-depends-on (dependsOn points at a missing/dropped todo), blocked-on-nothing ('blocked' but every dep is done). A clean graph returns []. Each violation carries { kind, todoId, title, reason }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose work-graph to check.' } }, required: ['project'] } },
       { name: 'epic_branch_status', description: "Read-only git landing status per [EPIC]. For each epic, reports its collab/epic/<id8> accumulation branch: exists?, ahead (unlanded commits vs master), behind (master commits the branch lacks), mergeable (trial merge has no conflicts), and landLeafDone (its [LAND] leaf is done). Flags `stranded` epics — branch ahead>0 but land leaf not done, i.e. 'done on the graph, unlanded on master' (the BP0 stranding). Pure git reads (rev-list/merge-tree), no mutation. Returns { project, baseRef, epics[], strandedCount }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose epics to check.' }, baseRef: { type: 'string', description: "Base branch to compare against (default 'master')." } }, required: ['project'] } },
       { name: 'instance_topology', description: "Read-only map of every live mermaid-collab server this machine knows about, each tagged CANONICAL vs STALE SHADOW. Joins the on-disk instance records (~/.mermaid-collab/instances: port, project/session, pid, version, startedAt), the canonical :9002 ownership lockfile + a live /api/health probe (together identifying the ONE process that actually owns the canonical port), and the in-memory remote-peer registry. The live :9002 owner is tagged `canonical`; any OTHER instance also claiming :9002 is a `shadow` (the 'deploy went cosmetic because a stale source server shadows the desktop sidecar' footgun); a server on its own port is a plain `instance`. `hasShadow:true` is the warning flag. Takes no args.", inputSchema: { type: 'object', properties: {} } },
+      { name: 'launch_remote_server', description: "Start a collab server on a REMOTE machine over SSH — the same detect→launch flow the desktop 'Launch' button runs (POST /api/server/detect then /api/server/launch), exposed as one tool so it can be driven/tested headlessly. Runs on THIS sidecar (which owns the system `ssh`). Two phases: (1) DETECT — SSH into the host, probe for bun / a global mermaid-collab / the newest plugin-cache version dir, adopt the server's existing config.json token (or mint one), and synthesize a start command that binds 0.0.0.0 AND sets MERMAID_AUTH_TOKEN (a 0.0.0.0 bind is always auth-required — never an open LAN hole). (2) LAUNCH — SSH again, detach the server (setsid/nohup), and poll the remote /api/health. Pass `command` to skip detect and launch a specific command; pass `detectOnly:true` to only probe+synthesize and NOT launch. `password` is used once for the SSH prompt and never persisted; omit it to use keys/agent (BatchMode). Returns { detect?, launch?, token? } — the token is what a client must present to reach the launched (auth-required) server. NOTE: the host must be a bare host/IP; the SSH user goes in `user`, not baked into `host`.", inputSchema: { type: 'object', properties: { host: { type: 'string', description: 'Bare remote host or IP (NOT user@host). The SSH user goes in `user`.' }, port: { type: 'number', description: 'Port the server should listen on / be probed at (default 9002).' }, user: { type: 'string', description: 'SSH user (blank = ssh default / ~/.ssh/config).' }, password: { type: 'string', description: 'One-time SSH password. Never persisted. Omit to use keys/agent (BatchMode, fails fast).' }, command: { type: 'string', description: 'Explicit start command to launch. If omitted, detect synthesizes one. Ignored when detectOnly is true.' }, token: { type: 'string', description: "Existing bearer token to thread through so detect REUSES it (avoids diverging from the server's config-authoritative token)." }, detectOnly: { type: 'boolean', description: 'Only run the SSH probe + synthesize a command; do NOT launch. Returns { detect }.' } }, required: ['host'] } },
       { name: 'orchestrator_off', description: "STEWARD KILL-SWITCH (one-way): force a project's Orchestrator autonomy level to 'off', stopping the daemon from driving todos. This is the steward's ONLY autonomy control — it can ALWAYS brake but can NEVER raise the level (decision 3bf1292b). It takes no level argument; raising autonomy (build/nudge/propose/drive) stays human-only on the Bridge ladder. Reuses the server-side 'off' transition. Optional project (defaults to the server's cwd). Returns the resulting level for confirmation.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Project to brake (defaults to the current working directory).' } } } },
       { name: 'friction_trends', description: "Read-only recurrence rollup over the friction store. Groups the most-recent friction notes by LAYER (orchestration vs domain vs operational) with counts, and within each layer by retryReason, so a repeating problem (e.g. tmux-pane accumulation showing up as repeated orchestration friction) surfaces as a high-count reason instead of being buried in list_friction's flat newest-first list. Returns { total, considered, byLayer:[{ layer, count, reasons:[{ retryReason, count, sessions[], lastAt }] }], recurring:[{ layer, retryReason, count }] } — `recurring` is the cross-layer 'what keeps going wrong' shortlist (reasons seen >1, most-recurring first).", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose friction to roll up.' }, layer: { type: 'string', enum: ['orchestration', 'domain', 'operational'], description: 'Optional: restrict to one layer.' }, limit: { type: 'number', description: 'Max most-recent notes to consider (default 100, capped 1000).' } }, required: ['project'] } },
       { name: 'roadmap_rollup', description: "Read-only rollup of roadmap items joined to their spawned sessions. roadmap_list returns bare items; this joins each item to its session binding (roadmap_spawn_session sets sessionName + links the created todos) and the ids of the todos linked to it, so the steward sees which roadmap items have a live session and which are still un-spawned. Returns { total, spawned, unspawned, items:[{ id, title, status, parentId, sessionName, todoIds[], todoCount }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose roadmap to roll up.' } }, required: ['project'] } },
@@ -4795,6 +4796,41 @@ IMPORTANT - Common pitfalls to avoid:
           case 'instance_topology': {
             const topology = await instanceTopology();
             return JSON.stringify(topology, null, 2);
+          }
+          case 'launch_remote_server': {
+            const { host, port, user, password, command, token, detectOnly } = args as {
+              host?: string; port?: number; user?: string; password?: string;
+              command?: string; token?: string; detectOnly?: boolean;
+            };
+            if (!host) throw new Error('Missing required: host');
+            if (/@/.test(host)) {
+              throw new Error(`host must be a bare host/IP, not "${host}" — put the SSH user in the "user" arg instead`);
+            }
+            const { detectRemoteLaunch, launchRemoteServer } = await import('../services/remote-launch.js');
+            const p = Number(port) || 9002;
+
+            // Phase 1: detect — unless the caller supplied an explicit command to launch.
+            let detect: Awaited<ReturnType<typeof detectRemoteLaunch>> | undefined;
+            if (!command || detectOnly) {
+              detect = await detectRemoteLaunch({ host, port: p, user: user?.trim() || undefined, password: password || undefined, token: token?.trim() || undefined });
+            }
+            if (detectOnly) {
+              return JSON.stringify({ phase: 'detect', detect }, null, 2);
+            }
+
+            // Resolve what to launch: caller's command wins, else the synthesized one.
+            const effectiveCommand = command || detect?.suggestedCommand;
+            const effectiveToken = token?.trim() || detect?.token;
+            if (!effectiveCommand) {
+              return JSON.stringify(
+                { phase: 'detect', ok: false, detect, error: detect?.note || detect?.error || 'no launchable command — provide `command` or install bun/mermaid-collab on the remote' },
+                null, 2,
+              );
+            }
+
+            // Phase 2: launch.
+            const launch = await launchRemoteServer({ host, port: p, user: user?.trim() || undefined, password: password || undefined, command: effectiveCommand, token: effectiveToken });
+            return JSON.stringify({ phase: 'launch', detect, launch, token: effectiveToken }, null, 2);
           }
           case 'system_status': {
             const { project } = args as { project: string };
