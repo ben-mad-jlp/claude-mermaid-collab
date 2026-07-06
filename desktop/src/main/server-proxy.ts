@@ -282,7 +282,26 @@ export class ServerProxy {
     owner: Set<{ client: WebSocket; up: WebSocket }>
   ): void {
     {
+      // App-level heartbeat on the UPSTREAM socket (§3B), mirroring the terminal
+      // bridge's startHeartbeat. Without it, a HALF-OPEN upstream — the collab
+      // server bounced (deploy/restart/SIGKILL) without a clean TCP close, so
+      // neither 'close' nor 'error' ever fires — leaves this bridge forwarding
+      // nothing while the client socket stays 'open'. That silently freezes the
+      // whole collab event stream (session/status broadcasts), so the UI's live
+      // data (e.g. watching-card colors) stops updating until an app restart.
+      // Ping the upstream; two consecutive missed pongs => terminate it, which
+      // fires 'close' -> cleanup -> the client socket closes -> the renderer's
+      // WebSocketClient reconnects -> a fresh upstream is paired. Self-healing.
+      let pingTimer: ReturnType<typeof setInterval> | null = null;
+      let pongTimer: ReturnType<typeof setTimeout> | null = null;
+      let missed = 0;
+      const stopHeartbeat = () => {
+        if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+        if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
+      };
+
       const cleanup = () => {
+        stopHeartbeat();
         owner.delete(pair);
         try { client.terminate(); } catch { /* ignore */ }
         try { upConn.terminate(); } catch { /* ignore */ }
@@ -294,6 +313,22 @@ export class ServerProxy {
       upConn.on('open', () => {
         for (const m of pending) upConn.send(m.data, { binary: m.isBinary });
         pending.length = 0;
+        pingTimer = setInterval(() => {
+          if (upConn.readyState !== WebSocket.OPEN) return;
+          if (pongTimer === null) {
+            pongTimer = setTimeout(() => {
+              pongTimer = null;
+              missed += 1;
+              if (missed >= 2) { try { upConn.terminate(); } catch { /* close path tears down */ } }
+            }, this.pongGraceMs);
+          }
+          try { upConn.ping(); } catch { /* close/error path tears down */ }
+        }, this.heartbeatMs);
+      });
+      // A pong clears the outstanding miss-window.
+      upConn.on('pong', () => {
+        if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
+        missed = 0;
       });
 
       // Preserve frame type: the collab server sends JSON as TEXT frames; without
