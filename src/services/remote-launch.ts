@@ -15,6 +15,18 @@
  * generate a bearer token, weave MERMAID_AUTH_TOKEN=<token> into the synthesized
  * start command, and hand the token back so the connection that immediately
  * adds/connects uses it. NEVER bind 0.0.0.0 without a token.
+ *
+ * KNOWN LIMITATION (token in argv): the token is currently woven into the
+ * launch command string, so it is visible in the remote box's process list
+ * (`ps aux` / /proc/<pid>/cmdline is world-readable to local users). At the
+ * intended scale (self-owned LAN box, usually single-user) this is a bounded
+ * leak — any local user on that box. The principled fix is to deliver the token
+ * out-of-band (write it to the remote ~/.mermaid-collab/config.json over SSH
+ * stdin — the server is config-authoritative — then launch with no token in the
+ * command) so it never touches argv. Deferred: it needs sshRun to pipe data via
+ * stdin and must be verified against a real remote, and a naive config write
+ * that diverges from the desktop's cached token would lock the desktop out
+ * (401). Tracked for a follow-up that can be tested end-to-end.
  */
 
 import { randomBytes } from 'crypto';
@@ -83,7 +95,10 @@ export function synthesizeStartCommand(
     return { suggestedCommand: `${auth} MERMAID_BIND_HOST=0.0.0.0 mermaid-collab start --port ${port}` };
   }
   if (cache && bun && !snapBun) {
-    return { suggestedCommand: `cd ${cache} && ${auth} MERMAID_BIND_HOST=0.0.0.0 PORT=${port} ${bun} run src/server.ts` };
+    // cache/bun are probe-derived remote paths (ls / command -v output); quote
+    // them so a path with a space or shell metachar can't break or inject into
+    // the synthesized command. The env assignments and literals are ours.
+    return { suggestedCommand: `cd ${shSingleQuote(cache)} && ${auth} MERMAID_BIND_HOST=0.0.0.0 PORT=${port} ${shSingleQuote(bun)} run src/server.ts` };
   }
   if (cache && snapBun) {
     return { suggestedCommand: '', note: 'Only a snap-confined bun was found; it cannot read ~/.claude. Install a non-snap bun (curl -fsSL https://bun.sh/install | bash), then re-detect.' };
@@ -141,6 +156,11 @@ async function sshRun(
   const sshArgs = [
     'ssh',
     ...(password ? ['-tt'] : ['-T']),
+    // Trust-on-first-use: the FIRST connection to a host auto-accepts its key
+    // (and pins it in known_hosts); later key changes are rejected. This trades
+    // a first-connect MITM window for zero manual host-key setup — acceptable
+    // for self-owned LAN boxes, which is the intended use. Do NOT relax this to
+    // `no`/`accept-new`-always for untrusted networks.
     '-o', 'StrictHostKeyChecking=accept-new',
     '-o', 'ConnectTimeout=12',
     ...(password
@@ -191,12 +211,14 @@ export async function launchRemoteServer(opts: RemoteLaunchOpts): Promise<Remote
 
   // Detach the server fully so it survives the SSH session closing. We start a
   // new session (setsid, if present — Linux) so a PTY teardown can't SIGHUP it,
-  // and fall back to plain nohup. stdio is redirected and stdin closed.
+  // and fall back to plain nohup. stdio is redirected and stdin closed. The log
+  // is APPENDED (>>), not truncated, so a relaunch doesn't clobber the previous
+  // run's startup output (useful when diagnosing a failed launch).
   const q = shSingleQuote(effectiveCommand);
   const remoteScript =
     `if command -v setsid >/dev/null 2>&1; then ` +
-    `setsid sh -lc ${q} > "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & ` +
-    `else nohup sh -lc ${q} > "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & fi; ` +
+    `setsid sh -lc ${q} >> "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & ` +
+    `else nohup sh -lc ${q} >> "$HOME/.mermaid-collab-launch.log" 2>&1 < /dev/null & fi; ` +
     `sleep 1; exit 0`;
 
   const { exitCode, output, error } = await sshRun({ host, user, password, remoteCommand: remoteScript });
@@ -210,7 +232,12 @@ export async function launchRemoteServer(opts: RemoteLaunchOpts): Promise<Remote
     await new Promise((r) => setTimeout(r, 1500));
   }
 
-  const ok = reachable || exitCode === 0;
+  // Success is defined by the server actually coming up — NOT by the ssh detach
+  // command's exit code. The detach script always ends `exit 0` (it only kicks
+  // off a background process and returns), so `exitCode === 0` is effectively
+  // constant and must not be OR'd into the success signal, or a launch that
+  // never became reachable would falsely report ok. Key on `reachable` alone.
+  const ok = reachable;
   return {
     ok,
     reachable,
