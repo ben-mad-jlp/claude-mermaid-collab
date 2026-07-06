@@ -26,6 +26,7 @@ import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useServers } from '@/contexts/ServerContext';
 import { SessionCard, ClaudePixAvatar, type SessionCardData } from '@/components/layout/SessionCard';
+import { ServerIcon } from '@/components/ServerIcon';
 import { useFleetShortcuts } from '@/components/layout/useFleetShortcuts';
 import { useBridgeOrderStore, applyBridgeOrder } from '@/stores/bridgeOrderStore';
 import { isOrchestratorSession } from '@/lib/liveness';
@@ -733,10 +734,10 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                         {servers.length > 1 && (
                           <span
                             data-testid="supervisor-project-server"
-                            className="shrink-0 text-3xs text-gray-600 font-normal max-w-[6rem] truncate"
+                            className="shrink-0 text-gray-600"
                             title={`On server: ${rowServerLabel}`}
                           >
-                            {rowServerLabel}
+                            <ServerIcon name={serverIconById.get(rowServerId)} size={14} title={`On server: ${rowServerLabel}`} />
                           </span>
                         )}
                         <button
