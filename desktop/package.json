@@ -1,7 +1,7 @@
 {
   "name": "mermaid-collab-desktop",
   "private": true,
-  "version": "6.14.2",
+  "version": "6.15.0",
   "description": "mermaid-collab native desktop app (Electron)",
   "homepage": "https://github.com/ben-mad-jlp/claude-mermaid-collab",
   "main": "out/main/index.js",
