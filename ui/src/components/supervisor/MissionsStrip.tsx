@@ -24,32 +24,30 @@ export interface MissionsStripProps {
 /** Phase → pill classes. 'converged' is loud green; the rest reuse the board's
  *  neutral/info/violet/amber token families so the strip reads as one system. */
 const PHASE_STYLE: Record<MissionPhase, string> = {
-  dogfood:   'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
-  find_gap:  'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  discover:  'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
   plan:      'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
-  steward:   'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
-  land:      'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
-  assess:    'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
+  execute:   'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
+  verify:    'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
   converged: 'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300',
+  stopped:   'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
 };
 
 const PHASE_LABEL: Record<MissionPhase, string> = {
-  dogfood: 'Dogfood',
-  find_gap: 'Find gap',
+  discover: 'Discover',
   plan: 'Plan',
-  steward: 'Steward',
-  land: 'Land',
-  assess: 'Assess',
+  execute: 'Execute',
+  verify: 'Verify',
   converged: 'Converged',
+  stopped: 'Stopped',
 };
 
-/** The 6-phase convergence loop, in order — used to build the phase tooltip. */
-const PHASE_CYCLE: MissionPhase[] = ['dogfood', 'find_gap', 'plan', 'steward', 'land', 'assess'];
+/** The canonical agentic loop, in order — used to build the phase tooltip. */
+const PHASE_CYCLE: MissionPhase[] = ['discover', 'plan', 'execute', 'verify'];
 
 function phaseTooltip(phase: MissionPhase): string {
   const cycle = PHASE_CYCLE.map((p) => PHASE_LABEL[p]).join(' → ');
   const current = PHASE_LABEL[phase] ?? phase;
-  return `Convergence loop: ${cycle} (repeat).\nCurrent phase: ${current}.`;
+  return `Convergence loop: ${cycle} → (iterate: loop back).\nVerify decides: converged / stopped / loop again.\nCurrent phase: ${current}.`;
 }
 
 function stripMissionPrefix(title: string): string {
@@ -126,9 +124,13 @@ const MissionCard: React.FC<{ m: MissionSummary }> = ({ m }) => {
   const [goalOpen, setGoalOpen] = useState(false);
   const [buildOpen, setBuildOpen] = useState(false);
 
-  const phase = (m.rollup?.phase ?? m.mission?.phase ?? 'dogfood') as MissionPhase;
+  const phase = (m.rollup?.phase ?? m.mission?.phase ?? 'discover') as MissionPhase;
   const iteration = m.rollup?.iteration ?? m.mission?.iteration ?? 0;
+  const maxIterations = m.rollup?.maxIterations ?? m.mission?.maxIterations ?? null;
   const converged = !!m.rollup?.converged;
+  const stopped = phase === 'stopped';
+  const stopReason = m.rollup?.stopReason ?? m.mission?.stopReason ?? null;
+  const procedure = m.mission?.procedure ?? null;
   const cap = m.rollup?.capability ?? { met: 0, total: 0 };
   const mech = m.rollup?.mechanical ?? { done: 0, total: 0 };
   const criteria = m.criteria ?? [];
@@ -148,7 +150,7 @@ const MissionCard: React.FC<{ m: MissionSummary }> = ({ m }) => {
           {stripMissionPrefix(m.node?.title ?? 'Mission')}
         </span>
         <span
-          className={`shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${PHASE_STYLE[phase] ?? PHASE_STYLE.dogfood}`}
+          className={`shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${PHASE_STYLE[phase] ?? PHASE_STYLE.discover}`}
           title={phaseTooltip(phase)}
         >
           Phase: {PHASE_LABEL[phase] ?? phase}
@@ -168,20 +170,42 @@ const MissionCard: React.FC<{ m: MissionSummary }> = ({ m }) => {
       <div className="flex items-center gap-2 text-3xs text-gray-500 dark:text-gray-400">
         <span
           className="font-mono"
-          title={`Iteration ${iteration} — how many times this mission has gone around the loop.`}
+          title={
+            maxIterations != null
+              ? `Iteration ${iteration} of a max ${maxIterations} (STOP-WHEN cap).`
+              : `Iteration ${iteration} — laps around the loop (no cap set).`
+          }
         >
-          iter {iteration}
+          iter {iteration}{maxIterations != null ? `/${maxIterations}` : ''}
         </span>
         {converged && (
           <span
             data-testid="mission-converged"
             className="text-success-600 dark:text-success-400 font-semibold"
-            title="All criteria met — goal achieved."
+            title="All criteria met — goal achieved (VERIFY passed)."
           >
             converged ✓
           </span>
         )}
+        {stopped && !converged && (
+          <span
+            data-testid="mission-stopped"
+            className="text-gray-500 dark:text-gray-400 font-semibold"
+            title={`Loop stopped: ${stopReason ?? 'reached a terminal state'}.`}
+          >
+            stopped{stopReason === 'max-iterations' ? ' (max iters)' : ''}
+          </span>
+        )}
       </div>
+
+      {procedure && (
+        <div
+          className="text-3xs text-gray-500 dark:text-gray-400 leading-snug line-clamp-2 border-l-2 border-gray-200 dark:border-gray-700 pl-1.5"
+          title={`Each iteration:\n${procedure}`}
+        >
+          <span className="uppercase tracking-wide text-gray-400 dark:text-gray-500">each iter:</span> {procedure}
+        </div>
+      )}
 
       <Gauge
         label="Goal"
