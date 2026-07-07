@@ -181,8 +181,9 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     try {
       const project = url.searchParams.get('project');
       if (!project) return jsonError('project is required', 400);
+      const session = url.searchParams.get('session') ?? undefined;
       const { listMissions } = await import('../services/mission-store.ts');
-      return Response.json({ missions: listMissions(project) });
+      return Response.json({ missions: listMissions(project, { session }) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
