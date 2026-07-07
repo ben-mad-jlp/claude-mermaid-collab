@@ -174,6 +174,20 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // MISSIONS — list the convergence-loop [MISSION] roots for a project with their
+  // phase + convergence rollup, for the Plan-board Missions surface (epic 40771aab
+  // sibling; mission feature Phase 2a). Read-only.
+  if (url.pathname === '/api/supervisor/missions' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      if (!project) return jsonError('project is required', 400);
+      const { listMissions } = await import('../services/mission-store.ts');
+      return Response.json({ missions: listMissions(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   // ESCALATION BRIEFING — deep markdown decision briefing for one escalation
   // (epic 40771aab). Lazy-generate-on-open + cached on the escalation row; the UI
   // POSTs this when the human opens a card. FAILS OPEN to a deterministic briefing.

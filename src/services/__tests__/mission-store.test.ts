@@ -10,7 +10,7 @@ import {
   upsertMission, getMission, setMissionPhase, advanceMission, nextPhase,
   stampDogfood, stampAssess, deleteMission,
   addCriterion, listCriteria, setCriterionMet, removeCriterion,
-  getMissionRollup, MISSION_CYCLE, _resetMissionDbCache,
+  getMissionRollup, listMissions, MISSION_CYCLE, _resetMissionDbCache,
 } from '../mission-store';
 import type { MissionPhase } from '../mission-store';
 
@@ -128,6 +128,30 @@ describe('mission-store: criteria', () => {
     upsertMission(project, id);
     expect(() => addCriterion(project, id, '   ')).toThrow();
     expect(() => setCriterionMet(project, 'nope', true)).toThrow();
+  });
+});
+
+describe('mission-store: listMissions', () => {
+  test('lists only [MISSION] roots that have control state, with node+rollup+criteria', async () => {
+    const m1 = await makeMissionNode('[MISSION] one');
+    upsertMission(project, m1);
+    addCriterion(project, m1, 'c1');
+    // a [MISSION]-titled node WITHOUT upsertMission → skipped (not a real mission)
+    await makeMissionNode('[MISSION] two (no control state)');
+    // a plain epic root → not a mission
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] not a mission' });
+
+    const missions = listMissions(project);
+    expect(missions).toHaveLength(1);
+    expect(missions[0].node.id).toBe(m1);
+    expect(missions[0].node.title).toBe('[MISSION] one');
+    expect(missions[0].mission.phase).toBe('dogfood');
+    expect(missions[0].rollup.capability).toEqual({ met: 0, total: 1 });
+    expect(missions[0].criteria).toHaveLength(1);
+  });
+
+  test('empty when no missions', () => {
+    expect(listMissions(project)).toEqual([]);
   });
 });
 

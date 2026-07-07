@@ -289,6 +289,33 @@ export interface SupervisorConfig {
   supervisorSession: string;
 }
 
+/** Convergence-loop MISSION summary (GET /api/supervisor/missions). A [MISSION]
+ *  work-graph node plus its live convergence rollup + acceptance criteria. The
+ *  capability gauge (criteria met/total) is the real convergence gauge; the
+ *  mechanical gauge is this iteration's [EPIC] children done/total. */
+export type MissionPhase =
+  | 'dogfood' | 'find_gap' | 'plan' | 'steward' | 'land' | 'assess' | 'converged';
+
+export interface MissionSummary {
+  node: { id: string; title: string; status: string };
+  mission: {
+    todoId: string;
+    phase: MissionPhase;
+    iteration: number;
+    lastDogfoodAt?: number | null;
+    lastAssessAt?: number | null;
+    [k: string]: unknown;
+  };
+  rollup: {
+    phase: MissionPhase;
+    iteration: number;
+    mechanical: { done: number; total: number };
+    capability: { met: number; total: number };
+    converged: boolean;
+  };
+  criteria: Array<{ id: string; text: string; met: boolean; order: number }>;
+}
+
 /**
  * Liveness of the supervisor process, derived from /api/supervisor/identity.
  * `running` is the server's freshness verdict (updatedAt within the staleness
@@ -505,6 +532,10 @@ interface SupervisorState {
   removeProject: (serverId: string, project: string) => Promise<void>;
   loadRoadmap: (serverId: string, project: string) => Promise<void>;
   loadProjectTodos: (serverId: string, project: string) => Promise<void>;
+  /** Convergence-loop missions for a project (GET /api/supervisor/missions).
+   *  Returns the mission summaries, or [] on any failure (fail open — the Plan
+   *  board still renders without the missions strip). */
+  fetchMissions: (serverId: string, project: string) => Promise<MissionSummary[]>;
   promoteTodo: (serverId: string, project: string, id: string, status: string) => Promise<void>;
   /** Hard-delete a work-graph todo (DELETE /api/supervisor/roadmap). Does NOT
    *  reload the plan — callers batch-deleting should reload once at the end. */
@@ -880,6 +911,14 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         unlandedEpicsByProject: { ...state.unlandedEpicsByProject, [project]: ue.body?.unlandedEpics ?? [] },
       }));
     }
+  },
+
+  fetchMissions: async (serverId, project) => {
+    if (!serverId || !project) return [];
+    const res = await invoke(serverId, `/api/supervisor/missions?project=${encodeURIComponent(project)}`, 'GET');
+    if (!res?.ok) return []; // fail open — no missions strip, board still renders
+    const missions = res.body?.missions;
+    return Array.isArray(missions) ? (missions as MissionSummary[]) : [];
   },
 
   promoteTodo: async (serverId, project, id, status) => {
