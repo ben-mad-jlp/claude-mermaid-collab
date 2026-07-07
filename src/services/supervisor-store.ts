@@ -143,6 +143,14 @@ export interface Escalation {
    *  drive auto-resolve) or 'human'. Null while open or on older rows. Lets the UI
    *  show an AI-resolved outcome briefly instead of letting it silently vanish. */
   resolvedBy: string | null;
+  /** Escalation-briefing (epic 40771aab): a deep markdown decision briefing for the
+   *  HUMAN — Decision/Situation/System-context/Recommendation over the enriched
+   *  TriageBundle. Generated LAZILY on first human open and cached here (so a reload/
+   *  recycle keeps it). Null until first briefed; degrades to the deterministic floor
+   *  on LLM failure. `briefingModel` records which tier-role/model produced it. */
+  briefingMd: string | null;
+  briefingModel: string | null;
+  briefingAt: number | null;
 }
 
 export const ESCALATION_KINDS = [
@@ -207,7 +215,10 @@ CREATE TABLE IF NOT EXISTS escalation (
   operatorGated INTEGER DEFAULT 0,
   proof TEXT,
   stewardAttempts INTEGER DEFAULT 0,
-  suggestedActionJson TEXT
+  suggestedActionJson TEXT,
+  briefingMd TEXT,
+  briefingModel TEXT,
+  briefingAt INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_esc_open ON escalation(project, session, questionText, status);
 CREATE TABLE IF NOT EXISTS escalation_decision (
@@ -311,6 +322,12 @@ function openDb(): Database {
   // unknown-resolver (no behavioural change).
   addColumnIfMissing(db, 'escalation', 'triageInFlight', 'triageInFlight INTEGER DEFAULT 0');
   addColumnIfMissing(db, 'escalation', 'resolvedBy', 'resolvedBy TEXT');
+  // Escalation-briefing (epic 40771aab): cached deep markdown decision briefing +
+  // provenance. Additive, DEFAULT null so existing open escalations carry no briefing
+  // until first opened (no behavioural change).
+  addColumnIfMissing(db, 'escalation', 'briefingMd', 'briefingMd TEXT');
+  addColumnIfMissing(db, 'escalation', 'briefingModel', 'briefingModel TEXT');
+  addColumnIfMissing(db, 'escalation', 'briefingAt', 'briefingAt INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS idx_esc_todo ON escalation(project, todoId, status)');
   // Steward role model (design §2): relax the supervisor_identity singleton
   // (id=1 CHECK) to PRIMARY KEY(role). Additive rebuild that backfills the
@@ -794,6 +811,9 @@ export function createEscalation(input: {
       suggestedAction: null,
       triageInFlight: false,
       resolvedBy: null,
+      briefingMd: null,
+      briefingModel: null,
+      briefingAt: null,
     },
     isNew: true,
   };
@@ -940,6 +960,14 @@ export function recordEscalationDecision(input: {
      ON CONFLICT(escalationId) DO UPDATE SET optionId = excluded.optionId, note = excluded.note, decidedBy = excluded.decidedBy, decidedAt = excluded.decidedAt`,
   ).run(input.escalationId, optionId, note, decidedBy, decidedAt);
   return { escalationId: input.escalationId, optionId, note, decidedBy, decidedAt };
+}
+
+/** Cache a generated briefing markdown on an escalation (+ provenance). Idempotent
+ *  overwrite — a refresh replaces the prior briefing. No-op if the escalation is gone. */
+export function setEscalationBriefing(id: string, md: string, model: string, at: number = Date.now()): void {
+  openDb().prepare(
+    'UPDATE escalation SET briefingMd = ?, briefingModel = ?, briefingAt = ? WHERE id = ?',
+  ).run(md, model, at, id);
 }
 
 export function getEscalationDecision(escalationId: string): EscalationDecision | null {

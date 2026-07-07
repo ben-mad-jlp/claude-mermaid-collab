@@ -174,6 +174,22 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // ESCALATION BRIEFING — deep markdown decision briefing for one escalation
+  // (epic 40771aab). Lazy-generate-on-open + cached on the escalation row; the UI
+  // POSTs this when the human opens a card. FAILS OPEN to a deterministic briefing.
+  if (url.pathname === '/api/supervisor/escalation-brief' && req.method === 'POST') {
+    try {
+      const { project, escalationId, refresh } = (await req.json()) as {
+        project?: string; escalationId?: string; refresh?: boolean;
+      };
+      if (!project || !escalationId) return jsonError('project and escalationId are required', 400);
+      const { briefEscalation } = await import('../services/escalation-briefing.ts');
+      return Response.json(await briefEscalation(project, escalationId, { refresh }));
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   if (url.pathname === '/api/supervisor/projects' && req.method === 'POST') {
     try {
       const { project } = (await req.json()) as { project?: string };

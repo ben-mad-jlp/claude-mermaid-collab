@@ -24,8 +24,9 @@
  */
 
 import type { Escalation, SuggestedAction, TriageBucket } from './supervisor-store.ts';
-import { getTodo } from './todo-store.ts';
+import { getTodo, listTodos } from './todo-store.ts';
 import { listSupervisorAudit } from './supervisor-store.ts';
+import { getEpicBranchStatus } from './epic-branch-status.ts';
 import { resolveTriageRoute } from './config-service.ts';
 import { makeJudgmentLLM } from './judgment-llm.ts';
 import { execFileSync } from 'node:child_process';
@@ -54,6 +55,43 @@ export interface TriageDeps {
   commitsBehindMaster?: (project: string) => number;
   /** Single-shot Grok call: returns the raw text reply. */
   callGrok?: (system: string, prompt: string) => Promise<string>;
+  /** All todos in the project (for plan-graph neighbor derivation). */
+  listAllTodos?: (project: string) => Array<{ id: string; title: string; status: string; parentId: string | null; dependsOn: string[] }>;
+  /** Epic branch landing status for the linked todo's parent epic (or null). */
+  getEpicBranch?: (project: string, epicId: string) => TriageEpicBranch | null;
+}
+
+/** A neighbor node in the linked todo's plan graph (read-only view). */
+export interface TriagePlanNode {
+  id: string;
+  title: string;
+  status: string;
+}
+
+/** The linked todo's plan-graph neighborhood: parent epic, siblings, dependents. */
+export interface TriagePlanGraph {
+  parentEpic: TriagePlanNode | null;
+  siblings: TriagePlanNode[];
+  /** Todos whose dependsOn includes this todo. */
+  dependents: TriagePlanNode[];
+}
+
+/** Epic branch landing status subset attached to the bundle. */
+export interface TriageEpicBranch {
+  epicId: string;
+  ahead: number | null;
+  behind: number | null;
+  mergeable: boolean | null;
+  landLeafDone: boolean | null;
+  stranded: boolean;
+}
+
+/** A prior escalation audit row referencing the same todo/kind (most-recent first). */
+export interface TriagePriorEscalation {
+  kind: string;
+  session: string;
+  ts: number;
+  detail: string | null;
 }
 
 /** The read-only ground-truth bundle packed for one escalation. Also stored on the
@@ -64,6 +102,13 @@ export interface TriageBundle {
   deps: Array<{ id: string; status: string; acceptanceStatus: string | null }>;
   git: { commitsBehindMaster: number | null };
   recentAudit: Array<{ kind: string; session: string; detail: string | null; ts: number }>;
+  /** Enriched raise-time context (all best-effort; null/[] when unavailable). */
+  planGraph?: TriagePlanGraph | null;
+  epicBranch?: TriageEpicBranch | null;
+  priorEscalations?: TriagePriorEscalation[];
+  /** Parsed structured `detail` from the most recent audit row referencing this
+   *  escalation id or todoId — surfaces the thrown-away raise-time ground truth. */
+  raiseDetail?: unknown | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +147,30 @@ function realListRecentAudit(project: string, limit: number) {
   }));
 }
 
+function realListAllTodos(project: string) {
+  return listTodos(project, { includeCompleted: true }).map((t) => ({
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    parentId: t.parentId ?? null,
+    dependsOn: t.dependsOn ?? [],
+  }));
+}
+
+function realGetEpicBranch(project: string, epicId: string): TriageEpicBranch | null {
+  const report = getEpicBranchStatus(project);
+  const e = report.epics.find((x) => x.epicId === epicId);
+  if (!e) return null;
+  return {
+    epicId: e.epicId,
+    ahead: e.ahead,
+    behind: e.behind,
+    mergeable: e.mergeable,
+    landLeafDone: e.landLeafDone,
+    stranded: e.stranded,
+  };
+}
+
 function realCommitsBehindMaster(project: string): number {
   try {
     const out = execFileSync('git', ['rev-list', '--count', 'HEAD..master'], { cwd: project, encoding: 'utf8' });
@@ -134,6 +203,9 @@ export function packBundle(project: string, esc: Escalation, deps: TriageDeps = 
   const listAuditFn = deps.listRecentAudit ?? realListRecentAudit;
   const behindFn = deps.commitsBehindMaster ?? realCommitsBehindMaster;
 
+  const listAllTodosFn = deps.listAllTodos ?? realListAllTodos;
+  const getEpicBranchFn = deps.getEpicBranch ?? realGetEpicBranch;
+
   const todo = esc.todoId ? getTodoFn(project, esc.todoId) : null;
   const depRows = todo ? getDepsFn(project, todo.dependsOn) : [];
   let commitsBehind: number | null = null;
@@ -142,12 +214,88 @@ export function packBundle(project: string, esc: Escalation, deps: TriageDeps = 
   } catch {
     commitsBehind = null;
   }
+
+  const recentAudit = (() => {
+    try {
+      return listAuditFn(project, 15);
+    } catch {
+      return [];
+    }
+  })();
+
+  // --- Enriched, best-effort raise-time context (each wrapped; never throws). ---
+
+  let planGraph: TriagePlanGraph | null = null;
+  try {
+    if (esc.todoId) {
+      const all = listAllTodosFn(project);
+      const self = all.find((t) => t.id === esc.todoId) ?? null;
+      const parentId = self?.parentId ?? null;
+      const parentRow = parentId ? all.find((t) => t.id === parentId) ?? null : null;
+      const siblings = parentId
+        ? all.filter((t) => t.parentId === parentId && t.id !== esc.todoId)
+            .map((t) => ({ id: t.id, title: t.title, status: t.status }))
+        : [];
+      const dependents = all
+        .filter((t) => (t.dependsOn ?? []).includes(esc.todoId as string))
+        .map((t) => ({ id: t.id, title: t.title, status: t.status }));
+      planGraph = {
+        parentEpic: parentRow ? { id: parentRow.id, title: parentRow.title, status: parentRow.status } : null,
+        siblings,
+        dependents,
+      };
+    }
+  } catch {
+    planGraph = null;
+  }
+
+  let epicBranch: TriageEpicBranch | null = null;
+  try {
+    const epicId = planGraph?.parentEpic?.id ?? null;
+    if (epicId) epicBranch = getEpicBranchFn(project, epicId);
+  } catch {
+    epicBranch = null;
+  }
+
+  let priorEscalations: TriagePriorEscalation[] = [];
+  let raiseDetail: unknown | null = null;
+  try {
+    const needle = esc.todoId ?? esc.id;
+    const matches = recentAudit.filter((r) => {
+      const isEscalationKind = /escalat/i.test(r.kind) || r.kind === esc.kind;
+      const refsTodo = !!needle && !!r.detail && r.detail.includes(needle);
+      return isEscalationKind || refsTodo;
+    });
+    priorEscalations = matches
+      .slice()
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 5)
+      .map((r) => ({ kind: r.kind, session: r.session, ts: r.ts, detail: r.detail }));
+  } catch {
+    priorEscalations = [];
+  }
+  try {
+    const needle = esc.todoId ?? esc.id;
+    const ref = recentAudit
+      .filter((r) => !!r.detail && (!!needle && (r.detail.includes(needle) || (r.detail.includes(esc.id)))))
+      .sort((a, b) => b.ts - a.ts)[0];
+    if (ref?.detail) {
+      try { raiseDetail = JSON.parse(ref.detail); } catch { raiseDetail = null; }
+    }
+  } catch {
+    raiseDetail = null;
+  }
+
   return {
     escalation: { id: esc.id, kind: esc.kind, questionText: esc.questionText, todoId: esc.todoId },
     todo,
     deps: depRows,
     git: { commitsBehindMaster: commitsBehind },
-    recentAudit: listAuditFn(project, 8),
+    recentAudit,
+    planGraph,
+    epicBranch,
+    priorEscalations,
+    raiseDetail,
   };
 }
 

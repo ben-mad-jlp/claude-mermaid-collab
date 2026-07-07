@@ -543,6 +543,11 @@ interface SupervisorState {
    *  master. Server re-derives readiness, merges, removes the epic, resolves the
    *  card. Returns the server outcome (landed / conflict / rejected). */
   landEpic: (serverId: string, project: string, id: string) => Promise<{ ok: boolean; landed: boolean; conflict?: boolean; reason: string }>;
+  /** Escalation-briefing (deep markdown context): lazily generate+cache a human
+   *  briefing for one escalation on the server, returned as GFM markdown. Safe to
+   *  call on card open; `refresh` forces a regenerate. Returns null on any failure
+   *  (the card still works without it). */
+  fetchEscalationBrief: (serverId: string, project: string, escalationId: string, refresh?: boolean) => Promise<{ md: string; model: string; cached: boolean; at: number } | null>;
   /** Human-gated self-deploy of the running sidecar (STRICTLY SEPARATE from land).
    * Server hard-gates self-project; the deploy is detached and will kill+relaunch
    * the sidecar, so this resolves immediately and the UI should then poll for the
@@ -1073,6 +1078,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       conflict: result.conflict,
       reason: result.reason ?? (res?.ok ? 'ok' : 'request-failed'),
     };
+  },
+
+  fetchEscalationBrief: async (serverId, project, escalationId, refresh) => {
+    if (!project || !escalationId) return null;
+    const res = await invoke(serverId, '/api/supervisor/escalation-brief', 'POST', { project, escalationId, refresh: !!refresh });
+    if (!res?.ok) return null;
+    const body = res.body as { md?: string; model?: string; cached?: boolean; at?: number } | null;
+    if (!body || typeof body.md !== 'string') return null;
+    return { md: body.md, model: body.model ?? '', cached: !!body.cached, at: body.at ?? Date.now() };
   },
 
   deploySelf: async (serverId, project, force) => {
