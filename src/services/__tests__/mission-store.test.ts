@@ -163,6 +163,20 @@ describe('mission-store: criteria', () => {
     expect(listCriteria(project, id)).toHaveLength(1);
   });
 
+  test('setCriterionVerdict records met + evidence + verifiedBy (independent-judge audit trail)', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const c = addCriterion(project, id, 'canvas opens');
+    expect(c.evidence).toBeNull();
+    const { setCriterionVerdict } = await import('../mission-store');
+    setCriterionVerdict(project, c.id, { met: true, evidence: 'clicked New → canvas rendered (screenshot)', verifiedBy: 'reviewer-agent-1' });
+    const got = listCriteria(project, id)[0];
+    expect(got.met).toBe(true);
+    expect(got.evidence).toContain('canvas rendered');
+    expect(got.verifiedBy).toBe('reviewer-agent-1');
+    expect(got.verifiedAt).not.toBeNull();
+  });
+
   test('empty criterion text throws; unknown ids throw / no-op appropriately', async () => {
     const id = await makeMissionNode();
     upsertMission(project, id);
