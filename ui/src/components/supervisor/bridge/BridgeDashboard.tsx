@@ -36,6 +36,7 @@ import { DeployBanner } from './DeployBanner';
 import { SubscribersPanel } from './SubscribersPanel';
 import { StreamTicker } from './StreamTicker';
 import { PlanPanel } from '../PlanPanel';
+import { MissionsStrip } from '../MissionsStrip';
 import { DecisionCard } from './focal/DecisionCard';
 import { EpicHistoryView } from './EpicHistoryView';
 import { funnelCounts, excludeEpics } from './funnel';
@@ -636,12 +637,17 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
           </>
         }
         right={
-          <PlanPanel
-            serverId={serverScope}
-            project={project}
-            onSelectTodo={handleSelectTodo}
-            onSelectEpic={handleSelectEpic}
-          />
+          <div className="flex flex-col h-full min-h-0">
+            <MissionsStrip serverId={serverScope} project={project} />
+            <div className="flex-1 min-h-0">
+              <PlanPanel
+                serverId={serverScope}
+                project={project}
+                onSelectTodo={handleSelectTodo}
+                onSelectEpic={handleSelectEpic}
+              />
+            </div>
+          </div>
         }
       />
 
