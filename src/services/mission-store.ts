@@ -23,7 +23,7 @@ import Database from 'bun:sqlite';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { listTodos } from './todo-store.ts';
-import { isEpicTitle } from './claimability.ts';
+import { isEpicTitle, isMissionTitle } from './claimability.ts';
 
 /** The convergence-loop phases, in canonical cycle order (converged is terminal). */
 export type MissionPhase =
@@ -290,6 +290,39 @@ export function removeCriterion(project: string, criterionId: string): void {
  * Reads descendant status from the work-graph (todo-store) at call time — no
  * denormalized copy, so it can never drift from the board.
  */
+/** A mission's node identity + control state + rollup + criteria, for the UI. */
+export interface MissionSummary {
+  node: { id: string; title: string; status: string };
+  mission: MissionRow;
+  rollup: MissionRollup;
+  criteria: MissionCriterion[];
+}
+
+/**
+ * List every mission in a project: each `[MISSION]` work-graph root that HAS
+ * loop-control state (upsertMission was called). Joins the graph node (by the
+ * `[MISSION]` title convention) with the sidecar mission row + rollup + criteria.
+ * Missions with a node but no control row (or vice-versa) are skipped. For the
+ * Plan-board Missions surface.
+ */
+export function listMissions(project: string): MissionSummary[] {
+  const roots = listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId == null && t.status !== 'dropped' && isMissionTitle(t.title),
+  );
+  const out: MissionSummary[] = [];
+  for (const node of roots) {
+    const mission = getMission(project, node.id);
+    if (!mission) continue; // a [MISSION]-titled node without control state — not a real mission
+    out.push({
+      node: { id: node.id, title: node.title, status: node.status },
+      mission,
+      rollup: getMissionRollup(project, node.id),
+      criteria: listCriteria(project, node.id),
+    });
+  }
+  return out;
+}
+
 export function getMissionRollup(project: string, todoId: string): MissionRollup {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);

@@ -4,6 +4,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUIStore } from '@/stores/uiStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { PlanPanel } from './PlanPanel';
+import { MissionsStrip } from './MissionsStrip';
 import { ConstraintPeerChips } from './ConstraintPeerChips';
 import { SplitPane } from '@/components/layout/SplitPane';
 import TodoDetailView from '@/components/editors/TodoDetailView';
@@ -99,6 +100,10 @@ export const PlanWorkspace: React.FC = () => {
       {/* Constraint-peer chips — the project's confirmed requirements rendered as
           read-only promise chips beside the planner orientation (graft §5). */}
       <ConstraintPeerChips serverId={serverScope} project={project} />
+
+      {/* Convergence-loop MISSIONS surfaced distinctly at the TOP of the board.
+          Renders nothing when there are no [MISSION] nodes for this project. */}
+      <MissionsStrip serverId={serverScope} project={project} />
 
       {/* Center plan + right-hand detail dock. When a todo is selected the dock
           becomes a RESIZABLE SplitPane (draggable divider, persisted width);
