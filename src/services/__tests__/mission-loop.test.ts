@@ -7,7 +7,7 @@ const NOW = 1_000_000_000_000;
 
 function inp(over: Partial<MissionLoopStepInput> = {}): MissionLoopStepInput {
   return {
-    mission: { todoId: 'm1', phase: 'discover', iteration: 1, lastNudgeAt: null, procedure: null, title: '[MISSION] ship X' },
+    mission: { todoId: 'm1', phase: 'discover', iteration: 1, lastNudgeAt: null, procedure: null, title: '[MISSION] ship X', active: true },
     rollup: { converged: false, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 2 } },
     ownerSession: 'design',
     mode: 'assist',
@@ -22,6 +22,12 @@ function inp(over: Partial<MissionLoopStepInput> = {}): MissionLoopStepInput {
 
 test('mode off → none', () => {
   expect(planMissionLoopStep(inp({ mode: 'off' })).kind).toBe('none');
+});
+
+test('inactive mission → none (a session drives one mission at a time)', () => {
+  const a = planMissionLoopStep(inp({ mission: { ...inp().mission, active: false } }));
+  expect(a.kind).toBe('none');
+  expect((a as { reason: string }).reason).toBe('inactive');
 });
 
 test('terminal phases → none', () => {
@@ -86,7 +92,7 @@ function summary(over: Record<string, unknown> = {}) {
   return {
     node: { id: 'm1', title: '[MISSION] ship X', status: 'planned' },
     ownerSession: 'design', assigneeSession: 'design',
-    mission: { todoId: 'm1', phase: 'discover', iteration: 1, lastNudgeAt: null, procedure: null },
+    mission: { todoId: 'm1', phase: 'discover', iteration: 1, lastNudgeAt: null, procedure: null, active: true },
     rollup: { converged: false, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 2 } },
     criteria: [], epics: [], ...over,
   } as never;

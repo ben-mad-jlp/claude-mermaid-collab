@@ -136,17 +136,29 @@ const MissionCard: React.FC<{ m: MissionSummary }> = ({ m }) => {
   const criteria = m.criteria ?? [];
   const epics = m.epics ?? [];
   const owner = m.ownerSession ?? m.assigneeSession ?? null;
+  const active = m.mission?.active !== false; // default active
 
   return (
     <div
       data-testid="mission-card"
-      className="shrink-0 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 px-3 py-2 flex flex-col gap-2"
+      data-active={active}
+      className={`shrink-0 w-72 rounded-lg border px-3 py-2 flex flex-col gap-2 ${
+        active
+          ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60'
+          : 'border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 opacity-60'
+      }`}
+      title={active ? undefined : 'Paused — not the active mission for this session (the loop drives one at a time).'}
     >
       <div className="flex items-start justify-between gap-2">
         <span
-          className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-snug line-clamp-2"
+          className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-snug line-clamp-2 flex items-center gap-1"
           title={m.node?.title}
         >
+          {!active && (
+            <span className="shrink-0 text-3xs font-normal not-italic text-gray-400 dark:text-gray-500 border border-gray-300 dark:border-gray-600 rounded px-1" title="Paused">
+              paused
+            </span>
+          )}
           {stripMissionPrefix(m.node?.title ?? 'Mission')}
         </span>
         <span

@@ -309,6 +309,7 @@ export interface MissionSummary {
     stopReason?: string | null;
     lastDiscoverAt?: number | null;
     lastVerifyAt?: number | null;
+    active?: boolean;
     [k: string]: unknown;
   };
   rollup: {
