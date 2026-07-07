@@ -65,6 +65,12 @@ import { specCoverage, decideRequirement, type RequirementDecision } from '../se
 import { specHealth, syncShortlist } from '../services/cartographer.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
+import {
+  upsertMission, getMission, advanceMission, setMissionPhase, stampDogfood, stampAssess,
+  addCriterion, setCriterionMet, removeCriterion, listCriteria, getMissionRollup,
+  MISSION_PHASES, type MissionPhase,
+} from '../services/mission-store.js';
+import { MISSION_TITLE_PREFIX, isMissionTitle } from '../services/claimability.js';
 import { checkInvariants } from '../services/invariant-check.js';
 import { gateStatus } from '../services/gate-status.js';
 import { instanceTopology } from '../services/instance-topology.js';
@@ -2222,6 +2228,12 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'set_watchdog_threshold', description: 'Set (or clear, with null) a project\'s context-watchdog trigger threshold (%). Overrides the 80% default for supervisor_watchdog_scan on that project. Pass null to revert to the default.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: ['number', 'null'], description: 'Percent (1-100) or null to clear.' } }, required: ['project', 'thresholdPercent'] } },
       { name: 'set_context_recycle', description: "Set a project's context-auto-recycle mode — the deterministic server-side driver that keeps a low-context WATCHED session alive by injecting /vibe-checkpoint → /clear → /collab (no LLM supervisor in the loop). 'off' (default) = inert; 'notify' = at the watchdog threshold, inject an advisory nudge and only auto-clear+reload once the session itself saves a fresh checkpoint (assisted); 'force' = server injects the checkpoint too, then clears+reloads (for an unattended autonomous-loop session).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, mode: { type: 'string', enum: ['off', 'notify', 'force'], description: "off | notify | force" } }, required: ['project', 'mode'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
+      { name: 'create_mission', description: "Convergence-loop Phase 2a: create a durable MISSION — a top-level [MISSION] work-graph node (a non-closing root: unlike an epic it never auto-closes when its iteration epics settle) plus its loop-control state (phase machine starting at 'dogfood', iteration 1, acceptance criteria). A mission is a capability goal the steward converges the app toward by repeating DOGFOOD→FIND GAP→PLAN→STEWARD→LAND→ASSESS; each iteration's gaps become transient [EPIC] children under it. The title is auto-prefixed with [MISSION] if not already. Returns the node + mission state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission title (capability goal). Auto-prefixed [MISSION].' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Optional acceptance criteria (capability assertions that define convergence).' } }, required: ['project', 'session', 'title'] } },
+      { name: 'get_mission', description: 'Read a mission\'s full state: loop-control row (phase, iteration, timestamps), acceptance criteria, and the convergence rollup — mechanical (this iteration\'s [EPIC] children done/total) + capability (criteria met/total) + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The [MISSION] node id.' } }, required: ['project', 'todoId'] } },
+      { name: 'advance_mission', description: "Advance a mission's phase. Default advances ONE step in the cycle dogfood→find_gap→plan→steward→land→assess→(dogfood, iteration++); crossing assess→dogfood begins a new iteration. Pass toPhase to jump to a specific phase (e.g. 'converged' to stop the loop). Phase 2a is steward-hand-driven — the steward calls this at each phase boundary. Returns the new state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, toPhase: { type: 'string', enum: MISSION_PHASES, description: 'Optional: jump to this phase instead of advancing one step.' } }, required: ['project', 'todoId'] } },
+      { name: 'stamp_mission', description: "Record a phase-exit signal on a mission: event='dogfood' stamps that a DOGFOOD happened this iteration; event='assess' stamps that an ASSESS verdict was recorded. Timestamps only — does not advance the phase (use advance_mission for that).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, event: { type: 'string', enum: ['dogfood', 'assess'] } }, required: ['project', 'todoId', 'event'] } },
+      { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
+      { name: 'set_mission_criterion', description: 'Mark a mission acceptance criterion met or unmet — the ASSESS judgment records convergence here. Pass remove=true to delete it instead.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
       { name: 'context_usage', description: "Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose sessions to report.' }, thresholdPercent: { type: 'number', description: 'Override the checkpoint threshold % (default: per-project config → 80).' } }, required: ['project'] } },
       // Spreadsheet tools
       {
@@ -5241,6 +5253,65 @@ IMPORTANT - Common pitfalls to avoid:
             }
             supervisorStore.setContextRecycleMode(project, mode);
             return JSON.stringify({ project, mode }, null, 2);
+          }
+          case 'create_mission': {
+            const { project, session, title, description, criteria } = args as {
+              project: string; session: string; title: string; description?: string; criteria?: string[];
+            };
+            if (!project || !session || !title) throw new Error('Missing required: project, session, title');
+            const missionTitle = isMissionTitle(title) ? title : `${MISSION_TITLE_PREFIX} ${title.trim()}`;
+            // The [MISSION] node is a legitimate top-level root (resolveTodoParent exempts it),
+            // so allowOrphan isn't needed — addSessionTodo creates it parentless.
+            const node = await addSessionTodo(project, session, missionTitle, undefined, {
+              assigneeSession: session, description,
+            });
+            upsertMission(project, node.id);
+            for (const c of criteria ?? []) { if (c.trim()) addCriterion(project, node.id, c); }
+            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: node.ownerSession, assigneeSession: node.assigneeSession ?? undefined });
+            return JSON.stringify({
+              node: deriveTodoViews(project, [node])[0],
+              mission: getMission(project, node.id),
+              criteria: listCriteria(project, node.id),
+              rollup: getMissionRollup(project, node.id),
+            }, null, 2);
+          }
+          case 'get_mission': {
+            const { project, todoId } = args as { project: string; todoId: string };
+            if (!project || !todoId) throw new Error('Missing required: project, todoId');
+            const mission = getMission(project, todoId);
+            if (!mission) throw new Error(`mission not found: ${todoId}`);
+            return JSON.stringify({
+              mission, criteria: listCriteria(project, todoId), rollup: getMissionRollup(project, todoId),
+            }, null, 2);
+          }
+          case 'advance_mission': {
+            const { project, todoId, toPhase } = args as { project: string; todoId: string; toPhase?: MissionPhase };
+            if (!project || !todoId) throw new Error('Missing required: project, todoId');
+            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
+            const mission = toPhase ? setMissionPhase(project, todoId, toPhase) : advanceMission(project, todoId);
+            return JSON.stringify({ mission, rollup: getMissionRollup(project, todoId) }, null, 2);
+          }
+          case 'stamp_mission': {
+            const { project, todoId, event } = args as { project: string; todoId: string; event: 'dogfood' | 'assess' };
+            if (!project || !todoId || !event) throw new Error('Missing required: project, todoId, event');
+            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
+            const mission = event === 'dogfood' ? stampDogfood(project, todoId) : stampAssess(project, todoId);
+            return JSON.stringify({ mission }, null, 2);
+          }
+          case 'add_mission_criterion': {
+            const { project, todoId, text } = args as { project: string; todoId: string; text: string };
+            if (!project || !todoId || !text) throw new Error('Missing required: project, todoId, text');
+            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
+            const criterion = addCriterion(project, todoId, text);
+            return JSON.stringify({ criterion, rollup: getMissionRollup(project, todoId) }, null, 2);
+          }
+          case 'set_mission_criterion': {
+            const { project, criterionId, met, remove } = args as { project: string; criterionId: string; met?: boolean; remove?: boolean };
+            if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
+            if (remove) { removeCriterion(project, criterionId); return JSON.stringify({ removed: criterionId }, null, 2); }
+            if (typeof met !== 'boolean') throw new Error('met (boolean) is required unless remove=true');
+            setCriterionMet(project, criterionId, met);
+            return JSON.stringify({ criterionId, met }, null, 2);
           }
           case 'supervisor_watchdog_scan': {
             const { project, thresholdPercent, checkpointCooldownMs } = args as { project: string; thresholdPercent?: number; checkpointCooldownMs?: number };
