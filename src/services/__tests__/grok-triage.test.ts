@@ -38,6 +38,9 @@ function esc(overrides: Partial<Escalation> = {}): Escalation {
     suggestedAction: null,
     triageInFlight: false,
     resolvedBy: null,
+    briefingMd: null,
+    briefingModel: null,
+    briefingAt: null,
     ...overrides,
   };
 }

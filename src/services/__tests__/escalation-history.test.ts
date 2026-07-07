@@ -36,6 +36,9 @@ function esc(p: Partial<Escalation> & { questionText?: string }): Escalation {
     suggestedAction: p.suggestedAction ?? null,
     triageInFlight: p.triageInFlight ?? false,
     resolvedBy: p.resolvedBy ?? null,
+    briefingMd: p.briefingMd ?? null,
+    briefingModel: p.briefingModel ?? null,
+    briefingAt: p.briefingAt ?? null,
   };
 }
 
