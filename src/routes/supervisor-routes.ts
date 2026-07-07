@@ -21,6 +21,10 @@ import {
   setWatchdogThreshold,
   getContextRecycleMode,
   setContextRecycleMode,
+  getMissionLoopMode,
+  setMissionLoopMode,
+  MISSION_LOOP_MODES,
+  type MissionLoopMode,
   CONTEXT_RECYCLE_MODES,
   type ContextRecycleMode,
   setEscalationRoute,
@@ -700,6 +704,27 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       }
       setContextRecycleMode(project, mode as ContextRecycleMode);
       return Response.json({ ok: true, project, mode: getContextRecycleMode(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET/POST /api/supervisor/mission-loop — the per-project mission-loop driver mode
+  // (off|assist|auto). REST parity for set_mission_loop (Phase 2b).
+  if (url.pathname === '/api/supervisor/mission-loop' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, mode: getMissionLoopMode(project) });
+  }
+  if (url.pathname === '/api/supervisor/mission-loop' && req.method === 'POST') {
+    try {
+      const { project, mode } = (await req.json()) as { project?: string; mode?: string };
+      if (!project) return jsonError('project is required', 400);
+      if (!mode || !MISSION_LOOP_MODES.includes(mode as MissionLoopMode)) {
+        return jsonError('mode must be one of: off, assist, auto', 400);
+      }
+      setMissionLoopMode(project, mode as MissionLoopMode);
+      return Response.json({ ok: true, project, mode: getMissionLoopMode(project) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
