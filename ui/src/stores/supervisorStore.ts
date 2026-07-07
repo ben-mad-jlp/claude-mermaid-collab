@@ -298,6 +298,8 @@ export type MissionPhase =
 
 export interface MissionSummary {
   node: { id: string; title: string; status: string };
+  ownerSession: string | null;
+  assigneeSession: string | null;
   mission: {
     todoId: string;
     phase: MissionPhase;
@@ -314,6 +316,7 @@ export interface MissionSummary {
     converged: boolean;
   };
   criteria: Array<{ id: string; text: string; met: boolean; order: number }>;
+  epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
 }
 
 /**
@@ -535,7 +538,7 @@ interface SupervisorState {
   /** Convergence-loop missions for a project (GET /api/supervisor/missions).
    *  Returns the mission summaries, or [] on any failure (fail open — the Plan
    *  board still renders without the missions strip). */
-  fetchMissions: (serverId: string, project: string) => Promise<MissionSummary[]>;
+  fetchMissions: (serverId: string, project: string, session?: string) => Promise<MissionSummary[]>;
   promoteTodo: (serverId: string, project: string, id: string, status: string) => Promise<void>;
   /** Hard-delete a work-graph todo (DELETE /api/supervisor/roadmap). Does NOT
    *  reload the plan — callers batch-deleting should reload once at the end. */
@@ -913,9 +916,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }
   },
 
-  fetchMissions: async (serverId, project) => {
+  fetchMissions: async (serverId, project, session) => {
     if (!serverId || !project) return [];
-    const res = await invoke(serverId, `/api/supervisor/missions?project=${encodeURIComponent(project)}`, 'GET');
+    let path = `/api/supervisor/missions?project=${encodeURIComponent(project)}`;
+    if (session) path += `&session=${encodeURIComponent(session)}`;
+    const res = await invoke(serverId, path, 'GET');
     if (!res?.ok) return []; // fail open — no missions strip, board still renders
     const missions = res.body?.missions;
     return Array.isArray(missions) ? (missions as MissionSummary[]) : [];

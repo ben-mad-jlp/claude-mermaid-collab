@@ -290,34 +290,53 @@ export function removeCriterion(project: string, criterionId: string): void {
  * Reads descendant status from the work-graph (todo-store) at call time — no
  * denormalized copy, so it can never drift from the board.
  */
-/** A mission's node identity + control state + rollup + criteria, for the UI. */
+/** A mission's node identity + control state + rollup + criteria + the mechanical
+ *  epics under it, for the UI. `ownerSession`/`assigneeSession` tie the mission to a
+ *  session (attribution + session-scoped filtering). */
 export interface MissionSummary {
   node: { id: string; title: string; status: string };
+  /** The session that owns/drives this mission (mission ↔ session tie). */
+  ownerSession: string | null;
+  assigneeSession: string | null;
   mission: MissionRow;
   rollup: MissionRollup;
+  /** Acceptance criteria (the CAPABILITY gauge's underlying items). */
   criteria: MissionCriterion[];
+  /** The mission's direct `[EPIC]` children (the MECHANICAL gauge's items). */
+  epics: Array<{ id: string; title: string; status: string; acceptanceStatus: string | null }>;
 }
 
 /**
- * List every mission in a project: each `[MISSION]` work-graph root that HAS
- * loop-control state (upsertMission was called). Joins the graph node (by the
- * `[MISSION]` title convention) with the sidecar mission row + rollup + criteria.
- * Missions with a node but no control row (or vice-versa) are skipped. For the
- * Plan-board Missions surface.
+ * List missions in a project: each `[MISSION]` work-graph root that HAS loop-control
+ * state (upsertMission was called). Joins the graph node (by the `[MISSION]` title
+ * convention) with the sidecar mission row + rollup + criteria + its epic children.
+ * Missions with a node but no control row are skipped. For the Plan-board Missions
+ * surface. Pass `opts.session` to return ONLY missions owned by / assigned to that
+ * session (the mission↔session tie) — omit for all project missions.
  */
-export function listMissions(project: string): MissionSummary[] {
-  const roots = listTodos(project, { includeCompleted: true }).filter(
+export function listMissions(project: string, opts: { session?: string } = {}): MissionSummary[] {
+  const all = listTodos(project, { includeCompleted: true });
+  const roots = all.filter(
     (t) => t.parentId == null && t.status !== 'dropped' && isMissionTitle(t.title),
   );
   const out: MissionSummary[] = [];
   for (const node of roots) {
     const mission = getMission(project, node.id);
     if (!mission) continue; // a [MISSION]-titled node without control state — not a real mission
+    if (opts.session && node.ownerSession !== opts.session && node.assigneeSession !== opts.session) {
+      continue; // session-scoped filter (mission↔session tie)
+    }
+    const epics = all
+      .filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpicTitle(t.title))
+      .map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
     out.push({
       node: { id: node.id, title: node.title, status: node.status },
+      ownerSession: node.ownerSession ?? null,
+      assigneeSession: node.assigneeSession ?? null,
       mission,
       rollup: getMissionRollup(project, node.id),
       criteria: listCriteria(project, node.id),
+      epics,
     });
   }
   return out;

@@ -638,7 +638,7 @@ export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer
         }
         right={
           <div className="flex flex-col h-full min-h-0">
-            <MissionsStrip serverId={serverScope} project={project} />
+            <MissionsStrip serverId={serverScope} project={project} session={currentSession?.name} />
             <div className="flex-1 min-h-0">
               <PlanPanel
                 serverId={serverScope}

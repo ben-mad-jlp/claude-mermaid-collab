@@ -148,6 +148,29 @@ describe('mission-store: listMissions', () => {
     expect(missions[0].mission.phase).toBe('dogfood');
     expect(missions[0].rollup.capability).toEqual({ met: 0, total: 1 });
     expect(missions[0].criteria).toHaveLength(1);
+    expect(missions[0].ownerSession).toBe('s1'); // mission↔session tie
+    expect(missions[0].epics).toEqual([]); // no epic children yet
+  });
+
+  test('includes the mission epic children (the MECHANICAL items)', async () => {
+    const m = await makeMissionNode('[MISSION] with epics');
+    upsertMission(project, m);
+    await makeEpicChild(m, '[EPIC] build A');
+    await makeEpicChild(m, '[EPIC] build B');
+    const s = listMissions(project)[0];
+    expect(s.epics.map((e) => e.title).sort()).toEqual(['[EPIC] build A', '[EPIC] build B']);
+    expect(s.rollup.mechanical.total).toBe(2);
+  });
+
+  test('session filter returns only missions owned by that session', async () => {
+    const a = (await createTodo(project, { allowOrphan: true, ownerSession: 'alpha', title: '[MISSION] a' })).id;
+    upsertMission(project, a);
+    const b = (await createTodo(project, { allowOrphan: true, ownerSession: 'beta', title: '[MISSION] b' })).id;
+    upsertMission(project, b);
+    expect(listMissions(project).length).toBe(2);
+    expect(listMissions(project, { session: 'alpha' }).map((m) => m.node.id)).toEqual([a]);
+    expect(listMissions(project, { session: 'beta' }).map((m) => m.node.id)).toEqual([b]);
+    expect(listMissions(project, { session: 'nobody' })).toEqual([]);
   });
 
   test('empty when no missions', () => {
