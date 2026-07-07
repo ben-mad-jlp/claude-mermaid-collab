@@ -269,14 +269,25 @@ const MissionCard: React.FC<{ m: MissionSummary }> = ({ m }) => {
   );
 };
 
-export const MissionsStrip: React.FC<MissionsStripProps> = ({ serverId, project, session }) => {
+/** A mission is "completed" (hidden unless Show completed) once it reaches a terminal
+ *  phase — converged (goal met) or stopped (STOP-WHEN cap hit). */
+function isMissionCompleted(m: MissionSummary): boolean {
+  const phase = m.rollup?.phase ?? m.mission?.phase;
+  return !!m.rollup?.stopped || phase === 'converged' || phase === 'stopped';
+}
+
+export const MissionsStrip: React.FC<MissionsStripProps> = ({ serverId, project }) => {
   const fetchMissions = useSupervisorStore((s) => s.fetchMissions);
   const [missions, setMissions] = useState<MissionSummary[]>([]);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    // Show ALL of the PROJECT's missions on its board — NOT session-scoped. A mission
+    // owns a session (shown on the card) but must stay visible on its project board
+    // regardless of which session is active, else it looks like a plain [EPIC].
     const load = async () => {
-      const next = await fetchMissions(serverId, project, session);
+      const next = await fetchMissions(serverId, project);
       if (alive) setMissions(next);
     };
     void load();
@@ -286,9 +297,12 @@ export const MissionsStrip: React.FC<MissionsStripProps> = ({ serverId, project,
       alive = false;
       clearInterval(timer);
     };
-  }, [serverId, project, session, fetchMissions]);
+  }, [serverId, project, fetchMissions]);
 
   if (missions.length === 0) return null;
+
+  const completedCount = missions.filter(isMissionCompleted).length;
+  const shown = showCompleted ? missions : missions.filter((m) => !isMissionCompleted(m));
 
   return (
     <div
@@ -302,11 +316,30 @@ export const MissionsStrip: React.FC<MissionsStripProps> = ({ serverId, project,
         <span className="text-3xs text-gray-400 dark:text-gray-500">
           convergence loop
         </span>
+        {completedCount > 0 && (
+          <label
+            className="ml-auto flex items-center gap-1 text-3xs text-gray-500 dark:text-gray-400 cursor-pointer select-none"
+            title="Show missions that have converged or stopped."
+          >
+            <input
+              type="checkbox"
+              data-testid="missions-show-completed"
+              checked={showCompleted}
+              onChange={(e) => setShowCompleted(e.target.checked)}
+              className="h-3 w-3 rounded border-gray-300 dark:border-gray-600"
+            />
+            Show completed ({completedCount})
+          </label>
+        )}
       </div>
       <div className="flex gap-2 overflow-x-auto px-3 py-2 items-start">
-        {missions.map((m) => (
-          <MissionCard key={m.node?.id ?? m.mission?.todoId} m={m} />
-        ))}
+        {shown.length === 0 ? (
+          <span className="px-1 text-3xs italic text-gray-400 dark:text-gray-500">
+            All {completedCount} mission{completedCount === 1 ? '' : 's'} completed — check “Show completed” to view.
+          </span>
+        ) : (
+          shown.map((m) => <MissionCard key={m.node?.id ?? m.mission?.todoId} m={m} />)
+        )}
       </div>
     </div>
   );
