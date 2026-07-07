@@ -67,7 +67,7 @@ import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
 import {
   upsertMission, getMission, advanceMission, setMissionPhase, setMissionConfig, stampDiscover, stampVerify,
-  addCriterion, setCriterionMet, removeCriterion, listCriteria, getMissionRollup,
+  addCriterion, setCriterionMet, setCriterionVerdict, removeCriterion, listCriteria, getMissionRollup,
   MISSION_PHASES, type MissionPhase,
 } from '../services/mission-store.js';
 import { MISSION_TITLE_PREFIX, isMissionTitle } from '../services/claimability.js';
@@ -2236,7 +2236,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'advance_mission', description: "Advance a mission ONE step through the loop DISCOVER→PLAN→EXECUTE→VERIFY. At VERIFY it makes the ITERATE decision: all criteria met → converged; else maxIterations reached → stopped; else loop back to DISCOVER (iteration++). Pass toPhase to jump to a specific phase (e.g. 'converged'/'stopped' to end, or back to 'discover'). Phase 2a is steward-hand-driven. Returns the new state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, toPhase: { type: 'string', enum: MISSION_PHASES, description: 'Optional: jump to this phase instead of advancing one step.' } }, required: ['project', 'todoId'] } },
       { name: 'stamp_mission', description: "Record a phase activity signal on a mission: event='discover' stamps that a DISCOVER pass ran this iteration; event='verify' stamps that a VERIFY check ran. Timestamps only — does not advance the phase (use advance_mission for that).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, event: { type: 'string', enum: ['discover', 'verify'] } }, required: ['project', 'todoId', 'event'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
-      { name: 'set_mission_criterion', description: 'Mark a mission acceptance criterion met or unmet — the ASSESS judgment records convergence here. Pass remove=true to delete it instead.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
+      { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. Pass remove=true to delete the criterion instead. Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
       { name: 'context_usage', description: "Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose sessions to report.' }, thresholdPercent: { type: 'number', description: 'Override the checkpoint threshold % (default: per-project config → 80).' } }, required: ['project'] } },
       // Spreadsheet tools
       {
@@ -5328,12 +5328,18 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ criterion, rollup: getMissionRollup(project, todoId) }, null, 2);
           }
           case 'set_mission_criterion': {
-            const { project, criterionId, met, remove } = args as { project: string; criterionId: string; met?: boolean; remove?: boolean };
+            const { project, criterionId, met, evidence, verifiedBy, remove } = args as {
+              project: string; criterionId: string; met?: boolean; evidence?: string; verifiedBy?: string; remove?: boolean;
+            };
             if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
             if (remove) { removeCriterion(project, criterionId); return JSON.stringify({ removed: criterionId }, null, 2); }
             if (typeof met !== 'boolean') throw new Error('met (boolean) is required unless remove=true');
-            setCriterionMet(project, criterionId, met);
-            return JSON.stringify({ criterionId, met }, null, 2);
+            if (evidence !== undefined || verifiedBy !== undefined) {
+              setCriterionVerdict(project, criterionId, { met, evidence, verifiedBy });
+            } else {
+              setCriterionMet(project, criterionId, met);
+            }
+            return JSON.stringify({ criterionId, met, evidence: evidence ?? null, verifiedBy: verifiedBy ?? null }, null, 2);
           }
           case 'supervisor_watchdog_scan': {
             const { project, thresholdPercent, checkpointCooldownMs } = args as { project: string; thresholdPercent?: number; checkpointCooldownMs?: number };

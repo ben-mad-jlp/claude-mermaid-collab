@@ -78,6 +78,11 @@ export interface MissionCriterion {
   met: boolean;
   order: number;
   updatedAt: number;
+  /** VERIFY-gate audit trail: why the judge ruled this met/unmet, WHO judged it,
+   *  and WHEN — set by an INDEPENDENT verify (not the maker). Null until verified. */
+  evidence: string | null;
+  verifiedBy: string | null;
+  verifiedAt: number | null;
 }
 
 /** Two convergence gauges: mechanical = this iteration's build progress; capability
@@ -142,6 +147,10 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'maxIterations', 'maxIterations INTEGER');
   addColumnIfMissing(db, 'mission', 'procedure', 'procedure TEXT');
   addColumnIfMissing(db, 'mission', 'stopReason', 'stopReason TEXT');
+  // VERIFY-gate audit trail on each criterion (independent-judge evidence + provenance).
+  addColumnIfMissing(db, 'mission_criterion', 'evidence', 'evidence TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'verifiedBy', 'verifiedBy TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'verifiedAt', 'verifiedAt INTEGER');
   // v2 one-shot phase migration: remap the legacy 6-phase vocabulary onto the
   // canonical 5 (dogfood/find_gap→discover, steward/land→execute, assess→verify).
   db.exec(`UPDATE mission SET phase='discover' WHERE phase IN ('dogfood','find_gap')`);
@@ -332,6 +341,9 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     met: (r.met as number) === 1,
     order: r.order as number,
     updatedAt: r.updatedAt as number,
+    evidence: (r.evidence as string | null) ?? null,
+    verifiedBy: (r.verifiedBy as string | null) ?? null,
+    verifiedAt: (r.verifiedAt as number | null) ?? null,
   }));
 }
 
@@ -346,14 +358,39 @@ export function addCriterion(project: string, todoId: string, text: string): Mis
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, 0, ?, ?)')
     .run(id, todoId, trimmed, order, ts);
-  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts };
+  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null };
 }
 
-/** Mark a criterion met / unmet (the ASSESS judgment records convergence here). */
+/** Mark a criterion met / unmet (bare — no verify provenance). Prefer
+ *  setCriterionVerdict for a real VERIFY-gate ruling. */
 export function setCriterionMet(project: string, criterionId: string, met: boolean): void {
   const res = openDb(project)
     .prepare('UPDATE mission_criterion SET met = ?, updatedAt = ? WHERE id = ?')
     .run(met ? 1 : 0, nowMs(), criterionId);
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+/**
+ * Record an INDEPENDENT VERIFY-gate verdict on a criterion: met/unmet PLUS the
+ * evidence the judge cited and who judged it. This is the article's "real gate" —
+ * the checker that fills this is meant to be separate from the maker (maker≠checker),
+ * and it should fail CLOSED (a criterion it cannot confirm stays met=false).
+ */
+export function setCriterionVerdict(
+  project: string,
+  criterionId: string,
+  verdict: { met: boolean; evidence?: string | null; verifiedBy?: string | null },
+): void {
+  const res = openDb(project)
+    .prepare('UPDATE mission_criterion SET met = ?, evidence = ?, verifiedBy = ?, verifiedAt = ?, updatedAt = ? WHERE id = ?')
+    .run(
+      verdict.met ? 1 : 0,
+      verdict.evidence ?? null,
+      verdict.verifiedBy ?? null,
+      nowMs(),
+      nowMs(),
+      criterionId,
+    );
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
 }
 
