@@ -8,7 +8,7 @@ import {
 } from '../todo-store';
 import {
   upsertMission, getMission, setMissionPhase, advanceMission, nextPhase,
-  stampDogfood, stampAssess, deleteMission,
+  stampDiscover, stampVerify, deleteMission,
   addCriterion, listCriteria, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, MISSION_CYCLE, _resetMissionDbCache,
 } from '../mission-store';
@@ -39,16 +39,24 @@ afterEach(() => {
 });
 
 describe('mission-store: control state', () => {
-  test('upsertMission is idempotent and starts at dogfood/iteration 1', async () => {
+  test('upsertMission is idempotent and starts at discover/iteration 1', async () => {
     const id = await makeMissionNode();
     const m = upsertMission(project, id);
-    expect(m.phase).toBe('dogfood');
+    expect(m.phase).toBe('discover');
     expect(m.iteration).toBe(1);
-    expect(m.lastDogfoodAt).toBeNull();
+    expect(m.lastDiscoverAt).toBeNull();
+    expect(m.maxIterations).toBeNull();
     // Second call returns the same row unchanged (does not reset phase).
     setMissionPhase(project, id, 'plan');
     const again = upsertMission(project, id);
     expect(again.phase).toBe('plan');
+  });
+
+  test('upsertMission accepts loop-spec config (maxIterations + procedure)', async () => {
+    const id = await makeMissionNode();
+    const m = upsertMission(project, id, { maxIterations: 8, procedure: 'run tests, fix worst' });
+    expect(m.maxIterations).toBe(8);
+    expect(m.procedure).toBe('run tests, fix worst');
   });
 
   test('getMission is undefined before upsert', async () => {
@@ -56,45 +64,77 @@ describe('mission-store: control state', () => {
     expect(getMission(project, id)).toBeUndefined();
   });
 
-  test('nextPhase walks the cycle and wraps assess → dogfood; converged is terminal', () => {
-    expect(nextPhase('dogfood')).toBe('find_gap');
-    expect(nextPhase('assess')).toBe('dogfood');
+  test('nextPhase walks discover→plan→execute→verify→discover; terminals stay put', () => {
+    expect(nextPhase('discover')).toBe('plan');
+    expect(nextPhase('plan')).toBe('execute');
+    expect(nextPhase('execute')).toBe('verify');
+    expect(nextPhase('verify')).toBe('discover');
     expect(nextPhase('converged')).toBe('converged');
-    // full lap
-    let p = MISSION_CYCLE[0];
-    for (let i = 0; i < MISSION_CYCLE.length; i++) p = nextPhase(p);
-    expect(p).toBe('dogfood');
+    expect(nextPhase('stopped')).toBe('stopped');
+    expect(MISSION_CYCLE).toEqual(['discover', 'plan', 'execute', 'verify']);
   });
 
-  test('advanceMission cycles phases and bumps iteration only on the assess→dogfood wrap', async () => {
+  test('advanceMission cycles discover→plan→execute→verify (same iteration)', async () => {
     const id = await makeMissionNode();
     upsertMission(project, id);
-    // dogfood → find_gap → plan → steward → land → assess : same iteration
-    const expectedPhases: MissionPhase[] = ['find_gap', 'plan', 'steward', 'land', 'assess'];
+    const expectedPhases: MissionPhase[] = ['plan', 'execute', 'verify'];
     for (const expected of expectedPhases) {
       const m = advanceMission(project, id);
       expect(m.phase).toBe(expected);
       expect(m.iteration).toBe(1);
     }
-    // assess → dogfood : new lap
-    const wrapped = advanceMission(project, id);
-    expect(wrapped.phase).toBe('dogfood');
-    expect(wrapped.iteration).toBe(2);
   });
 
-  test('advanceMission is a no-op once converged', async () => {
+  test('VERIFY with no convergence + no cap loops back to discover, iteration++', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    addCriterion(project, id, 'unmet'); // exists but not met → not converged
+    setMissionPhase(project, id, 'verify');
+    const m = advanceMission(project, id);
+    expect(m.phase).toBe('discover');
+    expect(m.iteration).toBe(2);
+    expect(m.stopReason).toBeNull();
+  });
+
+  test('VERIFY converges when all criteria met', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const c = addCriterion(project, id, 'done');
+    setCriterionMet(project, c.id, true);
+    setMissionPhase(project, id, 'verify');
+    const m = advanceMission(project, id);
+    expect(m.phase).toBe('converged');
+    expect(m.stopReason).toBe('converged');
+  });
+
+  test('STOP-WHEN: VERIFY at maxIterations (un-converged) → stopped', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id, { maxIterations: 2 });
+    addCriterion(project, id, 'never-met'); // present, unmet → cannot converge
+    // Iteration 1 verify: 1 < 2 → loops back to discover, iteration 2.
+    setMissionPhase(project, id, 'verify');
+    expect(advanceMission(project, id).iteration).toBe(2);
+    // Iteration 2 verify: 2 >= 2 → STOP.
+    setMissionPhase(project, id, 'verify');
+    const m = advanceMission(project, id);
+    expect(m.phase).toBe('stopped');
+    expect(m.stopReason).toBe('max-iterations');
+    // Terminal: further advance is a no-op.
+    expect(advanceMission(project, id).phase).toBe('stopped');
+  });
+
+  test('advanceMission is a no-op once terminal', async () => {
     const id = await makeMissionNode();
     upsertMission(project, id);
     setMissionPhase(project, id, 'converged');
-    const m = advanceMission(project, id);
-    expect(m.phase).toBe('converged');
+    expect(advanceMission(project, id).phase).toBe('converged');
   });
 
-  test('stampDogfood / stampAssess record timestamps', async () => {
+  test('stampDiscover / stampVerify record timestamps', async () => {
     const id = await makeMissionNode();
     upsertMission(project, id);
-    expect(stampDogfood(project, id).lastDogfoodAt).not.toBeNull();
-    expect(stampAssess(project, id).lastAssessAt).not.toBeNull();
+    expect(stampDiscover(project, id).lastDiscoverAt).not.toBeNull();
+    expect(stampVerify(project, id).lastVerifyAt).not.toBeNull();
   });
 
   test('deleteMission removes control state + criteria', async () => {
@@ -145,7 +185,7 @@ describe('mission-store: listMissions', () => {
     expect(missions).toHaveLength(1);
     expect(missions[0].node.id).toBe(m1);
     expect(missions[0].node.title).toBe('[MISSION] one');
-    expect(missions[0].mission.phase).toBe('dogfood');
+    expect(missions[0].mission.phase).toBe('discover');
     expect(missions[0].rollup.capability).toEqual({ met: 0, total: 1 });
     expect(missions[0].criteria).toHaveLength(1);
     expect(missions[0].ownerSession).toBe('s1'); // mission↔session tie

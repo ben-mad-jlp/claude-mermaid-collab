@@ -25,27 +25,30 @@ import { mkdirSync } from 'node:fs';
 import { listTodos } from './todo-store.ts';
 import { isEpicTitle, isMissionTitle } from './claimability.ts';
 
-/** The convergence-loop phases, in canonical cycle order (converged is terminal). */
+/**
+ * The convergence-loop phases — the canonical agentic loop
+ * DISCOVER → PLAN → EXECUTE → VERIFY → (ITERATE = loop back, iteration++).
+ * ITERATE is not a phase; it's the transition VERIFY makes: converge, stop, or
+ * loop back to DISCOVER. Two terminal states:
+ *   - `converged` — VERIFY passed (all acceptance criteria met). The goal is done.
+ *   - `stopped`   — the STOP-WHEN guard fired (maxIterations reached un-converged).
+ */
 export type MissionPhase =
-  | 'dogfood'
-  | 'find_gap'
-  | 'plan'
-  | 'steward'
-  | 'land'
-  | 'assess'
-  | 'converged';
+  | 'discover' // work out what needs doing
+  | 'plan'     // decide how to do it
+  | 'execute'  // do the work (daemon-buildable)
+  | 'verify'   // check against the goal
+  | 'converged'
+  | 'stopped';
 
-/** Ordered cycle (excludes the terminal `converged`). ASSESS wraps to DOGFOOD. */
-export const MISSION_CYCLE: MissionPhase[] = [
-  'dogfood',
-  'find_gap',
-  'plan',
-  'steward',
-  'land',
-  'assess',
-];
+/** The active cycle (terminals excluded). VERIFY's next is decided by advanceMission
+ *  (converge / stop / loop back to DISCOVER), not a plain wrap. */
+export const MISSION_CYCLE: MissionPhase[] = ['discover', 'plan', 'execute', 'verify'];
 
-export const MISSION_PHASES: MissionPhase[] = [...MISSION_CYCLE, 'converged'];
+export const MISSION_PHASES: MissionPhase[] = [...MISSION_CYCLE, 'converged', 'stopped'];
+
+/** A phase is terminal when the loop has stopped (goal met, or gave up). */
+export const isTerminalPhase = (p: MissionPhase): boolean => p === 'converged' || p === 'stopped';
 
 export interface MissionRow {
   /** The `[MISSION]` node's todo id (FK into the work-graph). */
@@ -54,10 +57,18 @@ export interface MissionRow {
   iteration: number;
   createdAt: number;
   updatedAt: number;
-  /** Last time a DOGFOOD was recorded for the current iteration (ms epoch), or null. */
-  lastDogfoodAt: number | null;
-  /** Last time an ASSESS verdict was recorded (ms epoch), or null. */
-  lastAssessAt: number | null;
+  /** STOP-WHEN guard: max iterations before the loop stops un-converged. Null =
+   *  unbounded (converge-or-run-forever — use with care). */
+  maxIterations: number | null;
+  /** The EACH-ITERATION recipe (freeform markdown/text): what to do each lap. */
+  procedure: string | null;
+  /** ON-STOP: why the loop is in a terminal state ('converged' | 'max-iterations'
+   *  | freeform), or null while still running. */
+  stopReason: string | null;
+  /** Last time DISCOVER was stamped this iteration (ms epoch), or null. */
+  lastDiscoverAt: number | null;
+  /** Last time VERIFY was stamped (ms epoch), or null. */
+  lastVerifyAt: number | null;
 }
 
 export interface MissionCriterion {
@@ -75,12 +86,18 @@ export interface MissionRollup {
   todoId: string;
   phase: MissionPhase;
   iteration: number;
+  /** STOP-WHEN cap (null = unbounded). */
+  maxIterations: number | null;
   /** Descendant `[EPIC]` children: done vs total (this iteration's build progress). */
   mechanical: { done: number; total: number };
   /** Acceptance criteria: met vs total (the true convergence gauge). */
   capability: { met: number; total: number };
-  /** True iff there is ≥1 criterion and every criterion is met. */
+  /** True iff there is ≥1 criterion and every criterion is met (VERIFY passes). */
   converged: boolean;
+  /** True once the loop reached a terminal phase (converged or stopped). */
+  stopped: boolean;
+  /** Why the loop stopped ('converged' | 'max-iterations' | …), or null if running. */
+  stopReason: string | null;
 }
 
 const SCHEMA = `
@@ -106,6 +123,11 @@ CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoI
 
 const dbCache = new Map<string, Database>();
 
+function addColumnIfMissing(db: Database, table: string, column: string, decl: string): void {
+  const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${decl}`);
+}
+
 function openDb(project: string): Database {
   const cached = dbCache.get(project);
   if (cached) return cached;
@@ -114,6 +136,17 @@ function openDb(project: string): Database {
   const db = new Database(join(dir, 'mission.db'));
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  // v2 (loop-spec) additive columns — the STOP-WHEN guard, the EACH-ITERATION
+  // procedure, and the ON-STOP reason. The lastDiscoverAt/lastVerifyAt stamps reuse
+  // the legacy lastDogfoodAt/lastAssessAt columns (renamed in the API, not the DB).
+  addColumnIfMissing(db, 'mission', 'maxIterations', 'maxIterations INTEGER');
+  addColumnIfMissing(db, 'mission', 'procedure', 'procedure TEXT');
+  addColumnIfMissing(db, 'mission', 'stopReason', 'stopReason TEXT');
+  // v2 one-shot phase migration: remap the legacy 6-phase vocabulary onto the
+  // canonical 5 (dogfood/find_gap→discover, steward/land→execute, assess→verify).
+  db.exec(`UPDATE mission SET phase='discover' WHERE phase IN ('dogfood','find_gap')`);
+  db.exec(`UPDATE mission SET phase='execute'  WHERE phase IN ('steward','land')`);
+  db.exec(`UPDATE mission SET phase='verify'   WHERE phase='assess'`);
   dbCache.set(project, db);
   return db;
 }
@@ -138,8 +171,12 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     iteration: row.iteration as number,
     createdAt: row.createdAt as number,
     updatedAt: row.updatedAt as number,
-    lastDogfoodAt: (row.lastDogfoodAt as number | null) ?? null,
-    lastAssessAt: (row.lastAssessAt as number | null) ?? null,
+    maxIterations: (row.maxIterations as number | null) ?? null,
+    procedure: (row.procedure as string | null) ?? null,
+    stopReason: (row.stopReason as string | null) ?? null,
+    // lastDiscoverAt/lastVerifyAt live in the legacy lastDogfoodAt/lastAssessAt columns.
+    lastDiscoverAt: (row.lastDogfoodAt as number | null) ?? null,
+    lastVerifyAt: (row.lastAssessAt as number | null) ?? null,
   };
 }
 
@@ -158,58 +195,103 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
  * `[MISSION]` graph node (via the normal todo path) — this store owns control
  * state only, never node creation, keeping the two concerns uncoupled.
  */
-export function upsertMission(project: string, todoId: string): MissionRow {
+export function upsertMission(
+  project: string,
+  todoId: string,
+  opts: { maxIterations?: number | null; procedure?: string | null } = {},
+): MissionRow {
   const existing = getMission(project, todoId);
   if (existing) return existing;
   const ts = nowMs();
   openDb(project)
     .prepare(
-      `INSERT INTO mission (todoId, phase, iteration, createdAt, updatedAt, lastDogfoodAt, lastAssessAt)
-       VALUES (?, 'dogfood', 1, ?, ?, NULL, NULL)`,
+      `INSERT INTO mission (todoId, phase, iteration, createdAt, updatedAt, maxIterations, procedure, lastDogfoodAt, lastAssessAt)
+       VALUES (?, 'discover', 1, ?, ?, ?, ?, NULL, NULL)`,
     )
-    .run(todoId, ts, ts);
+    .run(todoId, ts, ts, opts.maxIterations ?? null, opts.procedure ?? null);
   return getMission(project, todoId)!;
 }
 
-/** Set a mission's phase explicitly (e.g. jump straight to 'converged' or back). */
+/** Set a mission's phase explicitly (e.g. jump straight to 'converged' or back).
+ *  Setting a non-terminal phase clears any stopReason (the loop resumes). */
 export function setMissionPhase(project: string, todoId: string, phase: MissionPhase): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
+  const stopReason = isTerminalPhase(phase) ? (m.stopReason ?? phase) : null;
   openDb(project)
-    .prepare('UPDATE mission SET phase = ?, updatedAt = ? WHERE todoId = ?')
-    .run(phase, nowMs(), todoId);
+    .prepare('UPDATE mission SET phase = ?, stopReason = ?, updatedAt = ? WHERE todoId = ?')
+    .run(phase, stopReason, nowMs(), todoId);
   return getMission(project, todoId)!;
 }
 
-/** The next phase in the cycle. ASSESS wraps to DOGFOOD; 'converged' is terminal. */
+/** Update a mission's loop-spec config (STOP-WHEN cap + EACH-ITERATION procedure).
+ *  Pass a field to change it; omit to leave unchanged. */
+export function setMissionConfig(
+  project: string,
+  todoId: string,
+  cfg: { maxIterations?: number | null; procedure?: string | null },
+): MissionRow {
+  const m = getMission(project, todoId);
+  if (!m) throw new Error(`mission not found: ${todoId}`);
+  const maxIterations = cfg.maxIterations !== undefined ? cfg.maxIterations : m.maxIterations;
+  const procedure = cfg.procedure !== undefined ? cfg.procedure : m.procedure;
+  openDb(project)
+    .prepare('UPDATE mission SET maxIterations = ?, procedure = ?, updatedAt = ? WHERE todoId = ?')
+    .run(maxIterations, procedure, nowMs(), todoId);
+  return getMission(project, todoId)!;
+}
+
+/** The naive next phase in the active cycle (VERIFY wraps to DISCOVER). Terminal
+ *  states stay put. advanceMission owns the VERIFY→converge/stop/iterate decision. */
 export function nextPhase(phase: MissionPhase): MissionPhase {
-  if (phase === 'converged') return 'converged';
+  if (isTerminalPhase(phase)) return phase;
   const i = MISSION_CYCLE.indexOf(phase);
-  if (i < 0) return 'dogfood';
+  if (i < 0) return 'discover';
   return MISSION_CYCLE[(i + 1) % MISSION_CYCLE.length];
 }
 
 /**
- * Advance a mission to the next phase in the cycle. Crossing the ASSESS→DOGFOOD
- * boundary bumps `iteration` (a new convergence lap begins). No-op if already
- * 'converged'. Phase 2a: the STEWARD calls this by hand at a phase boundary; there
- * is no autonomous advancer.
+ * Advance a mission one step through DISCOVER→PLAN→EXECUTE→VERIFY. The interesting
+ * step is VERIFY (the ITERATE decision, embodying STOP-WHEN):
+ *   - all criteria met            → `converged`   (goal achieved)
+ *   - else maxIterations reached  → `stopped`     (STOP-WHEN guard fired)
+ *   - else                        → `discover`, iteration++  (loop back)
+ * No-op once terminal. Phase 2a: the steward calls this by hand; Phase 2b's pass
+ * will call the same function.
  */
 export function advanceMission(project: string, todoId: string): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
-  if (m.phase === 'converged') return m;
-  const next = nextPhase(m.phase);
-  const wrapped = m.phase === 'assess'; // assess → dogfood begins a new iteration
-  const ts = nowMs();
+  if (isTerminalPhase(m.phase)) return m;
+
+  let phase: MissionPhase;
+  let iteration = m.iteration;
+  let stopReason: string | null = null;
+
+  if (m.phase === 'verify') {
+    const conv = getMissionRollup(project, todoId).converged;
+    if (conv) {
+      phase = 'converged';
+      stopReason = 'converged';
+    } else if (m.maxIterations != null && m.iteration >= m.maxIterations) {
+      phase = 'stopped';
+      stopReason = 'max-iterations';
+    } else {
+      phase = 'discover';
+      iteration = m.iteration + 1; // ITERATE: a new lap begins
+    }
+  } else {
+    phase = nextPhase(m.phase);
+  }
+
   openDb(project)
-    .prepare('UPDATE mission SET phase = ?, iteration = ?, updatedAt = ? WHERE todoId = ?')
-    .run(next, wrapped ? m.iteration + 1 : m.iteration, ts, todoId);
+    .prepare('UPDATE mission SET phase = ?, iteration = ?, stopReason = ?, updatedAt = ? WHERE todoId = ?')
+    .run(phase, iteration, stopReason, nowMs(), todoId);
   return getMission(project, todoId)!;
 }
 
-/** Stamp that a DOGFOOD happened this iteration (the DOGFOOD-phase exit signal). */
-export function stampDogfood(project: string, todoId: string): MissionRow {
+/** Stamp that DISCOVER ran this iteration (the discover-phase activity signal). */
+export function stampDiscover(project: string, todoId: string): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const ts = nowMs();
@@ -219,8 +301,8 @@ export function stampDogfood(project: string, todoId: string): MissionRow {
   return getMission(project, todoId)!;
 }
 
-/** Stamp that an ASSESS verdict was recorded (the ASSESS-phase exit signal). */
-export function stampAssess(project: string, todoId: string): MissionRow {
+/** Stamp that a VERIFY check ran (the verify-phase activity signal). */
+export function stampVerify(project: string, todoId: string): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const ts = nowMs();
@@ -355,8 +437,11 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
     todoId,
     phase: m.phase,
     iteration: m.iteration,
+    maxIterations: m.maxIterations,
     mechanical: { done: mechDone, total: epics.length },
     capability: { met: capMet, total: criteria.length },
     converged: criteria.length > 0 && capMet === criteria.length,
+    stopped: isTerminalPhase(m.phase),
+    stopReason: m.stopReason,
   };
 }

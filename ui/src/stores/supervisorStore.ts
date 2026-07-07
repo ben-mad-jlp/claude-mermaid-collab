@@ -294,7 +294,7 @@ export interface SupervisorConfig {
  *  capability gauge (criteria met/total) is the real convergence gauge; the
  *  mechanical gauge is this iteration's [EPIC] children done/total. */
 export type MissionPhase =
-  | 'dogfood' | 'find_gap' | 'plan' | 'steward' | 'land' | 'assess' | 'converged';
+  | 'discover' | 'plan' | 'execute' | 'verify' | 'converged' | 'stopped';
 
 export interface MissionSummary {
   node: { id: string; title: string; status: string };
@@ -304,16 +304,22 @@ export interface MissionSummary {
     todoId: string;
     phase: MissionPhase;
     iteration: number;
-    lastDogfoodAt?: number | null;
-    lastAssessAt?: number | null;
+    maxIterations?: number | null;
+    procedure?: string | null;
+    stopReason?: string | null;
+    lastDiscoverAt?: number | null;
+    lastVerifyAt?: number | null;
     [k: string]: unknown;
   };
   rollup: {
     phase: MissionPhase;
     iteration: number;
+    maxIterations?: number | null;
     mechanical: { done: number; total: number };
     capability: { met: number; total: number };
     converged: boolean;
+    stopped?: boolean;
+    stopReason?: string | null;
   };
   criteria: Array<{ id: string; text: string; met: boolean; order: number }>;
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
