@@ -8,5 +8,18 @@
       "Bash(cd * && git *)"
     ]
   },
-  "hooks": {}
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/prune-merged-worktrees.sh\"",
+            "timeout": 30,
+            "statusMessage": "Pruning merged worktrees…"
+          }
+        ]
+      }
+    ]
+  }
 }
