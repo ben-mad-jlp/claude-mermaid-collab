@@ -27,6 +27,13 @@ export interface SessionStatusRow {
   /** When the session confirmed its checkpoint was persisted (ms epoch), or null.
    *  The context-watchdog's HARD GATE: never /clear until this is recent. */
   checkpointReadyAt: number | null;
+  /** Context-recycle state machine phase for the auto-recycle driver, or null when
+   *  not mid-recycle. Currently only 'recovering' (a /clear was injected; the driver
+   *  is waiting to re-inject /collab once the TUI settles). See context-recycle.ts. */
+  recycleState?: string | null;
+  /** When recycleState last changed (ms epoch), or null. Drives the settle delay
+   *  before /collab and the recover-timeout escalation. */
+  recycleUpdatedAt?: number | null;
   /** Manual provider PIN for this session (PAW P3), set via the ProviderSelector.
    *  DORMANT: null means pass-through ('claude'). Threaded into resolveProvider's
    *  precedence (session pin wins over the profile pin). No automatic routing.
@@ -45,6 +52,8 @@ CREATE TABLE IF NOT EXISTS session_status (
   contextUpdatedAt INTEGER,
   checkpointReadyAt INTEGER,
   provider TEXT,
+  recycleState TEXT,
+  recycleUpdatedAt INTEGER,
   PRIMARY KEY (project, session)
 );
 CREATE TABLE IF NOT EXISTS watchdog_debounce (
@@ -87,6 +96,8 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'session_status', 'contextUpdatedAt', 'contextUpdatedAt INTEGER');
   addColumnIfMissing(db, 'session_status', 'checkpointReadyAt', 'checkpointReadyAt INTEGER');
   addColumnIfMissing(db, 'session_status', 'provider', 'provider TEXT');
+  addColumnIfMissing(db, 'session_status', 'recycleState', 'recycleState TEXT');
+  addColumnIfMissing(db, 'session_status', 'recycleUpdatedAt', 'recycleUpdatedAt INTEGER');
   dbCache.set(root, db);
   return db;
 }
@@ -215,7 +226,7 @@ export function resetWatchdogDebounce(project: string, session: string): void {
 export function getStatuses(project: string): SessionStatusRow[] {
   const db = openDb(project);
   return db.query(
-    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt, provider
+    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt, provider, recycleState, recycleUpdatedAt
      FROM session_status
      WHERE project = ?`,
   ).all(project) as SessionStatusRow[];
@@ -224,11 +235,27 @@ export function getStatuses(project: string): SessionStatusRow[] {
 export function getStatus(project: string, session: string): SessionStatusRow | null {
   const db = openDb(project);
   const row = db.query(
-    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt, provider
+    `SELECT project, session, status, updatedAt, contextPercent, contextUpdatedAt, checkpointReadyAt, provider, recycleState, recycleUpdatedAt
      FROM session_status
      WHERE project = ? AND session = ?`,
   ).get(project, session) as SessionStatusRow | undefined;
   return row ?? null;
+}
+
+/**
+ * Set (or clear, with null) a session's context-recycle phase and stamp
+ * recycleUpdatedAt=now. Seeds an 'active' status row if none exists yet. Written by
+ * the context-recycle driver to sequence /clear → settle → /collab across ticks.
+ */
+export function setRecycleState(project: string, session: string, state: string | null): void {
+  const db = openDb(project);
+  db.query(
+    `INSERT INTO session_status (project, session, status, updatedAt, recycleState, recycleUpdatedAt)
+     VALUES (?, ?, 'active', ?, ?, ?)
+     ON CONFLICT(project, session) DO UPDATE SET
+       recycleState = excluded.recycleState,
+       recycleUpdatedAt = excluded.recycleUpdatedAt`,
+  ).run(project, session, Date.now(), state, Date.now());
 }
 
 /** Persist a manual provider PIN for a session (PAW P3) — written by the

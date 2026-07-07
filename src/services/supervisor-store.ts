@@ -19,7 +19,20 @@ export interface WatchedProject {
   addedAt: number;
   /** Per-project context-watchdog trigger threshold (%), or null to use the default. */
   watchdogThresholdPercent: number | null;
+  /** Per-project context-auto-recycle mode, or null (== 'off'). Gates the
+   *  deterministic checkpoint→clear→collab driver (context-recycle.ts). */
+  contextRecycleMode?: string | null;
 }
+
+/** Context-auto-recycle mode for a watched project:
+ *  - 'off'    → the driver is inert (default).
+ *  - 'notify' → at threshold, inject an advisory nudge; auto-clear+reload ONLY after
+ *               the session itself produces a fresh checkpoint (assisted; never forces
+ *               the checkpoint).
+ *  - 'force'  → at threshold, inject /vibe-checkpoint, then /clear + /collab. Fully
+ *               server-driven — for an unattended autonomous-loop session. */
+export type ContextRecycleMode = 'off' | 'notify' | 'force';
+export const CONTEXT_RECYCLE_MODES: ContextRecycleMode[] = ['off', 'notify', 'force'];
 
 export interface SupervisedSession {
   project: string;
@@ -164,7 +177,8 @@ const DDL = `
 CREATE TABLE IF NOT EXISTS watched_project (
   project TEXT PRIMARY KEY,
   addedAt INTEGER NOT NULL,
-  watchdogThresholdPercent INTEGER
+  watchdogThresholdPercent INTEGER,
+  contextRecycleMode TEXT
 );
 CREATE TABLE IF NOT EXISTS supervised_session (
   project TEXT NOT NULL,
@@ -277,6 +291,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'supervisor_identity', 'serverId', "serverId TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'supervisor_identity', 'epoch', 'epoch INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'watched_project', 'watchdogThresholdPercent', 'watchdogThresholdPercent INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'contextRecycleMode', 'contextRecycleMode TEXT');
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
   addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
@@ -374,6 +389,24 @@ export function setWatchdogThreshold(project: string, percent: number | null): v
     `INSERT INTO watched_project (project, addedAt, watchdogThresholdPercent) VALUES (?, ?, ?)
      ON CONFLICT(project) DO UPDATE SET watchdogThresholdPercent = excluded.watchdogThresholdPercent`,
   ).run(project, Date.now(), percent);
+}
+
+/** Per-project context-auto-recycle mode. Absent/unknown → 'off' (inert default). */
+export function getContextRecycleMode(project: string): ContextRecycleMode {
+  const d = openDb();
+  const row = d.query('SELECT contextRecycleMode FROM watched_project WHERE project = ?')
+    .get(project) as { contextRecycleMode: string | null } | undefined;
+  const m = row?.contextRecycleMode;
+  return m === 'notify' || m === 'force' ? m : 'off';
+}
+
+/** Set a project's context-auto-recycle mode. Upserts the watched_project row. */
+export function setContextRecycleMode(project: string, mode: ContextRecycleMode): void {
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO watched_project (project, addedAt, contextRecycleMode) VALUES (?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET contextRecycleMode = excluded.contextRecycleMode`,
+  ).run(project, Date.now(), mode);
 }
 
 // --- Supervised sessions ---
