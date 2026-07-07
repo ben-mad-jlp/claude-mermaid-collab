@@ -882,6 +882,36 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
 }
 
 /**
+ * Re-home a todo to a different session — reassign its `ownerSession` (and, by
+ * default, `assigneeSession`). `ownerSession` is otherwise creation-only; this is
+ * the supported way to move a MISSION to a live session so its card AND the
+ * mission-loop nudge (both read ownerSession first) target the right session,
+ * instead of hand-editing todos.db. Returns the updated todo.
+ */
+export function reassignOwnerSession(
+  project: string,
+  id: string,
+  session: string,
+  opts: { alsoAssignee?: boolean } = {},
+): Promise<Todo> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const existing = getTodo(project, id);
+    if (!existing) throw new Error(`todo not found: ${id}`);
+    const s = session.trim();
+    if (!s) throw new Error('session is empty');
+    const alsoAssignee = opts.alsoAssignee !== false; // default true
+    const sql = alsoAssignee
+      ? 'UPDATE todos SET ownerSession=?, assigneeSession=?, updatedAt=? WHERE id=?'
+      : 'UPDATE todos SET ownerSession=?, updatedAt=? WHERE id=?';
+    const db = openDb(project);
+    if (alsoAssignee) db.prepare(sql).run(s, s, nowIso(), id);
+    else db.prepare(sql).run(s, nowIso(), id);
+    return getTodo(project, id)!;
+  });
+}
+
+/**
  * Single-writer invariant (PCS open-problem #7): orchestration WRITES (claim /
  * complete) must happen on the project's home server — i.e. the project must
  * exist locally. Guards against a peer fabricating a `.collab` DB for a project
