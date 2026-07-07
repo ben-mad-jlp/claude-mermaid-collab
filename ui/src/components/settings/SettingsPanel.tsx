@@ -4,10 +4,11 @@ import { EnvVarsEditor } from './EnvVarsEditor';
 import { SecretsEditor } from './SecretsEditor';
 import { JudgmentLLMEditor } from './JudgmentLLMEditor';
 import { PhoneAccessEditor } from './PhoneAccessEditor';
+import { ContextRecycleEditor } from './ContextRecycleEditor';
 import { McpServersPanel } from '../mcp/McpServersPanel';
 import { AddMcpServerDialog } from '../mcp/AddMcpServerDialog';
 
-export type SettingsTab = 'permissions' | 'mcp' | 'env' | 'secrets' | 'phone' | 'policy';
+export type SettingsTab = 'permissions' | 'mcp' | 'env' | 'secrets' | 'phone' | 'sessions' | 'policy';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -22,6 +23,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'env', label: 'Env Vars' },
   { id: 'secrets', label: 'Secrets / API Keys' },
   { id: 'phone', label: 'Phone access' },
+  { id: 'sessions', label: 'Sessions' },
   { id: 'policy', label: 'Managed Policy' },
 ];
 
@@ -117,6 +119,9 @@ export function SettingsPanel({ open, onClose, openTab, project }: SettingsPanel
             </div>
           )}
           {activeTab === 'phone' && <PhoneAccessEditor />}
+          {activeTab === 'sessions' && (
+            <ContextRecycleEditor project={project ?? window.location.pathname} />
+          )}
           {activeTab === 'policy' && (
             <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
               Managed Policy — coming soon

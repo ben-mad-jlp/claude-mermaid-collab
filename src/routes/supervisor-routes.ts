@@ -19,6 +19,10 @@ import {
   listSupervisorAudit,
   getWatchdogThreshold,
   setWatchdogThreshold,
+  getContextRecycleMode,
+  setContextRecycleMode,
+  CONTEXT_RECYCLE_MODES,
+  type ContextRecycleMode,
   setEscalationRoute,
   setEscalationOperatorGated,
 } from '../services/supervisor-store.ts';
@@ -637,6 +641,34 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         thresholdPercent: getWatchdogThreshold(project),
         default: DEFAULT_WATCHDOG_CONFIG.thresholdPercent,
       });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/context-recycle?project= — the per-project context-auto-recycle
+  // mode (off|notify|force). Also returns the effective watchdog threshold for context.
+  if (url.pathname === '/api/supervisor/context-recycle' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({
+      project,
+      mode: getContextRecycleMode(project),
+      thresholdPercent: getWatchdogThreshold(project) ?? DEFAULT_WATCHDOG_CONFIG.thresholdPercent,
+    });
+  }
+
+  // POST /api/supervisor/context-recycle — REST parity for the set_context_recycle MCP
+  // tool. Validation MIRRORS the MCP tool so REST and MCP stay in lockstep.
+  if (url.pathname === '/api/supervisor/context-recycle' && req.method === 'POST') {
+    try {
+      const { project, mode } = (await req.json()) as { project?: string; mode?: string };
+      if (!project) return jsonError('project is required', 400);
+      if (!mode || !CONTEXT_RECYCLE_MODES.includes(mode as ContextRecycleMode)) {
+        return jsonError('mode must be one of: off, notify, force', 400);
+      }
+      setContextRecycleMode(project, mode as ContextRecycleMode);
+      return Response.json({ ok: true, project, mode: getContextRecycleMode(project) });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
