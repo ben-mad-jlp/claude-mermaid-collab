@@ -264,6 +264,49 @@ describe('mission-store: convergence rollup', () => {
   });
 });
 
+describe('active mission (one per session)', () => {
+  test('activateMission activates one + deactivates same-session siblings only', async () => {
+    const { activateMission, setMissionActive, sessionHasActiveMission } = await import('../mission-store');
+    // two missions owned by 'design', one by 'other'
+    const a = (await createTodo(project, { ownerSession: 'design', assigneeSession: 'design', title: '[MISSION] a' })).id;
+    const b = (await createTodo(project, { ownerSession: 'design', assigneeSession: 'design', title: '[MISSION] b' })).id;
+    const c = (await createTodo(project, { ownerSession: 'other', assigneeSession: 'other', title: '[MISSION] c' })).id;
+    upsertMission(project, a); upsertMission(project, b); upsertMission(project, c);
+    // all default active
+    expect(getMission(project, a)!.active).toBe(true);
+
+    const deactivated = activateMission(project, a);
+    expect(deactivated).toEqual([b]);                 // only the same-session sibling
+    expect(getMission(project, a)!.active).toBe(true);
+    expect(getMission(project, b)!.active).toBe(false);
+    expect(getMission(project, c)!.active).toBe(true); // other session untouched
+    expect(sessionHasActiveMission(project, 'design')).toBe(true);
+    expect(sessionHasActiveMission(project, 'design', a)).toBe(false); // a is the only design-active
+
+    // switch active to b
+    expect(activateMission(project, b)).toEqual([a]);
+    expect(getMission(project, a)!.active).toBe(false);
+    expect(getMission(project, b)!.active).toBe(true);
+    setMissionActive(project, a, true); // low-level still works
+    expect(getMission(project, a)!.active).toBe(true);
+  });
+});
+
+describe('updateCriterionText', () => {
+  test('edits a criterion text without changing its verdict', async () => {
+    const { updateCriterionText, setCriterionVerdict } = await import('../mission-store');
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const c = addCriterion(project, id, 'old text');
+    setCriterionVerdict(project, c.id, { met: true, evidence: 'e' });
+    updateCriterionText(project, c.id, 'new text');
+    const got = listCriteria(project, id)[0];
+    expect(got.text).toBe('new text');
+    expect(got.met).toBe(true); // verdict preserved
+    expect(got.evidence).toBe('e');
+  });
+});
+
 describe('reassignOwnerSession (set_mission_owner backing)', () => {
   test('re-homes a mission node to a new session (owner + assignee)', async () => {
     const { reassignOwnerSession } = await import('../todo-store');

@@ -36,7 +36,7 @@ export type MissionLoopAction =
   | { kind: 'nudge'; session: string; message: string; reason: string };
 
 export interface MissionLoopStepInput {
-  mission: { todoId: string; phase: MissionPhase; iteration: number; lastNudgeAt: number | null; procedure: string | null; title: string };
+  mission: { todoId: string; phase: MissionPhase; iteration: number; lastNudgeAt: number | null; procedure: string | null; title: string; active: boolean };
   rollup: { converged: boolean; mechanical: { done: number; total: number }; capability: { met: number; total: number } };
   ownerSession: string | null;
   mode: MissionLoopMode;
@@ -78,6 +78,7 @@ function nudgeMessage(phase: MissionPhase, m: MissionLoopStepInput['mission'], r
 export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAction {
   const { mission, rollup, ownerSession, mode, idle, now, cooldownMs } = input;
   if (mode === 'off') return { kind: 'none', reason: 'mode-off' };
+  if (!mission.active) return { kind: 'none', reason: 'inactive' }; // a session drives ONE mission
   if (isTerminalPhase(mission.phase)) return { kind: 'none', reason: `terminal:${mission.phase}` };
 
   // EXECUTE is mechanical: the daemon builds; auto-advance once the iteration's epics settle.
@@ -145,6 +146,7 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
       mission: {
         todoId: m.node.id, phase: m.mission.phase, iteration: m.mission.iteration,
         lastNudgeAt: m.mission.lastNudgeAt ?? null, procedure: m.mission.procedure ?? null, title: m.node.title,
+        active: m.mission.active !== false,
       },
       rollup: { converged: m.rollup.converged, mechanical: m.rollup.mechanical, capability: m.rollup.capability },
       ownerSession: session,

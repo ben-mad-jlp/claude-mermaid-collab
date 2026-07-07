@@ -72,6 +72,10 @@ export interface MissionRow {
   /** Last time the mission-loop pass nudged the steward for this mission (ms epoch),
    *  or null — the nudge debounce so the pass doesn't spam every tick. */
   lastNudgeAt: number | null;
+  /** Whether this is the ACTIVE mission for its owning session. A steward drives ONE
+   *  mission at a time, so at most one mission per session is active; the mission-loop
+   *  pass only drives active missions. Default true (a lone mission just works). */
+  active: boolean;
 }
 
 export interface MissionCriterion {
@@ -155,6 +159,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'verifiedBy', 'verifiedBy TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAt', 'verifiedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastNudgeAt', 'lastNudgeAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
   // v2 one-shot phase migration: remap the legacy 6-phase vocabulary onto the
   // canonical 5 (dogfood/find_gap→discover, steward/land→execute, assess→verify).
   db.exec(`UPDATE mission SET phase='discover' WHERE phase IN ('dogfood','find_gap')`);
@@ -191,6 +196,7 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     lastDiscoverAt: (row.lastDogfoodAt as number | null) ?? null,
     lastVerifyAt: (row.lastAssessAt as number | null) ?? null,
     lastNudgeAt: (row.lastNudgeAt as number | null) ?? null,
+    active: (row.active as number | null) == null ? true : (row.active as number) === 1,
   };
 }
 
@@ -340,6 +346,51 @@ export function deleteMission(project: string, todoId: string): void {
   db.prepare('DELETE FROM mission WHERE todoId = ?').run(todoId);
 }
 
+/** Set a mission's active flag directly (low-level; prefer activateMission to keep
+ *  the one-active-per-session invariant). */
+export function setMissionActive(project: string, todoId: string, active: boolean): void {
+  const res = openDb(project)
+    .prepare('UPDATE mission SET active = ?, updatedAt = ? WHERE todoId = ?')
+    .run(active ? 1 : 0, nowMs(), todoId);
+  if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+}
+
+/**
+ * Make ONE mission the active one for its owning session: set it active and
+ * deactivate every OTHER mission owned by the same session (a steward drives one
+ * mission at a time). Missions owned by a DIFFERENT session are untouched. Returns
+ * the set of todoIds that were deactivated.
+ */
+export function activateMission(project: string, todoId: string): string[] {
+  const m = getMission(project, todoId);
+  if (!m) throw new Error(`mission not found: ${todoId}`);
+  const all = listMissions(project);
+  const self = all.find((x) => x.node.id === todoId);
+  const session = self?.ownerSession ?? self?.assigneeSession ?? null;
+  const deactivated: string[] = [];
+  if (session) {
+    for (const other of all) {
+      if (other.node.id === todoId) continue;
+      const os = other.ownerSession ?? other.assigneeSession ?? null;
+      if (os === session && other.mission.active) {
+        setMissionActive(project, other.node.id, false);
+        deactivated.push(other.node.id);
+      }
+    }
+  }
+  setMissionActive(project, todoId, true);
+  return deactivated;
+}
+
+/** True iff the session already has an active mission (used to default a newly
+ *  created mission inactive when its session is already driving one). */
+export function sessionHasActiveMission(project: string, session: string, excludeTodoId?: string): boolean {
+  return listMissions(project).some(
+    (m) => m.node.id !== excludeTodoId && m.mission.active &&
+      (m.ownerSession === session || m.assigneeSession === session),
+  );
+}
+
 // ── Acceptance criteria ─────────────────────────────────────────────────────
 
 export function listCriteria(project: string, todoId: string): MissionCriterion[] {
@@ -403,6 +454,16 @@ export function setCriterionVerdict(
       nowMs(),
       criterionId,
     );
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+/** Edit a criterion's text (the acceptance assertion). Does not change its met/verdict. */
+export function updateCriterionText(project: string, criterionId: string, text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error('criterion text is empty');
+  const res = openDb(project)
+    .prepare('UPDATE mission_criterion SET text = ?, updatedAt = ? WHERE id = ?')
+    .run(trimmed, nowMs(), criterionId);
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
 }
 
