@@ -1397,6 +1397,11 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // human decision ("don't close this") that the rollup must respect, else completing a
       // sibling silently overrides the hold and marks abandoned/held work as a deliverable.
       if (!parent || parent.status === 'done' || parent.status === 'dropped' || parent.heldAt != null) break;
+      // Convergence-loop MISSION root (Phase 2a): a `[MISSION]` container is DURABLE and
+      // must never auto-close when its iteration's epics all complete — the mission
+      // outlives them. Inline [MISSION] check mirrors the [EPIC] cascade guard below
+      // (importing isMissionTitle would cycle: claimability imports the Todo type here).
+      if (/^\s*\[MISSION\]/i.test(parent.title ?? '')) break;
       const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId && t.status !== 'dropped');
       if (children.length === 0) break;
       const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
@@ -1599,6 +1604,9 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
         // 54362542: a HELD epic is off-limits to the rollup sweep too (same reason as the
         // event-path guard) — a manual hold must survive an all-children-settled sweep.
         if (epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) continue;
+        // Phase 2a: a `[MISSION]` root is durable — never rolled up even when all its
+        // iteration epics settle (mirrors the event-path guard in completeTodo).
+        if (/^\s*\[MISSION\]/i.test(epic.title ?? '')) continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) continue; // not an epic / no live children
         if (!children.every((c) => c.status === 'done')) continue; // a child still open
