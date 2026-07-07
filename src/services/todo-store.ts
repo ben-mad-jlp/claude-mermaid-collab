@@ -1,6 +1,6 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable, claimReason, derivedStatus, isEpicTitle, INBOX_EPIC_TITLE, type ClaimReason } from './claimability';
+import { isClaimable, claimReason, derivedStatus, isEpicTitle, isMissionTitle, INBOX_EPIC_TITLE, type ClaimReason } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -691,6 +691,7 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
 async function resolveTodoParent(project: string, input: CreateTodoInput): Promise<string | null> {
   if (input.parentId) return input.parentId;        // caller attached a parent
   if (isEpicTitle(input.title)) return null;         // an epic is a legitimate root
+  if (isMissionTitle(input.title)) return null;      // a [MISSION] is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
   // inbox:true → home under [EPIC] Inbox (find-or-create). The ONLY auto-home, and explicit.

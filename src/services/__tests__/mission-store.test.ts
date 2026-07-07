@@ -163,6 +163,19 @@ describe('mission-store: convergence rollup', () => {
   });
 });
 
+describe('[MISSION] is a legitimate top-level root', () => {
+  test('a [MISSION] title creates parentless WITHOUT allowOrphan/inbox (resolveTodoParent exemption)', async () => {
+    // A plain non-epic top-level create throws OrphanTodoError; a [MISSION] must not.
+    const t = await createTodo(project, { ownerSession: 's1', title: '[MISSION] converge X' });
+    expect(t.parentId).toBeNull();
+    expect(getTodo(project, t.id)!.title).toBe('[MISSION] converge X');
+  });
+
+  test('a plain non-epic top-level create still throws (proves the exemption is scoped)', async () => {
+    await expect(createTodo(project, { ownerSession: 's1', title: 'just a floating todo' })).rejects.toThrow();
+  });
+});
+
 describe('[MISSION] node is a durable non-closing root', () => {
   test('completeTodo event-path does NOT roll up a [MISSION] parent when all its epics complete', async () => {
     const missionId = await makeMissionNode();
