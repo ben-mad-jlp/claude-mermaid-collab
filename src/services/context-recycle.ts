@@ -104,7 +104,8 @@ export interface RecycleDeps {
   getStatuses?: (project: string) => SessionStatusRow[];
   getMode?: (project: string) => ContextRecycleMode;
   getThreshold?: (project: string) => number | null;
-  isPaused?: (project: string) => boolean;
+  /** GLOBAL emergency-pause check. Deliberately NOT per-project (see runner). */
+  isPaused?: () => boolean;
 }
 
 /**
@@ -117,8 +118,13 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
   const getMode = deps.getMode ?? getContextRecycleMode;
   const mode = getMode(project);
   if (mode === 'off') return;
-  const isPaused = deps.isPaused ?? isSupervisorPaused;
-  if (isPaused(project)) return;
+  // Gate ONLY on a GLOBAL emergency pause — NOT the per-project supervisor pause.
+  // `contextRecycleMode` is this feature's explicit per-project control; a per-project
+  // supervisor pause (which stops LLM work-driving) must not silently override an
+  // operator who deliberately set notify/force — otherwise a long-idle project pause
+  // makes the setting a no-op with no feedback. A global pause still stops everything.
+  const isPaused = deps.isPaused ?? (() => isSupervisorPaused());
+  if (isPaused()) return;
 
   const now = deps.now ?? Date.now();
   const nudge = deps.nudge ?? nudgeSession;
@@ -134,12 +140,18 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
       switch (step) {
         case 'inject-checkpoint':
           if (tryEmitWatchdogAction(project, row.session, 'checkpoint', RECYCLE_CHECKPOINT_COOLDOWN_MS, now)) {
-            await nudge(project, row.session, '/vibe-checkpoint');
+            // Don't let a failed inject (busy/no-tmux) hold the 10-min cooldown —
+            // reset the debounce so the next tick retries instead of going silent.
+            if ((await nudge(project, row.session, '/vibe-checkpoint')) !== 'sent') {
+              resetWatchdogDebounce(project, row.session);
+            }
           }
           break;
         case 'inject-advisory':
           if (tryEmitWatchdogAction(project, row.session, 'recycle-advisory', RECYCLE_ADVISORY_COOLDOWN_MS, now)) {
-            await nudge(project, row.session, advisoryText(row));
+            if ((await nudge(project, row.session, advisoryText(row))) !== 'sent') {
+              resetWatchdogDebounce(project, row.session);
+            }
           }
           break;
         case 'clear': {
