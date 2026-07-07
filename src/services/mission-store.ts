@@ -69,6 +69,9 @@ export interface MissionRow {
   lastDiscoverAt: number | null;
   /** Last time VERIFY was stamped (ms epoch), or null. */
   lastVerifyAt: number | null;
+  /** Last time the mission-loop pass nudged the steward for this mission (ms epoch),
+   *  or null — the nudge debounce so the pass doesn't spam every tick. */
+  lastNudgeAt: number | null;
 }
 
 export interface MissionCriterion {
@@ -151,6 +154,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'evidence', 'evidence TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedBy', 'verifiedBy TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAt', 'verifiedAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'lastNudgeAt', 'lastNudgeAt INTEGER');
   // v2 one-shot phase migration: remap the legacy 6-phase vocabulary onto the
   // canonical 5 (dogfood/find_gap→discover, steward/land→execute, assess→verify).
   db.exec(`UPDATE mission SET phase='discover' WHERE phase IN ('dogfood','find_gap')`);
@@ -186,7 +190,15 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     // lastDiscoverAt/lastVerifyAt live in the legacy lastDogfoodAt/lastAssessAt columns.
     lastDiscoverAt: (row.lastDogfoodAt as number | null) ?? null,
     lastVerifyAt: (row.lastAssessAt as number | null) ?? null,
+    lastNudgeAt: (row.lastNudgeAt as number | null) ?? null,
   };
+}
+
+/** Stamp that the mission-loop pass nudged the steward (the nudge debounce). */
+export function stampMissionNudge(project: string, todoId: string): void {
+  openDb(project)
+    .prepare('UPDATE mission SET lastNudgeAt = ?, updatedAt = ? WHERE todoId = ?')
+    .run(nowMs(), nowMs(), todoId);
 }
 
 /** Read a mission's control state, or undefined if the node has none yet. */

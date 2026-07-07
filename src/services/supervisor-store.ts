@@ -34,6 +34,9 @@ export interface WatchedProject {
 export type ContextRecycleMode = 'off' | 'notify' | 'force';
 export const CONTEXT_RECYCLE_MODES: ContextRecycleMode[] = ['off', 'notify', 'force'];
 
+export type MissionLoopMode = 'off' | 'assist' | 'auto';
+export const MISSION_LOOP_MODES: MissionLoopMode[] = ['off', 'assist', 'auto'];
+
 export interface SupervisedSession {
   project: string;
   session: string;
@@ -186,7 +189,8 @@ CREATE TABLE IF NOT EXISTS watched_project (
   project TEXT PRIMARY KEY,
   addedAt INTEGER NOT NULL,
   watchdogThresholdPercent INTEGER,
-  contextRecycleMode TEXT
+  contextRecycleMode TEXT,
+  missionLoopMode TEXT
 );
 CREATE TABLE IF NOT EXISTS supervised_session (
   project TEXT NOT NULL,
@@ -303,6 +307,7 @@ function openDb(): Database {
   addColumnIfMissing(db, 'supervisor_identity', 'epoch', 'epoch INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'watched_project', 'watchdogThresholdPercent', 'watchdogThresholdPercent INTEGER');
   addColumnIfMissing(db, 'watched_project', 'contextRecycleMode', 'contextRecycleMode TEXT');
+  addColumnIfMissing(db, 'watched_project', 'missionLoopMode', 'missionLoopMode TEXT');
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
   addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
@@ -423,6 +428,27 @@ export function setContextRecycleMode(project: string, mode: ContextRecycleMode)
   d.prepare(
     `INSERT INTO watched_project (project, addedAt, contextRecycleMode) VALUES (?, ?, ?)
      ON CONFLICT(project) DO UPDATE SET contextRecycleMode = excluded.contextRecycleMode`,
+  ).run(project, Date.now(), mode);
+}
+
+/** Per-project mission-loop driver mode (Phase 2b). 'off' = inert (default);
+ *  'assist' = steward-in-the-loop (the pass nudges the steward for judgment phases
+ *  DISCOVER/PLAN/VERIFY and auto-advances the mechanical EXECUTE→VERIFY step);
+ *  'auto' = fully autonomous (reserved for slice 3 — treated as 'assist' until then). */
+export function getMissionLoopMode(project: string): MissionLoopMode {
+  const d = openDb();
+  const row = d.query('SELECT missionLoopMode FROM watched_project WHERE project = ?')
+    .get(project) as { missionLoopMode: string | null } | undefined;
+  const m = row?.missionLoopMode;
+  return m === 'assist' || m === 'auto' ? m : 'off';
+}
+
+/** Set a project's mission-loop mode. Upserts the watched_project row. */
+export function setMissionLoopMode(project: string, mode: MissionLoopMode): void {
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO watched_project (project, addedAt, missionLoopMode) VALUES (?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET missionLoopMode = excluded.missionLoopMode`,
   ).run(project, Date.now(), mode);
 }
 
