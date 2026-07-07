@@ -29,6 +29,23 @@ export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
 export const isEpicTitle = (title: string | null | undefined): boolean =>
   /^\s*\[EPIC\]/i.test(title ?? '');
 
+/**
+ * Convergence-loop MISSION root (Phase 2a). A `[MISSION]` node is a DURABLE
+ * top-level container that — unlike an `[EPIC]` — must NEVER auto-close when its
+ * descendant epics all complete: a mission outlives hundreds of build/land cycles
+ * (each iteration's gaps become transient `[EPIC]` children under it). The
+ * behavioral difference lives in todo-store's two rollup paths (the completeTodo
+ * event-path loop + sweepEpicRollups), which exempt this prefix. Loop-control
+ * state (phase/iteration/criteria) is NOT stored on the todo row — it lives in the
+ * sidecar `mission` table (see mission-store.ts) to keep the work-graph aggregate
+ * uncoupled. Matched by the same title convention as epics.
+ */
+export const MISSION_TITLE_PREFIX = '[MISSION]';
+
+/** True for a todo that IS a mission root — by the `[MISSION]` title convention. */
+export const isMissionTitle = (title: string | null | undefined): boolean =>
+  /^\s*\[MISSION\]/i.test(title ?? '');
+
 /** True iff this todo IS the Inbox epic itself (a top-level root, not a child). */
 export const isInboxEpic = (t: Todo | undefined): boolean =>
   !!t && isEpicTitle(t.title) && t.title.trim() === INBOX_EPIC_TITLE;
