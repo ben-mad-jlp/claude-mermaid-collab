@@ -14,6 +14,7 @@ import {
   MISSION_PHASES, type MissionPhase,
 } from '../services/mission-store.js';
 import { MISSION_TITLE_PREFIX, isMissionTitle } from '../services/claimability.js';
+import { getMissionCost } from '../services/mission-cost.js';
 import { addSessionTodo } from './tools/session-todos.js';
 
 /**
@@ -74,6 +75,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!mission) throw new Error(`mission not found: ${todoId}`);
       return JSON.stringify({
         mission, criteria: listCriteria(project, todoId), rollup: getMissionRollup(project, todoId),
+        cost: getMissionCost(project, todoId),
       }, null, 2);
     }
     case 'set_mission_owner': {
