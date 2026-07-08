@@ -1,6 +1,5 @@
 import { test, expect } from 'bun:test';
 import { planMissionLoopStep, runMissionLoopPass, type MissionLoopStepInput } from '../mission-loop';
-import type { MissionLoopMode } from '../supervisor-store';
 import type { MissionPhase } from '../mission-store';
 
 const NOW = 1_000_000_000_000;
@@ -10,7 +9,6 @@ function inp(over: Partial<MissionLoopStepInput> = {}): MissionLoopStepInput {
     mission: { todoId: 'm1', phase: 'discover', iteration: 1, lastNudgeAt: null, procedure: null, title: '[MISSION] ship X', active: true },
     rollup: { converged: false, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 2 } },
     ownerSession: 'design',
-    mode: 'assist',
     idle: true,
     now: NOW,
     cooldownMs: 15 * 60 * 1000,
@@ -19,10 +17,8 @@ function inp(over: Partial<MissionLoopStepInput> = {}): MissionLoopStepInput {
 }
 
 // ---- pure planner ----
-
-test('mode off → none', () => {
-  expect(planMissionLoopStep(inp({ mode: 'off' })).kind).toBe('none');
-});
+// Driving is gated by the mission `active` flag (+ the orchestrator only calling the
+// pass for watched projects) — there is no per-project on/off mode anymore.
 
 test('inactive mission → none (a session drives one mission at a time)', () => {
   const a = planMissionLoopStep(inp({ mission: { ...inp().mission, active: false } }));
@@ -98,17 +94,20 @@ function summary(over: Record<string, unknown> = {}) {
   } as never;
 }
 
-test('runner: mode off → inert (no calls)', async () => {
+test('runner: inactive mission → inert (no calls)', async () => {
   let nudged = 0;
-  const r = await runMissionLoopPass('/p', { getMode: () => 'off' as MissionLoopMode, list: () => [summary()], nudge: async () => { nudged++; return 'sent'; } });
-  expect(r.mode).toBe('off');
+  const r = await runMissionLoopPass('/p', {
+    list: () => [summary({ mission: { todoId: 'm1', phase: 'discover', iteration: 1, lastNudgeAt: null, procedure: null, active: false } })],
+    isIdle: () => true, nudge: async () => { nudged++; return 'sent'; },
+  });
+  expect(r.nudged).toEqual([]);
   expect(nudged).toBe(0);
 });
 
-test('runner: assist nudges an idle discover mission + stamps the debounce', async () => {
+test('runner: nudges an idle discover mission + stamps the debounce', async () => {
   const calls: string[] = []; let stamped = 0;
   const r = await runMissionLoopPass('/p', {
-    getMode: () => 'assist', list: () => [summary()], isIdle: () => true,
+    list: () => [summary()], isIdle: () => true,
     nudge: async (_p, _s, text) => { calls.push(text); return 'sent'; },
     stampNudge: () => { stamped++; }, advance: () => { throw new Error('should not advance'); }, now: NOW,
   });
@@ -117,11 +116,10 @@ test('runner: assist nudges an idle discover mission + stamps the debounce', asy
   expect(calls[0]).toContain('DISCOVER');
 });
 
-test('runner: assist auto-advances an EXECUTE mission whose epics are all done', async () => {
+test('runner: auto-advances an EXECUTE mission whose epics are all done', async () => {
   let advanced = 0;
   const r = await runMissionLoopPass('/p', {
-    getMode: () => 'assist',
-    list: () => [summary({ mission: { todoId: 'm1', phase: 'execute', iteration: 1, lastNudgeAt: null, procedure: null }, rollup: { converged: false, mechanical: { done: 2, total: 2 }, capability: { met: 0, total: 1 } } })],
+    list: () => [summary({ mission: { todoId: 'm1', phase: 'execute', iteration: 1, lastNudgeAt: null, procedure: null, active: true }, rollup: { converged: false, mechanical: { done: 2, total: 2 }, capability: { met: 0, total: 1 } } })],
     isIdle: () => true, advance: () => { advanced++; }, nudge: async () => 'sent',
   });
   expect(r.advanced).toEqual(['m1']);
