@@ -57,6 +57,29 @@ test('DISCOVER + idle + no prior nudge → nudge', () => {
   }
 });
 
+test('nudge carries a fire-time stamp + the CONDUCTOR orchestrate-don’t-build discipline', () => {
+  const a = planMissionLoopStep(inp());
+  expect(a.kind).toBe('nudge');
+  if (a.kind === 'nudge') {
+    // fire-time stamp so the human can see WHEN it fired (format "[HH:MM TZ]")
+    expect(a.message).toMatch(/^\[\d{2}:\d{2}\s+\w+\]/);
+    // lever #1: the conductor discipline rides every build-phase nudge
+    expect(a.message).toContain('CONDUCTOR');
+    expect(a.message).toContain('do NOT hand-build');
+    expect(a.message).toContain('/conductor');
+  }
+});
+
+test('VERIFY nudge is about the independent gate, not building (no conductor build preamble)', () => {
+  const a = planMissionLoopStep(inp({ mission: { ...inp().mission, phase: 'verify' } }));
+  expect(a.kind).toBe('nudge');
+  if (a.kind === 'nudge') {
+    expect(a.message).toMatch(/^\[\d{2}:\d{2}\s+\w+\]/); // still stamped
+    expect(a.message).toContain('/verify-mission');
+    expect(a.message).not.toContain('do NOT hand-build');
+  }
+});
+
 test('VERIFY nudge points at the independent /verify-mission gate', () => {
   const a = planMissionLoopStep(inp({ mission: { ...inp().mission, phase: 'verify' } }));
   expect(a.kind).toBe('nudge');

@@ -47,20 +47,44 @@ function goalOf(title: string): string {
   return title.replace(/^\s*\[MISSION\]\s*/i, '').trim() || 'mission';
 }
 
-function nudgeMessage(phase: MissionPhase, m: MissionLoopStepInput['mission'], rollup: MissionLoopStepInput['rollup']): string {
+/** Format an epoch (ms) as a compact local wall-clock stamp, e.g. "[14:32 CDT]".
+ *  Prefixed to every nudge so the human can see WHEN a prompt fired in the steward's
+ *  transcript. `now` is passed in (kept out of the pure planner) — no Date.now() here. */
+function fireStamp(now: number): string {
+  try {
+    return `[${new Date(now).toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short',
+    })}]`;
+  } catch {
+    return `[t=${now}]`;
+  }
+}
+
+/** The standing CONDUCTOR discipline, prepended to every nudge (lever #1). A mission
+ *  is driven by a CONDUCTOR: it directs the players (files [EPIC]+leaves, approves
+ *  them for the daemon to build), it does NOT play the instruments (no hand-editing
+ *  source). Building is the daemon's mechanical EXECUTE job. */
+const CONDUCTOR_PREAMBLE =
+  'You are the CONDUCTOR of this mission — you ORCHESTRATE, you do NOT hand-build. ' +
+  'Decompose the gap into an [EPIC] + leaves and approve them (make ready) so the daemon builds them; ' +
+  'do not hand-edit source yourself. (Load /conductor if you have not.)';
+
+function nudgeMessage(phase: MissionPhase, m: MissionLoopStepInput['mission'], rollup: MissionLoopStepInput['rollup'], now: number): string {
   const goal = goalOf(m.title);
   const proc = m.procedure ? `\nProcedure: ${m.procedure}` : '';
+  const stamp = fireStamp(now);
+  const head = `${stamp} 🎯 Mission «${goal}»`;
   switch (phase) {
     case 'discover':
-      return `🎯 Mission «${goal}» is in DISCOVER (iteration ${m.iteration}). Exercise the app toward the goal, find the single highest-impact gap, and file it as an [EPIC] child of this mission. Then run advance_mission.${proc}`;
+      return `${head} is in DISCOVER (iteration ${m.iteration}). ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact gap, and file it as an [EPIC] child of this mission. Then run advance_mission.${proc}`;
     case 'plan':
-      return `🎯 Mission «${goal}» is in PLAN (iteration ${m.iteration}). Turn the gap into an [EPIC] + leaves under the mission and approve it (make it ready). Then advance_mission.`;
+      return `${head} is in PLAN (iteration ${m.iteration}). ${CONDUCTOR_PREAMBLE}\nTurn the gap into an [EPIC] + leaves under the mission and approve it (make it ready). Then advance_mission.`;
     case 'execute':
-      return `🎯 Mission «${goal}» is in EXECUTE but has no epics to build (${rollup.mechanical.done}/${rollup.mechanical.total}). Add an [EPIC] child to build, or advance_mission past execute.`;
+      return `${head} is in EXECUTE but has no epics to build (${rollup.mechanical.done}/${rollup.mechanical.total}). ${CONDUCTOR_PREAMBLE}\nAdd an [EPIC] child to build, or advance_mission past execute.`;
     case 'verify':
-      return `🎯 Mission «${goal}» is in VERIFY (iteration ${m.iteration}). Run /verify-mission for this mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met) and then advances (converge / stop / loop).`;
+      return `${head} is in VERIFY (iteration ${m.iteration}). Run /verify-mission for this mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met) and then advances (converge / stop / loop).`;
     default:
-      return `🎯 Mission «${goal}» needs attention (phase ${phase}).`;
+      return `${head} needs attention (phase ${phase}).`;
   }
 }
 
@@ -98,7 +122,7 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
   return {
     kind: 'nudge',
     session: ownerSession,
-    message: nudgeMessage(mission.phase, mission, rollup),
+    message: nudgeMessage(mission.phase, mission, rollup, now),
     reason: `nudge:${mission.phase}`,
   };
 }
