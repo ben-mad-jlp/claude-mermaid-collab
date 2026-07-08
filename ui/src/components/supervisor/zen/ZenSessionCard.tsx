@@ -6,6 +6,8 @@ import { ClaudePixAvatar, useElapsed } from '@/components/layout/SessionCard';
 import { ZenPulseLine } from './ZenPulseLine';
 import { ZenNextPanel } from './ZenNextPanel';
 import { isPulsing, type PulseStage, type NextUp, type NextWork } from '@/lib/zenPulse';
+import { conductingView, type ConductingView } from '@/lib/conductingView';
+import type { MissionSummary, MissionPhase } from '@/stores/supervisorStore';
 
 // ZenSessionCard — the SINGLE Zen primitive (redesign 2026-06-20). One card per
 // watched session: a project bar across the top (project + totals as symbols), a
@@ -73,7 +75,57 @@ export interface ZenSessionCardProps {
   nextWork?: NextWork;
   /** Sleep the Pulse for this idle episode. */
   onDismiss?: () => void;
+  /** The active, non-terminal mission this session drives (conductor), if any. Drives the
+   *  turn-aware tint, the mission ribbon, and the daemon's-turn freshness guard. */
+  mission?: MissionSummary | null;
 }
+
+/** Phase → small informational pill (mirrors the MissionsStrip vocabulary). These are
+ *  pills, NOT the card's status tint — so they add mission info without diluting the
+ *  amber/green/red header signal. */
+const PHASE_PILL: Record<MissionPhase, string> = {
+  discover:  'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
+  plan:      'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  execute:   'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
+  verify:    'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
+  converged: 'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300',
+  stopped:   'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+};
+
+/** Compact mission ribbon under the header — the "dedicated conducting treatment": goal +
+ *  phase pill + a mini Goal(criteria)/Build(epics) gauge + a whose-turn micro-label. Styled
+ *  as neutral content (like the header's plan/daemon chips), so it reads distinct-but-calm. */
+const MissionRibbon: React.FC<{ cond: ConductingView }> = ({ cond }) => {
+  const { turn, phase, goal, label, capability, mechanical } = cond;
+  return (
+    <div
+      data-testid="mission-ribbon"
+      data-turn={turn}
+      className="flex items-center gap-2 px-3 py-1 text-3xs border-b border-gray-100 dark:border-gray-700/60 bg-gray-50/70 dark:bg-gray-800/40"
+      title={`Conducting «${goal}» — ${label}`}
+    >
+      <span aria-hidden>🎯</span>
+      <span className="font-semibold text-gray-700 dark:text-gray-200 truncate max-w-[10rem]">{goal}</span>
+      <span className={`shrink-0 font-semibold px-1 py-0.5 rounded uppercase tracking-wide ${PHASE_PILL[phase] ?? PHASE_PILL.discover}`}>
+        {phase}
+      </span>
+      <span className="shrink-0 font-mono tabular-nums text-gray-500 dark:text-gray-400" title="Acceptance criteria met / total (the convergence gauge)">
+        goal {capability.met}/{capability.total}
+      </span>
+      {mechanical.total > 0 && (
+        <span className="shrink-0 font-mono tabular-nums text-gray-400 dark:text-gray-500" title="This iteration's epics done / total">
+          build {mechanical.done}/{mechanical.total}
+        </span>
+      )}
+      <span
+        className={`ml-auto shrink-0 font-semibold ${turn === 'conductor' ? 'text-warning-600 dark:text-warning-400' : 'text-gray-400 dark:text-gray-500'}`}
+        title={turn === 'daemon' ? 'The daemon is building — the conductor is correctly waiting (purposeful pause).' : 'The conductor’s move — this phase needs you.'}
+      >
+        {turn === 'daemon' ? '⏸ ' : '▸ '}{label}
+      </span>
+    </div>
+  );
+};
 
 /** Project bar: project name on the left; the plan funnel rollup + daemon totals as
  *  colored dot+count symbols, then an Open button, on the right. */
@@ -312,7 +364,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   nextUp,
   nextWork,
   onDismiss,
+  mission,
 }) => {
+  const cond = conductingView(mission);
   const [localExpanded, setLocalExpanded] = useState(false);
   const controlled = onToggleExpand != null;
   const expanded = controlled ? !!expandedProp : localExpanded;
@@ -497,14 +551,24 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // deterministic subscription status; a pending question always reads as needs-you (red);
   // fall back to the interpreter status / progressState only when the subscription
   // status is unknown.
+  // Mission turn-awareness slots in with precedence: a real question/permission (red)
+  // and genuine activity (amber) always win; only THEN does a conducting session's turn
+  // colour an otherwise-idle card — conductor's-move → amber ("your move"), daemon's-turn
+  // → green (calm). No new colour lane; we reuse the amber/green/red vocabulary.
   const status: string =
     hasQuestion
       ? 'permission'
       : hasOpenQuestion
         ? 'has-question'
-        : subStatus && subStatus !== 'unknown'
-          ? subStatus
-          : structured?.status ?? summary?.progressState ?? 'unknown';
+        : subStatus === 'active'
+          ? 'active'
+          : subStatus === 'permission'
+            ? 'permission'
+            : cond
+              ? (cond.turn === 'conductor' ? 'active' : 'waiting')
+              : subStatus && subStatus !== 'unknown'
+                ? subStatus
+                : structured?.status ?? summary?.progressState ?? 'unknown';
 
   // Activity: the SAME elapsed-since-heartbeat the watching SessionCard shows, driven by
   // the subscription `lastUpdate` (real session activity) — not the interpreter write.
@@ -678,7 +742,9 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
             : 'border-gray-200 dark:border-gray-700'
       }`}
     >
-      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={stale} summaryStale={narrationStale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
+      {/* A daemon's-turn conductor is CORRECTLY idle — don't dim it as dead-stale. */}
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={cond?.turn === 'daemon' ? false : stale} summaryStale={narrationStale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
+      {cond && <MissionRibbon cond={cond} />}
 
       {/* Context-window fullness — a thin loading bar under the header, same thresholds
           as the watching cards (warn > 68%, danger + pulse > 78%). */}
