@@ -61,21 +61,6 @@ export interface UnlandedEpic {
   ahead: number;
 }
 
-export interface RoadmapItem {
-  id: string;
-  project: string;
-  title: string;
-  description?: string | null;
-  status: string;
-  ord: number;
-  parentId?: string | null;
-  dependsOn?: string[];
-  sessionName?: string | null;
-  blueprintId?: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface AuditEntry {
   id: string;
   ts: number;
@@ -276,7 +261,6 @@ export interface SessionSummary {
 }
 
 const PROJECTS_KEY = 'supervisor-projects';
-const ROADMAP_KEY = 'supervisor-roadmap';
 const TODOS_KEY = 'supervisor-todos-by-project';
 const ESCALATIONS_KEY = 'supervisor-escalations';
 const RESOLVED_ESCALATIONS_KEY = 'supervisor-escalations-resolved';
@@ -457,7 +441,6 @@ function updateOpenItem(
 
 interface SupervisorState {
   watchedProjects: WatchedProject[];
-  roadmapByProject: Record<string, RoadmapItem[]>;
   todosByProject: Record<string, SessionTodo[]>;
   /** Per-project unlanded-epic readout (design-epic-landing P1): collab/epic/*
    *  branches with commits not on master = accepted work stranded off-master.
@@ -540,7 +523,6 @@ interface SupervisorState {
   loadProjects: (serverId: string) => Promise<void>;
   addProject: (serverId: string, project: string) => Promise<void>;
   removeProject: (serverId: string, project: string) => Promise<void>;
-  loadRoadmap: (serverId: string, project: string) => Promise<void>;
   loadProjectTodos: (serverId: string, project: string) => Promise<void>;
   /** Convergence-loop missions for a project (GET /api/supervisor/missions).
    *  Returns the mission summaries, or [] on any failure (fail open — the Plan
@@ -648,7 +630,6 @@ interface SupervisorState {
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
-  roadmapByProject: hydrate<Record<string, RoadmapItem[]>>(ROADMAP_KEY, {}),
   todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
   unlandedEpicsByProject: {},
   sessionSummaries: {},
@@ -885,22 +866,8 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     if (!res?.ok) return; // leave state unchanged on failure
     set((state) => {
       const watchedProjects = state.watchedProjects.filter((w) => w.project !== project);
-      const roadmapByProject = { ...state.roadmapByProject };
-      delete roadmapByProject[project];
       localStorage.setItem(PROJECTS_KEY, JSON.stringify(watchedProjects));
-      localStorage.setItem(ROADMAP_KEY, JSON.stringify(roadmapByProject));
-      return { watchedProjects, roadmapByProject };
-    });
-  },
-
-  loadRoadmap: async (serverId, project) => {
-    const path = `/api/supervisor/roadmap?project=${encodeURIComponent(project)}`;
-    const res = await invoke(serverId, path, 'GET');
-    if (!res?.ok) return; // keep prior (cached) state on failure
-    set((state) => {
-      const roadmapByProject = { ...state.roadmapByProject, [project]: res.body?.items ?? [] };
-      localStorage.setItem(ROADMAP_KEY, JSON.stringify(roadmapByProject));
-      return { roadmapByProject };
+      return { watchedProjects };
     });
   },
 
