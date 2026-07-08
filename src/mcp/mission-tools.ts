@@ -4,7 +4,6 @@
 // (MISSION_TOOL_DEFS) and the CallTool handlers (handleMissionTool). Behavior is
 // identical to the original inline setup.ts implementation — this is a pure move.
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
-import * as supervisorStore from '../services/supervisor-store.js';
 import {
   getTodo, deriveTodoViews, reassignOwnerSession, updateTodo as updateTodoStore,
 } from '../services/todo-store.js';
@@ -20,9 +19,6 @@ import { addSessionTodo } from './tools/session-todos.js';
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
  * array in setup.ts via `...MISSION_TOOL_DEFS`.
- *
- * NOTE: `set_mission_loop`'s declaration stays inline in setup.ts (to preserve
- * exact ListTools ordering), but its HANDLER lives here in handleMissionTool.
  */
 export const MISSION_TOOL_DEFS = [
       { name: 'create_mission', description: "Create a durable MISSION — a convergence LOOP toward a goal. It is a top-level [MISSION] work-graph node (a non-closing root: unlike an epic it never auto-closes) plus loop-control state running the canonical agentic loop DISCOVER→PLAN→EXECUTE→VERIFY→(ITERATE: loop back, iteration++). VERIFY checks the acceptance criteria: all met → converged; else if the maxIterations STOP-WHEN cap is hit → stopped; else loop back to DISCOVER. Each iteration's gaps become transient [EPIC] children (the EXECUTE work). Title auto-prefixed [MISSION]. Set `criteria` (the VERIFY gate — the real 'done' signal), `maxIterations` (the STOP-WHEN guard so a loop can't run forever), and `procedure` (the EACH-ITERATION recipe). Returns node + state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal. Auto-prefixed [MISSION].' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, maxIterations: { type: 'number', description: 'STOP-WHEN cap: stop after this many un-converged iterations (omit = unbounded).' }, procedure: { type: 'string', description: 'The EACH-ITERATION recipe (what to do each lap).' } }, required: ['project', 'session', 'title'] } },
@@ -46,15 +42,6 @@ export const MISSION_TOOL_DEFS = [
  */
 export async function handleMissionTool(name: string, args: any): Promise<string | null> {
   switch (name) {
-    case 'set_mission_loop': {
-      const { project, mode } = args as { project: string; mode: string };
-      if (!project || !mode) throw new Error('Missing required: project, mode');
-      if (mode !== 'off' && mode !== 'assist' && mode !== 'auto') {
-        throw new Error("mode must be one of: off, assist, auto");
-      }
-      supervisorStore.setMissionLoopMode(project, mode);
-      return JSON.stringify({ project, mode }, null, 2);
-    }
     case 'create_mission': {
       const { project, session, title, description, criteria, maxIterations, procedure } = args as {
         project: string; session: string; title: string; description?: string; criteria?: string[];

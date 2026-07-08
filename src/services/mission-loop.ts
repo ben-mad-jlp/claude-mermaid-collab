@@ -21,10 +21,8 @@
  * apply-the-action shell over injectable deps.
  */
 
-import type { MissionLoopMode } from './supervisor-store.ts';
 import type { MissionPhase, MissionSummary } from './mission-store.ts';
 import { listMissions, advanceMission, stampMissionNudge, isTerminalPhase } from './mission-store.ts';
-import { getMissionLoopMode } from './supervisor-store.ts';
 import { getStatus } from './session-status-store.ts';
 import { nudgeSession } from './claude-launch.ts';
 
@@ -39,7 +37,6 @@ export interface MissionLoopStepInput {
   mission: { todoId: string; phase: MissionPhase; iteration: number; lastNudgeAt: number | null; procedure: string | null; title: string; active: boolean };
   rollup: { converged: boolean; mechanical: { done: number; total: number }; capability: { met: number; total: number } };
   ownerSession: string | null;
-  mode: MissionLoopMode;
   /** Is the steward session idle (safe to nudge without interrupting active work)? */
   idle: boolean;
   now: number;
@@ -69,15 +66,18 @@ function nudgeMessage(phase: MissionPhase, m: MissionLoopStepInput['mission'], r
 
 /**
  * Decide the single action for one mission this tick. PURE.
- *  - off / terminal → none.
+ *  - inactive / terminal → none.
  *  - EXECUTE with all epics done → advance (mechanical EXECUTE→VERIFY).
  *  - EXECUTE still building → none (wait for the daemon).
  *  - judgment phase (discover/plan/verify, or execute-with-no-epics): nudge the
  *    steward — but only if idle + past the debounce cooldown + we have a session.
+ *
+ * Driving is gated by the mission's `active` flag (one active mission per session) —
+ * NOT a per-project mode. The orchestrator only calls the pass for WATCHED projects,
+ * which is the real safety boundary; this stays attended (nudge steward for judgment).
  */
 export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAction {
-  const { mission, rollup, ownerSession, mode, idle, now, cooldownMs } = input;
-  if (mode === 'off') return { kind: 'none', reason: 'mode-off' };
+  const { mission, rollup, ownerSession, idle, now, cooldownMs } = input;
   if (!mission.active) return { kind: 'none', reason: 'inactive' }; // a session drives ONE mission
   if (isTerminalPhase(mission.phase)) return { kind: 'none', reason: `terminal:${mission.phase}` };
 
@@ -104,7 +104,6 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
 }
 
 export interface MissionLoopDeps {
-  getMode?: (project: string) => MissionLoopMode;
   list?: (project: string) => MissionSummary[];
   isIdle?: (project: string, session: string) => boolean;
   advance?: (project: string, todoId: string) => unknown;
@@ -116,15 +115,18 @@ export interface MissionLoopDeps {
 
 export interface MissionLoopResult {
   project: string;
-  mode: MissionLoopMode;
   advanced: string[];
   nudged: string[];
   skipped: number;
 }
 
-/** Run one mission-loop pass for a project. Inert unless missionLoopMode is assist/auto. */
+/**
+ * Run one mission-loop pass for a project. Drives the project's ACTIVE, non-terminal
+ * missions (nudge steward for judgment phases, auto-advance mechanical EXECUTE→VERIFY).
+ * The orchestrator only calls this for WATCHED projects — that + the mission `active`
+ * flag are the gates; there is no per-project on/off mode.
+ */
 export async function runMissionLoopPass(project: string, deps: MissionLoopDeps = {}): Promise<MissionLoopResult> {
-  const getMode = deps.getMode ?? getMissionLoopMode;
   const list = deps.list ?? listMissions;
   const isIdle = deps.isIdle ?? ((p: string, s: string) => getStatus(p, s)?.status === 'waiting');
   const advance = deps.advance ?? advanceMission;
@@ -133,9 +135,7 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
   const now = deps.now ?? Date.now();
   const cooldownMs = deps.cooldownMs ?? MISSION_NUDGE_COOLDOWN_MS;
 
-  const mode = getMode(project);
-  const result: MissionLoopResult = { project, mode, advanced: [], nudged: [], skipped: 0 };
-  if (mode === 'off') return result;
+  const result: MissionLoopResult = { project, advanced: [], nudged: [], skipped: 0 };
 
   let missions: MissionSummary[];
   try { missions = list(project); } catch { return result; }
@@ -150,7 +150,6 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
       },
       rollup: { converged: m.rollup.converged, mechanical: m.rollup.mechanical, capability: m.rollup.capability },
       ownerSession: session,
-      mode,
       idle: session ? isIdle(project, session) : false,
       now,
       cooldownMs,

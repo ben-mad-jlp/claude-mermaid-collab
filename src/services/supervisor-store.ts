@@ -34,8 +34,6 @@ export interface WatchedProject {
 export type ContextRecycleMode = 'off' | 'notify' | 'force';
 export const CONTEXT_RECYCLE_MODES: ContextRecycleMode[] = ['off', 'notify', 'force'];
 
-export type MissionLoopMode = 'off' | 'assist' | 'auto';
-export const MISSION_LOOP_MODES: MissionLoopMode[] = ['off', 'assist', 'auto'];
 
 export interface SupervisedSession {
   project: string;
@@ -431,26 +429,13 @@ export function setContextRecycleMode(project: string, mode: ContextRecycleMode)
   ).run(project, Date.now(), mode);
 }
 
-/** Per-project mission-loop driver mode (Phase 2b). 'off' = inert (default);
- *  'assist' = steward-in-the-loop (the pass nudges the steward for judgment phases
- *  DISCOVER/PLAN/VERIFY and auto-advances the mechanical EXECUTE→VERIFY step);
- *  'auto' = fully autonomous (reserved for slice 3 — treated as 'assist' until then). */
-export function getMissionLoopMode(project: string): MissionLoopMode {
-  const d = openDb();
-  const row = d.query('SELECT missionLoopMode FROM watched_project WHERE project = ?')
-    .get(project) as { missionLoopMode: string | null } | undefined;
-  const m = row?.missionLoopMode;
-  return m === 'assist' || m === 'auto' ? m : 'off';
-}
-
-/** Set a project's mission-loop mode. Upserts the watched_project row. */
-export function setMissionLoopMode(project: string, mode: MissionLoopMode): void {
-  const d = openDb();
-  d.prepare(
-    `INSERT INTO watched_project (project, addedAt, missionLoopMode) VALUES (?, ?, ?)
-     ON CONFLICT(project) DO UPDATE SET missionLoopMode = excluded.missionLoopMode`,
-  ).run(project, Date.now(), mode);
-}
+// Phase-2b mission-loop driving is no longer a per-project mode. It's governed by
+// two things that already exist and already mean something: the project being WATCHED
+// (the orchestrator only runs the pass for watched projects) and the mission being
+// ACTIVE (one active mission per session). The old off|assist|auto tri-state — with
+// 'auto' never implemented — was removed in favor of that. Unattended autonomy, when
+// built, will be a single global stance, not a per-project setting. The dormant
+// `missionLoopMode` column is left in the table (harmless) for back-compat.
 
 // --- Supervised sessions ---
 

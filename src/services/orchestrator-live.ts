@@ -217,9 +217,9 @@ export interface TickDeps {
    *  project regardless of level, like notify. Default: runContextRecyclePass. */
   recycle?: (project: string) => Promise<unknown>;
   /** Phase-2b mission-loop driver: advance convergence missions (nudge steward for
-   *  judgment phases, auto-advance the mechanical EXECUTE→VERIFY step), gated by
-   *  per-project missionLoopMode (off default). Runs for every WATCHED project like
-   *  recycle. Default: runMissionLoopPass. */
+   *  judgment phases, auto-advance the mechanical EXECUTE→VERIFY step). Drives each
+   *  project's ACTIVE missions; runs for WATCHED projects only (the safety boundary —
+   *  no per-project mode). Default: runMissionLoopPass. */
   missionLoop?: (project: string) => Promise<unknown>;
   triage?: (project: string, opts: { autoResolve: boolean }) => Promise<void>;
   /** Set of WATCHED project paths. A non-off project that isn't watched is forced off
@@ -334,9 +334,10 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       }
     }
 
-    // Phase-2b mission-loop driver (assist/auto): advance convergence missions. Gated
-    // by per-project missionLoopMode (off default → inert). Runs for every WATCHED
-    // project regardless of level, like recycle. Best-effort; bounded.
+    // Phase-2b mission-loop driver: advance convergence missions (attended — nudge the
+    // steward for judgment phases, auto-advance mechanical EXECUTE→VERIFY). Drives the
+    // project's ACTIVE missions; runs for every WATCHED project regardless of level (the
+    // watched gate IS the safety boundary — no per-project mode). Best-effort; bounded.
     if (watched.has(project)) {
       try {
         currentPhase = `${project}:mission-loop`;
