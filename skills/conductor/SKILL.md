@@ -35,6 +35,11 @@ The **Mission Conductor**: the LLM session that drives ONE active convergence **
 - **The Orchestrator daemon:** the engine — claims `ready` leaves, spawns workers in their own epic worktrees, runs the gate, lands green epics. EXECUTE is *mechanical*; the mission-loop pass auto-advances EXECUTE→VERIFY once the iteration's epics settle.
 - **One active mission per session.** The loop drives only the *active* mission (`set_active_mission`); others are paused.
 
+## You ARE the Planner, scoped to this mission
+The mechanics of shaping a work-graph — how epics/leaves nest, dependency semantics, and the rule that **the daemon never self-promotes `planned → ready`** — are owned by the **`planner`** skill. The conductor does not fork or re-derive them: **follow the planner's work-graph rules**, and treat DISCOVER/PLAN as *being the planner for this mission's slice*.
+
+So the promotion invariant is ONE rule, not two: *"only the planning role promotes todos to ready."* For a mission's transient epics, **you are that role** — you promote *this mission's* epic + leaves to ready (the planner's rule, applied here). You are not a second, competing authority; you are the planner acting inside the loop. Read active constraints/decisions the same way the planner does before you decompose. Everything below is the mission-loop layer *on top of* the planner's mechanics — not a replacement for them.
+
 You are nudged by the server's mission-loop pass (idle-gated, ~once per 15 min per mission). Each nudge is stamped `[HH:MM TZ]` so you can see when it fired. A nudge is a prompt to act on the *current phase* — not a new task.
 
 ## The phase playbook
@@ -46,9 +51,10 @@ You are nudged by the server's mission-loop pass (idle-gated, ~once per 15 min p
 4. File it as an **`[EPIC]` child of the mission node** (`add_session_todo` with `parentId=<mission id>`). Do NOT build it.
 5. `stamp_mission event=discover`, then `advance_mission` → PLAN.
 
-### PLAN — decompose + approve for the daemon
+### PLAN — decompose + approve for the daemon (as the planner, for this mission)
+Follow the **planner** skill's work-graph rules here — you are the planner for this mission's slice.
 1. Break the epic into **leaves** (`add_session_todo` with `parentId=<epic id>`) — small, single-responsibility, each with a clear acceptance.
-2. **Approve** the epic + leaves (`update_session_todo status=ready`) so the daemon can claim them. **Only the conductor promotes mission work to ready** — the daemon never self-promotes.
+2. **Approve** the epic + leaves (`update_session_todo status=ready`) so the daemon can claim them. This is the planner's promotion rule applied to the mission: **the planning role is the only one that promotes to ready — for these mission epics, that's you; the daemon never self-promotes.**
 3. `advance_mission` → EXECUTE.
 
 ### EXECUTE — hands off; the daemon builds
