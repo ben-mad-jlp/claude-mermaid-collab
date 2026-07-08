@@ -269,11 +269,23 @@ export function wavesBudget(taskCount: number, fileCount: number): number {
  *  hopeless leaf still gives up rather than burning the whole budget in place. */
 export const REVISE_REUSE_CAP = 3;
 
-/** P5 size-gate thresholds (tunable). A leaf is FLOOR-eligible iff it touches
- *  `<= FILE_THRESHOLD` files AND `<= TASK_THRESHOLD` tasks AND has no
- *  non-enumerable fan-out. Over any of these ⇒ WAVES. */
-export const FILE_THRESHOLD = 4;
-export const TASK_THRESHOLD = 6;
+/** Positive-int env override (returns `dflt` when unset/invalid). */
+function envInt(name: string, dflt: number): number {
+  const raw = process.env[name];
+  if (!raw) return dflt;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+}
+
+/** P5 size-gate thresholds. A leaf is FLOOR-eligible (linear) iff it touches
+ *  `<= FILE_THRESHOLD` files AND `<= TASK_THRESHOLD` tasks AND has no non-enumerable
+ *  fan-out. Over any of these ⇒ WAVES. Env-overridable (defaults preserve prior
+ *  behaviour) so the linear-vs-fanout boundary can be validated on a real leaf without
+ *  a redeploy — see design-replace-worker-fanout-with-planner-decomposition (the
+ *  measurement shows fan-out is dominated up to ~8 files; MERMAID_FILE_THRESHOLD lets
+ *  us confirm forced-linear on a 5–8-file leaf before changing the default). */
+export const FILE_THRESHOLD = envInt('MERMAID_FILE_THRESHOLD', 4);
+export const TASK_THRESHOLD = envInt('MERMAID_TASK_THRESHOLD', 6);
 /** Auto-split ceiling (worker-decomposition): a leaf whose ENUMERATED file set exceeds
  *  this is decomposed PRE-FLIGHT into one child leaf per file rather than run as one
  *  (over-large) WAVES leaf that tends to exhaust its node budget. Above FILE_THRESHOLD
