@@ -19,6 +19,7 @@ import { MISSION_TOOL_DEFS, handleMissionTool } from '../mission-tools.js';
 import { EMBED_TOOL_DEFS, handleEmbedTool } from '../embed-tools.js';
 import { IMAGE_TOOL_DEFS, handleImageTool } from '../image-tools.js';
 import { DOCUMENT_TOOL_DEFS, handleDocumentTool } from '../document-tools.js';
+import { BROWSER_TOOL_DEFS, handleBrowserTool } from '../browser-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -114,5 +115,16 @@ describe('tool dispatch coverage', () => {
 
   it('handleDocumentTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleDocumentTool('definitely_not_a_document_tool', {})).toBeNull();
+  });
+
+  it('every BROWSER_TOOL_DEFS name is wired in handleBrowserTool', async () => {
+    expect(BROWSER_TOOL_DEFS.length).toBe(30);
+    for (const def of BROWSER_TOOL_DEFS) {
+      expect(await isRecognized(handleBrowserTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleBrowserTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleBrowserTool('definitely_not_a_browser_tool', {})).toBeNull();
   });
 });
