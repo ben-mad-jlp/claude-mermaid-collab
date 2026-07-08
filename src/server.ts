@@ -109,15 +109,6 @@ try {
   console.error(`mermaid-collab: todo migration failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
-// Migrate roadmap.db items into todos.db (idempotent — sentinel row prevents re-run).
-try {
-  const { migrateRoadmapToTodos } = await import('./services/roadmap-migration.js');
-  const { migrated, skipped } = await migrateRoadmapToTodos(MERMAID_PROJECT);
-  if (!skipped) console.log(`📋 Roadmap migration: ${migrated} item(s) backfilled`);
-} catch (err) {
-  console.error(`mermaid-collab: roadmap migration failed — ${err instanceof Error ? err.message : String(err)}`);
-}
-
 // Unified project list reconcile (idempotent): the supervisor's watched set is
 // the PERSISTENT source of truth for the Bridge — it survives restarts and only
 // changes on an explicit user add/remove (the api.ts / supervisor-routes.ts
