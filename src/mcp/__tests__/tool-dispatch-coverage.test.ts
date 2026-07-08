@@ -20,6 +20,7 @@ import { EMBED_TOOL_DEFS, handleEmbedTool } from '../embed-tools.js';
 import { IMAGE_TOOL_DEFS, handleImageTool } from '../image-tools.js';
 import { DOCUMENT_TOOL_DEFS, handleDocumentTool } from '../document-tools.js';
 import { BROWSER_TOOL_DEFS, handleBrowserTool } from '../browser-tools.js';
+import { SPREADSHEET_TOOL_DEFS, handleSpreadsheetTool } from '../spreadsheet-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -126,5 +127,25 @@ describe('tool dispatch coverage', () => {
 
   it('handleBrowserTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleBrowserTool('definitely_not_a_browser_tool', {})).toBeNull();
+  });
+
+  it('SPREADSHEET_TOOL_DEFS declares exactly the expected spreadsheet surface', () => {
+    expect(new Set(SPREADSHEET_TOOL_DEFS.map((d) => d.name))).toEqual(
+      new Set([
+        'list_spreadsheets', 'get_spreadsheet', 'create_spreadsheet', 'update_spreadsheet',
+        'delete_spreadsheet', 'get_spreadsheet_history', 'revert_spreadsheet', 'patch_spreadsheet',
+        'export_spreadsheet_csv',
+      ]),
+    );
+  });
+
+  it('every SPREADSHEET_TOOL_DEFS name is wired in handleSpreadsheetTool', async () => {
+    for (const def of SPREADSHEET_TOOL_DEFS) {
+      expect(await isRecognized(handleSpreadsheetTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleSpreadsheetTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleSpreadsheetTool('definitely_not_a_spreadsheet_tool', {})).toBeNull();
   });
 });
