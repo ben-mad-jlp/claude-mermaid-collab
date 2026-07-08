@@ -770,118 +770,11 @@ describe('runLeaf P5 size gate', () => {
     expect(res.nodesSpent).toBe(3);
   });
 
-  it('(b) big estimate ⇒ WAVES (research/wimplement/verify per task/file, then review)', async () => {
-    const tasks = Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, files: [`f${i}.ts`], description: `d${i}` }));
-    const { deps, calls } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 8, estimatedTasks: 8, nonEnumerableFanout: false, filesToCreate: tasks.map((t) => t.files[0]), filesToEdit: [], tasks },
-      reviewVerdict: 'VERDICT: PASS',
-      nodeBudget: 100, // a full 8-task wave run spends ~27 nodes; raise the backstop so it completes
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('accepted');
-    // No floor 'implement' node ran.
-    expect(calls).not.toContain('implement');
-    expect(calls.filter((c) => c === 'research').length).toBe(8); // one per task
-    expect(calls.filter((c) => c === 'wimplement').length).toBe(8); // one per file
-    // 8 per-file verifies + 1 wave-level gate verify.
-    expect(calls.filter((c) => c === 'verify').length).toBe(9);
-    expect(calls[calls.length - 1]).toBe('review');
-  });
-
-  it('(c) waves hit NODE_BUDGET ⇒ BLOCKED mid-wave', async () => {
-    const tasks = Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, files: [`f${i}.ts`], description: `d${i}` }));
-    const { deps } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 8, estimatedTasks: 8, nonEnumerableFanout: false, filesToCreate: tasks.map((t) => t.files[0]), filesToEdit: [], tasks },
-      nodeBudget: 3, // blueprint(1) + a couple research nodes then over budget
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('node-budget-exhausted');
-  });
-
   it('(d) unparseable size block ⇒ FLOOR (fail-safe)', async () => {
     const { deps, calls } = makeWaveDeps({ manifest: 'no json fence at all', reviewVerdict: 'VERDICT: PASS' });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('accepted');
     expect(calls).toEqual(['blueprint', 'implement', 'review']);
-  });
-
-  it('(e) nonEnumerableFanout=true at files=2 ⇒ WAVES (gate overridden by flag)', async () => {
-    const { deps, calls } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
-      reviewVerdict: 'VERDICT: PASS',
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('accepted');
-    expect(calls).toContain('research');
-    expect(calls).not.toContain('implement');
-  });
-
-  it('(f) per-file fix stuck (same error twice) ⇒ BLOCKED waves-file-stuck', async () => {
-    const { deps } = makeWaveDeps({
-      // estimatedFiles above the size-gate threshold ⇒ WAVES (the real fileSet is still
-      // the single 'a.ts'; estimatedFiles is only the routing signal). Threshold-relative
-      // so it stays on the waves path regardless of the FILE_THRESHOLD default.
-      manifest: { schemaVersion: 1, estimatedFiles: FILE_THRESHOLD + 1, estimatedTasks: 1, nonEnumerableFanout: false, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
-      // verify for a.ts: error, then (after fix) the SAME error again ⇒ stuck.
-      verifyTexts: ['error TS1: boom', 'error TS1: boom'],
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('waves-file-stuck');
-  });
-
-  it('(i) WAVES gate: a FOREIGN-only tsc error (file the leaf never touched) PASSES when scoped', async () => {
-    // The build123d ec4c082d failure: every own-file verify clean, but the project-wide
-    // gate tripped on a pre-existing error in an untouched file. With the change-set wired,
-    // the foreign-only failure must be scoped away and the leaf accepted.
-    const { deps } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
-      reviewVerdict: 'VERDICT: PASS',
-      changeSet: ['a.ts'],
-      // per-file a.ts verify clean; the GATE verify reports an error in an untouched file.
-      verifyTexts: ['TSC: CLEAN', 'foreign/other.ts(12,3): error TS2307: Cannot find module'],
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('accepted');
-    expect(res.reason).not.toBe('waves-tsc-gate-failed');
-  });
-
-  it('(j) WAVES gate: an IN-SCOPE tsc error (in a file the leaf changed) still BLOCKS', async () => {
-    const { deps } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
-      changeSet: ['a.ts'],
-      verifyTexts: ['TSC: CLEAN', 'a.ts(5,2): error TS2322: type mismatch'],
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('waves-tsc-gate-failed');
-  });
-
-  it('(k) WAVES gate: with the change-set UNWIRED, any gate error BLOCKS (fail-closed, unchanged)', async () => {
-    const { deps } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
-      // NO changeSet → seam unwired → null → fail closed even on a foreign error.
-      verifyTexts: ['TSC: CLEAN', 'foreign/other.ts(1,1): error TS2307: x'],
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('waves-tsc-gate-failed');
-  });
-
-  it('(l) WAVES no-op skip: a wimplement that changes nothing skips its per-file verify', async () => {
-    // Budget-burn regression: an already-satisfied file (not in the change-set after its
-    // wimplement) must NOT spend a verify node. a.ts is touched, b.ts is already done.
-    const { deps, calls } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 2, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: ['a.ts', 'b.ts'], tasks: [{ id: 't', files: ['a.ts', 'b.ts'], description: 'x' }] },
-      reviewVerdict: 'VERDICT: PASS',
-      changeSet: ['a.ts'], // only a.ts was actually changed; b.ts is a no-op
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('accepted');
-    expect(calls.filter((c) => c === 'wimplement').length).toBe(2); // both files implemented
-    // Only a.ts gets a per-file verify; b.ts is skipped. Plus the 1 wave-level gate verify.
-    expect(calls.filter((c) => c === 'verify').length).toBe(2);
   });
 
   it('(m) over-ceiling enumerable manifest ⇒ SPLIT pre-flight (no floor/waves nodes run)', async () => {
@@ -899,7 +792,7 @@ describe('runLeaf P5 size gate', () => {
     expect(calls).toEqual(['blueprint']);
   });
 
-  it('(n) over-ceiling but NON-ENUMERABLE fanout ⇒ no split, falls through to WAVES', async () => {
+  it('(n) over-ceiling but NON-ENUMERABLE fanout ⇒ no split, runs LINEAR (waves retired)', async () => {
     const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
     const splitCalls: Array<{ leafId: string; files: string[] }> = [];
     const { deps, calls } = makeWaveDeps({
@@ -910,7 +803,10 @@ describe('runLeaf P5 size gate', () => {
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(splitCalls.length).toBe(0); // non-enumerable can't be partitioned → no split
-    expect(calls).toContain('wimplement'); // ran the WAVES path instead
+    // WAVES retired: a non-splittable big leaf runs the single linear FLOOR implement node
+    // (fail-safe), not the old per-file wave fan-out.
+    expect(calls).toContain('implement');
+    expect(calls).not.toContain('wimplement');
     expect(res.outcome).toBe('accepted');
   });
 
@@ -924,7 +820,7 @@ describe('runLeaf P5 size gate', () => {
       splitCalls,
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(splitCalls.length).toBe(0); // 8 ≤ SPLIT_CEILING (12)
+    expect(splitCalls.length).toBe(0); // 8 ≤ SPLIT_CEILING (= FILE_THRESHOLD, 8)
     expect(res.outcome).toBe('accepted');
   });
 
@@ -940,65 +836,6 @@ describe('runLeaf P5 size gate', () => {
     expect(res.outcome).not.toBe('split');
   });
 
-  it('(h) large multi-file waves leaf does NOT budget-exhaust on the DEFAULT budget (L4 regression)', async () => {
-    // L4: a 6-file leaf spent ~21 nodes (blueprint+6 research+6 wimplement+7 verify+review),
-    // exceeding the floor-sized NODE_BUDGET=20 → false node-budget-exhausted. The waves path
-    // must size its budget to the manifest. No explicit nodeBudget here → size-aware applies.
-    const tasks = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, files: [`f${i}.ts`], description: `d${i}` }));
-    const { deps } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 6, estimatedTasks: 6, nonEnumerableFanout: false, filesToCreate: tasks.map((t) => t.files[0]), filesToEdit: [], tasks },
-      reviewVerdict: 'VERDICT: PASS',
-      // NO nodeBudget — exercise the default (size-aware) ceiling.
-    });
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('accepted');
-    expect(res.reason).not.toBe('node-budget-exhausted');
-  });
-
-  it('(g) wave wimplement/fix INLINE the blueprint + research (waves-file-stuck regression)', async () => {
-    // The live L3 run got `waves-file-stuck` because wimplement was told to READ the
-    // blueprint/research off disk, but they were not present in the fresh worktree → the
-    // node implemented blind. The wave prompts must INLINE that context (mirrors the P2
-    // b77dd104 fix). Capture the wimplement + fix prompts and assert the text is inlined.
-    const BP_MARKER = 'BLUEPRINT-BODY-MARKER-7f3a';
-    const RESEARCH_MARKER = 'RESEARCH-FINDING-MARKER-9b2c';
-    const prompts: Record<string, string> = {};
-    let verifyIdx = 0;
-    const deps: LeafExecutorDeps = {
-      invoker: {
-        async invoke(spec: NodeSpec): Promise<NodeResult> {
-          const kind = waveKindOf(spec);
-          if (kind === 'wimplement' && !prompts.wimplement) prompts.wimplement = spec.prompt;
-          if (kind === 'fix' && !prompts.fix) prompts.fix = spec.prompt;
-          if (kind === 'research') return okResult(RESEARCH_MARKER);
-          if (kind === 'review') return okResult('VERDICT: PASS');
-          if (kind === 'verify') { const t = verifyIdx === 0 ? 'error TS1: boom' : 'TSC: CLEAN'; verifyIdx += 1; return okResult(t); }
-          return okResult('done');
-        },
-      },
-      wm: { async ensure() { return { isGit: true, path: '/tmp/wt/1', branch: 'b', baseBranch: 'm' } as never; } } as never,
-      epicId: EPIC_ID,
-      epicBranch: EPIC_BRANCH,
-      assertAuth: () => 'subscription',
-      async complete(_p, _t, a) { return { effective: a }; },
-      async mergeToEpic() { return {}; },
-      escalate() {},
-      recordNode: () => null,
-      nodeBudget: 100,
-      // The blueprint artifact text the readBlueprint seam returns — carries the marker
-      // AND the size manifest that routes to waves.
-      readBlueprint: async () => `# bp ${BP_MARKER}\n\n\`\`\`json\n${JSON.stringify({ schemaVersion: 1, estimatedFiles: 8, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: ['a.ts'], filesToEdit: [], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] })}\n\`\`\`\n`,
-    };
-    const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(res.outcome).toBe('accepted');
-    // wimplement inlines BOTH the blueprint body and the research findings, and does NOT
-    // fall back to the disk-read instruction.
-    expect(prompts.wimplement).toContain(BP_MARKER);
-    expect(prompts.wimplement).toContain(RESEARCH_MARKER);
-    expect(prompts.wimplement).not.toContain('Read the blueprint at');
-    // the fix node (it ran — verify errored once) inlines the blueprint too.
-    expect(prompts.fix).toContain(BP_MARKER);
-  });
 });
 
 describe('runLeaf 86b persistBlueprint (durable per-attempt)', () => {

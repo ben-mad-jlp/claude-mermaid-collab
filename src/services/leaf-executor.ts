@@ -291,11 +291,15 @@ function envInt(name: string, dflt: number): number {
 export const FILE_THRESHOLD = envInt('MERMAID_FILE_THRESHOLD', 8);
 export const TASK_THRESHOLD = envInt('MERMAID_TASK_THRESHOLD', 6);
 /** Auto-split ceiling (worker-decomposition): a leaf whose ENUMERATED file set exceeds
- *  this is decomposed PRE-FLIGHT into one child leaf per file rather than run as one
- *  (over-large) WAVES leaf that tends to exhaust its node budget. Above FILE_THRESHOLD
- *  (=WAVES) and well above it — ≤4 FLOOR, 5..SPLIT_CEILING WAVES, >SPLIT_CEILING split.
- *  A non-enumerable manifest can't be partitioned, so it never auto-splits (→ WAVES). */
-export const SPLIT_CEILING = 12;
+ *  this is decomposed PRE-FLIGHT into one child leaf per file (a visible split proposal
+ *  the Planner reviews — promote, or reset-to-linear if the files are interdependent),
+ *  rather than run as one over-large leaf. WAVES RETIRED (2026-07-08): the taxonomy is now
+ *  just ≤ threshold → FLOOR (linear), > threshold → auto-split. So the ceiling tracks
+ *  FILE_THRESHOLD — there is no middle fan-out band. (Design: the fan-out path cost ~6× a
+ *  linear run at no reliability gain; see design-replace-worker-fanout-with-planner-
+ *  decomposition.) A non-enumerable manifest can't be partitioned, so a big one falls
+ *  through to FLOOR (fail-safe; ~0 occurrence in practice). */
+export const SPLIT_CEILING = FILE_THRESHOLD;
 
 /** Verify pipeline (epic f5c7fc46): the DEFAULT deterministic gate verb when a verify leaf
  *  declares no other. build_assembly_plan is the build123d driver T1–T13 built (the thing
@@ -1809,28 +1813,18 @@ export async function runLeaf(
     let rootSnap: RootSnapshot | null = null;
     try { rootSnap = snapshotMainCheckout(cwd); } catch { /* best-effort */ }
 
-    if (!shouldUseFloor(manifest)) {
-      pathTaken = 'waves';
-      // Lift the runaway ceiling to the size-aware waves budget (unless a test pinned one),
-      // so a legitimately large multi-file leaf isn't false-killed mid-wave.
-      if (deps.nodeBudget == null && manifest) {
-        const fileCount = new Set([
-          ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
-        ]).size;
-        budget = Math.max(budget, wavesBudget(manifest.tasks.length, fileCount));
-      }
-      // WAVES — research/wimplement/verify/fix; budget/pause/stuck short-circuit here.
-      const wavesResult = await runWaves(manifest!, cwd, blueprintBody);
-      if (wavesResult) return finishWith(wavesResult);
-      // waves completed all files clean → FALL THROUGH to the REVIEW node below.
-    } else {
-      pathTaken = 'floor';
-      // FLOOR — UNCHANGED implement node (byte-identical to P2):
-      // IMPLEMENT
-      const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
-      if (impl.rateLimited) return pausedResult('implement', impl);
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    }
+    // WAVES RETIRED (2026-07-08): every claimed leaf runs LINEAR (FLOOR). A leaf too big
+    // for one linear run (> SPLIT_CEILING = FILE_THRESHOLD enumerated files) was already
+    // auto-split PRE-FLIGHT above, so anything reaching here is within the linear band —
+    // the proven-cheap+reliable path (measured ~5 nodes / ~90% pass vs the old fan-out's
+    // ~27 nodes / ~63%). The rare non-enumerable-big or many-task leaf that dodged the
+    // split also runs linear (fail-safe). runWaves/wavesBudget/shouldUseFloor are now
+    // unreferenced — RETIRED, pending a dead-code sweep.
+    pathTaken = 'floor';
+    // IMPLEMENT (byte-identical to the prior FLOOR path):
+    const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
+    if (impl.rateLimited) return pausedResult('implement', impl);
+    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
     // REVIEW + P6 SURGICAL REUSE. Review the tree; on a missing-logic FAIL (a NEW
     // finding) re-run the IMPLEMENT node IN PLACE — same worktree, keeping the correct
