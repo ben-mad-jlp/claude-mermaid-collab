@@ -9,10 +9,8 @@ import { describe, it, expect } from 'bun:test';
 import {
   runLeaf,
   parseVerdict,
-  isTscClean,
   buildNodePrompt,
   parseSizeManifest,
-  shouldUseFloor,
   leafExecutionMode,
   parseVerifyGate,
   buildVerifyPrompt,
@@ -21,7 +19,6 @@ import {
   VERIFY_GATE_VERB,
   VERIFY_EXEC_TIMEOUT_MS,
   FILE_THRESHOLD,
-  TASK_THRESHOLD,
   NODE_BUDGET,
   deprecatePriorAttempts,
   blueprintAttemptName,
@@ -253,16 +250,6 @@ describe('parseVerdict (fail-closed)', () => {
   });
 });
 
-describe('isTscClean (tolerant of markdown wrapping — L4 waves-file-stuck root cause)', () => {
-  it('treats backtick/bold-wrapped + empty as clean, real errors as not-clean', () => {
-    expect(isTscClean('`TSC: CLEAN`')).toBe(true);   // the exact L4 case
-    expect(isTscClean('TSC: CLEAN')).toBe(true);
-    expect(isTscClean('**TSC: CLEAN**')).toBe(true);
-    expect(isTscClean('')).toBe(true);               // nothing to report = clean
-    expect(isTscClean(undefined)).toBe(true);
-    expect(isTscClean('error TS2339: Property x does not exist')).toBe(false);
-  });
-});
 
 describe('buildNodePrompt per-node specs', () => {
   it('blueprint writes, implement edits, review is read-only — via runLeaf specs', async () => {
@@ -651,25 +638,6 @@ describe('leafExecutionMode (epic f5c7fc46 — thin code/verify dispatch)', () =
   });
 });
 
-describe('shouldUseFloor (size gate, each boundary)', () => {
-  const mk = (over: object) => ({
-    schemaVersion: 1, estimatedFiles: 1, estimatedTasks: 1, nonEnumerableFanout: false,
-    filesToCreate: [], filesToEdit: [], tasks: [], ...over,
-  });
-  it('null ⇒ FLOOR (fail-safe)', () => expect(shouldUseFloor(null)).toBe(true));
-  it('at thresholds ⇒ FLOOR', () => {
-    expect(shouldUseFloor(mk({ estimatedFiles: FILE_THRESHOLD, estimatedTasks: TASK_THRESHOLD }))).toBe(true);
-  });
-  it('files over threshold ⇒ WAVES', () => {
-    expect(shouldUseFloor(mk({ estimatedFiles: FILE_THRESHOLD + 1 }))).toBe(false);
-  });
-  it('tasks over threshold ⇒ WAVES', () => {
-    expect(shouldUseFloor(mk({ estimatedTasks: TASK_THRESHOLD + 1 }))).toBe(false);
-  });
-  it('non-enumerable fan-out at small size ⇒ WAVES', () => {
-    expect(shouldUseFloor(mk({ estimatedFiles: 2, nonEnumerableFanout: true }))).toBe(false);
-  });
-});
 
 // ── P5: the SIZE GATE in runLeaf (mocked invoker, wave-aware) ─────────────────
 /** Detect the node kind from a spec for the wave-aware mock. Floor and wave kinds

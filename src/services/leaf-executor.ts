@@ -249,14 +249,6 @@ export interface LeafRunResult {
 
 export const ATTEMPT_CAP = 2;
 export const NODE_BUDGET = 20;
-/** Hard cap on the size-aware WAVES budget — a true runaway is still bounded. */
-export const WAVES_BUDGET_MAX = 45;
-/** Size-aware node budget for the waves path: blueprint(1) + research(per task) +
- *  implement/verify/fix per file (~4 — wimplement + verify + a fix + the re-verify the
- *  per-file fix loop adds) + gate/review margin(6), capped. */
-export function wavesBudget(taskCount: number, fileCount: number): number {
-  return Math.min(WAVES_BUDGET_MAX, 1 + taskCount + fileCount * 4 + 6);
-}
 /** P6 surgical reuse: max in-place re-implement passes per attempt on a missing-logic
  *  review FAIL (a NEW finding) before discarding the worktree for a fresh attempt.
  *  FM2 (daemon-builder-trust-diagnostic): raised 1→3. The in-place loop already KEEPS
@@ -278,18 +270,15 @@ function envInt(name: string, dflt: number): number {
   return Number.isFinite(n) && n > 0 ? n : dflt;
 }
 
-/** P5 size-gate thresholds. A leaf is FLOOR-eligible (linear) iff it touches
- *  `<= FILE_THRESHOLD` files AND `<= TASK_THRESHOLD` tasks AND has no non-enumerable
- *  fan-out. Over any of these ⇒ WAVES. Env-overridable.
+/** Size gate (post-WAVES-retirement): a leaf touching `<= FILE_THRESHOLD` enumerated
+ *  files runs LINEAR (FLOOR); more than that auto-splits PRE-FLIGHT into a Planner-
+ *  reviewed per-file proposal (SPLIT_CEILING tracks this). Env-overridable.
  *
- *  FILE_THRESHOLD default raised 4→8 (2026-07-08) on the measurement in
- *  design-replace-worker-fanout-with-planner-decomposition: across 473 real runs the
- *  WAVES fan-out path costs ~6× the nodes of the linear FLOOR path (27 vs 4.4) at no
- *  reliability gain, so 5–8-file leaves — the bulk of the old waves band — run cheaper
- *  linear. WAVES still handles 9–12 (kept as the safety valve until it's retired +
- *  the >8 split-to-Planner path lands); >12 still auto-splits (SPLIT_CEILING). */
+ *  Default raised 4→8 (2026-07-08) on the measurement in
+ *  design-replace-worker-fanout-with-planner-decomposition: across 473 real runs the old
+ *  WAVES fan-out path cost ~6× the nodes of the linear FLOOR path (27 vs 4.4) at no
+ *  reliability gain — so the linear band was widened to ≤8 and WAVES retired. */
 export const FILE_THRESHOLD = envInt('MERMAID_FILE_THRESHOLD', 8);
-export const TASK_THRESHOLD = envInt('MERMAID_TASK_THRESHOLD', 6);
 /** Auto-split ceiling (worker-decomposition): a leaf whose ENUMERATED file set exceeds
  *  this is decomposed PRE-FLIGHT into one child leaf per file (a visible split proposal
  *  the Planner reviews — promote, or reset-to-linear if the files are interdependent),
@@ -375,8 +364,8 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
     kinds: ['blueprint', 'implement', 'review'],
   },
   {
-    key: 'waves', label: 'Waves', defaultCollapsed: true,
-    firesWhen: "Only when a code leaf's blueprint manifest is multi-file / non-enumerable (!shouldUseFloor).",
+    key: 'waves', label: 'Waves (RETIRED)', defaultCollapsed: true,
+    firesWhen: "RETIRED (2026-07-08): the fan-out path no longer runs — every leaf runs linear (FLOOR) and oversized leaves auto-split. Kept only to display historical waves runs.",
     kinds: ['research', 'wimplement', 'verify', 'fix'],
   },
   {
@@ -526,9 +515,9 @@ export function buildNodePrompt(
         '`VERDICT: FAIL — <reason>`  (otherwise)',
       ].join('\n');
     default:
-      // Wave kinds (research/wimplement/verify/fix) are built by buildWavePrompt, verify
-      // kinds by buildVerifyPrompt — never here. Keeps this switch exhaustive over the
-      // widened LeafNodeKind.
+      // Verify-pipeline kinds (driveplan/driveexec/report) are built by buildVerifyPrompt;
+      // the retired wave kinds (research/wimplement/verify/fix) are never spawned. Neither
+      // reaches here — this switch is exhaustive over the FLOOR kinds it owns.
       throw new Error(`buildNodePrompt: unsupported floor kind "${kind}"`);
   }
 }
@@ -657,84 +646,10 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
   ].join('\n');
 }
 
-/** A unit of wave work — a single task (research) or a single file
- *  (wimplement/verify/fix). */
-export interface WaveTarget {
-  /** Task id (research) or the file path (wimplement/verify/fix). */
-  ref: string;
-  /** Files in scope (research: the task's files; file-scoped kinds: just [file]). */
-  files: string[];
-  /** One-line description (research) or the tsc errors to fix (fix). */
-  detail: string;
-}
-
-/** Build the prompt for a WAVE node (P5). Mirrors buildNodePrompt but is
- *  per-task/per-file. The verify/fix prompts pin the PROJECT tsconfig so
- *  cross-file types resolve (R3). */
-export function buildWavePrompt(
-  kind: 'research' | 'wimplement' | 'verify' | 'fix',
-  leaf: Todo,
-  target: WaveTarget,
-  ctx?: { blueprintText?: string; researchText?: string },
-): string {
-  const bp = blueprintPath(leaf);
-  const files = target.files.join(', ') || '(none listed)';
-  switch (kind) {
-    case 'research':
-      return [
-        `You are a RESEARCH node (READ-ONLY) for task \`${target.ref}\`: ${target.detail}`,
-        `Files in scope: ${files}.`,
-        'Read the relevant code (Read/Grep/Glob and Bash for inspection ONLY — no edits).',
-        `Read the blueprint at \`${bp}\`. Investigate the exact change shape for this task`,
-        `and WRITE your findings to \`.collab/leaf-blueprints/${leaf.id}.research.${target.ref}.md\`.`,
-        'ALSO output your COMPLETE findings as your FINAL reply message (verbatim) — the',
-        'executor inlines that text into the IMPLEMENT node, so it must stand alone even if',
-        'the file write fails. Do NOT modify any source file.',
-      ].join('\n');
-    case 'wimplement': {
-      // INLINE the blueprint + research text (mirrors buildNodePrompt's implement case,
-      // fix 89f7f6e/b77dd104): a separate `claude -p` runs in a FRESH worktree off the
-      // epic tip and the per-leaf blueprint/research files are NOT guaranteed present
-      // there — relying on a disk read silently starves the node of context (the
-      // waves-file-stuck regression). The executor passes the captured text directly.
-      const blueprintBlock = ctx?.blueprintText
-        ? `This leaf's blueprint is inlined below — do NOT search for, glob, or read ANY blueprint file (other leaves' blueprints may be present in shared dirs — ignore them entirely).\n\n=== BLUEPRINT (${leaf.id}) START ===\n${ctx.blueprintText}\n=== BLUEPRINT END ===`
-        : `Read the blueprint at \`${bp}\` and THIS leaf's research notes (\`.collab/leaf-blueprints/${leaf.id}.research.*.md\`) — ONLY those exact files; ignore any other blueprint in the directory.`;
-      const researchBlock = ctx?.researchText
-        ? `\n\n=== RESEARCH NOTES (inlined) START ===\n${ctx.researchText}\n=== RESEARCH NOTES END ===`
-        : '';
-      return [
-        `You are the IMPLEMENT node for ONE file: \`${target.ref}\` (Read/Edit only).`,
-        blueprintBlock + researchBlock,
-        'Implement this file FULLY against the working tree. Do not stub or leave TODOs. Do NOT run the gate.',
-      ].join('\n');
-    }
-    case 'verify':
-      return [
-        `You are the VERIFY node for file \`${target.ref}\` (READ + Bash for the compile check ONLY; no edits).`,
-        `Run the project's compile check from the repo root. ${COMPILE_CHECK_INSTRUCTION}`,
-        'Use the PROJECT config (never a standalone/temp tsconfig) so cross-file types resolve.',
-        `Report the FIRST compile error touching \`${target.ref}\`, or if there is none (or the`,
-        'project has no compile step) output EXACTLY one line: `TSC: CLEAN`',
-      ].join('\n');
-    case 'fix': {
-      // Inline the blueprint so the fix has the same intent context as wimplement —
-      // a fresh `claude -p` can't be assumed to read it off disk.
-      const blueprintBlock = ctx?.blueprintText
-        ? `\n\n=== BLUEPRINT (${leaf.id}, inlined — do NOT read other blueprint files) START ===\n${ctx.blueprintText}\n=== BLUEPRINT END ===`
-        : '';
-      return [
-        `You are a FIX node for file \`${target.ref}\` (Read/Edit only).`,
-        `Fix these tsc errors:\n${target.detail}`,
-        'After editing, do NOT re-run tsc — the executor re-verifies. Read/Edit only.' + blueprintBlock,
-      ].join('\n');
-    }
-  }
-}
-
 /** Extract + validate the LAST ```json fence from any of the given sources into a
  *  {@link LeafSizeManifest}. FAIL-SAFE: ANY failure (no fence, JSON error, bad
- *  types) ⇒ returns null, and a null manifest ⇒ FLOOR (see {@link shouldUseFloor}).
+ *  types) ⇒ returns null; a null manifest ⇒ the FLOOR (linear) fail-safe, an oversized
+ *  one (> SPLIT_CEILING enumerated files) ⇒ pre-flight auto-split.
  *  Mirrors parseVerdict's fail-closed posture; never throws. Exported (shared with
  *  the Bridge file-manifest, todo 86b2f019). */
 export function parseSizeManifest(
@@ -783,17 +698,6 @@ export function parseSizeManifest(
   return null;
 }
 
-/** P5 size gate (pure, unit-testable). FLOOR iff the manifest is unparseable
- *  (null ⇒ fail-safe to the proven default) OR within BOTH thresholds AND no
- *  non-enumerable fan-out. Anything else ⇒ WAVES. */
-export function shouldUseFloor(m: LeafSizeManifest | null): boolean {
-  if (!m) return true; // unparseable ⇒ FLOOR (fail-safe)
-  return (
-    m.estimatedFiles <= FILE_THRESHOLD &&
-    m.estimatedTasks <= TASK_THRESHOLD &&
-    !m.nonEnumerableFanout
-  );
-}
 
 /** Which EXECUTION SHAPE a leaf runs (epic f5c7fc46). 'code' (default) is the proven
  *  blueprint→implement/waves→tsc-review AUTHORING pipeline; 'verify' is the non-code
@@ -938,12 +842,6 @@ export function parseVerifyGate(resultText: string | undefined): VerifyGateVerdi
   return { status: reasons.length ? 'fail' : 'pass', reasons };
 }
 
-/** True when a verify node reported a clean tsc result. Tolerant of markdown wrapping
- *  (`TSC: CLEAN` in backticks) and empty output (nothing to report = clean). */
-export function isTscClean(text: string | undefined): boolean {
-  const t = stripSentinelFmt((text ?? '').trim()).trim();
-  return t === '' || /^TSC:\s*CLEAN\b/im.test(t);
-}
 
 /** Stable per-leaf lane name. WorktreeManager keys records on this; `fresh:true`
  *  tears down the prior dir+branch so every attempt is a NEW branch off the tip. */
@@ -1288,134 +1186,6 @@ export async function runLeaf(
     transcriptLabel: kind,
   });
 
-  /** Per-task/per-file wave NodeSpec — mirrors buildSpec but uses buildWavePrompt. */
-  const buildWaveSpec = (
-    kind: 'research' | 'wimplement' | 'verify' | 'fix',
-    cwd: string,
-    target: WaveTarget,
-    ctx?: { blueprintText?: string; researchText?: string },
-  ): NodeSpec => ({
-    prompt: buildWavePrompt(kind, leaf, target, ctx),
-    model: nodeModel(kind),
-    effort: nodeEffort(kind),
-    allowedTools: NODE_PROFILE[kind].allowedTools,
-    // Strip MCP from wave nodes too — research/wimplement/verify/fix use only built-ins.
-    strictMcpConfig: !NODE_PROFILE[kind].allowedTools.includes('mcp__'),
-    cwd,
-    leafId: leaf.id,
-    epicId,
-    project, // E1: recorded in the leaf-subprocess registry for per-project brake
-    permissionMode: 'bypassPermissions',
-    transcriptPath: leafTranscriptPath(project, leaf.id),
-    transcriptLabel: `${kind}:${target.ref}`,
-  });
-
-  /**
-   * P5 WAVES path. Runs research→wimplement→verify per task/file, a per-file fix
-   * loop (same-error-twice = stuck), and a final wave-level project-wide tsc gate.
-   * Owns NO budget logic — EVERY node goes through `runNode` (nodesSpent++ before
-   * spawn) and `checkBudget()`/`res.rateLimited` are checked after each, so the
-   * ceilings are byte-identical to the floor.
-   *
-   * Returns null ⇒ all files clean → caller falls through to the leaf REVIEW node.
-   * Returns a LeafRunResult ⇒ a terminal short-circuit (paused / blocked) to return.
-   */
-  const runWaves = async (
-    manifest: LeafSizeManifest,
-    cwd: string,
-    blueprintBody?: string,
-  ): Promise<LeafRunResult | null> => {
-    // Per-file work set: tasks[].files ∪ filesToCreate ∪ filesToEdit, de-duped.
-    const fileSet: string[] = [];
-    const addFile = (f: string): void => { if (f && !fileSet.includes(f)) fileSet.push(f); };
-    for (const f of manifest.filesToCreate) addFile(f);
-    for (const f of manifest.filesToEdit) addFile(f);
-    for (const t of manifest.tasks) for (const f of t.files) addFile(f);
-
-    // 1. RESEARCH wave — one node per task. v1: sequential (deterministic budget
-    //    accounting; parallelism is an additive follow-up).
-    const researchNotes: string[] = [];
-    for (const t of manifest.tasks) {
-      const res = await runNode('research', buildWaveSpec('research', cwd, {
-        ref: t.id, files: t.files, detail: t.description,
-      }));
-      if (res.rateLimited) return pausedResult('research', res);
-      // Capture the research node's findings to INLINE into wimplement (the node runs
-      // in a fresh worktree and can't be assumed to read the .research.*.md off disk).
-      if (res.text && res.text.trim()) {
-        researchNotes.push(`## Task ${t.id}: ${t.description}\n${res.text.trim()}`);
-      }
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    }
-    const researchText = researchNotes.length ? researchNotes.join('\n\n---\n\n') : undefined;
-
-    // 2+3+4+5. Per file: IMPLEMENT → VERIFY → per-file FIX loop.
-    for (const file of fileSet) {
-      const impl = await runNode('wimplement', buildWaveSpec('wimplement', cwd, {
-        ref: file, files: [file], detail: '',
-      }, { blueprintText: blueprintBody, researchText }));
-      if (impl.rateLimited) return pausedResult('wimplement', impl);
-      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-
-      // No-op short-circuit: if the wimplement made NO change to this file, it was
-      // already satisfied in the worktree baseline — skip its per-file verify (the
-      // final project-wide gate still backstops). Avoids burning a verify node per
-      // already-done file (the budget-exhaustion-on-done-work failure). Only when the
-      // change-set is readable; null (unwired / non-git) → verify as before.
-      const implChangeSet = deps.changeSet ? await deps.changeSet(sessionKey) : null;
-      if (implChangeSet && !isInChangeSet(file, implChangeSet)) {
-        continue; // already-done file → next file
-      }
-
-      // VERIFY + per-file FIX loop. same-error-signature-twice = stuck.
-      let previousError: string | null = null;
-      for (;;) {
-        const ver = await runNode('verify', buildWaveSpec('verify', cwd, {
-          ref: file, files: [file], detail: '',
-        }));
-        if (ver.rateLimited) return pausedResult('verify', ver);
-        if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-
-        const errText = (ver.text ?? '').trim();
-        if (isTscClean(ver.text)) break; // file clean (tolerant of `TSC: CLEAN` markdown wrapping)
-
-        if (previousError !== null && errText === previousError) {
-          return parkBlocked('waves-file-stuck'); // same error twice ⇒ stuck
-        }
-        previousError = errText;
-
-        const fix = await runNode('fix', buildWaveSpec('fix', cwd, {
-          ref: file, files: [file], detail: errText,
-        }, { blueprintText: blueprintBody }));
-        if (fix.rateLimited) return pausedResult('fix', fix);
-        if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-      }
-    }
-
-    // 6. WAVE-LEVEL tsc gate — one final project-wide verify. Must be clean.
-    const gate = await runNode('verify', buildWaveSpec('verify', cwd, {
-      ref: '<project>', files: fileSet, detail: '',
-    }));
-    if (gate.rateLimited) return pausedResult('verify', gate);
-    if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-    if (!isTscClean(gate.text)) {
-      // The gate runs PROJECT-WIDE tsc, so a PRE-EXISTING error in a file this leaf
-      // never touched would otherwise block an otherwise-clean leaf. Scope the failure
-      // to the leaf's change-set — the same contract the completion gate already uses
-      // (scopeFailureToChangeSet): foreign-only errors PASS; an error in a file the leaf
-      // changed still blocks. When the change-set is unavailable (unwired / non-git), the
-      // scope returns null → we fail closed exactly as before.
-      const gateChangeSet = deps.changeSet ? await deps.changeSet(sessionKey) : null;
-      const scoped = scopeFailureToChangeSet(gate.text ?? '', gateChangeSet);
-      if (!scoped?.passed) {
-        return parkBlocked('waves-tsc-gate-failed');
-      }
-      // foreign-only tsc errors → the leaf's own files are clean → gate passes.
-    }
-
-    return null; // all clean → caller runs the leaf REVIEW node
-  };
-
   /** Verify-pipeline NodeSpec (epic f5c7fc46) — mirrors buildSpec but uses buildVerifyPrompt
    *  and threads the resolved gate `verb` into both the prompt and (for driveexec) the per-leaf
    *  allowlist, so a non-default verb is referenced AND tool-allowlisted correctly (L3). */
@@ -1737,7 +1507,7 @@ export async function runLeaf(
 
     // --- P5 SIZE GATE ---
     // Read the blueprint artifact (its trailing ```json size block) and derive the
-    // manifest. Unparseable ⇒ null ⇒ shouldUseFloor true ⇒ the proven FLOOR path.
+    // manifest. Unparseable ⇒ null ⇒ the proven FLOOR (linear) fail-safe path.
     const manifestText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
     const manifest = parseSizeManifest(manifestText, bp.text);
     // Unconditional inline source (b77dd104): prefer the read-back .md, else the
@@ -1818,8 +1588,8 @@ export async function runLeaf(
     // auto-split PRE-FLIGHT above, so anything reaching here is within the linear band —
     // the proven-cheap+reliable path (measured ~5 nodes / ~90% pass vs the old fan-out's
     // ~27 nodes / ~63%). The rare non-enumerable-big or many-task leaf that dodged the
-    // split also runs linear (fail-safe). runWaves/wavesBudget/shouldUseFloor are now
-    // unreferenced — RETIRED, pending a dead-code sweep.
+    // split also runs linear (fail-safe). (The old runWaves/buildWavePrompt/wavesBudget/
+    // shouldUseFloor machinery was deleted in the WAVES dead-code sweep.)
     pathTaken = 'floor';
     // IMPLEMENT (byte-identical to the prior FLOOR path):
     const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
