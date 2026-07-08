@@ -188,6 +188,117 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // MISSIONS (write) — AUTHORING surface for the Plan-board Missions strip. Each route
+  // is a thin delegate to handleMissionTool (the same logic the MCP tools run), so the
+  // UI shares the node-update + websocket-broadcast + integrity rules with the steward.
+  // DELIBERATELY NOT exposed here: setting a criterion's VERDICT (met/unmet) and
+  // advance_mission (phase driving) — those stay steward/MCP-only to preserve the
+  // independent-VERIFY (maker≠checker) and autonomous-loop ownership of phase.
+  if (url.pathname.startsWith('/api/supervisor/missions/') || url.pathname === '/api/supervisor/missions') {
+    // Collection base: create / edit node+config / delete.
+    if (url.pathname === '/api/supervisor/missions' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        const out = await handleMissionTool('create_mission', body);
+        return Response.json(out ? JSON.parse(out) : {});
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    if (url.pathname === '/api/supervisor/missions' && req.method === 'PATCH') {
+      // Edit the mission node (title/description) AND/OR its loop config
+      // (maxIterations/procedure) in one call — the Edit dialog's single save.
+      try {
+        const body = (await req.json()) as {
+          project?: string; todoId?: string; title?: string; description?: string;
+          maxIterations?: number | null; procedure?: string | null;
+        };
+        if (!body.project || !body.todoId) return jsonError('project and todoId are required', 400);
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        if (body.title !== undefined || body.description !== undefined) {
+          await handleMissionTool('update_mission', { project: body.project, todoId: body.todoId, title: body.title, description: body.description });
+        }
+        if (body.maxIterations !== undefined || body.procedure !== undefined) {
+          await handleMissionTool('set_mission_config', { project: body.project, todoId: body.todoId, maxIterations: body.maxIterations, procedure: body.procedure });
+        }
+        const { getMission, listCriteria, getMissionRollup } = await import('../services/mission-store.ts');
+        return Response.json({ mission: getMission(body.project, body.todoId), criteria: listCriteria(body.project, body.todoId), rollup: getMissionRollup(body.project, body.todoId) });
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    if (url.pathname === '/api/supervisor/missions' && req.method === 'DELETE') {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        const out = await handleMissionTool('delete_mission', body);
+        return Response.json(out ? JSON.parse(out) : {});
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    // Activate/switch the active mission for its session.
+    if (url.pathname === '/api/supervisor/missions/activate' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        const out = await handleMissionTool('set_active_mission', body);
+        return Response.json(out ? JSON.parse(out) : {});
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    // Re-home a mission to a different session.
+    if (url.pathname === '/api/supervisor/missions/owner' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        const out = await handleMissionTool('set_mission_owner', body);
+        return Response.json(out ? JSON.parse(out) : {});
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    // Criteria authoring — add / edit-text / remove. TEXT only; verdicts stay MCP-only.
+    if (url.pathname === '/api/supervisor/missions/criteria' && req.method === 'POST') {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        const out = await handleMissionTool('add_mission_criterion', body);
+        return Response.json(out ? JSON.parse(out) : {});
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    if (url.pathname === '/api/supervisor/missions/criteria' && req.method === 'PATCH') {
+      // Edit a criterion's assertion text. INTEGRITY RULE: the assertion changed, so
+      // its prior verdict no longer applies — clear met/evidence/verifiedBy so the
+      // independent verifier must re-judge (maker≠checker preserved).
+      try {
+        const body = (await req.json()) as { project?: string; criterionId?: string; text?: string };
+        if (!body.project || !body.criterionId || !body.text) return jsonError('project, criterionId, text are required', 400);
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        await handleMissionTool('update_mission_criterion', body);
+        const { setCriterionVerdict } = await import('../services/mission-store.ts');
+        setCriterionVerdict(body.project, body.criterionId, { met: false, evidence: null, verifiedBy: null });
+        return Response.json({ criterionId: body.criterionId, text: body.text, verdictCleared: true });
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+    if (url.pathname === '/api/supervisor/missions/criteria' && req.method === 'DELETE') {
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const { handleMissionTool } = await import('../mcp/mission-tools.ts');
+        const out = await handleMissionTool('set_mission_criterion', { ...body, remove: true });
+        return Response.json(out ? JSON.parse(out) : {});
+      } catch (err) {
+        return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+      }
+    }
+  }
+
   // ESCALATION BRIEFING — deep markdown decision briefing for one escalation
   // (epic 40771aab). Lazy-generate-on-open + cached on the escalation row; the UI
   // POSTs this when the human opens a card. FAILS OPEN to a deterministic briefing.

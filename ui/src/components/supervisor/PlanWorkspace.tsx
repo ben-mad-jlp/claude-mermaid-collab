@@ -103,7 +103,7 @@ export const PlanWorkspace: React.FC = () => {
 
       {/* Convergence-loop MISSIONS surfaced distinctly at the TOP of the board.
           Renders nothing when there are no [MISSION] nodes for this project. */}
-      <MissionsStrip serverId={serverScope} project={project} />
+      <MissionsStrip serverId={serverScope} project={project} session={currentSession?.name} />
 
       {/* Center plan + right-hand detail dock. When a todo is selected the dock
           becomes a RESIZABLE SplitPane (draggable divider, persisted width);
