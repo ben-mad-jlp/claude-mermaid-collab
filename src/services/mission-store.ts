@@ -346,6 +346,23 @@ export function deleteMission(project: string, todoId: string): void {
   db.prepare('DELETE FROM mission WHERE todoId = ?').run(todoId);
 }
 
+/** Delete mission control rows (+ their criteria) whose todoId is NOT in the set of
+ *  live [MISSION] node ids — i.e. the graph node was dropped/removed without going
+ *  through delete_mission. Idempotent self-heal; returns the count pruned. */
+export function pruneOrphanMissions(project: string, liveNodeIds: Set<string>): number {
+  const db = openDb(project);
+  const rows = db.query('SELECT todoId FROM mission').all() as Array<{ todoId: string }>;
+  let pruned = 0;
+  for (const { todoId } of rows) {
+    if (!liveNodeIds.has(todoId)) {
+      db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(todoId);
+      db.prepare('DELETE FROM mission WHERE todoId = ?').run(todoId);
+      pruned++;
+    }
+  }
+  return pruned;
+}
+
 /** Set a mission's active flag directly (low-level; prefer activateMission to keep
  *  the one-active-per-session invariant). */
 export function setMissionActive(project: string, todoId: string, active: boolean): void {
@@ -382,11 +399,12 @@ export function activateMission(project: string, todoId: string): string[] {
   return deactivated;
 }
 
-/** True iff the session already has an active mission (used to default a newly
- *  created mission inactive when its session is already driving one). */
+/** True iff the session already has an active, NON-TERMINAL mission (used to default
+ *  a newly created mission inactive only when its session is genuinely driving one).
+ *  A converged/stopped mission still carries active=1 but must NOT block a new one. */
 export function sessionHasActiveMission(project: string, session: string, excludeTodoId?: string): boolean {
   return listMissions(project).some(
-    (m) => m.node.id !== excludeTodoId && m.mission.active &&
+    (m) => m.node.id !== excludeTodoId && m.mission.active && !isTerminalPhase(m.mission.phase) &&
       (m.ownerSession === session || m.assigneeSession === session),
   );
 }
@@ -511,6 +529,10 @@ export function listMissions(project: string, opts: { session?: string } = {}): 
   const roots = all.filter(
     (t) => t.parentId == null && t.status !== 'dropped' && isMissionTitle(t.title),
   );
+  // Self-heal: prune mission control rows whose graph node is gone/dropped (e.g. a
+  // mission removed via a node-drop rather than delete_mission). Keeps mission.db
+  // from accumulating orphans. Cheap: we already have the live node id set.
+  pruneOrphanMissions(project, new Set(roots.map((t) => t.id)));
   const out: MissionSummary[] = [];
   for (const node of roots) {
     const mission = getMission(project, node.id);
