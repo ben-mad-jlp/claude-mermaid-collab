@@ -63,14 +63,8 @@ import { bom } from '../services/system-object-bom.js';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.js';
 import { specHealth, syncShortlist } from '../services/cartographer.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
-import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews, reassignOwnerSession, updateTodo as updateTodoStore } from '../services/todo-store.js';
-import {
-  upsertMission, getMission, advanceMission, setMissionPhase, setMissionConfig, stampDiscover, stampVerify,
-  addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, removeCriterion, listCriteria, getMissionRollup,
-  activateMission, sessionHasActiveMission, setMissionActive, deleteMission,
-  MISSION_PHASES, type MissionPhase,
-} from '../services/mission-store.js';
-import { MISSION_TITLE_PREFIX, isMissionTitle } from '../services/claimability.js';
+import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
+import { MISSION_TOOL_DEFS, handleMissionTool } from './mission-tools.js';
 import { briefEscalation } from '../services/escalation-briefing.js';
 import { checkInvariants } from '../services/invariant-check.js';
 import { gateStatus } from '../services/gate-status.js';
@@ -2225,18 +2219,7 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'set_mission_loop', description: "Set a project's MISSION-LOOP driver mode (Phase 2b) — the deterministic pass that advances convergence missions. 'off' (default) = inert; 'assist' = steward-in-the-loop: the pass NUDGES the steward session for judgment phases (DISCOVER/PLAN/VERIFY — VERIFY = run the independent /verify-mission gate) and AUTO-ADVANCES the mechanical EXECUTE→VERIFY step once the daemon has built the mission's epics; 'auto' = fully autonomous (reserved for a later slice; behaves like assist for now). Nudges are idle-gated + debounced. The STOP-WHEN maxIterations guard still bounds every mission.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, mode: { type: 'string', enum: ['off', 'assist', 'auto'], description: 'off | assist | auto' } }, required: ['project', 'mode'] } },
       { name: 'set_context_recycle', description: "Set a project's context-auto-recycle mode — the deterministic server-side driver that keeps a low-context WATCHED session alive by injecting /vibe-checkpoint → /clear → /collab (no LLM supervisor in the loop). 'off' (default) = inert; 'notify' = at the watchdog threshold, inject an advisory nudge and only auto-clear+reload once the session itself saves a fresh checkpoint (assisted); 'force' = server injects the checkpoint too, then clears+reloads (for an unattended autonomous-loop session).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, mode: { type: 'string', enum: ['off', 'notify', 'force'], description: "off | notify | force" } }, required: ['project', 'mode'] } },
       { name: 'supervisor_watchdog_scan', description: 'Context-watchdog control loop: scan a project\'s session statuses and return the per-session actions to take this tick — "checkpoint" (over the context threshold on a safe/idle boundary → nudge the session to run /vibe-checkpoint) or "clear" (a checkpoint is persisted → call supervisor_clear_session). Deterministic; the supervisor calls this each tick.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, thresholdPercent: { type: 'number', description: 'Context % that triggers a clear cycle (default 80).' } }, required: ['project'] } },
-      { name: 'create_mission', description: "Create a durable MISSION — a convergence LOOP toward a goal. It is a top-level [MISSION] work-graph node (a non-closing root: unlike an epic it never auto-closes) plus loop-control state running the canonical agentic loop DISCOVER→PLAN→EXECUTE→VERIFY→(ITERATE: loop back, iteration++). VERIFY checks the acceptance criteria: all met → converged; else if the maxIterations STOP-WHEN cap is hit → stopped; else loop back to DISCOVER. Each iteration's gaps become transient [EPIC] children (the EXECUTE work). Title auto-prefixed [MISSION]. Set `criteria` (the VERIFY gate — the real 'done' signal), `maxIterations` (the STOP-WHEN guard so a loop can't run forever), and `procedure` (the EACH-ITERATION recipe). Returns node + state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal. Auto-prefixed [MISSION].' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, maxIterations: { type: 'number', description: 'STOP-WHEN cap: stop after this many un-converged iterations (omit = unbounded).' }, procedure: { type: 'string', description: 'The EACH-ITERATION recipe (what to do each lap).' } }, required: ['project', 'session', 'title'] } },
-      { name: 'set_active_mission', description: "Make ONE mission the ACTIVE mission for its owning session and deactivate every OTHER mission owned by that session — a steward drives one mission at a time, and the mission-loop pass only drives the active one. Missions of other sessions are untouched. Returns the deactivated ids.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
-      { name: 'update_mission', description: "Edit a mission's node — its title (goal) and/or description. The [MISSION] prefix is preserved. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text ([MISSION] prefix auto-kept).' }, description: { type: 'string' } }, required: ['project', 'todoId'] } },
-      { name: 'delete_mission', description: "Permanently delete a mission — drops the [MISSION] work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
-      { name: 'update_mission_criterion', description: "Edit an acceptance criterion's TEXT (the assertion). Does not change its met/verdict — use set_mission_criterion for that.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'criterionId', 'text'] } },
-      { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (phase, iteration, criteria, verdicts). todoId must be a [MISSION] node.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The [MISSION] node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
-      { name: 'set_mission_config', description: "Update a mission's loop-spec config — the maxIterations STOP-WHEN cap and/or the EACH-ITERATION procedure. Pass a field to change it; omit to leave unchanged (pass maxIterations:null to clear the cap).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, maxIterations: { type: ['number', 'null'] }, procedure: { type: ['string', 'null'] } }, required: ['project', 'todoId'] } },
-      { name: 'get_mission', description: 'Read a mission\'s full state: loop-control row (phase, iteration, timestamps), acceptance criteria, and the convergence rollup — mechanical (this iteration\'s [EPIC] children done/total) + capability (criteria met/total) + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The [MISSION] node id.' } }, required: ['project', 'todoId'] } },
-      { name: 'advance_mission', description: "Advance a mission ONE step through the loop DISCOVER→PLAN→EXECUTE→VERIFY. At VERIFY it makes the ITERATE decision: all criteria met → converged; else maxIterations reached → stopped; else loop back to DISCOVER (iteration++). Pass toPhase to jump to a specific phase (e.g. 'converged'/'stopped' to end, or back to 'discover'). Phase 2a is steward-hand-driven. Returns the new state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, toPhase: { type: 'string', enum: MISSION_PHASES, description: 'Optional: jump to this phase instead of advancing one step.' } }, required: ['project', 'todoId'] } },
-      { name: 'stamp_mission', description: "Record a phase activity signal on a mission: event='discover' stamps that a DISCOVER pass ran this iteration; event='verify' stamps that a VERIFY check ran. Timestamps only — does not advance the phase (use advance_mission for that).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, event: { type: 'string', enum: ['discover', 'verify'] } }, required: ['project', 'todoId', 'event'] } },
-      { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
-      { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. Pass remove=true to delete the criterion instead. Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
+      ...MISSION_TOOL_DEFS,
       { name: 'context_usage', description: "Read-only per-session context-window report for a project: each watched session's contextPercent (last reported, with its age), the effective checkpoint threshold (per-project override or the 80% default), and a nearThreshold flag PLUS the watchdog action ('checkpoint'/'clear'/null) it would take this tick — computed from the SAME watchdog selector the supervisor_watchdog_scan uses, so the steward sees who is near a boundary before suggesting /clear. Returns { thresholdPercent, sessions:[{ session, status, contextPercent, contextAgeMs, checkpointReadyAt, nearThreshold, watchdogAction, reason }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose sessions to report.' }, thresholdPercent: { type: 'number', description: 'Override the checkpoint threshold % (default: per-project config → 80).' } }, required: ['project'] } },
       // Spreadsheet tools
       {
@@ -2537,6 +2520,10 @@ IMPORTANT - Common pitfalls to avoid:
       }
 
       const result = await (async () => {
+        // Mission tool group lives in ./mission-tools.ts; delegate by name.
+        // Returns null for non-mission tools → fall through to the switch below.
+        const missionResult = await handleMissionTool(name, args);
+        if (missionResult !== null) return missionResult;
         switch (name) {
           case 'generate_session_name':
             return JSON.stringify({ name: generateSessionName() }, null, 2);
@@ -5212,140 +5199,6 @@ IMPORTANT - Common pitfalls to avoid:
             }
             supervisorStore.setContextRecycleMode(project, mode);
             return JSON.stringify({ project, mode }, null, 2);
-          }
-          case 'set_mission_loop': {
-            const { project, mode } = args as { project: string; mode: string };
-            if (!project || !mode) throw new Error('Missing required: project, mode');
-            if (mode !== 'off' && mode !== 'assist' && mode !== 'auto') {
-              throw new Error("mode must be one of: off, assist, auto");
-            }
-            supervisorStore.setMissionLoopMode(project, mode);
-            return JSON.stringify({ project, mode }, null, 2);
-          }
-          case 'create_mission': {
-            const { project, session, title, description, criteria, maxIterations, procedure } = args as {
-              project: string; session: string; title: string; description?: string; criteria?: string[];
-              maxIterations?: number | null; procedure?: string | null;
-            };
-            if (!project || !session || !title) throw new Error('Missing required: project, session, title');
-            const missionTitle = isMissionTitle(title) ? title : `${MISSION_TITLE_PREFIX} ${title.trim()}`;
-            // The [MISSION] node is a legitimate top-level root (resolveTodoParent exempts it),
-            // so allowOrphan isn't needed — addSessionTodo creates it parentless.
-            const node = await addSessionTodo(project, session, missionTitle, undefined, {
-              assigneeSession: session, description,
-            });
-            upsertMission(project, node.id, { maxIterations: maxIterations ?? null, procedure: procedure ?? null });
-            // One-active-per-session: if this session is already driving an active mission,
-            // create the new one INACTIVE (don't steal focus). Otherwise it stays active.
-            if (sessionHasActiveMission(project, session, node.id)) setMissionActive(project, node.id, false);
-            for (const c of criteria ?? []) { if (c.trim()) addCriterion(project, node.id, c); }
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: node.ownerSession, assigneeSession: node.assigneeSession ?? undefined });
-            return JSON.stringify({
-              node: deriveTodoViews(project, [node])[0],
-              mission: getMission(project, node.id),
-              criteria: listCriteria(project, node.id),
-              rollup: getMissionRollup(project, node.id),
-            }, null, 2);
-          }
-          case 'get_mission': {
-            const { project, todoId } = args as { project: string; todoId: string };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            const mission = getMission(project, todoId);
-            if (!mission) throw new Error(`mission not found: ${todoId}`);
-            return JSON.stringify({
-              mission, criteria: listCriteria(project, todoId), rollup: getMissionRollup(project, todoId),
-            }, null, 2);
-          }
-          case 'set_mission_owner': {
-            const { project, todoId, session } = args as { project: string; todoId: string; session: string };
-            if (!project || !todoId || !session) throw new Error('Missing required: project, todoId, session');
-            const node = getTodo(project, todoId);
-            if (!node) throw new Error(`todo not found: ${todoId}`);
-            if (!isMissionTitle(node.title)) throw new Error(`not a [MISSION] node: ${todoId}`);
-            const updated = await reassignOwnerSession(project, todoId, session);
-            return JSON.stringify({ todoId, ownerSession: updated.ownerSession, assigneeSession: updated.assigneeSession }, null, 2);
-          }
-          case 'set_active_mission': {
-            const { project, todoId } = args as { project: string; todoId: string };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-            const deactivated = activateMission(project, todoId);
-            return JSON.stringify({ active: todoId, deactivated }, null, 2);
-          }
-          case 'update_mission': {
-            const { project, todoId, title, description } = args as { project: string; todoId: string; title?: string; description?: string };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            const node = getTodo(project, todoId);
-            if (!node) throw new Error(`todo not found: ${todoId}`);
-            if (!isMissionTitle(node.title)) throw new Error(`not a [MISSION] node: ${todoId}`);
-            const patch: { title?: string; description?: string } = {};
-            if (title !== undefined) patch.title = isMissionTitle(title) ? title : `${MISSION_TITLE_PREFIX} ${title.trim()}`;
-            if (description !== undefined) patch.description = description;
-            const updated = await updateTodoStore(project, todoId, patch);
-            return JSON.stringify({ todoId, title: updated.title, description: updated.description }, null, 2);
-          }
-          case 'delete_mission': {
-            const { project, todoId } = args as { project: string; todoId: string };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            const node = getTodo(project, todoId);
-            if (!node) throw new Error(`todo not found: ${todoId}`);
-            if (!isMissionTitle(node.title)) throw new Error(`not a [MISSION] node: ${todoId}`);
-            deleteMission(project, todoId);            // control state + criteria
-            await updateTodoStore(project, todoId, { status: 'dropped' }); // drop the graph node
-            return JSON.stringify({ deleted: todoId }, null, 2);
-          }
-          case 'update_mission_criterion': {
-            const { project, criterionId, text } = args as { project: string; criterionId: string; text: string };
-            if (!project || !criterionId || !text) throw new Error('Missing required: project, criterionId, text');
-            updateCriterionText(project, criterionId, text);
-            return JSON.stringify({ criterionId, text }, null, 2);
-          }
-          case 'advance_mission': {
-            const { project, todoId, toPhase } = args as { project: string; todoId: string; toPhase?: MissionPhase };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-            const mission = toPhase ? setMissionPhase(project, todoId, toPhase) : advanceMission(project, todoId);
-            return JSON.stringify({ mission, rollup: getMissionRollup(project, todoId) }, null, 2);
-          }
-          case 'stamp_mission': {
-            const { project, todoId, event } = args as { project: string; todoId: string; event: 'discover' | 'verify' };
-            if (!project || !todoId || !event) throw new Error('Missing required: project, todoId, event');
-            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-            const mission = event === 'discover' ? stampDiscover(project, todoId) : stampVerify(project, todoId);
-            return JSON.stringify({ mission }, null, 2);
-          }
-          case 'set_mission_config': {
-            const { project, todoId, maxIterations, procedure } = args as {
-              project: string; todoId: string; maxIterations?: number | null; procedure?: string | null;
-            };
-            if (!project || !todoId) throw new Error('Missing required: project, todoId');
-            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-            const cfg: { maxIterations?: number | null; procedure?: string | null } = {};
-            if (maxIterations !== undefined) cfg.maxIterations = maxIterations;
-            if (procedure !== undefined) cfg.procedure = procedure;
-            const mission = setMissionConfig(project, todoId, cfg);
-            return JSON.stringify({ mission }, null, 2);
-          }
-          case 'add_mission_criterion': {
-            const { project, todoId, text } = args as { project: string; todoId: string; text: string };
-            if (!project || !todoId || !text) throw new Error('Missing required: project, todoId, text');
-            if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-            const criterion = addCriterion(project, todoId, text);
-            return JSON.stringify({ criterion, rollup: getMissionRollup(project, todoId) }, null, 2);
-          }
-          case 'set_mission_criterion': {
-            const { project, criterionId, met, evidence, verifiedBy, remove } = args as {
-              project: string; criterionId: string; met?: boolean; evidence?: string; verifiedBy?: string; remove?: boolean;
-            };
-            if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
-            if (remove) { removeCriterion(project, criterionId); return JSON.stringify({ removed: criterionId }, null, 2); }
-            if (typeof met !== 'boolean') throw new Error('met (boolean) is required unless remove=true');
-            if (evidence !== undefined || verifiedBy !== undefined) {
-              setCriterionVerdict(project, criterionId, { met, evidence, verifiedBy });
-            } else {
-              setCriterionMet(project, criterionId, met);
-            }
-            return JSON.stringify({ criterionId, met, evidence: evidence ?? null, verifiedBy: verifiedBy ?? null }, null, 2);
           }
           case 'supervisor_watchdog_scan': {
             const { project, thresholdPercent, checkpointCooldownMs } = args as { project: string; thresholdPercent?: number; checkpointCooldownMs?: number };
