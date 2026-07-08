@@ -29,7 +29,7 @@
  * — the authoritative accept/reject/pending verdict is the resolver's.
  */
 import { generateText, stepCountIs, tool } from 'ai';
-import { xai } from '@ai-sdk/xai';
+import { createXai } from '@ai-sdk/xai';
 import { z } from 'zod';
 import {
   writeFileSync,
@@ -41,7 +41,7 @@ import { resolve, dirname, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DEFAULT_EVENT_POLL_MS } from '../worker-agent';
 import { getTodo } from '../../services/todo-store';
-import { getConfig } from '../../services/config-service';
+import { getConfig, getSecret } from '../../services/config-service';
 import { recordPhase } from '../../services/worker-ledger';
 import { knownPricing } from '../worker-core/cost';
 import { getWebSocketHandler } from '../../services/ws-handler-manager';
@@ -527,8 +527,15 @@ class GrokOwnHarnessImpl implements WorkerAgent {
 
     lane.phase = 'working';
     try {
+      // config.json-first, env fallback (same precedence grokAvailable() uses) —
+      // never the bare `xai` singleton, which only reads process.env and can
+      // diverge from a Secrets-UI-rotated key (see grok-review-lane-fix).
+      const apiKey = getSecret('XAI_API_KEY');
+      if (!apiKey) {
+        throw new Error('GrokOwnHarness: XAI_API_KEY not configured (env or Secrets UI)');
+      }
       await generateText({
-        model: xai(spec.model ?? DEFAULT_GROK_MODEL),
+        model: createXai({ apiKey })(spec.model ?? DEFAULT_GROK_MODEL),
         tools,
         stopWhen: stepCountIs(GROK_STEP_CAP),
         system: 'Autonomous coding worker. Use tools only. Be terse.',

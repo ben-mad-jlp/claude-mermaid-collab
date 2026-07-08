@@ -11,7 +11,7 @@
  * (Built correctly here after the bakeoff caught grok-build hardcoding xai() +
  * drifting on model ids — see bakeoff-phase1-blueprints.)
  */
-import { xai } from '@ai-sdk/xai';
+import { createXai } from '@ai-sdk/xai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import type { LanguageModel } from 'ai';
 import type { ProviderId } from '../worker-agent';
@@ -63,8 +63,19 @@ export function providerAvailable(provider: ProviderId): boolean {
 export function resolveModel(provider: ProviderId, modelId?: string): LanguageModel {
   const id = modelId ?? DEFAULT_MODEL_BY_PROVIDER[provider];
   switch (provider) {
-    case 'grok-build':
-      return xai(id);
+    case 'grok-build': {
+      // API key from the Secrets UI / config (config.json-first, env fallback —
+      // same precedence grokAvailable() already uses). createXai so this never
+      // silently falls back to the bare `xai` singleton's env-only lookup,
+      // which can diverge from a Secrets-UI-rotated key (see grok-review-lane-fix).
+      const apiKey = getSecret('XAI_API_KEY');
+      if (!apiKey) {
+        throw new Error(
+          "worker-core resolveModel: provider 'grok-build' needs XAI_API_KEY (add it in the Secrets UI)",
+        );
+      }
+      return createXai({ apiKey })(id);
+    }
     case 'claude': {
       // API key from the Secrets UI / config (NOT a subscription login — the in-process
       // AI SDK needs a console.anthropic.com key). createAnthropic so we don't depend on

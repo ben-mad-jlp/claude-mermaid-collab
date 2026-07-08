@@ -17,12 +17,13 @@
  * so unlike the CLI grok lane (which reports $0) this records REAL per-node cost in the ledger.
  */
 import { generateText, stepCountIs, tool } from 'ai';
-import { xai } from '@ai-sdk/xai';
+import { createXai } from '@ai-sdk/xai';
 import { z } from 'zod';
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, relative, isAbsolute, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { captureTranscript } from './node-invoker';
+import { getSecret } from '../services/config-service';
 import type { NodeInvoker, NodeResult, NodeSpec, NodeUsage, AuthMode } from './node-invoker';
 
 /** Default model for the xAI-API lane — the flagship reasoner (the bake-off winner). */
@@ -39,13 +40,14 @@ const TOOL_OUT_CAP = 8_000;
 /** git subcommands the loop may run — strictly read-only/inspection. */
 const GIT_READONLY = new Set(['diff', 'show', 'log', 'status', 'ls-files', 'blame', 'rev-parse']);
 
-// --- Auth (fail-closed, memoized; separate cache from claude/grok) -----------
-let cachedXaiAuth: AuthMode | null = null;
+// --- Auth ---------------------------------------------------------------
+// Resolved fresh on every call via getSecret (config.json-first, env fallback —
+// same precedence consult_grok and grokAvailable() use). NOT memoized: a stale
+// memo is exactly the bug class that bit the grok-build OIDC lane (see
+// grok-fleet-auth-blocker) — the Secrets UI can rotate this key at runtime via
+// setConfig, and the next node must see it immediately.
 export function resolveXaiApiAuthMode(): AuthMode {
-  if (cachedXaiAuth === null) {
-    cachedXaiAuth = (process.env.XAI_API_KEY?.trim() ?? '').length > 0 ? 'api' : 'unknown';
-  }
-  return cachedXaiAuth;
+  return (getSecret('XAI_API_KEY') ?? '').trim().length > 0 ? 'api' : 'unknown';
 }
 export function assertXaiApiAuth(): AuthMode {
   const m = resolveXaiApiAuthMode();
@@ -57,9 +59,16 @@ export function assertXaiApiAuth(): AuthMode {
   }
   return m;
 }
-/** For tests: drop the memoized auth mode. */
+/** For tests: no-op, kept so existing test call sites don't need to change. */
 export function _resetXaiApiAuthCache(): void {
-  cachedXaiAuth = null;
+  /* resolveXaiApiAuthMode is no longer memoized */
+}
+
+/** Build an xAI client bound to the resolved key (config.json-first, env
+ *  fallback) — never the bare `xai` singleton, which only reads process.env
+ *  and would silently diverge from a Secrets-UI-rotated key. */
+function xaiClient() {
+  return createXai({ apiKey: getSecret('XAI_API_KEY') });
 }
 
 function xaiParseError(msg: string): string {
@@ -173,7 +182,7 @@ export async function invokeXaiApiNode(spec: NodeSpec): Promise<NodeResult> {
 
   try {
     const r = await generateText({
-      model: xai(model),
+      model: xaiClient()(model),
       tools: buildReadOnlyTools(spec.cwd),
       stopWhen: stepCountIs(spec.maxTurns ?? XAI_API_STEP_CAP),
       system: spec.appendSystemPrompt,
