@@ -292,6 +292,31 @@ describe('active mission (one per session)', () => {
   });
 });
 
+describe('mission meta-fixes', () => {
+  test('sessionHasActiveMission ignores a converged/terminal mission (does not block a new one)', async () => {
+    const { sessionHasActiveMission, setMissionPhase } = await import('../mission-store');
+    const a = (await createTodo(project, { ownerSession: 'design', title: '[MISSION] a' })).id;
+    upsertMission(project, a);
+    expect(sessionHasActiveMission(project, 'design')).toBe(true); // active + non-terminal
+    setMissionPhase(project, a, 'converged'); // terminal, still active=1
+    expect(sessionHasActiveMission(project, 'design')).toBe(false); // terminal → does not count
+  });
+
+  test('listMissions self-heals: an orphan mission row (node dropped) is pruned', async () => {
+    const { removeTodo } = await import('../todo-store');
+    const id = await makeMissionNode('[MISSION] soon-gone');
+    upsertMission(project, id);
+    addCriterion(project, id, 'c');
+    expect(getMission(project, id)).toBeDefined();
+    // Drop the node out of the graph (simulating a node-drop that skips delete_mission).
+    await removeTodo(project, id);
+    // listMissions should prune the now-orphaned mission + criterion rows.
+    expect(listMissions(project)).toEqual([]);
+    expect(getMission(project, id)).toBeUndefined(); // control row pruned
+    expect(listCriteria(project, id)).toHaveLength(0);
+  });
+});
+
 describe('updateCriterionText', () => {
   test('edits a criterion text without changing its verdict', async () => {
     const { updateCriterionText, setCriterionVerdict } = await import('../mission-store');
