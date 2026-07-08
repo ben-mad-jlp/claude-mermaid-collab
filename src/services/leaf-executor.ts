@@ -279,12 +279,15 @@ function envInt(name: string, dflt: number): number {
 
 /** P5 size-gate thresholds. A leaf is FLOOR-eligible (linear) iff it touches
  *  `<= FILE_THRESHOLD` files AND `<= TASK_THRESHOLD` tasks AND has no non-enumerable
- *  fan-out. Over any of these ⇒ WAVES. Env-overridable (defaults preserve prior
- *  behaviour) so the linear-vs-fanout boundary can be validated on a real leaf without
- *  a redeploy — see design-replace-worker-fanout-with-planner-decomposition (the
- *  measurement shows fan-out is dominated up to ~8 files; MERMAID_FILE_THRESHOLD lets
- *  us confirm forced-linear on a 5–8-file leaf before changing the default). */
-export const FILE_THRESHOLD = envInt('MERMAID_FILE_THRESHOLD', 4);
+ *  fan-out. Over any of these ⇒ WAVES. Env-overridable.
+ *
+ *  FILE_THRESHOLD default raised 4→8 (2026-07-08) on the measurement in
+ *  design-replace-worker-fanout-with-planner-decomposition: across 473 real runs the
+ *  WAVES fan-out path costs ~6× the nodes of the linear FLOOR path (27 vs 4.4) at no
+ *  reliability gain, so 5–8-file leaves — the bulk of the old waves band — run cheaper
+ *  linear. WAVES still handles 9–12 (kept as the safety valve until it's retired +
+ *  the >8 split-to-Planner path lands); >12 still auto-splits (SPLIT_CEILING). */
+export const FILE_THRESHOLD = envInt('MERMAID_FILE_THRESHOLD', 8);
 export const TASK_THRESHOLD = envInt('MERMAID_TASK_THRESHOLD', 6);
 /** Auto-split ceiling (worker-decomposition): a leaf whose ENUMERATED file set exceeds
  *  this is decomposed PRE-FLIGHT into one child leaf per file rather than run as one

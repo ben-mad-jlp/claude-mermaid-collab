@@ -819,7 +819,10 @@ describe('runLeaf P5 size gate', () => {
 
   it('(f) per-file fix stuck (same error twice) ⇒ BLOCKED waves-file-stuck', async () => {
     const { deps } = makeWaveDeps({
-      manifest: { schemaVersion: 1, estimatedFiles: 5, estimatedTasks: 1, nonEnumerableFanout: false, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
+      // estimatedFiles above the size-gate threshold ⇒ WAVES (the real fileSet is still
+      // the single 'a.ts'; estimatedFiles is only the routing signal). Threshold-relative
+      // so it stays on the waves path regardless of the FILE_THRESHOLD default.
+      manifest: { schemaVersion: 1, estimatedFiles: FILE_THRESHOLD + 1, estimatedTasks: 1, nonEnumerableFanout: false, filesToCreate: [], filesToEdit: ['a.ts'], tasks: [{ id: 't', files: ['a.ts'], description: 'x' }] },
       // verify for a.ts: error, then (after fix) the SAME error again ⇒ stuck.
       verifyTexts: ['error TS1: boom', 'error TS1: boom'],
     });
