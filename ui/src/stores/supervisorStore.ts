@@ -528,6 +528,17 @@ interface SupervisorState {
    *  Returns the mission summaries, or [] on any failure (fail open — the Plan
    *  board still renders without the missions strip). */
   fetchMissions: (serverId: string, project: string, session?: string) => Promise<MissionSummary[]>;
+  /** Mission AUTHORING mutations (write routes under /api/supervisor/missions). Each
+   *  mutates then RE-FETCHES the project's missions (no optimistic update — localhost
+   *  is fast, and a refetch can't race the 15s poll) and returns the fresh list so the
+   *  caller can render it. Returns [] on failure (fail open). */
+  createMission: (serverId: string, project: string, body: { session: string; title: string; description?: string; criteria?: string[]; maxIterations?: number | null; procedure?: string | null }) => Promise<MissionSummary[]>;
+  activateMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
+  updateMission: (serverId: string, project: string, todoId: string, patch: { title?: string; description?: string; maxIterations?: number | null; procedure?: string | null }) => Promise<MissionSummary[]>;
+  deleteMission: (serverId: string, project: string, todoId: string) => Promise<MissionSummary[]>;
+  addMissionCriterion: (serverId: string, project: string, todoId: string, text: string) => Promise<MissionSummary[]>;
+  updateMissionCriterion: (serverId: string, project: string, criterionId: string, text: string) => Promise<MissionSummary[]>;
+  removeMissionCriterion: (serverId: string, project: string, criterionId: string) => Promise<MissionSummary[]>;
   promoteTodo: (serverId: string, project: string, id: string, status: string) => Promise<void>;
   /** Hard-delete a work-graph todo (DELETE /api/supervisor/roadmap). Does NOT
    *  reload the plan — callers batch-deleting should reload once at the end. */
@@ -898,6 +909,48 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     if (!res?.ok) return []; // fail open — no missions strip, board still renders
     const missions = res.body?.missions;
     return Array.isArray(missions) ? (missions as MissionSummary[]) : [];
+  },
+
+  createMission: async (serverId, project, body) => {
+    const res = await invoke(serverId, '/api/supervisor/missions', 'POST', { project, ...body });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  activateMission: async (serverId, project, todoId) => {
+    const res = await invoke(serverId, '/api/supervisor/missions/activate', 'POST', { project, todoId });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  updateMission: async (serverId, project, todoId, patch) => {
+    const res = await invoke(serverId, '/api/supervisor/missions', 'PATCH', { project, todoId, ...patch });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  deleteMission: async (serverId, project, todoId) => {
+    const res = await invoke(serverId, '/api/supervisor/missions', 'DELETE', { project, todoId });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  addMissionCriterion: async (serverId, project, todoId, text) => {
+    const res = await invoke(serverId, '/api/supervisor/missions/criteria', 'POST', { project, todoId, text });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  updateMissionCriterion: async (serverId, project, criterionId, text) => {
+    const res = await invoke(serverId, '/api/supervisor/missions/criteria', 'PATCH', { project, criterionId, text });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
+  },
+
+  removeMissionCriterion: async (serverId, project, criterionId) => {
+    const res = await invoke(serverId, '/api/supervisor/missions/criteria', 'DELETE', { project, criterionId });
+    if (!res?.ok) return [];
+    return get().fetchMissions(serverId, project);
   },
 
   promoteTodo: async (serverId, project, id, status) => {
