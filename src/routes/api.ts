@@ -73,6 +73,18 @@ import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile, readdir as fsReaddir, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from 'fs/promises';
 
 /**
+ * Uniform 500 response for a caught error. Safely extracts a message whether or
+ * not the thrown value is an Error (was previously inlined 38× across the route
+ * chain, in two variants — this unifies them on the instanceof-safe form).
+ */
+function serverError(error: unknown): Response {
+  return Response.json(
+    { error: error instanceof Error ? error.message : String(error) },
+    { status: 500 },
+  );
+}
+
+/**
  * Expand ~ to home directory in paths
  */
 function expandPath(path: string): string {
@@ -321,7 +333,7 @@ export async function handleAPI(
         },
       });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -423,7 +435,7 @@ export async function handleAPI(
       const scan = await scanStale(Number.isFinite(days) ? days : 30);
       return Response.json(scan, { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -443,7 +455,7 @@ export async function handleAPI(
       wsHandler.broadcast({ type: 'session_deleted', project, session });
       return Response.json({ ok: true });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -475,7 +487,7 @@ export async function handleAPI(
       const parent = dir === '/' ? null : join(dir, '..');
       return Response.json({ path: dir, parent, entries }, { headers: { 'Cache-Control': 'no-store' } });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -506,7 +518,7 @@ export async function handleAPI(
       }
       return Response.json({ path: target });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -521,7 +533,7 @@ export async function handleAPI(
       const subs = project ? all.filter((s) => s.project === project) : all;
       return Response.json({ subscriptions: subs }, { headers: { 'Cache-Control': 'no-store' } });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -536,7 +548,7 @@ export async function handleAPI(
       await terminalManager.killTmuxSession(name);
       return Response.json({ ok: true });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -554,7 +566,7 @@ export async function handleAPI(
         },
       });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -743,7 +755,7 @@ export async function handleAPI(
 
       return Response.json(state);
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -783,7 +795,7 @@ export async function handleAPI(
 
       return Response.json({ success: true, cleared: true });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -949,7 +961,7 @@ export async function handleAPI(
         pendingTasks,
       });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -976,7 +988,7 @@ export async function handleAPI(
         createdAt: cachedUI.createdAt,
       });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -1060,7 +1072,7 @@ export async function handleAPI(
 
       return Response.json({ original: history.original, changes: history.changes });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -1088,7 +1100,7 @@ export async function handleAPI(
       if (error.message.includes('No history found')) {
         return Response.json({ error: error.message }, { status: 404 });
       }
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -1363,7 +1375,7 @@ export async function handleAPI(
 
       return Response.json({ original: history.original, changes: history.changes });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -1391,7 +1403,7 @@ export async function handleAPI(
       if (error.message.includes('No history found')) {
         return Response.json({ error: error.message }, { status: 404 });
       }
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -1771,7 +1783,7 @@ export async function handleAPI(
 
       return Response.json({ original: history.original, changes: history.changes });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -1802,7 +1814,7 @@ export async function handleAPI(
       if (error.message.includes('No history found')) {
         return Response.json({ error: error.message }, { status: 404 });
       }
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -1980,7 +1992,7 @@ export async function handleAPI(
 
       return Response.json({ original: history.original, changes: history.changes });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -2009,7 +2021,7 @@ export async function handleAPI(
       if (error.message.includes('No history found')) {
         return Response.json({ error: error.message }, { status: 404 });
       }
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -2201,7 +2213,7 @@ export async function handleAPI(
 
       return Response.json({ original: history.original, changes: history.changes });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -2230,7 +2242,7 @@ export async function handleAPI(
       if (error.message.includes('No history found')) {
         return Response.json({ error: error.message }, { status: 404 });
       }
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -2482,7 +2494,7 @@ export async function handleAPI(
       const embeds = await embedManager.list();
       return Response.json({ embeds });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -2534,7 +2546,7 @@ export async function handleAPI(
         },
       });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -2549,7 +2561,7 @@ export async function handleAPI(
       if (!image) return Response.json({ error: 'Image not found' }, { status: 404 });
       return Response.json(image);
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -2767,7 +2779,7 @@ export async function handleAPI(
       const images = await imageManager.list();
       return Response.json({ images });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -3448,7 +3460,7 @@ export async function handleAPI(
     try {
       return Response.json(await lastAssistantTurn(claudeSessionId));
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -3524,7 +3536,7 @@ export async function handleAPI(
       const result = await listLessons(params.project, params.session);
       return Response.json(result);
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -3586,7 +3598,7 @@ export async function handleAPI(
       const todos = listTodos(params.project, { session: params.session, ownerSession, assigneeSession, status, includeCompleted });
       return Response.json({ todos });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4037,7 +4049,7 @@ export async function handleAPI(
       const status = uiManager.getUIStatus(params.project, params.session, uiId);
       return Response.json(status);
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4195,7 +4207,7 @@ export async function handleAPI(
 
       return Response.json({ sessions: sortedSessions }, { status: 200 });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4246,7 +4258,7 @@ export async function handleAPI(
       if (error.message === 'Session not found') {
         return Response.json({ error: 'Session not found' }, { status: 404 });
       }
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4296,7 +4308,7 @@ export async function handleAPI(
       if (error.message === 'Session not found') {
         return Response.json({ error: 'Session not found' }, { status: 404 });
       }
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4317,7 +4329,7 @@ export async function handleAPI(
       await terminalManager.resyncClaudeTui(target.tmuxSession);
       return Response.json({ success: true }, { status: 200 });
     } catch (error: any) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4396,7 +4408,7 @@ export async function handleAPI(
         headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' },
       });
     } catch (error: unknown) {
-      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4446,7 +4458,7 @@ export async function handleAPI(
       }
       return Response.json({ secrets }, { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } });
     } catch (error: unknown) {
-      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4486,7 +4498,7 @@ export async function handleAPI(
       }));
       return Response.json({ servers }, { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } });
     } catch (error: unknown) {
-      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+      return serverError(error);
     }
   }
 
@@ -4532,7 +4544,7 @@ export async function handleAPI(
       await fsRename(tmp, configPath);
       return Response.json({ success: true });
     } catch (error: unknown) {
-      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+      return serverError(error);
     }
   }
 
