@@ -22,6 +22,7 @@ import { DOCUMENT_TOOL_DEFS, handleDocumentTool } from '../document-tools.js';
 import { BROWSER_TOOL_DEFS, handleBrowserTool } from '../browser-tools.js';
 import { SPREADSHEET_TOOL_DEFS, handleSpreadsheetTool } from '../spreadsheet-tools.js';
 import { DIAGRAM_TOOL_DEFS, handleDiagramTool } from '../diagram-tools.js';
+import { DESIGN_TOOL_DEFS, handleDesignTool } from '../design-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -168,5 +169,16 @@ describe('tool dispatch coverage', () => {
 
   it('handleDiagramTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleDiagramTool('definitely_not_a_diagram_tool', {})).toBeNull();
+  });
+
+  it('every DESIGN_TOOL_DEFS name is wired in handleDesignTool', async () => {
+    expect(DESIGN_TOOL_DEFS.length).toBe(43);
+    for (const def of DESIGN_TOOL_DEFS) {
+      expect(await isRecognized(handleDesignTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleDesignTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleDesignTool('definitely_not_a_design_tool', {})).toBeNull();
   });
 });
