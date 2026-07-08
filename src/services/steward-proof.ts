@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { detectCompileCheck } from './compile-gate.ts';
 
 export type StewardVerb = 'reset_todo' | 'override_accept_todo' | 'land_epic';
 
@@ -106,8 +107,14 @@ const realRunners: ProofRunners = {
     return parseInt(out.trim(), 10) || 0;
   },
   tscClean(cwd) {
+    // Language-aware: tsc for TS, dotnet build for .NET, and TRUE (no compile blocker)
+    // for languages with no static compile step (e.g. Python) — running tsc there is a
+    // false-fail. The land still rests on the other proofs (merge-clean, children-done).
+    const check = detectCompileCheck(cwd);
+    if (!check) return true;
+    const [bin, ...args] = check.cmd.split(' ');
     try {
-      execFileSync('npx', ['tsc', '--noEmit'], { cwd, encoding: 'utf8', stdio: 'pipe' });
+      execFileSync(bin, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
       return true;
     } catch {
       return false;

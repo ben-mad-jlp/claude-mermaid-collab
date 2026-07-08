@@ -36,6 +36,7 @@ import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
+import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
@@ -505,7 +506,7 @@ export function buildNodePrompt(
           : `Read the blueprint at \`${bp}\` — ONLY that exact file (ignore any other blueprint in the directory) — and the files it references, then implement it FULLY.`,
         'Do not stub or leave TODOs. Do NOT run the acceptance gate or report completion —',
         'the executor drives the gate. Just make the edits the blueprint specifies.',
-        'If you spot-check compilation, run tsc ONLY from the repo root via `npx tsc --noEmit -p tsconfig.json` (the PROJECT config) — NEVER `tsc <file>` on a bare path, which drops the project lib/options and yields false errors.',
+        `If you spot-check compilation: ${COMPILE_CHECK_INSTRUCTION}`,
       ].filter(Boolean).join('\n');
     case 'review':
       return [
@@ -514,7 +515,8 @@ export function buildNodePrompt(
           ? `Compare the working tree against THIS leaf's blueprint, inlined below (do NOT read any other blueprint file — ignore strays in shared dirs):\n\n=== BLUEPRINT (${leaf.id}) START ===\n${blueprintText}\n=== BLUEPRINT END ===`
           : `Compare the working tree against the blueprint at \`${bp}\` (ONLY that exact file).`,
         'Decide if the work is complete and correct (it compiles, satisfies the blueprint, no obvious bugs).',
-        'To check compilation, run tsc ONLY from the repo root via `npx tsc --noEmit -p tsconfig.json` (the PROJECT config) — NEVER `tsc <file>` on a bare path; a bare-file run drops the project lib/options and produces false errors (e.g. TS2339 on readonly arrays). Code that fails ONLY under a bare-file run is NOT a real failure.',
+        COMPILE_CHECK_INSTRUCTION,
+        'A file that fails ONLY under a bare-file `tsc <file>` run (not the project config) is NOT a real failure.',
         'End your reply with EXACTLY one line, nothing after it:',
         '`VERDICT: PASS`  (if complete and correct)',
         '`VERDICT: FAIL — <reason>`  (otherwise)',
@@ -705,11 +707,11 @@ export function buildWavePrompt(
     }
     case 'verify':
       return [
-        `You are the VERIFY node for file \`${target.ref}\` (READ + Bash for tsc ONLY; no edits).`,
-        'From the repo root, run EXACTLY: `npx tsc --noEmit -p tsconfig.json`',
-        '(the PROJECT config — never a standalone/temp tsconfig, so cross-file types resolve).',
-        `Report the FIRST tsc error touching \`${target.ref}\`, or if there is none output`,
-        'EXACTLY one line: `TSC: CLEAN`',
+        `You are the VERIFY node for file \`${target.ref}\` (READ + Bash for the compile check ONLY; no edits).`,
+        `Run the project's compile check from the repo root. ${COMPILE_CHECK_INSTRUCTION}`,
+        'Use the PROJECT config (never a standalone/temp tsconfig) so cross-file types resolve.',
+        `Report the FIRST compile error touching \`${target.ref}\`, or if there is none (or the`,
+        'project has no compile step) output EXACTLY one line: `TSC: CLEAN`',
       ].join('\n');
     case 'fix': {
       // Inline the blueprint so the fix has the same intent context as wimplement —
