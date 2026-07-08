@@ -18,6 +18,7 @@ import { SNIPPET_TOOL_DEFS, handleSnippetTool } from '../snippet-tools.js';
 import { MISSION_TOOL_DEFS, handleMissionTool } from '../mission-tools.js';
 import { EMBED_TOOL_DEFS, handleEmbedTool } from '../embed-tools.js';
 import { IMAGE_TOOL_DEFS, handleImageTool } from '../image-tools.js';
+import { DOCUMENT_TOOL_DEFS, handleDocumentTool } from '../document-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -93,5 +94,25 @@ describe('tool dispatch coverage', () => {
 
   it('handleImageTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleImageTool('definitely_not_an_image_tool', {})).toBeNull();
+  });
+
+  it('DOCUMENT_TOOL_DEFS declares exactly the expected document surface', () => {
+    expect(new Set(DOCUMENT_TOOL_DEFS.map((d) => d.name))).toEqual(
+      new Set([
+        'list_documents', 'get_document', 'create_document', 'update_document',
+        'patch_document', 'get_document_history', 'revert_document', 'delete_document',
+        'preview_document',
+      ]),
+    );
+  });
+
+  it('every DOCUMENT_TOOL_DEFS name is wired in handleDocumentTool', async () => {
+    for (const def of DOCUMENT_TOOL_DEFS) {
+      expect(await isRecognized(handleDocumentTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleDocumentTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleDocumentTool('definitely_not_a_document_tool', {})).toBeNull();
   });
 });
