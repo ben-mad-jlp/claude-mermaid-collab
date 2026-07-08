@@ -48,7 +48,6 @@ import {
 import { getWebSocketHandler } from '../services/ws-handler-manager.js';
 import { sessionRegistry } from '../services/session-registry.js';
 import { projectRegistry } from '../services/project-registry.js';
-import * as roadmapStore from '../services/roadmap-store.js';
 import * as supervisorStore from '../services/supervisor-store.js';
 import { sendTmuxKeys } from '../services/tmux-send.js';
 import { launchAndBind } from '../services/claude-launch.js';
@@ -92,7 +91,6 @@ import { getLeafRun, listLeafRuns } from '../services/ledger-stats.js';
 import { listLeafInflight } from '../services/worker-ledger.js';
 import { breakerOpen } from '../services/headless-breaker.js';
 import { frictionTrends } from '../services/friction-trends.js';
-import { roadmapRollup } from '../services/roadmap-rollup.js';
 import { runtimeConfig } from '../services/runtime-config.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig, getSecret } from '../services/config-service.js';
@@ -2161,10 +2159,6 @@ IMPORTANT - Common pitfalls to avoid:
         description: 'Assign a session todo to a specific session (assigneeSession). Pass null to unassign.',
         inputSchema: assignSessionTodoSchema,
       },
-      { name: 'roadmap_list', description: 'List all roadmap items for a project.', inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute path to project root' } }, required: ['project'] } },
-      { name: 'roadmap_add', description: 'Create a roadmap item.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'title'] } },
-      { name: 'roadmap_update', description: 'Update a roadmap item (title, description, status, ord, parentId, dependsOn).', inputSchema: { type: 'object', properties: { project: { type: 'string' }, id: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, status: { type: 'string', enum: ['planned','ready','in_progress','blocked','done','dropped'] }, ord: { type: 'number' }, parentId: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' } } }, required: ['project', 'id'] } },
-      { name: 'roadmap_spawn_session', description: 'Spawn a collab session for a roadmap item: materializes the session via assigned todos, links them to the item, and registers the session as supervised.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, itemId: { type: 'string' }, session: { type: 'string' }, todos: { type: 'array', items: { type: 'string' }, description: 'Todo titles to create, assigned to the session' } }, required: ['project', 'itemId', 'session'] } },
       { name: 'spawn_planner', description: "Steward verb: spawn a per-project Planner session — registers + watches + supervises the project and launches a Claude running the /planner skill. By default the session is launched with Claude Code Remote Control so it's drivable from the Claude app (requires the launched session be logged into claude.ai). Use this to stand up a planner the human can drive remotely for a project.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Absolute project path (registered if not already)' }, session: { type: 'string', description: 'Session name (default "planner")' }, remoteControl: { type: 'boolean', description: 'Launch with --remote-control so it appears in the Claude app (default true)' } }, required: ['project'] } },
       { name: 'supervisor_list_supervised', description: 'List all supervised sessions across all projects.', inputSchema: { type: 'object', properties: {} } },
       { name: 'supervisor_nudge', description: 'Send text/keys into a supervised session tmux pane, routing to a peer server when serverId names a known peer.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, serverId: { type: 'string' }, text: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Ownership epoch. Pass it so the server can fence a superseded supervisor; a stale epoch is rejected (superseded) and performs no action.' } }, required: ['project', 'session', 'text'] } },
@@ -2194,7 +2188,6 @@ IMPORTANT - Common pitfalls to avoid:
       { name: 'launch_remote_server', description: "Start a collab server on a REMOTE machine over SSH — the same detect→launch flow the desktop 'Launch' button runs (POST /api/server/detect then /api/server/launch), exposed as one tool so it can be driven/tested headlessly. Runs on THIS sidecar (which owns the system `ssh`). Two phases: (1) DETECT — SSH into the host, probe for bun / a global mermaid-collab / the newest plugin-cache version dir, adopt the server's existing config.json token (or mint one), and synthesize a start command that binds 0.0.0.0 AND sets MERMAID_AUTH_TOKEN (a 0.0.0.0 bind is always auth-required — never an open LAN hole). (2) LAUNCH — SSH again, detach the server (setsid/nohup), and poll the remote /api/health. Pass `command` to skip detect and launch a specific command; pass `detectOnly:true` to only probe+synthesize and NOT launch. `password` is used once for the SSH prompt and never persisted; omit it to use keys/agent (BatchMode). Returns { detect?, launch?, token? } — the token is what a client must present to reach the launched (auth-required) server. NOTE: the host must be a bare host/IP; the SSH user goes in `user`, not baked into `host`.", inputSchema: { type: 'object', properties: { host: { type: 'string', description: 'Bare remote host or IP (NOT user@host). The SSH user goes in `user`.' }, port: { type: 'number', description: 'Port the server should listen on / be probed at (default 9002).' }, user: { type: 'string', description: 'SSH user (blank = ssh default / ~/.ssh/config).' }, password: { type: 'string', description: 'One-time SSH password. Never persisted. Omit to use keys/agent (BatchMode, fails fast).' }, command: { type: 'string', description: 'Explicit start command to launch. If omitted, detect synthesizes one. Ignored when detectOnly is true.' }, token: { type: 'string', description: "Existing bearer token to thread through so detect REUSES it (avoids diverging from the server's config-authoritative token)." }, detectOnly: { type: 'boolean', description: 'Only run the SSH probe + synthesize a command; do NOT launch. Returns { detect }.' } }, required: ['host'] } },
       { name: 'orchestrator_off', description: "STEWARD KILL-SWITCH (one-way): force a project's Orchestrator autonomy level to 'off', stopping the daemon from driving todos. This is the steward's ONLY autonomy control — it can ALWAYS brake but can NEVER raise the level (decision 3bf1292b). It takes no level argument; raising autonomy (build/nudge/propose/drive) stays human-only on the Bridge ladder. Reuses the server-side 'off' transition. Optional project (defaults to the server's cwd). Returns the resulting level for confirmation.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Project to brake (defaults to the current working directory).' } } } },
       { name: 'friction_trends', description: "Read-only recurrence rollup over the friction store. Groups the most-recent friction notes by LAYER (orchestration vs domain vs operational) with counts, and within each layer by retryReason, so a repeating problem (e.g. tmux-pane accumulation showing up as repeated orchestration friction) surfaces as a high-count reason instead of being buried in list_friction's flat newest-first list. Returns { total, considered, byLayer:[{ layer, count, reasons:[{ retryReason, count, sessions[], lastAt }] }], recurring:[{ layer, retryReason, count }] } — `recurring` is the cross-layer 'what keeps going wrong' shortlist (reasons seen >1, most-recurring first).", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose friction to roll up.' }, layer: { type: 'string', enum: ['orchestration', 'domain', 'operational'], description: 'Optional: restrict to one layer.' }, limit: { type: 'number', description: 'Max most-recent notes to consider (default 100, capped 1000).' } }, required: ['project'] } },
-      { name: 'roadmap_rollup', description: "Read-only rollup of roadmap items joined to their spawned sessions. roadmap_list returns bare items; this joins each item to its session binding (roadmap_spawn_session sets sessionName + links the created todos) and the ids of the todos linked to it, so the steward sees which roadmap items have a live session and which are still un-spawned. Returns { total, spawned, unspawned, items:[{ id, title, status, parentId, sessionName, todoIds[], todoCount }] }.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project whose roadmap to roll up.' } }, required: ['project'] } },
       { name: 'reset_todo', description: "STEWARD: unstick a parked/over-retried todo and re-promote it. Use when the CAUSE of repeated rejections was fixed EXTERNALLY (a now-merged dependency, a foreign whole-tree gate error since repaired, a corrected gate command) — a todo at/over the retry budget would otherwise re-park to 'blocked' the instant it's reclaimed. Resets retryCount=0, clears acceptanceStatus + any stale claim + completion stamps, sets status (default 'ready'), and OPTIONALLY reroutes targetProject (fix a cross-project todo created without it). The supported replacement for hand-editing todos.db.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, status: { type: 'string', enum: ['backlog','planned','todo','ready','in_progress','blocked','done','dropped'], description: "Status to set after reset (default 'ready')." }, targetProject: { type: ['string','null'], description: 'Optional: set the implementation repo (worker cwd + gate location). Pass null to clear; omit to leave unchanged.' }, proof: { type: 'object', description: "STEWARD proof the server RE-VALIDATES at act time (never trusted as asserted). One of: {kind:'merged'} (HEAD..master==0), {kind:'tsc-clean'}, {kind:'grep',symbol,present}, {kind:'dep-done'} (all deps done/accepted in store). Required for an autonomous steward act when MERMAID_STEWARD_AUTO is on; a no-proof steward act is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — links the audit + is flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate).' } }, required: ['project','todoId'] } },
       { name: 'override_accept_todo', description: 'STEWARD override-accept: force a todo whose work is verified-done DONE+accepted, BYPASSING the mechanical gate. Use ONLY when the gate FALSE-rejected verified-green work (e.g. a whole-tree tsc tripping on a sibling lane error, or a gate command wrong for the change-set) — confirm the deliverable exists first. Unblocks dependents and rolls up parent epics exactly as a normal acceptance; records the steward as completer for provenance.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, completedBy: { type: 'string', description: "Completer handle for provenance (default 'steward')." }, proof: { type: 'object', description: "STEWARD DUAL proof, server-re-validated: {kind:'override', artifactPath?|artifactSymbol? (the deliverable provably IN-TREE), foreignErrorFiles:[] (the gate failure provably OUTSIDE this todo's change-set)}. DEFAULT DEFER — without both halves the override is rejected + re-routed to human." }, escalationId: { type: 'string', description: 'Open escalation this act resolves — flipped routedTo=human on a failed/absent proof.' }, stewardEpoch: { type: 'number', description: 'Marks this as a steward auto-act (engages the proof gate + rate limit).' }, changeSetFiles: { type: 'array', items: { type: 'string' }, description: "This todo's change-set files — used to prove the gate error is foreign." } }, required: ['project','todoId'] } },
       { name: 'create_gate', description: "READINESS GATE: attach a HUMAN gate to a work-todo so it can't be claimed until a human clears the gate. Creates a '[GATE]' human todo (assigneeKind:'human', ready) and appends it to the work-todo's dependsOn, parking the work-todo 'blocked'. The coordinator never claims the gate (human) nor the blocked work-todo; completing the gate auto-promotes the work-todo to 'ready' on the same tick — no reset_todo, no new status. Use to hold a design-gated/needs-review todo until a human signs off.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, workTodoId: { type: 'string', description: 'The agent work-todo to gate.' }, title: { type: 'string', description: "Gate title (auto-prefixed '[GATE]' if absent)." }, description: { type: 'string', description: 'What the human must confirm/decide.' }, gateKind: { type: 'string', description: "Optional label folded into the title, e.g. 'spec-review' → '[GATE:spec-review]'." }, parentId: { type: 'string', description: 'Optional human-gate epic to parent the gate under (e.g. the [EPIC] human-gates id).' }, decisionRef: { type: 'string', description: 'Optional decision-record id: approving that record (approve_decision_record) auto-completes this gate — for design/decision gates that clear when the design lands.' } }, required: ['project', 'workTodoId', 'title'] } },
@@ -3797,51 +3790,6 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ ...deriveTodoViews(project, [result])[0], previousAssigneeSession: result.previousAssigneeSession ?? undefined }, null, 2);
           }
 
-          case 'roadmap_list': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            return JSON.stringify(roadmapStore.listItems(project), null, 2);
-          }
-          case 'roadmap_add': {
-            const { project, title, description, parentId, dependsOn } = args as { project: string; title: string; description?: string; parentId?: string; dependsOn?: string[] };
-            if (!project || !title) throw new Error('Missing required: project, title');
-            const item = await roadmapStore.createItem(project, { title, description, parentId, dependsOn });
-            return JSON.stringify(item, null, 2);
-          }
-          case 'roadmap_update': {
-            const { project, id, ...patch } = args as { project: string; id: string; [k: string]: unknown };
-            if (!project || !id) throw new Error('Missing required: project, id');
-            const item = await roadmapStore.updateItem(project, id, patch as Parameters<typeof roadmapStore.updateItem>[2]);
-            return JSON.stringify(item, null, 2);
-          }
-          case 'roadmap_spawn_session': {
-            const { project, itemId, session, todos } = args as { project: string; itemId: string; session: string; todos?: string[] };
-            if (!project || !itemId || !session) throw new Error('Missing required: project, itemId, session');
-            const createdTodoIds: string[] = [];
-            for (const t of todos ?? []) {
-              // Roadmap seeds are deliberate high-level starting items with no epic yet →
-              // explicitly file under [EPIC] Inbox (not a silent assumption; the roadmap
-              // flow declares them as inbox seeds, to be re-homed during planning).
-              const todo = await addSessionTodo(project, session, t, undefined, { assigneeSession: session, inbox: true });
-              createdTodoIds.push(todo.id);
-              await roadmapStore.linkTodo(project, itemId, todo.id);
-            }
-            await roadmapStore.setItemSession(project, itemId, session);
-            supervisorStore.addSupervised(project, session, 'roadmap');
-            // supervisor_reconcile iterates watched projects; ensure this one is
-            // watched so the newly-supervised session is actually visible to it.
-            supervisorStore.addWatchedProject(project);
-            getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
-            // Auto-launch a Claude worker into the spawned session (tmux -> claude
-            // -> /collab -> bind). Once it comes up idle with these todos, the
-            // supervisor push picks it up and nudges it to start working.
-            const launch = await launchAndBind({
-              project,
-              session,
-              allowedTools: 'Bash Edit Write Read mcp__plugin_mermaid-collab_mermaid',
-            });
-            return JSON.stringify({ session, createdTodoIds, launch }, null, 2);
-          }
           case 'spawn_planner': {
             const { project, session = 'planner', remoteControl = true } = args as { project: string; session?: string; remoteControl?: boolean };
             if (!project) throw new Error('Missing required: project');
@@ -4924,11 +4872,6 @@ IMPORTANT - Common pitfalls to avoid:
             if (!project) throw new Error('Missing required: project');
             const trends = frictionTrends(project, { layer, limit });
             return JSON.stringify(trends, null, 2);
-          }
-          case 'roadmap_rollup': {
-            const { project } = args as { project: string };
-            if (!project) throw new Error('Missing required: project');
-            return JSON.stringify(roadmapRollup(project), null, 2);
           }
           case 'orchestrator_off': {
             // STEWARD KILL-SWITCH (one-way): force the project's level to 'off'.

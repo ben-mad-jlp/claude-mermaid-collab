@@ -31,7 +31,6 @@ import {
   setEscalationOperatorGated,
 } from '../services/supervisor-store.ts';
 import { DEFAULT_WATCHDOG_CONFIG } from '../services/context-watchdog.ts';
-import { createItem, listItems, updateItem, deleteItem } from '../services/roadmap-store.ts';
 import { projectRegistry } from '../services/project-registry.ts';
 import { listTodos, updateTodo, getTodo, removeTodo } from '../services/todo-store.ts';
 import { isInboxEpic } from '../services/claimability.ts';
@@ -273,13 +272,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
-  // ROADMAP
-  if (url.pathname === '/api/supervisor/roadmap' && req.method === 'GET') {
-    const project = url.searchParams.get('project');
-    if (!project) return jsonError('project is required', 400);
-    return Response.json({ items: listItems(project) });
-  }
-
   // PROJECT TODOS (PCS Phase 5) — the unified work-graph for an entire project,
   // across all its sessions. This is the data source for the project Plan
   // (re-points the Plan off the legacy roadmap_item table onto unified todos).
@@ -375,49 +367,6 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     const limitRaw = url.searchParams.get('limit');
     const limit = limitRaw ? Number(limitRaw) : undefined;
     return Response.json({ entries: listSupervisorAudit({ project, kind, limit }) });
-  }
-
-  if (url.pathname === '/api/supervisor/roadmap' && req.method === 'POST') {
-    try {
-      const { project, title, description, parentId, dependsOn } = (await req.json()) as {
-        project?: string;
-        title?: string;
-        description?: string;
-        parentId?: string;
-        dependsOn?: string[];
-      };
-      if (!project || !title) return jsonError('project and title are required', 400);
-      const item = await createItem(project, { title, description, parentId, dependsOn });
-      return Response.json({ item });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
-  if (url.pathname === '/api/supervisor/roadmap' && req.method === 'PATCH') {
-    try {
-      const { project, id, ...patch } = (await req.json()) as {
-        project?: string;
-        id?: string;
-        [key: string]: unknown;
-      };
-      if (!project || !id) return jsonError('project and id are required', 400);
-      const item = await updateItem(project, id, patch);
-      return Response.json({ item });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
-  }
-
-  if (url.pathname === '/api/supervisor/roadmap' && req.method === 'DELETE') {
-    try {
-      const { project, id } = (await req.json()) as { project?: string; id?: string };
-      if (!project || !id) return jsonError('project and id are required', 400);
-      await deleteItem(project, id);
-      return Response.json({ ok: true });
-    } catch (err) {
-      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
-    }
   }
 
   // ESCALATIONS

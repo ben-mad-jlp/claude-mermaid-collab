@@ -22,7 +22,6 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
   onJump,
 }) => {
   const supervised = useSupervisorStore((s) => s.supervised);
-  const roadmapByProject = useSupervisorStore((s) => s.roadmapByProject);
   const loadSupervised = useSupervisorStore((s) => s.loadSupervised);
   const setSupervisedLocal = useSupervisorStore((s) => s.setSupervisedLocal);
   const nudge = useSupervisorStore((s) => s.nudge);
@@ -99,7 +98,6 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
         <div className="flex flex-col gap-3">
           {byProject.map(({ project, sessions }, gi) => {
             const projectBasename = project.split('/').pop() ?? project;
-            const roadmapItems = roadmapByProject[project] ?? [];
 
             return (
               <div
@@ -113,10 +111,6 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
 
                 {/* Session rows */}
                 {sessions.map((s) => {
-                  const linkedItem = roadmapItems.find(
-                    (item) => item.sessionName === s.session,
-                  );
-
                   return (
                     <div
                       key={s.session}
@@ -133,13 +127,6 @@ export const SupervisedSessions: React.FC<SupervisedSessionsProps> = ({
                           </span>
                         )}
                       </div>
-
-                      {/* Roadmap link */}
-                      {linkedItem && (
-                        <div className="text-2xs text-gray-500 dark:text-gray-400 truncate">
-                          roadmap: {linkedItem.title}
-                        </div>
-                      )}
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 pt-0.5">
