@@ -9,6 +9,8 @@ import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
 import { pulseStage, isArmed, nextUp as computeNextUp, nextWorkSuggestions, type NextUp, type NextWork } from '@/lib/zenPulse';
 import { useUsageStore } from '@/stores/usageStore';
 import { activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
+import { conductingView } from '@/lib/conductingView';
+import type { MissionSummary } from '@/stores/supervisorStore';
 
 // One account-wide rate-limit gauge (5-hour or 7-day window) for the Zen top bar.
 // Colour mirrors the statusline: green < 50, yellow 50–79, red ≥ 80.
@@ -71,6 +73,7 @@ export const ZenMode: React.FC = () => {
   const nudge = useSupervisorStore((s) => s.nudge);
   const answerPaneMulti = useSupervisorStore((s) => s.answerPaneMulti);
   const refreshSummaryNow = useSupervisorStore((s) => s.refreshSummaryNow);
+  const fetchMissions = useSupervisorStore((s) => s.fetchMissions);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
@@ -183,6 +186,33 @@ export const ZenMode: React.FC = () => {
   const serverScope = watched[0]?.serverId ?? 'local';
 
   // Daemon (leaf-executor) totals per project, derived from the fleet read-model.
+  // Missions per watched project → map keyed `${project}::${ownerSession}` (active,
+  // non-terminal only). Polled on the fleet cadence; FAILS OPEN (fetchMissions → [] on
+  // error), so a fetch failure just means no conducting treatment — the base card is
+  // unaffected. Mission data is purely additive.
+  const [missionByOwner, setMissionByOwner] = useState<Record<string, MissionSummary>>({});
+  useEffect(() => {
+    if (!serverScope || projects.length === 0) return;
+    let alive = true;
+    const load = async () => {
+      const perProject = await Promise.all(
+        projects.map(async (p) => ({ project: p, missions: await fetchMissions(serverScope, p) })),
+      );
+      if (!alive) return;
+      const map: Record<string, MissionSummary> = {};
+      for (const { project, missions } of perProject) {
+        for (const m of missions) {
+          const owner = m.ownerSession ?? m.assigneeSession;
+          if (owner && conductingView(m)) map[`${project}::${owner}`] = m;
+        }
+      }
+      setMissionByOwner(map);
+    };
+    void load();
+    const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, [serverScope, projects, fetchMissions]);
+
   const fleet = useFleetStatusByProject(serverScope, projects);
   const daemonByProject = useMemo(() => {
     const m: Record<string, DaemonTotals> = {};
@@ -239,15 +269,24 @@ export const ZenMode: React.FC = () => {
         !!escalation || summary?.structured?.status === 'needs-input';
       const recency = Math.max(summary?.summaryUpdatedAt ?? 0, summary?.paneSeenAt ?? 0, summary?.updatedAt ?? 0);
       // Idle Pulse: a green (idle/quiet) session with no question warms up over minutes.
-      const isIdle = !escalation && summary?.structured?.status !== 'needs-input'
+      const mission = missionByOwner[`${s.project}::${s.session}`] ?? null;
+      const cond = conductingView(mission);
+      // A daemon's-turn conductor is CORRECTLY idle (waiting on the build) — suppress the
+      // idle-Pulse warm-up so Zen doesn't invite you to check a session that's fine.
+      const daemonsTurn = cond?.turn === 'daemon';
+      const isIdle = !escalation && summary?.structured?.status !== 'needs-input' && !daemonsTurn
         && (summary?.structured?.status === 'idle' || summary?.progressState === 'quiet');
       const stage = isIdle ? pulseStage(summary?.paneSeenAt, now, dismissed[k] ?? 0) : 'off';
-      const rank = sessionRank({ needsYou, state: summary?.progressState, status: summary?.structured?.status, armedIdle: isArmed(stage) });
-      return { k, s, summary, escalation, rank, recency, stage };
+      // The conductor's-move (a mission judgment phase) floats up like needs-you work;
+      // a daemon's-turn conductor stays calm at rest.
+      const rank = cond?.turn === 'conductor'
+        ? sessionRank({ needsYou: true, state: summary?.progressState, status: summary?.structured?.status, armedIdle: false })
+        : sessionRank({ needsYou, state: summary?.progressState, status: summary?.structured?.status, armedIdle: isArmed(stage) });
+      return { k, s, summary, escalation, rank, recency, stage, mission };
     });
     const ranked = [...stable].sort((a, b) => (a.rank - b.rank) || (b.recency - a.recency));
     return { stable, ranked };
-  }, [order, subscriptions, sessionSummaries, openEscalations, now, dismissed]);
+  }, [order, subscriptions, sessionSummaries, openEscalations, now, dismissed, missionByOwner]);
 
   // Does the grid overflow its scroll area (i.e. you'd have to scroll to see every
   // card)? Measured on the scroll container; re-checked on resize and whenever the
@@ -387,7 +426,7 @@ export const ZenMode: React.FC = () => {
               gridAutoRows: `minmax(${minRowHeight}, 1fr)`,
             }}
           >
-            {cards.map(({ k, s, summary, escalation, stage }) => {
+            {cards.map(({ k, s, summary, escalation, stage, mission }) => {
               const key = k;
               return (
                 <div key={key} className="min-h-0 h-full">
@@ -417,6 +456,7 @@ export const ZenMode: React.FC = () => {
                     onAnswerPaneMulti={(sid, p, sess, nums) => answerPaneMulti(sid, p, sess, nums)}
                     onRequestRefresh={(sid, p, sess) => void refreshSummaryNow(sid, p, sess)}
                     onOpen={openSession}
+                    mission={mission}
                   />
                 </div>
               );
