@@ -66,6 +66,8 @@ import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
 import { MISSION_TOOL_DEFS, handleMissionTool } from './mission-tools.js';
 import { SNIPPET_TOOL_DEFS, handleSnippetTool } from './snippet-tools.js';
+import { EMBED_TOOL_DEFS, handleEmbedTool } from './embed-tools.js';
+import { IMAGE_TOOL_DEFS, handleImageTool } from './image-tools.js';
 import { briefEscalation } from '../services/escalation-briefing.js';
 import { checkInvariants } from '../services/invariant-check.js';
 import { gateStatus } from '../services/gate-status.js';
@@ -234,8 +236,6 @@ import {
   handleDeleteSnippet,
   handleExportSnippet,
 } from './tools/snippet.js';
-import { createEmbedSchema, listEmbedsSchema, deleteEmbedSchema, handleCreateEmbed, handleListEmbeds, handleDeleteEmbed, createStorybookEmbedSchema, listStorybookStoriesSchema, handleCreateStorybookEmbed, handleListStorybookStories } from './tools/embed.js';
-import { createImageSchema, listImagesSchema, getImageSchema, deleteImageSchema, generateImageSchema, listAudioSchema, handleCreateImage, handleListImages, handleGetImage, handleDeleteImage, handleGenerateImage, handleListAudio } from './tools/image.js';
 
 // --- Desktop (Electron) MCP tools ---
 // electron-agent-bridge is an OPTIONAL dependency: it drives the Electron
@@ -2304,17 +2304,8 @@ IMPORTANT - Common pitfalls to avoid:
         },
       },
       ...SNIPPET_TOOL_DEFS,
-      { name: 'create_embed', description: 'Create a new embed (iframe) artifact for displaying external URLs in the collab UI.', inputSchema: createEmbedSchema },
-      { name: 'list_embeds', description: 'List all embeds in a session.', inputSchema: listEmbedsSchema },
-      { name: 'delete_embed', description: 'Delete an embed by ID.', inputSchema: deleteEmbedSchema },
-      { name: 'create_storybook_embed', description: 'Create a Storybook embed from a story ID. Constructs the iframe URL and creates an embed artifact with storybook metadata.', inputSchema: createStorybookEmbedSchema },
-      { name: 'list_storybook_stories', description: 'List available Storybook stories by fetching index.json from the running Storybook dev server.', inputSchema: listStorybookStoriesSchema },
-      { name: 'create_image', description: 'Create an image artifact from a file path, URL, or base64 data URI.', inputSchema: createImageSchema },
-      { name: 'generate_image', description: 'Generate an image from a text prompt via Grok Imagine (xAI) and save it as a session image artifact. Returns the saved image id(s) + cost.', inputSchema: generateImageSchema },
-      { name: 'list_audio', description: 'List audio artifacts in the session.', inputSchema: listAudioSchema },
-      { name: 'list_images', description: 'List all image artifacts in a session.', inputSchema: listImagesSchema },
-      { name: 'get_image', description: 'Get image artifact metadata by ID. Returns an absolute disk path; use the Read tool on that path to view the image.', inputSchema: getImageSchema },
-      { name: 'delete_image', description: 'Delete an image artifact by ID.', inputSchema: deleteImageSchema },
+      ...EMBED_TOOL_DEFS,
+      ...IMAGE_TOOL_DEFS,
       {
         name: 'deprecate_artifact',
         description: 'Mark an artifact as deprecated (hidden by default) or restore it. Deprecated artifacts remain in the session but are filtered from the default view.',
@@ -2386,6 +2377,14 @@ IMPORTANT - Common pitfalls to avoid:
         // Returns null for non-snippet tools → fall through to the switch below.
         const snippetResult = await handleSnippetTool(name, args);
         if (snippetResult !== null) return snippetResult;
+
+        // Embed tool group lives in ./embed-tools.ts; delegate by name.
+        const embedResult = await handleEmbedTool(name, args);
+        if (embedResult !== null) return embedResult;
+
+        // Image tool group lives in ./image-tools.ts; delegate by name.
+        const imageResult = await handleImageTool(name, args);
+        if (imageResult !== null) return imageResult;
         switch (name) {
           case 'generate_session_name':
             return JSON.stringify({ name: generateSessionName() }, null, 2);
@@ -4170,72 +4169,6 @@ IMPORTANT - Common pitfalls to avoid:
             return JSON.stringify({ success: true, id, csv }, null, 2);
           }
 
-          case 'create_embed': {
-            const { project, session, name, url, subtype, width, height, storybook } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            if (!name || !url) throw new Error('Missing required: name, url');
-            const result = await handleCreateEmbed(project, session, name, url, subtype, width, height, storybook);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'list_embeds': {
-            const { project, session } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleListEmbeds(project, session);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'delete_embed': {
-            const { project, session, id } = args as any;
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleDeleteEmbed(project, session, id);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'create_image': {
-            const { project, session, name, source } = args as any;
-            if (!project || !session || !name || !source) throw new Error('Missing required: project, session, name, source');
-            const result = await handleCreateImage(project, session, name, source);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'generate_image': {
-            const { project, session, prompt, name, task, model, n, aspectRatio, resolution } = args as any;
-            if (!project || !session || !prompt) throw new Error('Missing required: project, session, prompt');
-            const result = await handleGenerateImage(project, session, { prompt, name, task, model, n, aspectRatio, resolution });
-            return JSON.stringify(result, null, 2);
-          }
-          case 'list_audio': {
-            const { project, session } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            return JSON.stringify(await handleListAudio(project, session), null, 2);
-          }
-          case 'list_images': {
-            const { project, session } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            const result = await handleListImages(project, session);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'get_image': {
-            const { project, session, id } = args as any;
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleGetImage(project, session, id);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'delete_image': {
-            const { project, session, id } = args as any;
-            if (!project || !session || !id) throw new Error('Missing required: project, session, id');
-            const result = await handleDeleteImage(project, session, id);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'create_storybook_embed': {
-            const { project, session, name, storyId, port, host } = args as any;
-            if (!project || !session) throw new Error('Missing required: project, session');
-            if (!name || !storyId) throw new Error('Missing required: name, storyId');
-            const result = await handleCreateStorybookEmbed(project, session, name, storyId, port, host);
-            return JSON.stringify(result, null, 2);
-          }
-          case 'list_storybook_stories': {
-            const { port, host } = args as any;
-            const result = await handleListStorybookStories(port, host);
-            return JSON.stringify(result, null, 2);
-          }
           case 'deprecate_artifact': {
             const { project, session, id, deprecated } = args as { project: string; session: string; id: string; deprecated: boolean };
             if (!project || !session || !id || deprecated === undefined) throw new Error('Missing required: project, session, id, deprecated');

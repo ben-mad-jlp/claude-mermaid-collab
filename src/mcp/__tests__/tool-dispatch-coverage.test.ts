@@ -16,6 +16,8 @@
 import { describe, it, expect } from 'bun:test';
 import { SNIPPET_TOOL_DEFS, handleSnippetTool } from '../snippet-tools.js';
 import { MISSION_TOOL_DEFS, handleMissionTool } from '../mission-tools.js';
+import { EMBED_TOOL_DEFS, handleEmbedTool } from '../embed-tools.js';
+import { IMAGE_TOOL_DEFS, handleImageTool } from '../image-tools.js';
 
 type Handler = (name: string, args: any) => Promise<string | null>;
 
@@ -59,5 +61,37 @@ describe('tool dispatch coverage', () => {
 
   it('handleMissionTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleMissionTool('definitely_not_a_mission_tool', {})).toBeNull();
+  });
+
+  it('EMBED_TOOL_DEFS declares exactly the expected embed surface', () => {
+    expect(new Set(EMBED_TOOL_DEFS.map((d) => d.name))).toEqual(
+      new Set(['create_embed', 'list_embeds', 'delete_embed', 'create_storybook_embed', 'list_storybook_stories']),
+    );
+  });
+
+  it('every EMBED_TOOL_DEFS name is wired in handleEmbedTool', async () => {
+    for (const def of EMBED_TOOL_DEFS) {
+      expect(await isRecognized(handleEmbedTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleEmbedTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleEmbedTool('definitely_not_an_embed_tool', {})).toBeNull();
+  });
+
+  it('IMAGE_TOOL_DEFS declares exactly the expected image surface', () => {
+    expect(new Set(IMAGE_TOOL_DEFS.map((d) => d.name))).toEqual(
+      new Set(['create_image', 'generate_image', 'list_audio', 'list_images', 'get_image', 'delete_image']),
+    );
+  });
+
+  it('every IMAGE_TOOL_DEFS name is wired in handleImageTool', async () => {
+    for (const def of IMAGE_TOOL_DEFS) {
+      expect(await isRecognized(handleImageTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleImageTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleImageTool('definitely_not_an_image_tool', {})).toBeNull();
   });
 });
