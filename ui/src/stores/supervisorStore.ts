@@ -491,6 +491,9 @@ interface SupervisorState {
    *  `session_summary_updated` (folded by ingestSessionSummary). Returns whether the
    *  request was accepted. No local state write — the WS event is the source of truth. */
   refreshSummaryNow: (serverId: string, project: string, session: string) => Promise<boolean>;
+  /** Zen-presence heartbeat: POST /api/zen/viewing so the server gates its
+   *  summary interpret + self-nudge passes on a fresh beat. Fire-and-forget. */
+  pingViewing: (serverId: string) => void;
   /** Z9: in-flight optimistic clears awaiting their 5s undo window. Keyed by
    *  escalation id. Live/ephemeral — NOT persisted. The toast UI selects over this. */
   pendingClears: Record<string, { id: string; status: string; project?: string; sentAt: number }>;
@@ -709,6 +712,9 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   refreshSummaryNow: async (serverId, project, session) => {
     const res = await invoke(serverId, '/api/supervisor/refresh-summary', 'POST', { project, session });
     return !!res?.ok;
+  },
+  pingViewing: (serverId) => {
+    void invoke(serverId, '/api/zen/viewing', 'POST');
   },
   clearWithUndo: (serverId, id, status, undoMs = 5000) => {
     const state = get();

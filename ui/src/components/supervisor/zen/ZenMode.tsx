@@ -74,6 +74,7 @@ export const ZenMode: React.FC = () => {
   const answerPaneMulti = useSupervisorStore((s) => s.answerPaneMulti);
   const refreshSummaryNow = useSupervisorStore((s) => s.refreshSummaryNow);
   const fetchMissions = useSupervisorStore((s) => s.fetchMissions);
+  const pingViewing = useSupervisorStore((s) => s.pingViewing);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
   const order = useSubscriptionStore((s) => s.order);
@@ -92,12 +93,7 @@ export const ZenMode: React.FC = () => {
   useEffect(() => {
     const beat = () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      const mc = (window as any).mc;
-      if (mc?.invokeOnServer) {
-        void mc.invokeOnServer('local', { path: '/api/zen/viewing', method: 'POST' }).catch(() => {});
-      } else {
-        void fetch('/api/zen/viewing', { method: 'POST' }).catch(() => {});
-      }
+      pingViewing('local');
     };
     beat(); // immediate, so opening Zen re-arms summaries without waiting a full interval
     const id = setInterval(beat, 15_000);
