@@ -66,12 +66,12 @@ describe('todoKind (UI mirror) — column beats title', () => {
 
 describe('todoKind (UI mirror) — topic tags are not roles', () => {
   it('a [UI] title tag does not affect kindOf', () => {
-    expect(ui.kindOf({ kind: 'leaf', title: '[UI] Plan list doesn’t refresh' })).toBe('leaf');
+    expect(ui.kindOf({ kind: 'leaf', title: '[UI] Plan list doesn\'t refresh' })).toBe('leaf');
   });
 
   it('stripKindPrefix leaves a non-role bracket tag unchanged', () => {
-    expect(ui.stripKindPrefix('[UI] Plan list doesn’t refresh')).toBe(
-      '[UI] Plan list doesn’t refresh',
+    expect(ui.stripKindPrefix('[UI] Plan list doesn\'t refresh')).toBe(
+      '[UI] Plan list doesn\'t refresh',
     );
   });
 });
@@ -105,14 +105,12 @@ describe('todoKind (UI mirror) — stripKindPrefix is render-only', () => {
 });
 
 describe('todoKind (UI mirror) — strip helper agrees with the server', () => {
-  // No trailing whitespace in this corpus: server.stripLabel() additionally
-  // .trim()s (a deliberate display-trim divergence, pinned separately below).
   const corpus = [
     '[EPIC] Foo',
     '[MISSION]  Bar',
     '[LAND] Land X → master',
     '[epic] lowercase',
-    '[UI] Plan list doesn’t refresh',
+    '[UI] Plan list doesn\'t refresh',
     '[EPIC] [LAND] weird',
     'Stop reading [EPIC] out of titles',
     'Bugfix inbox',
@@ -127,12 +125,54 @@ describe('todoKind (UI mirror) — strip helper agrees with the server', () => {
     });
   }
 
-  it('pins the intentional server-side .trim() divergence on trailing whitespace', () => {
-    // server.stripLabel() additionally trims trailing whitespace (a display
-    // canonicalisation); ui.stripKindPrefix() does not. This is deliberate —
-    // not a bug to "fix" — hence the corpus above excludes trailing whitespace.
-    expect(ui.stripKindPrefix('[EPIC] Foo ')).toBe('Foo ');
-    expect(server.stripLabel('[EPIC] Foo ')).toBe('Foo');
+  it('stripKindPrefix is an alias of stripLabel (no duplicated rules)', () => {
+    expect(ui.stripKindPrefix).toBe(ui.stripLabel);
+  });
+
+  it('stripKindPrefix gains .trim() to agree with server', () => {
+    expect(ui.stripKindPrefix('[EPIC]  Foo ')).toBe('Foo');
+  });
+});
+
+describe('todoKind (UI mirror) — structure trap (9acb7cb2 bug)', () => {
+  it('split leaf with 9 children is still a leaf', () => {
+    const splitLeaf = { id: '9acb7cb2', kind: 'leaf' as const, title: 'split leaf', parentId: 'e1' };
+    expect(ui.isLeaf(splitLeaf)).toBe(true);
+    expect(ui.isEpic(splitLeaf)).toBe(false);
+  });
+
+  it('childless epic is still an epic', () => {
+    expect(ui.isEpic({ id: 'e-new', kind: 'epic' as const, parentId: null })).toBe(true);
+  });
+
+  it('epicIdSet includes epics by declared kind (not by presence of children)', () => {
+    const inputs = server.STRUCTURE_FIXTURE.map(f => f.input);
+    const epicIds = ui.epicIdSet(inputs);
+    expect(epicIds).toEqual(new Set(['e-new', 'e1']));
+    expect(epicIds.has('9acb7cb2')).toBe(false);
+  });
+
+  it('parentEpicIdOf returns parent id only if parent is an epic', () => {
+    const splitLeaf = { id: '9acb7cb2', kind: 'leaf' as const, title: 'split leaf', parentId: 'e1' };
+    const childOfLeaf = { id: 'c1', kind: 'leaf' as const, title: 'file 1 of 9', parentId: '9acb7cb2' };
+    const landNode = { id: 'l1', kind: 'land' as const, title: 'merge to master', parentId: 'e1' };
+    const epicIds = new Set(['e-new', 'e1']);
+
+    expect(ui.parentEpicIdOf(childOfLeaf, epicIds)).toBe(null);
+    expect(ui.parentEpicIdOf(landNode, epicIds)).toBe('e1');
+  });
+
+  it('ui.epicIdSet and server.epicIdSet produce identical results', () => {
+    const inputs = server.STRUCTURE_FIXTURE.map(f => f.input);
+    expect(ui.epicIdSet(inputs)).toEqual(server.epicIdSet(inputs));
+  });
+
+  it('ui.parentEpicIdOf and server.parentEpicIdOf agree on all structure fixture cases', () => {
+    const inputs = server.STRUCTURE_FIXTURE.map(f => f.input);
+    const epicIds = server.epicIdSet(inputs);
+    for (const f of server.STRUCTURE_FIXTURE) {
+      expect(ui.parentEpicIdOf(f.input, epicIds)).toBe(server.parentEpicIdOf(f.input, epicIds));
+    }
   });
 });
 
@@ -148,5 +188,11 @@ describe('todoKind (UI mirror) — no title reader remains', () => {
   it('stripKindPrefix is a function that does not return a TodoKind', () => {
     expect(typeof ui.stripKindPrefix).toBe('function');
     expect(ui.kindOf({ kind: 'epic', title: ui.stripKindPrefix('[EPIC] Foo') })).toBe('epic');
+  });
+
+  it('create-time defaults (kindOfInput) are not leaked into render path', () => {
+    expect((ui as Record<string, unknown>).kindOfInput).toBeUndefined();
+    expect((ui as Record<string, unknown>).isEpicInput).toBeUndefined();
+    expect((ui as Record<string, unknown>).isMissionInput).toBeUndefined();
   });
 });
