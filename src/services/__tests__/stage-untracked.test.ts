@@ -78,14 +78,37 @@ describe('stage-untracked', () => {
     mkdirSync(join(repo, 'src'), { recursive: true });
     writeFileSync(join(repo, 'src', 'new.ts'), 'export const x = 1;\n');
 
-    // Untracked: `git status` shows it as `??`, but `git diff HEAD` omits it entirely.
-    expect(git(repo, 'status', '--porcelain')).toContain('?? src/new.ts');
+    // `git status --porcelain` COLLAPSES a wholly-untracked directory to the directory path —
+    // the file never appears. `ls-files --others --exclude-standard` names the FILE in both
+    // the collapsed and non-collapsed case; that is why the sweep uses it. See stage-untracked.ts.
+    expect(git(repo, 'status', '--porcelain').trim()).toBe('?? src/');
+    expect(git(repo, 'ls-files', '--others', '--exclude-standard').trim()).toBe('src/new.ts');
+    // Either way, `git diff HEAD` omits an untracked file entirely.
     expect(git(repo, 'diff', 'HEAD', '--name-only')).not.toContain('src/new.ts');
 
     stageUntrackedIntentToAdd(repo);
 
     expect(git(repo, 'diff', 'HEAD', '--name-only')).toContain('src/new.ts');
     expect(git(repo, 'diff', 'HEAD', '--numstat').trim()).toBe('1\t0\tsrc/new.ts');
+  });
+
+  it('stages the FILE, not the collapsed directory, when the directory itself is brand new', () => {
+    // `git status --porcelain` would report only `?? deep/`. The sweep must name the file.
+    mkdirSync(join(repo, 'deep', 'nested', 'dir'), { recursive: true });
+    writeFileSync(join(repo, 'deep', 'nested', 'dir', 'new.ts'), 'export const x = 1;\n');
+
+    expect(git(repo, 'status', '--porcelain').trim()).toBe('?? deep/');
+
+    const staged = stageUntrackedIntentToAdd(repo);
+
+    // The discriminating assertion: the enumerator must yield the FILE path.
+    expect(staged).toEqual(['deep/nested/dir/new.ts']);
+
+    const names = git(repo, 'diff', 'HEAD', '--name-only');
+    expect(names).toContain('deep/nested/dir/new.ts');
+    expect(names.split('\n').map((l) => l.trim())).not.toContain('deep/');
+    // The review node's view.
+    expect(git(repo, 'diff', 'HEAD')).toContain('deep/nested/dir/new.ts');
   });
 
   it('is idempotent across laps', () => {

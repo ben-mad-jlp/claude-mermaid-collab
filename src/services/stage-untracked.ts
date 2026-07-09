@@ -11,6 +11,13 @@
 // three-dot diffs two COMMITS, so it never sees uncommitted work, intent-to-add or otherwise.
 // The content stays out of the index — `git diff --cached` prints nothing for the entry.
 //
+// LOAD-BEARING: the enumerator is `git ls-files --others --exclude-standard`, NEVER
+// `git status --porcelain`. Porcelain COLLAPSES a wholly-untracked directory to the directory
+// path (`?? src/`) and never names the file inside it; `ls-files --others` enumerates the FILES
+// whether or not the parent directory is already tracked. With porcelain we would run
+// `git add --intent-to-add -- src/` on a brand-new directory, and the sweep would report the
+// directory rather than the files it staged. Do not "simplify" this to a status parse.
+//
 // We deliberately never use `git add -A`/`-u`/`.`: those would also stage .gitignore'd junk
 // (db snapshots, deploy logs) that worktrees accumulate.
 
@@ -19,7 +26,8 @@ import { execFileSync } from 'node:child_process';
 const CHUNK_SIZE = 500;
 
 /** List untracked, NON-IGNORED paths in `cwd`. `--exclude-standard` applies .gitignore,
- *  .git/info/exclude and the global excludes — we never roll our own filter. */
+ *  .git/info/exclude and the global excludes — we never roll our own filter. Files, not
+ *  directories: unlike `git status --porcelain`, this does not collapse a new directory. */
 export function listUntrackedPaths(cwd: string): string[] {
   try {
     const out = execFileSync(
