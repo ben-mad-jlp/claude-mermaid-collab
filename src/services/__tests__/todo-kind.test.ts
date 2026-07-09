@@ -18,6 +18,7 @@ import {
   type KindBearing,
 } from '../todo-kind.ts';
 import { kindFromTitle } from '../claimability.ts';
+import * as uiKind from '../../../ui/src/lib/todoKind.ts';
 
 describe('kindOf', () => {
   for (const { input, expect: want } of KIND_FIXTURE) {
@@ -100,11 +101,34 @@ describe('stripLabel', () => {
     expect(stripLabel('[EPIC] [LAND] weird')).toBe('[LAND] weird');
   });
 
+  it('does not strip a bracket that appears mid-title', () => {
+    expect(stripLabel('Foo [EPIC] bar')).toBe('Foo [EPIC] bar');
+  });
+
   it('null -> empty string', () => {
     expect(stripLabel(null)).toBe('');
   });
 
+  it('undefined -> empty string', () => {
+    expect(stripLabel(undefined)).toBe('');
+  });
+
   it('round-trips with labelFor', () => {
     expect(stripLabel(`${labelFor('epic')} Foo`)).toBe('Foo');
+  });
+});
+
+describe('server/UI parity (KIND_FIXTURE)', () => {
+  for (const { input, expect: want } of KIND_FIXTURE) {
+    it(`kindOf(${JSON.stringify(input)}) agrees: server=UI=${want}`, () => {
+      expect(kindOf(input)).toBe(want);
+      expect(uiKind.kindOf(input)).toBe(want);
+    });
+  }
+
+  it('labelFor agrees across server and UI modules for all four kinds', () => {
+    for (const kind of Object.keys(KIND_LABEL) as TodoKind[]) {
+      expect(labelFor(kind)).toBe(uiKind.labelFor(kind));
+    }
   });
 });
