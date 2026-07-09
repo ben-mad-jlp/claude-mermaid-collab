@@ -81,4 +81,15 @@ Once the user has picked a session:
 
 2. Tell the user which session they selected and that they're entering vibe mode.
 
+The response includes a `sessionRole` field. **Remember it** — it is the session's durable
+role, resolved server-side from the mission table. It is `null` for an ordinary vibe session.
+
 3. Follow the **vibe-active** skill instructions — enter freeform mode where the user can create diagrams, documents, and designs on this session.
+
+**Finally, if `sessionRole` was non-null**, immediately invoke that skill via the Skill tool
+(e.g. `sessionRole: "conductor"` → invoke skill `conductor`). Do this WITHOUT asking the user
+— the role is durable state, not a decision. A session that owns an active mission IS the
+conductor of that mission; a context recycle must not demote it to a bystander. Announce it in
+one line: `Resumed as conductor of mission <title>.`
+
+If `sessionRole` is null, do nothing extra — resume as a plain vibe session.
