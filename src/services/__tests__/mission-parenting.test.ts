@@ -1,86 +1,129 @@
 /**
- * Unit tests for mission-parenting.ts — the §4d parenting decision. Pure; no DB.
+ * Unit tests for mission-parenting.ts (§4d) — pure, no DB. Exercises the
+ * resolveEpicParent precedence ladder via its fixture table, the bucket-epic
+ * identity check, the kind-not-title role discrimination, the
+ * parentId===null-no-longer-implies-epic invariant, and the
+ * epicBackfillSkipReason ladder.
  */
 import { describe, it, expect } from 'bun:test';
 import {
-  resolveEpicParent,
+  BUGFIX_INBOX_EPIC_TITLE,
   isBucketEpic,
   isDeliverableEpic,
+  missionParentId,
+  resolveEpicParent,
   epicBackfillSkipReason,
+  isMissionTarget,
   MISSION_PARENTING_FIXTURE,
 } from '../mission-parenting';
-import { MissingKindError } from '../todo-kind';
+import { INBOX_EPIC_TITLE } from '../claimability';
+import { kindOf, isMission, isEpic, MissingKindError } from '../todo-kind';
 
 describe('resolveEpicParent — fixture table', () => {
-  for (const { input, activeMissionId, expect: expected } of MISSION_PARENTING_FIXTURE) {
-    it(`${JSON.stringify(input)} + active=${activeMissionId} -> ${expected}`, () => {
-      expect(resolveEpicParent(input, activeMissionId)).toBe(expected);
+  for (const row of MISSION_PARENTING_FIXTURE) {
+    it(`kind=${row.input.kind} title=${JSON.stringify(row.input.title)} missionId=${JSON.stringify(
+      row.input.missionId,
+    )} activeMissionId=${JSON.stringify(row.activeMissionId)} -> ${JSON.stringify(row.expect)}`, () => {
+      expect(resolveEpicParent(row.input, row.activeMissionId)).toBe(row.expect);
     });
   }
 });
 
-describe('resolveEpicParent — explicit cases', () => {
-  it('missions are always roots', () => {
-    expect(resolveEpicParent({ kind: 'mission' }, 'M1')).toBeNull();
-  });
-
-  it('deliverable epic with no missionId homes to the active mission', () => {
-    expect(resolveEpicParent({ kind: 'epic', title: 'Deliverable' }, 'M1')).toBe('M1');
-    expect(resolveEpicParent({ kind: 'epic', title: 'Deliverable' }, null)).toBeNull();
-  });
-
-  it('missionId: null is an explicit opt-out even with an active mission', () => {
-    expect(resolveEpicParent({ kind: 'epic', title: 'Deliverable', missionId: null }, 'M1')).toBeNull();
-  });
-
-  it('explicit missionId WINS over the bucket check (precedence per todo-store.ts:817-818)', () => {
-    expect(resolveEpicParent({ kind: 'epic', title: 'Inbox', missionId: 'M2' }, 'M1')).toBe('M2');
-  });
-
-  it('throws on a leaf/land input (caller bug)', () => {
-    expect(() => resolveEpicParent({ kind: 'leaf' }, null)).toThrow();
-    expect(() => resolveEpicParent({ kind: 'land' }, null)).toThrow();
+describe('resolveEpicParent — deliverable epic gets the mission todoId', () => {
+  it('homes to the active mission', () => {
+    expect(resolveEpicParent({ kind: 'epic', title: 'Ship the thing' }, 'mission-1')).toBe('mission-1');
   });
 });
 
-describe('bucket epic identity', () => {
-  const titles = ['Inbox', 'Bugfix inbox', '[EPIC] Inbox', 'inbox', 'INBOX'];
-  for (const title of titles) {
-    it(`"${title}" is a bucket epic, not a deliverable`, () => {
-      const t = { kind: 'epic' as const, title };
-      expect(isBucketEpic(t)).toBe(true);
-      expect(isDeliverableEpic(t)).toBe(false);
-      expect(resolveEpicParent(t, 'M1')).toBeNull();
-    });
+describe('resolveEpicParent — mission stays a root', () => {
+  it('a mission input resolves to null regardless of activeMissionId', () => {
+    expect(resolveEpicParent({ kind: 'mission', title: 'Converge' }, 'M1')).toBe(null);
+  });
+  it('missionParentId() is always null', () => {
+    expect(missionParentId()).toBe(null);
+  });
+});
+
+describe('resolveEpicParent — buckets stay roots, by identity not regex', () => {
+  const bucketTitles = [INBOX_EPIC_TITLE, BUGFIX_INBOX_EPIC_TITLE];
+
+  for (const title of bucketTitles) {
+    for (const variant of [title, `[EPIC] ${title}`, title.toLowerCase()]) {
+      it(`bucket title variant ${JSON.stringify(variant)} stays a root`, () => {
+        expect(resolveEpicParent({ kind: 'epic', title: variant }, 'M1')).toBe(null);
+        expect(isBucketEpic({ kind: 'epic', title: variant })).toBe(true);
+        expect(isDeliverableEpic({ kind: 'epic', title: variant })).toBe(false);
+      });
+    }
   }
 
-  it('"[MISSION] Foo" titled kind:epic is deliverable — column wins over prefix', () => {
-    const t = { kind: 'epic' as const, title: '[MISSION] deliverable, column wins' };
-    expect(isDeliverableEpic(t)).toBe(true);
-    expect(isBucketEpic(t)).toBe(false);
+  it('lookalike titles that are not exact bucket identities are deliverables', () => {
+    expect(resolveEpicParent({ kind: 'epic', title: 'Inbox triage' }, 'M1')).toBe('M1');
+    expect(resolveEpicParent({ kind: 'epic', title: 'Bugfix inbox rewrite' }, 'M1')).toBe('M1');
   });
 
-  it('isBucketEpic throws MissingKindError on a kind-less payload', () => {
-    expect(() => isBucketEpic({ title: 'Inbox' })).toThrow(MissingKindError);
+  it('explicit missionId on a bucket title still wins', () => {
+    expect(resolveEpicParent({ kind: 'epic', title: INBOX_EPIC_TITLE, missionId: 'M2' }, 'M1')).toBe('M2');
   });
 });
 
-describe('epicBackfillSkipReason', () => {
-  it('leaf -> not-an-epic', () => {
+describe('resolveEpicParent — role comes from kind, never a title', () => {
+  it('a leaf with an epic-looking title is not an epic, and resolveEpicParent throws', () => {
+    const leaf = { kind: 'leaf' as const, title: '[EPIC] looks like an epic' };
+    expect(isEpic(leaf)).toBe(false);
+    expect(kindOf(leaf)).toBe('leaf');
+    expect(() => resolveEpicParent(leaf, 'M1')).toThrow(/expected an epic or mission/);
+  });
+
+  it('an epic with a mission-looking title still parents to the mission', () => {
+    expect(
+      resolveEpicParent({ kind: 'epic', title: '[MISSION] deliverable, column wins' }, 'M1'),
+    ).toBe('M1');
+  });
+
+  it('a payload with no kind throws MissingKindError from kindOf, and resolveEpicParent throws too', () => {
+    const noKind = { title: '[EPIC] no kind' };
+    expect(() => kindOf(noKind)).toThrow(MissingKindError);
+    expect(() => resolveEpicParent(noKind as any, 'M1')).toThrow();
+  });
+});
+
+describe('resolveEpicParent — parentId===null no longer implies "epic"', () => {
+  it('mission and epic are discriminated only by kind, not by parentId', () => {
+    const mission = { kind: 'mission' as const, title: 'M', parentId: null };
+    const epic = { kind: 'epic' as const, title: 'E', parentId: null };
+
+    expect(mission.parentId).toBe(null);
+    expect(epic.parentId).toBe(null);
+
+    expect(isMission(mission)).toBe(true);
+    expect(isMission(epic)).toBe(false);
+    expect(isEpic(epic)).toBe(true);
+    expect(isEpic(mission)).toBe(false);
+
+    expect(isMissionTarget(mission)).toBe(true);
+    expect(isMissionTarget(epic)).toBe(false);
+    expect(isMissionTarget(null)).toBe(false);
+  });
+});
+
+describe('epicBackfillSkipReason — ladder', () => {
+  it('a non-epic is not-an-epic', () => {
     expect(epicBackfillSkipReason({ kind: 'leaf', title: 'x' })).toBe('not-an-epic');
+    expect(epicBackfillSkipReason({ kind: 'mission', title: 'M' })).toBe('not-an-epic');
   });
 
-  it('bucket epic -> bucket-epic', () => {
+  it('bucket epics skip regardless of parentId (bucket beats already-parented)', () => {
     expect(epicBackfillSkipReason({ kind: 'epic', title: 'Inbox' })).toBe('bucket-epic');
+    expect(epicBackfillSkipReason({ kind: 'epic', title: 'Inbox', parentId: 'M1' })).toBe('bucket-epic');
   });
 
-  it('epic with parentId set -> already-parented', () => {
-    expect(epicBackfillSkipReason({ kind: 'epic', title: 'Deliverable', parentId: 'M1' })).toBe(
-      'already-parented',
-    );
+  it('an already-parented deliverable epic skips', () => {
+    expect(epicBackfillSkipReason({ kind: 'epic', title: 'E', parentId: 'M1' })).toBe('already-parented');
   });
 
-  it('root deliverable epic -> null (move it)', () => {
-    expect(epicBackfillSkipReason({ kind: 'epic', title: 'Deliverable', parentId: null })).toBeNull();
+  it('a rootless deliverable epic is eligible to move (null)', () => {
+    expect(epicBackfillSkipReason({ kind: 'epic', title: 'E', parentId: null })).toBe(null);
+    expect(epicBackfillSkipReason({ kind: 'epic', title: 'E' })).toBe(null);
   });
 });
