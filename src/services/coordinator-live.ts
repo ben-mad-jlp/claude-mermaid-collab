@@ -26,6 +26,7 @@ import { loadProjectManifest, type ProjectManifest } from '../config/project-man
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { runEpicLandGate, landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
+import { landReadiness, type LandReadinessVerdict, type LandBlocker } from './land-authority';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
@@ -1255,6 +1256,24 @@ async function deriveEpicLandProof(a: {
 }
 
 /**
+ * The daemon's auto-land safety proof. There is ONE land proof (`landReadiness`) shared by
+ * the human click, the conductor call, and this daemon auto-land. The ACTOR decides
+ * AUTHORITY; the PROOF decides SAFETY. `auto` is a user preference about who is asked —
+ * it is never a licence to land on a weaker proof.
+ *
+ * `repo` is the target repo for this slice of a (possibly cross-repo) epic; `todos` are the
+ * TRACKING project's todos, passed through so landReadiness resolves the work-graph from
+ * the tracking DB while probing git in `repo`.
+ */
+export async function autoLandReadiness(
+  repo: string,
+  epicId: string,
+  todos: Todo[],
+): Promise<LandReadinessVerdict> {
+  return landReadiness(repo, epicId, { todos });
+}
+
+/**
  * Surface (and, at level>=drive, AUTO-LAND) the epic-ready-to-land card(s) for a
  * rolled-up epic. Extracted from completeTodo so the reconcile-pass sweep can call
  * the IDENTICAL logic every tick — making the land surface SELF-HEALING (it catches
@@ -1277,7 +1296,8 @@ export async function surfaceEpicLand(
   const id = opts.preferLinkTodoId;
   const autoLand = getOrchestratorLevel(project) === 'auto';
   try {
-    const children = listTodos(project, { includeCompleted: true })
+    const allTodos = listTodos(project, { includeCompleted: true });
+    const children = allTodos
       .filter((t) => t.parentId === epicId && t.status !== 'dropped');
     const { byRepo, ambiguous } = partitionEpicChildrenByRepo(children, project);
 
@@ -1337,6 +1357,22 @@ export async function surfaceEpicLand(
       // (re-derives the proof, lands behind the mutex, conflict→rebase card). The
       // dedup above ensures we don't re-fire on an already-open card.
       if (proof.ok && proof.gate.status === 'pass' && autoLand && escalation?.id) {
+        // ONE PROOF: the daemon lands only through the same landReadiness() the human and
+        // conductor paths use. deriveEpicLandProof (above) is necessary but NOT sufficient:
+        // it omits the [LAND]-leaf dep check (a383bc2c) and the G9 presence check.
+        const readiness = await autoLandReadiness(repo, epicId, allTodos);
+        if (!readiness.green) {
+          recordSupervisorAudit({
+            kind: 'reconcile', project, session,
+            detail: JSON.stringify({
+              epicId, epicBranch, autoLand: true, landed: false,
+              reason: 'land-readiness-red',
+              blockers: readiness.blockers.map((b: LandBlocker) => b.code),
+              inheritedRed: readiness.inheritedRed,
+            }),
+          });
+          continue; // card is already surfaced above — a human lands it
+        }
         const outcome = await landEpic(project, escalation.id);
         recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason }) });
       }
