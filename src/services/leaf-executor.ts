@@ -39,9 +39,9 @@ import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
-import { resolveLeafGate, composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, type LeafGateResult } from './leaf-gate';
+import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding } from './review-citations';
-import { loadProjectManifest } from '../config/project-manifest';
+import { loadManifestSource } from '../config/project-manifest';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -884,6 +884,19 @@ export function parseVerifyGate(resultText: string | undefined): VerifyGateVerdi
  *  tears down the prior dir+branch so every attempt is a NEW branch off the tip. */
 export function leafSessionKey(leaf: Todo): string {
   return `leaf-exec-${leaf.id.slice(0, 8)}`;
+}
+
+/** One warning per (project, epic): an undeclared gate is a legitimate config, but its absence must
+ *  never be invisible — a 1.00 accept rate looks identical with and without a mechanical gate. */
+const warnedGateAbstention = new Set<string>();
+function warnGateAbstention(project: string, epicId: string, gateProject: string, d: { manifestPath: string; reason: string }): void {
+  const key = `${project}::${epicId}`;
+  if (warnedGateAbstention.has(key)) return;
+  warnedGateAbstention.add(key);
+  console.warn(
+    `[leaf-gate] NO MECHANICAL GATE for project ${gateProject} (epic ${epicId.slice(0, 8)}): ${d.reason}. ` +
+    `Consulted ${d.manifestPath}. Leaves will be accepted on the reviewer's verdict ALONE.`,
+  );
 }
 
 /**
@@ -1910,9 +1923,10 @@ export async function makeLeafExecutorDeps(
     clearLeafResume(leaf.id);
     effectiveStart = 0;
   }
-  // G2 mechanical gate: read once per deps construction; undeclared ⇒ null ⇒ both
-  // hooks below abstain (runGate returns 'pass'/declared:false, ensureBaseGreen null).
-  const gateCfg = resolveLeafGate(loadProjectManifest(targetProject));
+  // G2 mechanical gate, G4 abstention: classify ONCE per deps construction. `declared` runs the
+  // gate; `absent` abstains LOUDLY; `misconfigured` is INFRA — never a silent pass.
+  const gateDecl = resolveGateDeclaration(loadManifestSource(targetProject));
+  const gateCfg = gateDecl.kind === 'declared' ? gateDecl.cfg : null;
   return {
     invoker: ClaudeNodeInvoker,
     grokInvoker: GrokNodeInvoker,
@@ -2008,6 +2022,25 @@ export async function makeLeafExecutorDeps(
     // G2 mechanical gate at leaf HEAD. Scoped to this leaf's own change-set (against the
     // epic branch base) so the per-file test command only runs specs this leaf touched.
     runGate: async (cwd) => {
+      const early = gateResultForDeclaration(gateDecl);
+      if (early) return early; // misconfigured → mech.status==='error' → parkBlocked+escalate
+      if (gateDecl.kind === 'absent') {
+        warnGateAbstention(project, epicId, targetProject, gateDecl);
+        try {
+          recordNode({
+            project,
+            todoId: leaf.id,
+            session: leafSessionKey(leaf),
+            epicId,
+            leafId: leaf.id,
+            nodeKind: 'gate-abstain',
+            nodesSpent: 0,
+            verdict: 'pass',
+            outcomeDetail: 'gate-undeclared',
+            outputText: `${gateDecl.reason} (consulted ${gateDecl.manifestPath})`,
+          });
+        } catch { /* best-effort telemetry */ }
+      }
       const changeSet = await wm.changeSet(leafSessionKey(leaf), epicBranch);
       return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn);
     },
@@ -2015,7 +2048,9 @@ export async function makeLeafExecutorDeps(
     // epicId ALONE (never the moving tip) so it runs exactly once per epic, not once
     // per leaf. `fresh:true` only on the call that actually executed the commands.
     ensureBaseGreen: async () => {
-      if (!gateCfg) return null;
+      const early = gateResultForDeclaration(gateDecl);
+      if (early) return { ...early, fresh: true }; // escalate once; never cache a config error as a base fact
+      if (!gateCfg) return null; // absent → abstain (unchanged)
       const cached = getEpicBaseGate(epicId);
       if (cached) {
         return {

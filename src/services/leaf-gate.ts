@@ -8,7 +8,7 @@
  * repo-specific string.
  */
 import { join } from 'node:path';
-import type { ProjectManifest } from '../config/project-manifest';
+import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { specFilesInChangeSet, lastLines, extractFailingTests } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
 
@@ -58,6 +58,53 @@ export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | nul
   const baseTest = g.baseTest?.trim() || undefined;
   if (!typecheck && !test && !baseTest) return null;
   return { typecheck, test, testCwd, baseTest };
+}
+
+/** Why the mechanical layer will or will not run. Three outcomes, not two: an ABSENT gate is
+ *  an abstention (the leaf runs, the LLM alone decides, and we say so); a MISCONFIGURED one is
+ *  an INFRA error (G1) — a malformed manifest must never read as "no gate wanted". */
+export type GateDeclaration =
+  | { kind: 'declared'; cfg: LeafGateConfig; manifestPath: string }
+  | { kind: 'absent'; manifestPath: string; reason: string }
+  | { kind: 'misconfigured'; manifestPath: string; reason: string };
+
+/** Classify a manifest source into a gate declaration. `gate === undefined` is checked
+ *  BEFORE {@link resolveLeafGate}, because that function collapses "no gate block" and
+ *  "empty gate block" into the same null — here they must read differently (absent vs
+ *  misconfigured). */
+export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
+  if (src.state === 'absent') {
+    return { kind: 'absent', manifestPath: src.path, reason: 'no .collab/project.json — no mechanical gate declared' };
+  }
+  if (src.state === 'malformed') {
+    return { kind: 'misconfigured', manifestPath: src.path, reason: '.collab/project.json exists but is not valid JSON' };
+  }
+  const manifest = src.manifest;
+  const gate = manifest?.gate;
+  if (gate === undefined) {
+    return { kind: 'absent', manifestPath: src.path, reason: 'manifest declares no gate block' };
+  }
+  if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {
+    return { kind: 'misconfigured', manifestPath: src.path, reason: 'gate must be an object' };
+  }
+  const cfg = resolveLeafGate(manifest);
+  if (!cfg) {
+    return {
+      kind: 'misconfigured',
+      manifestPath: src.path,
+      reason: 'gate block declares no usable command (typecheck/test/baseTest all empty)',
+    };
+  }
+  return { kind: 'declared', cfg, manifestPath: src.path };
+}
+
+/** The LeafGateResult a misconfigured declaration produces WITHOUT running anything, or null when
+ *  the gate should proceed (declared → run it; absent → abstain). `status:'error'` routes through
+ *  the executor's existing INFRA arm: park blocked + escalate, never 'fail', never 'pass'.
+ *  Carries NO `command` — nothing is defaulted to a command. */
+export function gateResultForDeclaration(d: GateDeclaration): LeafGateResult | null {
+  if (d.kind !== 'misconfigured') return null;
+  return { status: 'error', output: '', reasons: [`gate misconfigured: ${d.reason} (${d.manifestPath})`], declared: false };
 }
 
 /** The lattice: `AND` over `error < fail < pass`, restricted so `pass` requires BOTH.
