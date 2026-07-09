@@ -14,6 +14,7 @@ import {
   INBOX_EPIC_TITLE,
 } from '../claimability';
 import type { Todo } from '../todo-store';
+import { kindOf, MissingKindError } from '../todo-kind';
 
 function mk(over: Partial<Todo> = {}): Todo {
   return {
@@ -21,7 +22,7 @@ function mk(over: Partial<Todo> = {}): Todo {
     title: 't', description: null, status: 'planned', completed: false, priority: null,
     dueDate: null, parentId: null, dependsOn: [], order: 0, link: null,
     createdAt: '', updatedAt: '', completedAt: null, asanaGid: null, sessionName: null,
-    executedBySession: null, blueprintId: null, type: null, kind: null, targetProject: null,
+    executedBySession: null, blueprintId: null, type: null, kind: 'leaf', targetProject: null,
     acceptanceStatus: null, claimedBy: null, claimToken: null, claimedAt: null,
     claimLeaseMs: null, claim: null, approvedAt: null, approvedBy: null, heldAt: null,
     heldReason: null, retryCount: 0, completedBy: null, objectRef: null, decisionRef: null,
@@ -125,7 +126,7 @@ describe('claimReason — each branch', () => {
 
 describe('Inbox = planning-only (inbox-planning gate)', () => {
   const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null, kind: 'epic' });
-  const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null });
+  const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null, kind: 'epic' });
 
   it('isInboxEpic: only the Inbox root', () => {
     expect(isInboxEpic(inbox)).toBe(true);
@@ -174,6 +175,11 @@ describe('Inbox = planning-only (inbox-planning gate)', () => {
   it('children of a real epic are unaffected', () => {
     const child = mk({ id: 'C', parentId: 'EP' });
     expect(claimReason(child, map(realEpic))).toBe('unapproved'); // normal gate, not inbox
+  });
+
+  it('kindOf still THROWS on a kind-less payload — the throw is the feature, not a default', () => {
+    expect(() => kindOf(mk({ kind: null }))).toThrow(MissingKindError);
+    expect(() => isInboxEpic(mk({ id: 'X', title: INBOX_EPIC_TITLE, kind: null }))).toThrow(MissingKindError);
   });
 });
 
