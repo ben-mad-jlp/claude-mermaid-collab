@@ -35,6 +35,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     executedBySession: null,
     blueprintId: null,
     type: null,
+    kind: null,
     targetProject: null,
     acceptanceStatus: null,
     claimedBy: null,

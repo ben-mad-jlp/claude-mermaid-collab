@@ -1,6 +1,6 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable, claimReason, derivedStatus, depSatisfied, isEpicTitle, isMissionTitle, INBOX_EPIC_TITLE, type ClaimReason } from './claimability';
+import { isClaimable, claimReason, derivedStatus, depSatisfied, isEpicTitle, isMissionTitle, INBOX_EPIC_TITLE, kindFromTitle, type ClaimReason, type TodoKind } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -78,6 +78,10 @@ export interface Todo {
    *  project. The Coordinator spawns the worker with cwd=this and runs the
    *  acceptance gate against this repo's change-set + manifest gate command. */
   targetProject: string | null;
+  /** Work-graph role, migrated off the `[EPIC]`/`[MISSION]`/`[LAND]` title prefix
+   *  (decision e852fb0c, stage A). Nullable ONLY for rows read from a DB opened by
+   *  an older binary; the backfill + create path make it total. NO READER YET. */
+  kind: TodoKind | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy: string | null;
   claimToken: string | null;
@@ -244,6 +248,7 @@ interface TodoRow {
   executedBySession: string | null;
   blueprintId: string | null;
   type: string | null;
+  kind: string | null;
   targetProject: string | null;
   acceptanceStatus: string | null;
   claimedBy: string | null;
@@ -285,6 +290,7 @@ CREATE TABLE IF NOT EXISTS todos (
   executedBySession TEXT,
   blueprintId TEXT,
   type TEXT,
+  kind TEXT,
   targetProject TEXT,
   acceptanceStatus TEXT,
   claimedBy TEXT,
@@ -345,6 +351,12 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'decisionRef', 'decisionRef TEXT');
   // Readiness-gates P4: nullable operator-env probe spec for the claim-time filter.
   addColumnIfMissing(db, 'todos', 'claimProbe', 'claimProbe TEXT');
+  // Stage A of the title-prefix → column migration (decision e852fb0c). Additive,
+  // nullable at the SQL level, but TOTAL in practice: the backfill below plus the
+  // create-path default mean no row is ever left NULL. NOTHING READS THIS YET —
+  // the 17 title-regex sites remain authoritative until stage B.
+  // NB: distinct from `type` (backend|ui|frontend worker routing).
+  addColumnIfMissing(db, 'todos', 'kind', 'kind TEXT');
   // De-conflate Todo work-graph status (S1) — additive, nullable. The decision
   // axes (approval / hold) split out of the overloaded enum, and the in-progress
   // claim collapses to ONE JSON column. Readers are unchanged in S1; these are
@@ -366,6 +378,14 @@ function openDb(project: string): Database {
   // DB it lives in" and combine cross-project todos into one diagram. Stamp every
   // NULL with this db's tracking project so the UI can partition by targetProject.
   db.prepare(`UPDATE todos SET targetProject = ? WHERE targetProject IS NULL`).run(project);
+  // One-shot-per-row, idempotent backfill of `kind` from the legacy role prefix.
+  // `WHERE kind IS NULL` makes a second run touch zero rows. Titles are NOT modified
+  // (prefix stripping is stage C). SQLite LIKE is case-insensitive for ASCII, which
+  // matches the /i on the title regexes.
+  db.exec(`UPDATE todos SET kind='mission' WHERE kind IS NULL AND TRIM(title) LIKE '[MISSION]%'`);
+  db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+  db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
+  db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
   const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -657,6 +677,7 @@ function rowToTodo(row: TodoRow): Todo {
     executedBySession: row.executedBySession ?? null,
     blueprintId: row.blueprintId ?? null,
     type: row.type ?? null,
+    kind: (row.kind as TodoKind) ?? null,
     targetProject: row.targetProject ?? null,
     acceptanceStatus: (row.acceptanceStatus as Todo['acceptanceStatus']) ?? null,
     claimedBy: row.claimedBy ?? null,
@@ -742,9 +763,9 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, executedBySession, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe,
+        sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe,
         approvedAt, approvedBy, heldAt, heldReason)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -754,7 +775,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindFromTitle(input.title), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
       approvedAt, approvedBy, heldAt, heldReason
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge

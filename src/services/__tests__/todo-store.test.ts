@@ -1429,3 +1429,53 @@ describe('claimToken CAS on completeTodo (1de16a83)', () => {
     expect(after!.acceptanceStatus).toBe('accepted');
   });
 });
+
+describe('`kind` column — stage A of title-prefix migration (decision e852fb0c)', () => {
+  test('createTodo derives kind from the title prefix and it round-trips through getTodo', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x' });
+    expect(epic.kind).toBe('epic');
+    expect((await getTodo(project, epic.id))!.kind).toBe('epic');
+
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[MISSION] x' });
+    expect(mission.kind).toBe('mission');
+    expect((await getTodo(project, mission.id))!.kind).toBe('mission');
+
+    const land = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LAND] x' });
+    expect(land.kind).toBe('land');
+    expect((await getTodo(project, land.id))!.kind).toBe('land');
+
+    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'plain leaf title' });
+    expect(leaf.kind).toBe('leaf');
+    expect((await getTodo(project, leaf.id))!.kind).toBe('leaf');
+  });
+
+  test('no row is ever left with a NULL kind after a create', async () => {
+    await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x' });
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    const row = db.query(`SELECT count(*) AS n FROM todos WHERE kind IS NULL`).get() as { n: number };
+    db.close();
+    expect(row.n).toBe(0);
+  });
+
+  test('the backfill is idempotent: a NULL row derives on re-run, and re-running touches zero rows', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x' });
+    const dbPath = join(project, '.collab', 'todos.db');
+    const db = new Database(dbPath);
+    db.exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
+    db.close();
+    _closeProject(project);
+
+    // Reopening the store re-runs the backfill (openDb runs it unconditionally,
+    // guarded only by `WHERE kind IS NULL`).
+    const after = await getTodo(project, t.id);
+    expect(after!.kind).toBe('epic');
+
+    const db2 = new Database(dbPath);
+    const before = db2.query(`SELECT kind FROM todos WHERE id='${t.id}'`).get() as { kind: string };
+    const result = db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+    const changes = db2.query('SELECT changes() AS c').get() as { c: number };
+    db2.close();
+    expect(before.kind).toBe('epic');
+    expect(changes.c).toBe(0);
+  });
+});
