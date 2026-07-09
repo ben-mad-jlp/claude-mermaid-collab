@@ -39,6 +39,7 @@ import { recordUsage, getUsage } from '../services/usage-store';
 import { refreshSummaryNow } from '../services/session-summary-loop';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
+import type { ClaimSuppressionReport } from '../services/coordinator-live';
 import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
@@ -3218,7 +3219,7 @@ export async function handleAPI(
     // (over-budget / breaker / probe-down / stranded-foundation / not-headless) so the
     // fleet panel can show "8 ready, 0 claimed — 3 stranded-foundation" instead of an
     // unexplained idle daemon. Best-effort; never block the live read on it.
-    let claimSuppression: unknown;
+    let claimSuppression: ClaimSuppressionReport | undefined;
     if (project) {
       try {
         const { diagnoseClaimSuppression } = await import('../services/coordinator-live');
@@ -3232,8 +3233,16 @@ export async function handleAPI(
       global: { max: maxInflightGlobal(), active: inflightActive() },
       ...(project ? { project: { max: maxInflightPerProject(project), active: inflightActive(project) } } : {}),
     };
+    const state = inflight.length > 0
+      ? 'working'
+      : claimSuppression?.blocked
+        ? 'blocked-on-decision'
+        : (claimSuppression?.suppressed.length ?? 0) > 0
+          ? 'claims-suppressed'
+          : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : 'idle';
     return Response.json({
       now,
+      state,
       inflight,
       breaker: { open: breakerOpen(now), openUntil: breakerOpenUntil() },
       paused,

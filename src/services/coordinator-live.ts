@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
+import { findBlockedSplits, type BlockedSplit } from './claimability';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
@@ -972,15 +973,22 @@ export interface ClaimSuppressionReport {
   /** Per-leaf hold reasons (only the suppressed ones). */
   suppressed: Array<{ todoId: string; title: string; reason: string }>;
   claimableIds: string[];
+  /** Split parents with unapproved open children — the project is BLOCKED ON A DECISION,
+   *  not idle. Non-empty ⇒ `claimable: 0` is NEVER quiescence. */
+  blockedSplits: import('./claimability').BlockedSplit[];
+  /** Convenience flag: blockedSplits.length > 0. */
+  blocked: boolean;
 }
 
 export async function diagnoseClaimSuppression(project: string): Promise<ClaimSuppressionReport> {
   const level = getOrchestratorLevel(project);
   const ready = listReadyTodos(project);
   const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: t.title ?? t.id, reason }));
+  const blockedSplits = findBlockedSplits(listTodos(project, { includeCompleted: true }));
+  const blocked = blockedSplits.length > 0;
   // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
   if (overDailyBudget(project)) {
-    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [] };
+    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [], blockedSplits, blocked };
   }
   // Per-leaf pipeline, in claimGuard order: probe → stranded-foundation → headless.
   const ids = (ts: Todo[]) => new Set(ts.map((t) => t.id));
@@ -1006,6 +1014,8 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
     projectGate,
     suppressed,
     claimableIds: claimable.map((t) => t.id),
+    blockedSplits,
+    blocked,
   };
 }
 
