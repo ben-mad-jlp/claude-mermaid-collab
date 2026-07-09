@@ -125,4 +125,23 @@ describe('S6 invariant assert pass (findClaimInvariantViolations)', () => {
     ]);
     expect(v).toEqual([]);
   });
+
+  test('a mission never surfaces as epic-rollup-missed, even with all children done+accepted', () => {
+    const graph = [
+      todo({ id: 'm1', kind: 'mission', status: 'in_progress' }),
+      todo({ id: 'c1', parentId: 'm1', status: 'done', acceptanceStatus: 'accepted' }),
+      todo({ id: 'c2', parentId: 'm1', status: 'done', acceptanceStatus: 'accepted' }),
+    ];
+    expect(findClaimInvariantViolations(graph)).toEqual([]);
+
+    // Flip `kind` to 'epic' on the same graph → exactly one epic-rollup-missed.
+    const epicGraph = [
+      todo({ id: 'm1', kind: 'epic', status: 'in_progress' }),
+      todo({ id: 'c1', parentId: 'm1', status: 'done', acceptanceStatus: 'accepted' }),
+      todo({ id: 'c2', parentId: 'm1', status: 'done', acceptanceStatus: 'accepted' }),
+    ];
+    const v = findClaimInvariantViolations(epicGraph);
+    expect(v.filter((e) => e.kind === 'epic-rollup-missed')).toHaveLength(1);
+    expect(v.find((e) => e.kind === 'epic-rollup-missed')!.todoId).toBe('m1');
+  });
 });
