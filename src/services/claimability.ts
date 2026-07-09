@@ -10,84 +10,40 @@
  * Pure + zero new I/O: `byId` is already in-memory at every call site (the work-graph map).
  */
 import type { Todo } from './todo-store';
-// Deliberate runtime-safe ESM cycle: todo-kind.ts imports `kindFromTitle`/`TodoKind`
-// from this module, and this module imports `isEpic` back from todo-kind.ts. Safe
-// because neither side calls the other at module-init time — only inside function
-// bodies (`kindOf`'s body there, `isInboxEpic`'s body here) — so there is no TDZ
-// hazard for the `const` arrow exports on either side. Do not "fix" this by moving
-// symbols between the two files.
-import { isEpic } from './todo-kind.ts';
+// One-directional as of stage C: this module imports the `isEpic`/`stripLabel` values
+// from todo-kind.ts, and todo-kind.ts imports only `import type { TodoKind }` back —
+// a type-only edge, erased at compile time. The stage-B runtime cycle existed solely
+// because todo-kind.ts's `kindOf` fallback needed `kindFromTitle` from here; that
+// fallback and that function are both gone. Do not add a value import in todo-kind.ts
+// from this module — it would re-form the cycle.
+import { isEpic, stripLabel } from './todo-kind.ts';
 
-/**
- * The per-project default epic that orphan/triage todos auto-file under
- * (constraint 373a2d52 / every-todo-needs-an-epic). The Inbox is a PLANNING-ONLY
- * staging area: its children must NEVER be auto-executed — they must first be
- * re-homed to a real epic. Matched by this exact title (the epic model is
- * title-based throughout; one shared definition makes it easy to harden later).
+/** The per-project default epic that orphan/triage todos auto-file under
+ *  (constraint 373a2d52). Planning-only: its children must never be auto-executed.
  *
- * Defined HERE (the pure predicate module) so both the claim gate below and the
- * approval route can import a SINGLE source of Inbox identity without pulling in
- * the heavy session-todos / todo-store graph (no import cycle: this module only
- * imports the `Todo` type).
- */
-export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
+ *  This is the POST-STRIP stored title. Stage C's migration removed the `[EPIC] `
+ *  prefix from every stored title, this row included — the Inbox's identity is the
+ *  word, not the bracket. `isInboxEpicTitle` below still accepts the legacy
+ *  `'[EPIC] Inbox'` literal so a Todo built before the migration ran (a replayed WS
+ *  frame, an old fixture) still resolves to the same singleton. */
+export const INBOX_EPIC_TITLE = 'Inbox';
 
-/** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention.
- *  Legacy title derive — feeds `kindFromTitle`/the stage-C write path only;
- *  readers must use `todo-kind.ts` predicates (`isEpic`). */
-export const isEpicTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[EPIC\]/i.test(title ?? '');
+/** Identity check on the named singleton — NOT a role decision (role comes from `kind`).
+ *  Tolerates the legacy prefixed literal via the render-only `stripLabel`. */
+export const isInboxEpicTitle = (title: string | null | undefined): boolean =>
+  stripLabel(title) === INBOX_EPIC_TITLE;
 
-/**
- * Convergence-loop MISSION root (Phase 2a). A `[MISSION]` node is a DURABLE
- * top-level container that — unlike an `[EPIC]` — must NEVER auto-close when its
- * descendant epics all complete: a mission outlives hundreds of build/land cycles
- * (each iteration's gaps become transient `[EPIC]` children under it). The
- * behavioral difference lives in todo-store's two rollup paths (the completeTodo
- * event-path loop + sweepEpicRollups), which exempt this prefix. Loop-control
- * state (phase/iteration/criteria) is NOT stored on the todo row — it lives in the
- * sidecar `mission` table (see mission-store.ts) to keep the work-graph aggregate
- * uncoupled. Matched by the same title convention as epics.
- */
-export const MISSION_TITLE_PREFIX = '[MISSION]';
-
-/** True for a todo that IS a mission root — by the `[MISSION]` title convention.
- *  Legacy title derive — feeds `kindFromTitle`/the stage-C write path only;
- *  readers must use `todo-kind.ts` predicates (`isMission`). */
-export const isMissionTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[MISSION\]/i.test(title ?? '');
-
-/** The role a work-graph node plays. Stage A of the title-prefix → column migration
- *  (decision e852fb0c) wrote the column; stage B is now IN PROGRESS switching readers
- *  over to `todo-kind.ts`'s `kindOf`/`isMission`/`isEpic`/`isLand`/`isLeaf` predicates
- *  one call site at a time. */
+/** The role a work-graph node plays. This is the stored `kind` column's domain —
+ *  the type-only pivot that lets `todo-kind.ts` import `TodoKind` from this module
+ *  without forming a runtime edge (the import is erased at compile time). */
 export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf';
 
-/** True for a todo that IS a `[LAND]` leaf — by the title convention.
- *  Legacy title derive — feeds `kindFromTitle`/the stage-C write path only;
- *  readers must use `todo-kind.ts` predicates (`isLand`). */
-export const isLandTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[LAND\]/i.test(title ?? '');
-
-/** Derive the role from the legacy title prefix. TOTAL — never returns null, so no
- *  row can be created with a NULL kind. The three role prefixes are mutually
- *  exclusive in practice; check mission first (a mission is a durable root, and
- *  must never be misread as an epic). This is the bridge `todo-kind.ts`'s `kindOf`
- *  depends on for its title-fallback path; readers should prefer `kindOf` over
- *  calling this directly. */
-export const kindFromTitle = (title: string | null | undefined): TodoKind => {
-  if (isMissionTitle(title)) return 'mission';
-  if (isEpicTitle(title)) return 'epic';
-  if (isLandTitle(title)) return 'land';
-  return 'leaf';
-};
-
 /** True iff this todo IS the Inbox epic itself (a top-level root, not a child).
- *  ROLE comes from `kind` (stage B, decision e852fb0c); the exact-title compare is an
- *  IDENTITY check on a named singleton, not a role decision, and survives stage C
- *  because the Inbox epic's title is data, not a prefix convention. */
+ *  ROLE comes from `kind`; the title compare is an IDENTITY check on a named
+ *  singleton, not a role decision. Tolerates the pre-migration prefixed literal
+ *  via `isInboxEpicTitle`. */
 export const isInboxEpic = (t: Todo | undefined): boolean =>
-  !!t && isEpic(t) && (t.title ?? '').trim() === INBOX_EPIC_TITLE;
+  !!t && isEpic(t) && isInboxEpicTitle(t.title);
 
 /** True iff this todo's PARENT is the Inbox epic (i.e. it is a triage child). */
 export const parentIsInbox = (t: Todo, byId: Map<string, Todo>): boolean =>

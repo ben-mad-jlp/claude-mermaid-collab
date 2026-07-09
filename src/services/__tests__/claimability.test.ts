@@ -124,14 +124,21 @@ describe('claimReason — each branch', () => {
 });
 
 describe('Inbox = planning-only (inbox-planning gate)', () => {
-  const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null });
+  const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null, kind: 'epic' });
   const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null });
 
-  it('isInboxEpic: only the [EPIC] Inbox root', () => {
+  it('isInboxEpic: only the Inbox root', () => {
     expect(isInboxEpic(inbox)).toBe(true);
     expect(isInboxEpic(realEpic)).toBe(false);
-    expect(isInboxEpic(mk({ title: 'Inbox' }))).toBe(false); // missing [EPIC] prefix
     expect(isInboxEpic(undefined)).toBe(false);
+  });
+
+  it('isInboxEpic: tolerates the legacy prefixed literal', () => {
+    expect(isInboxEpic(mk({ title: '[EPIC] Inbox', kind: 'epic' }))).toBe(true);
+  });
+
+  it('isInboxEpic: role comes from kind, never the word alone', () => {
+    expect(isInboxEpic(mk({ title: 'Inbox', kind: 'leaf' }))).toBe(false);
   });
 
   it('parentIsInbox: true only when parent is the Inbox epic', () => {
@@ -161,7 +168,7 @@ describe('Inbox = planning-only (inbox-planning gate)', () => {
   it('Inbox epic itself (root) is unaffected — gated only by normal rules', () => {
     // The Inbox epic has no parent → never 'inbox-planning'. Unapproved → 'unapproved'.
     expect(claimReason(inbox, map(inbox))).toBe('unapproved');
-    expect(claimReason(mk({ id: 'IB2', title: INBOX_EPIC_TITLE, approvedAt: APPROVED }), map())).toBe('claimable');
+    expect(claimReason(mk({ id: 'IB2', title: INBOX_EPIC_TITLE, kind: 'epic', approvedAt: APPROVED }), map())).toBe('claimable');
   });
 
   it('children of a real epic are unaffected', () => {
