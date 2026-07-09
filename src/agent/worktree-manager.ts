@@ -86,6 +86,8 @@ export interface LandOpts {
   /** When set, append an `Allow-Dirty: <paths>` trailer to the land commit message
    *  (the operator overrode the clean-tree guard for this land). */
   allowDirtyPaths?: string[];
+  /** Extra trailer lines appended to the land commit message (e.g. `Land-Gate: pass`). */
+  extraTrailers?: string;
 }
 
 /** Result of forward-integrating trunk INTO an epic accumulation branch (38d87ab3).
@@ -1577,6 +1579,9 @@ export class WorktreeManager {
         `Collab-Epic: ${epicId}\nCollab-Land: ${epicBranch}`;
       if (opts?.allowDirtyPaths && opts.allowDirtyPaths.length > 0) {
         mergeMessage += `\nAllow-Dirty: ${opts.allowDirtyPaths.join(', ')}`;
+      }
+      if (opts?.extraTrailers) {
+        mergeMessage += `\n${opts.extraTrailers}`;
       }
       const mergeRes = await this.runGit(
         wtPath,
