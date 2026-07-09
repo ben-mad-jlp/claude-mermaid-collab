@@ -15,6 +15,7 @@ import {
   gateResultForDeclaration,
   type GateSpawn,
   type LeafGateConfig,
+  type GateTestLane,
 } from '../leaf-gate';
 import type { LeafReviewVerdict } from '../leaf-executor';
 import type { ProjectManifest, ManifestSource } from '../../config/project-manifest';
@@ -181,6 +182,303 @@ describe('runLeafGate', () => {
     expect(r.status).toBe('pass');
     expect(calls.length).toBe(1);
     expect(calls[0].cwd).toBe(join('/repo', 'ui'));
+  });
+
+  it('legacy form back-compat: testCwd with no cwd prefix still skips specs silently', async () => {
+    const cfg: LeafGateConfig = { test: 'bunx vitest --run {file}', testCwd: 'ui' };
+    const { spawn, calls } = stubSpawn({});
+    const r = await runLeafGate('/repo', cfg, ['backend/y.test.ts'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(0); // backend spec is silently skipped, no error
+  });
+});
+
+describe('gate.tests — dual-runner lanes (G6)', () => {
+  it('THE SHIPPED BUG FIXED: mixed src/ui specs routed to correct lanes with correct cwds', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+        { match: new RegExp('^ui/'), command: 'bunx vitest --run {files}', cwd: 'ui', mode: 'batch' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      "bun test 'src/services/foo.test.ts'": { ran: true, code: 0 },
+      "bunx vitest --run 'src/Bar.test.tsx'": { ran: true, code: 0 },
+    });
+    const r = await runLeafGate(
+      '/wt',
+      cfg,
+      ['src/services/foo.test.ts', 'ui/src/Bar.test.tsx'],
+      spawn,
+    );
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toEqual({ cwd: '/wt', command: "bun test 'src/services/foo.test.ts'" });
+    expect(calls[1]).toEqual({ cwd: '/wt/ui', command: "bunx vitest --run 'src/Bar.test.tsx'" });
+    // Regression: no bun test command should mention ui/ paths.
+    expect(calls.every((c) => !(c.command.startsWith('bun test') && c.command.includes('ui/')))).toBe(
+      true,
+    );
+  });
+
+  it('{files} batching: two ui/ specs run in ONE vitest command', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^ui/'), command: 'bunx vitest --run {files}', cwd: 'ui', mode: 'batch' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      "bunx vitest --run 'src/A.test.tsx' 'src/B.test.tsx'": { ran: true, code: 0 },
+    });
+    const r = await runLeafGate('/wt', cfg, ['ui/src/A.test.tsx', 'ui/src/B.test.tsx'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(1);
+    expect(calls[0].command).toBe("bunx vitest --run 'src/A.test.tsx' 'src/B.test.tsx'");
+  });
+
+  it('{file} per-file: two src/ specs run in TWO bun test commands', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: true, code: 0 },
+      "bun test 'src/b.test.ts'": { ran: true, code: 0 },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts', 'src/b.test.ts'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(2);
+  });
+
+  it('config gap: unmatched specs in multi-lane form ⇒ status:error with unmatchedSpecs', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({});
+    const r = await runLeafGate('/wt', cfg, ['ui/src/x.test.tsx'], spawn);
+    expect(r.status).toBe('error');
+    expect(r.unmatchedSpecs).toEqual(['ui/src/x.test.tsx']);
+    expect(r.reasons.some((reason) => reason.includes('match NO test lane'))).toBe(true);
+    expect(calls.length).toBe(0); // no spawn for unmatched specs
+  });
+
+  it('cannot run a lane (ran:false) ⇒ error, no further lanes run', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+        { match: new RegExp('^ui/'), command: 'bunx vitest --run {files}', cwd: 'ui', mode: 'batch' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: false, output: 'runner missing' },
+    });
+    const r = await runLeafGate(
+      '/wt',
+      cfg,
+      ['src/a.test.ts', 'ui/src/x.test.tsx'],
+      spawn,
+    );
+    expect(r.status).toBe('error');
+    expect(calls.length).toBe(1); // only attempted the first lane
+  });
+
+  it('a lane runs and fails ⇒ status:fail with the lane command', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: true, code: 1, output: 'FAIL a' },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn);
+    expect(r.status).toBe('fail');
+    expect(r.command).toBe("bun test 'src/a.test.ts'");
+  });
+
+  it('first lane matches: path order matters', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+        { match: new RegExp('.test.ts$'), command: 'fallback {file}', cwd: undefined, mode: 'per-file' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      "bun test 'src/x.test.ts'": { ran: true, code: 0 },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/x.test.ts'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls[0].command).toBe("bun test 'src/x.test.ts'"); // first lane matched
+  });
+
+  it('lane with no matching specs in the change-set is skipped', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {file}', cwd: undefined, mode: 'per-file' },
+        { match: new RegExp('^ui/'), command: 'bunx vitest --run {files}', cwd: 'ui', mode: 'batch' },
+      ],
+    };
+    const { spawn, calls } = stubSpawn({
+      "bun test 'src/a.test.ts'": { ran: true, code: 0 },
+    });
+    const r = await runLeafGate('/wt', cfg, ['src/a.test.ts'], spawn);
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(1); // only src/ lane ran
+  });
+
+  it('shell quoting in {file} and {files} substitution', async () => {
+    const cfg: LeafGateConfig = {
+      tests: [
+        { match: new RegExp('^src/'), command: 'bun test {files}', cwd: undefined, mode: 'batch' },
+      ],
+    };
+    const quotedSpace = "'src/has space.test.ts'";
+    const quotedQuote = "'src/has'\\''quote.test.ts'"; // shell-escaped single quote
+    const { spawn, calls } = stubSpawn({
+      [`bun test ${quotedSpace} ${quotedQuote}`]: { ran: true, code: 0 },
+    });
+    const r = await runLeafGate(
+      '/wt',
+      cfg,
+      ["src/has space.test.ts", "src/has'quote.test.ts"],
+      spawn,
+    );
+    expect(r.status).toBe('pass');
+    expect(calls.length).toBe(1);
+  });
+});
+
+describe('lane validation (resolveGateDeclaration)', () => {
+  const MANIFEST_PATH = '/tmp/.collab/project.json';
+
+  it('tests: [] (empty array) ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: { version: 1, gate: { tests: [] } },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    if (decl.kind === 'misconfigured') {
+      expect(decl.reason).toContain('non-empty array');
+    }
+  });
+
+  it('a lane with missing match ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: { version: 1, gate: { tests: [{ command: 'bun test {file}' } as any] } },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    if (decl.kind === 'misconfigured') {
+      expect(decl.reason).toContain('match and command');
+    }
+  });
+
+  it('a lane with invalid RegExp ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: { version: 1, gate: { tests: [{ match: '[', command: 'bun test {file}' }] } },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    if (decl.kind === 'misconfigured') {
+      expect(decl.reason).toContain('not a valid regexp');
+    }
+  });
+
+  it('command with neither {file} nor {files} ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: { version: 1, gate: { tests: [{ match: '^src/', command: 'bun test' }] } },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    if (decl.kind === 'misconfigured') {
+      expect(decl.reason).toContain('exactly one of {file} or {files}');
+    }
+  });
+
+  it('command with both {file} and {files} ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: {
+        version: 1,
+        gate: { tests: [{ match: '^src/', command: 'bun test {file} {files}' }] },
+      },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    if (decl.kind === 'misconfigured') {
+      expect(decl.reason).toContain('exactly one of {file} or {files}');
+    }
+  });
+
+  it('both test and tests declared ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: {
+        version: 1,
+        gate: {
+          test: 'bun test {file}',
+          tests: [{ match: '^src/', command: 'bun test {file}' }],
+        },
+      },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    if (decl.kind === 'misconfigured') {
+      expect(decl.reason).toContain('both test and tests');
+    }
+  });
+
+  it('valid multi-lane config ⇒ declared with compiled lanes', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: {
+        version: 1,
+        gate: {
+          typecheck: 'tsc',
+          tests: [
+            { match: '^src/', command: 'bun test {file}' },
+            { match: '^ui/', command: 'bunx vitest --run {files}', cwd: 'ui' },
+          ],
+        },
+      },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('declared');
+    if (decl.kind === 'declared') {
+      expect(decl.cfg.tests).toBeDefined();
+      expect(decl.cfg.tests!.length).toBe(2);
+      expect(decl.cfg.tests![0].mode).toBe('per-file');
+      expect(decl.cfg.tests![1].mode).toBe('batch');
+    }
+  });
+
+  it('real .collab/project.json of THIS repo has the dual-lane config', () => {
+    const manifestPath = join(__dirname, '..', '..', '..', '.collab', 'project.json');
+    const content = readFileSync(manifestPath, 'utf8');
+    const manifest = JSON.parse(content) as ProjectManifest;
+    expect(manifest.gate?.tests).toBeDefined();
+    expect(manifest.gate!.tests!.length).toBe(2);
+    expect(manifest.gate!.tests![0].match).toBe('^src/');
+    expect(manifest.gate!.tests![1].match).toBe('^ui/');
+    expect(manifest.gate!.tests![0].command).toContain('bun test');
+    expect(manifest.gate!.tests![1].command).toContain('vitest');
+    const src: ManifestSource = { path: manifestPath, state: 'ok', manifest };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('declared');
   });
 });
 

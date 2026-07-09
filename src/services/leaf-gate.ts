@@ -9,8 +9,19 @@
  */
 import { join } from 'node:path';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
-import { specFilesInChangeSet, lastLines, extractFailingTests } from './gate-runner';
+import { lastLines, extractFailingTests, SPEC_FILE_RE } from './gate-runner';
 import type { LeafReviewVerdict } from './leaf-executor';
+
+/** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
+export interface GateTestLane {
+  /** Compiled from the manifest's `match` RegExp source. Tested against ROOT-relative paths. */
+  match: RegExp;
+  command: string;
+  /** Worktree-relative; also the prefix stripped from spec paths. */
+  cwd?: string;
+  /** 'per-file' ⇒ command has `{file}`; 'batch' ⇒ `{files}`. */
+  mode: 'per-file' | 'batch';
+}
 
 /** Project-declared mechanical gate. Every command is a shell string run via `sh -c`.
  *  NOTHING here is defaulted to a command — an undeclared gate runs no command. */
@@ -22,6 +33,8 @@ export interface LeafGateConfig {
   test?: string;
   /** cwd for `test`, relative to the worktree root; also the prefix stripped from spec paths. */
   testCwd?: string;
+  /** Multi-lane test configuration: each lane matches a path pattern and has its own command/cwd. */
+  tests?: GateTestLane[];
   /** OPTIONAL full-suite command run ONLY at the epic base (once per epic), never per leaf.
    *  Absent ⇒ the base check is `typecheck` alone. */
   baseTest?: string;
@@ -45,10 +58,97 @@ export interface LeafGateResult {
    *  for every project that has not opted in). This is the ONLY way to get a `pass`
    *  without a command running, and it is a config fact, not an LLM output. */
   declared: boolean;
+  /** For the multi-lane form: change-set spec files that matched no lane (a config gap). */
+  unmatchedSpecs?: string[];
+}
+
+// --- lane validation and normalization ───────────────────────────────────
+
+/** Escape a string for use in a RegExp, converting all special chars to literals. */
+function escapeRe(s: string): string {
+  return s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Normalize and validate the `gate.tests` array. Returns { lanes, error } where
+ *  exactly one is present. Throws are NOT allowed — errors are returned as strings. */
+function normalizeLanes(
+  raw: unknown,
+): { lanes: GateTestLane[] | null; error: string | null } {
+  if (raw === undefined || raw === null) return { lanes: null, error: null };
+
+  if (!Array.isArray(raw)) {
+    return { lanes: null, error: 'gate.tests must be a non-empty array' };
+  }
+
+  if (raw.length === 0) {
+    return { lanes: null, error: 'gate.tests must be a non-empty array' };
+  }
+
+  const lanes: GateTestLane[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const lane = raw[i];
+    if (!lane || typeof lane !== 'object' || Array.isArray(lane)) {
+      return { lanes: null, error: `gate.tests[${i}] must declare a non-empty match and command` };
+    }
+
+    const { match, command, cwd } = lane as Record<string, unknown>;
+
+    if (typeof match !== 'string' || !match.trim()) {
+      return { lanes: null, error: `gate.tests[${i}] must declare a non-empty match and command` };
+    }
+
+    if (typeof command !== 'string' || !command.trim()) {
+      return { lanes: null, error: `gate.tests[${i}] must declare a non-empty match and command` };
+    }
+
+    // Validate regexp.
+    let compiledMatch: RegExp;
+    try {
+      compiledMatch = new RegExp(match);
+    } catch {
+      return { lanes: null, error: `gate.tests[${i}].match is not a valid regexp: ${match}` };
+    }
+
+    // Check for exactly one of {file} or {files}.
+    const hasFile = /\{file\}/.test(command);
+    const hasFiles = /\{files\}/.test(command);
+    if (!(hasFile || hasFiles) || (hasFile && hasFiles)) {
+      return {
+        lanes: null,
+        error: `gate.tests[${i}].command must contain exactly one of {file} or {files}`,
+      };
+    }
+
+    const mode = hasFile ? 'per-file' : 'batch';
+    const cwdTrimmed = (cwd as string | undefined)?.trim() || undefined;
+
+    lanes.push({
+      match: compiledMatch,
+      command: command.trim(),
+      cwd: cwdTrimmed,
+      mode,
+    });
+  }
+
+  return { lanes, error: null };
+}
+
+/** Build a single legacy lane from the old-shape `test`/`testCwd` config. */
+function legacyLane(test: string, testCwd: string | undefined): GateTestLane {
+  const prefix = testCwd ? escapeRe(testCwd.replace(/\/+$/, '')) : '';
+  const pattern = prefix ? `^${prefix}/` : '.';
+  const hasFiles = /\{files\}/.test(test);
+
+  return {
+    match: new RegExp(pattern),
+    command: test,
+    cwd: testCwd,
+    mode: hasFiles ? 'batch' : 'per-file',
+  };
 }
 
 /** Returns the project's declared gate, normalised (trim; drop empty strings; `null`
- *  when neither `typecheck` nor `test` nor `baseTest` survives). */
+ *  when neither `typecheck` nor `test` nor `baseTest` nor `tests` survives). */
 export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | null {
   const g = m?.gate;
   if (!g) return null;
@@ -56,8 +156,17 @@ export function resolveLeafGate(m: ProjectManifest | null): LeafGateConfig | nul
   const test = g.test?.trim() || undefined;
   const testCwd = g.testCwd?.trim() || undefined;
   const baseTest = g.baseTest?.trim() || undefined;
-  if (!typecheck && !test && !baseTest) return null;
-  return { typecheck, test, testCwd, baseTest };
+
+  // Parse and validate lanes (will return null error if any).
+  const { lanes, error: laneError } = normalizeLanes(g.tests);
+  // If there's a lane error, resolveLeafGate returns null; the error is reported
+  // by resolveGateDeclaration.
+  if (laneError) return null;
+
+  // Neither single-test nor multi-lane form survives.
+  if (!typecheck && !test && !baseTest && !lanes) return null;
+
+  return { typecheck, test, testCwd, baseTest, tests: lanes || undefined };
 }
 
 /** Why the mechanical layer will or will not run. Three outcomes, not two: an ABSENT gate is
@@ -87,12 +196,24 @@ export function resolveGateDeclaration(src: ManifestSource): GateDeclaration {
   if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {
     return { kind: 'misconfigured', manifestPath: src.path, reason: 'gate must be an object' };
   }
+
+  // Check for both test and tests declared.
+  if (gate.test && gate.tests) {
+    return { kind: 'misconfigured', manifestPath: src.path, reason: 'gate declares both test and tests' };
+  }
+
+  // Check lane validity.
+  const { error: laneError } = normalizeLanes(gate.tests);
+  if (laneError) {
+    return { kind: 'misconfigured', manifestPath: src.path, reason: laneError };
+  }
+
   const cfg = resolveLeafGate(manifest);
   if (!cfg) {
     return {
       kind: 'misconfigured',
       manifestPath: src.path,
-      reason: 'gate block declares no usable command (typecheck/test/baseTest all empty)',
+      reason: 'gate block declares no usable command (typecheck/test/baseTest/tests all empty)',
     };
   }
   return { kind: 'declared', cfg, manifestPath: src.path };
@@ -160,7 +281,9 @@ export async function runLeafGate(
     }
   }
 
-  if (cfg.test) {
+  // Test section: either multi-lane or legacy single-test form.
+  const lanes = cfg.tests ?? (cfg.test ? [legacyLane(cfg.test, cfg.testCwd)] : null);
+  if (lanes) {
     if (changeSet === null) {
       return {
         status: 'error',
@@ -169,13 +292,61 @@ export async function runLeafGate(
         declared: true,
       };
     }
-    const specs = specFilesInChangeSet(changeSet, cfg.testCwd);
-    if (specs.length > 0) {
-      const testCwd = cfg.testCwd ? join(cwd, cfg.testCwd) : cwd;
-      const failures: Array<{ command: string; output: string }> = [];
-      for (const spec of specs) {
-        const command = cfg.test.replace(/\{file\}/g, shellQuote(spec));
-        const r = await spawn(testCwd, command);
+
+    // Normalize paths to root-relative (no leading ./, no quotes).
+    const allSpecs = changeSet.map(normPathLocal).filter((p) => SPEC_FILE_RE.test(p));
+
+    // Route each spec to the first matching lane, or track unmatched.
+    const unmatched: string[] = [];
+    const byLane = new Map<GateTestLane, string[]>();
+    for (const spec of [...new Set(allSpecs)]) {
+      const lane = lanes.find((l) => l.match.test(spec));
+      if (!lane) {
+        unmatched.push(spec);
+        continue;
+      }
+      // Strip the lane's cwd prefix from the spec path.
+      const rel = lane.cwd
+        ? spec.slice(lane.cwd.replace(/\/+$/, '').length + 1)
+        : spec;
+      const laneSpecs = byLane.get(lane) ?? [];
+      laneSpecs.push(rel);
+      byLane.set(lane, laneSpecs);
+    }
+
+    // CONFIG GAP: unmatched specs in the multi-lane form (not the legacy form).
+    if (unmatched.length > 0 && cfg.tests) {
+      const reasons = [
+        `gate: ${unmatched.length} change-set spec file(s) match NO test lane — the gate cannot verify them`,
+        ...unmatched.map((p) => `  unmatched spec: ${p}`),
+        'add a lane to gate.tests in .collab/project.json',
+      ];
+      console.warn(...reasons);
+      return {
+        status: 'error',
+        output: '',
+        reasons,
+        declared: true,
+        unmatchedSpecs: unmatched,
+      };
+    }
+
+    // Execute commands for each lane, in order.
+    const failures: Array<{ command: string; output: string }> = [];
+    for (const lane of lanes) {
+      const files = byLane.get(lane);
+      if (!files?.length) continue;
+
+      const laneCwd = lane.cwd ? join(cwd, lane.cwd) : cwd;
+
+      // Expand {file} or {files} based on the mode.
+      const commands =
+        lane.mode === 'per-file'
+          ? files.map((f) => lane.command.replace(/\{file\}/g, shellQuote(f)))
+          : [lane.command.replace(/\{files\}/g, files.map(shellQuote).join(' '))];
+
+      for (const command of commands) {
+        const r = await spawn(laneCwd, command);
         if (!r.ran) {
           return {
             status: 'error',
@@ -187,16 +358,17 @@ export async function runLeafGate(
         }
         if (r.code !== 0) failures.push({ command, output: r.output });
       }
-      if (failures.length > 0) {
-        const output = failures.map((f) => f.output).join('\n').slice(0, 8000);
-        return {
-          status: 'fail',
-          command: failures[0].command,
-          output,
-          reasons: [`${failures.length} failing spec file(s)`, ...extractFailingTests(output).slice(0, 20)],
-          declared: true,
-        };
-      }
+    }
+
+    if (failures.length > 0) {
+      const output = failures.map((f) => f.output).join('\n').slice(0, 8000);
+      return {
+        status: 'fail',
+        command: failures[0].command,
+        output,
+        reasons: [`${failures.length} failing spec file(s)`, ...extractFailingTests(output).slice(0, 20)],
+        declared: true,
+      };
     }
   }
 
@@ -276,4 +448,9 @@ export async function runBaseGate(cwd: string, cfg: LeafGateConfig | null, spawn
 /** Single-quote a path for `sh -c`, escaping any embedded single quotes. */
 function shellQuote(p: string): string {
   return `'${p.replace(/'/g, "'\\''")}'`;
+}
+
+/** Normalize a path by dropping leading `./` and surrounding quotes. Mirrors gate-runner's normPath. */
+function normPathLocal(p: string): string {
+  return p.trim().replace(/^"(.*)"$/, '$1').replace(/^\.\//, '');
 }
