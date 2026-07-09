@@ -791,6 +791,17 @@ export function parseVerdict(text: string | undefined): LeafReviewVerdict {
   return m[1].toUpperCase() === 'PASS' ? 'pass' : 'fail';
 }
 
+/** A base-gate verdict is a durable BASE FACT only when the gate actually RAN.
+ *  status==='error' means the gate could not run (missing npx, OOM, signal kill) — an
+ *  INCIDENT, not a fact about the base. Caching it under the tip-less epicId key would
+ *  silently block every later leaf on the epic (they read fresh:false ⇒ no escalation).
+ *  Re-check on the next leaf instead. */
+export function isCacheableBaseGateStatus(
+  status: 'pass' | 'fail' | 'error',
+): status is 'pass' | 'fail' {
+  return status !== 'error';
+}
+
 /** The verify pipeline's domain-gate verdict (epic f5c7fc46), derived purely from the
  *  deterministic verb's raw JSON result. Three outcomes:
  *  - 'pass'  — gate(s) actually ran and all passed.
@@ -2069,14 +2080,16 @@ export async function makeLeafExecutorDeps(
       const wt = await wm.ensureEpic(epicId, targetProject);
       if (!wt) return null; // non-git fallback ⇒ no base gate
       const r = await runBaseGate(wt.path, gateCfg, defaultGateSpawn);
-      recordEpicBaseGate({
-        epicId,
-        project,
-        baseSha: epicBaseSha,
-        status: r.status,
-        command: r.command ?? null,
-        output: r.output || null,
-      });
+      if (isCacheableBaseGateStatus(r.status)) {
+        recordEpicBaseGate({
+          epicId,
+          project,
+          baseSha: epicBaseSha,
+          status: r.status,
+          command: r.command ?? null,
+          output: r.output || null,
+        });
+      }
       return { ...r, fresh: true };
     },
     // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at

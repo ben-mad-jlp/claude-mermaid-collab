@@ -9,6 +9,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   runLeaf,
   parseVerdict,
+  isCacheableBaseGateStatus,
   buildNodePrompt,
   parseSizeManifest,
   leafExecutionMode,
@@ -664,6 +665,30 @@ describe('runLeaf G2 mechanical gate', () => {
     expect(res.outcome).toBe('accepted');
     expect(res.nodesSpent).toBe(3);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('isCacheableBaseGateStatus: pass/fail are cacheable, error is not', () => {
+    expect(isCacheableBaseGateStatus('pass')).toBe(true);
+    expect(isCacheableBaseGateStatus('fail')).toBe(true);
+    expect(isCacheableBaseGateStatus('error')).toBe(false);
+  });
+
+  it('error base gate ⇒ zero leaves, zero nodes, escalation on every leaf (not cached)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'error', command: 'npx tsc --noEmit', output: 'OOM killed', reasons: [], declared: true, fresh: true,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.nodesSpent).toBe(0);
+    expect(spies.invokeSpecs.length).toBe(0);
+    const esc = spies.escalations.find((e) => e.kind === 'blocker');
+    // escalation carries the command and output just like a red base, but fresh:true
+    // ensures it's escalated on every leaf (not cached)
+    expect(esc?.questionText).toContain('npx tsc --noEmit');
+    expect(esc?.questionText).toContain('OOM killed');
   });
 });
 
