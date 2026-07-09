@@ -7,6 +7,8 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
 import { trackingProjectRoot } from './project-registry';
+import type { LeafSplitItem } from './split-decision';
+import { topoSortSplitItems } from './split-decision';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -1536,55 +1538,74 @@ export interface SplitLeafResult {
 }
 
 /**
- * Worker-decomposition: split a too-big LEAF into one child leaf per file, UNDER the
- * leaf itself. The leaf becomes a non-executable dependency-grouping CONTAINER — it owns
+ * Worker-decomposition: split a too-big LEAF into one child leaf per ITEM (not per file),
+ * UNDER the leaf itself. SR-6: items may carry multiple files and real sibling `dependsOn`
+ * edges. The leaf becomes a non-executable dependency-grouping CONTAINER — it owns
  * NO git branch and triggers NO merge; its children commit to the same enclosing epic
  * branch (resolveEpicId walks past this node) and complete as ordinary leaves, and
  * {@link sweepEpicRollups} closes the container once they all settle. Dependents of the
  * leaf keep pointing AT it and unblock when the rollup marks it done — so NO dependency
  * repointing is needed, and the epic's [LAND] leaf stays the sole merge-to-master authority.
  *
+ * Accepts `LeafSplitItem[] | string[]` for back-compat; plain strings are normalized to one
+ * edgeless item per file (the legacy file-count path).
+ *
  * Idempotent: a leaf that already has live (non-dropped) children is a no-op. Children are
- * created FIRST, THEN the leaf's own claim is cleared and it is parked 'planned', so the
- * container claim-guard (planCoordinatorTick) never re-claims it between the two writes.
+ * created FIRST (in topological order), THEN the leaf's own claim is cleared and it is parked
+ * 'planned', so the container claim-guard (planCoordinatorTick) never re-claims it between
+ * the two writes.
  */
 export async function splitLeafInto(
   project: string,
   leaf: Todo,
-  files: string[],
+  items: LeafSplitItem[] | string[],
 ): Promise<SplitLeafResult> {
-  const uniqueFiles = [...new Set(files.map((f) => f.trim()).filter(Boolean))];
+  // Legacy string[] ⇒ one edgeless item per file.
+  const normalised: LeafSplitItem[] = (items as unknown[]).map((it) =>
+    typeof it === 'string'
+      ? { id: it.trim(), files: [it.trim()], dependsOn: [] }
+      : it as LeafSplitItem,
+  ).filter((i) => i.id && i.files.length > 0);
+
   // Re-entrancy: never re-split a leaf that already has live children.
   const existing = listTodos(project, { includeCompleted: true })
     .filter((t) => t.parentId === leaf.id && t.status !== 'dropped');
   if (existing.length > 0) {
     return { parentId: leaf.id, childIds: existing.map((t) => t.id) };
   }
+
+  // Create in DEPENDENCY order so a child's dep ids already exist when it is written.
+  const ordered = topoSortSplitItems(normalised);
+  const idOf = new Map<string, string>();              // item id -> created todo id
   const childIds: string[] = [];
-  for (const file of uniqueFiles) {
+  for (const item of ordered) {
     const child = await createTodo(project, {
       ownerSession: leaf.ownerSession ?? 'coordinator',
       assigneeSession: leaf.assigneeSession ?? null,
       assigneeKind: 'agent',
-      title: `${leaf.title ?? leaf.id} — ${file}`,
+      title: `${leaf.title ?? leaf.id} — ${item.files.join(', ')}`,
       description:
-        `Split child of leaf ${leaf.id.slice(0, 8)} (auto-decomposed: too many files for one run).\n` +
-        `Implement ONLY this file: ${file}\n\n` +
+        `Split child of leaf ${leaf.id.slice(0, 8)} (decomposed by its blueprint).\n` +
+        `Implement ONLY these files: ${item.files.join(', ')}\n` +
+        (item.description ? `${item.description}\n` : '') + '\n' +
         `Parent leaf spec:\n${leaf.description ?? '(no description)'}`,
-      // 5dffee35: split children are PROPOSED (planned), NOT auto-promoted to ready. The
-      // planner-promotes-ready invariant: a worker proposes a split; only the planner (human)
-      // promotes the children. Auto-readying them let the daemon immediately claim 14
-      // un-reviewed file-atoms (incl. interdependent shared modules) → broken parallel build.
+      // 5dffee35: split children are PROPOSED (planned), NOT auto-promoted to ready.
       status: 'planned',
       priority: leaf.priority,
       parentId: leaf.id,
-      dependsOn: leaf.dependsOn ?? [],
+      // SR-6: the parent's deps PLUS real edges to the sibling items this one waits on.
+      dependsOn: [
+        ...(leaf.dependsOn ?? []),
+        ...item.dependsOn.map((d) => idOf.get(d)).filter((x): x is string => !!x),
+      ],
       type: leaf.type,
       targetProject: leaf.targetProject ?? project,
       sessionName: leaf.sessionName ?? null,
     });
+    idOf.set(item.id, child.id);
     childIds.push(child.id);
   }
+
   // The leaf is now a container: clear its claim and park it non-terminal so the container
   // claim-guard skips it and sweepEpicRollups rolls it up once all children are accepted.
   await withLock(project, () => {
