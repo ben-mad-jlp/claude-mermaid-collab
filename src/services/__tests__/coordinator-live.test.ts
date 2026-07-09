@@ -42,7 +42,7 @@ mock.module('../todo-store', () => ({
   reclaimOrphan: async () => null,
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, displayTitle } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -65,17 +65,30 @@ process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-coord-live-s
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'mc-coord-live-projects-'));
 
 describe('isHeadlessLeaf — non-code leaf exclusion', () => {
-  const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', ...(over as any) }) as Todo;
+  const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', kind: 'leaf', ...(over as any) }) as Todo;
   it('ADMITS reviewer-type leaves (epic d8ac1a18: they run the review execution shape, no longer stranded)', () => {
     expect(isHeadlessLeaf(base({ type: 'reviewer', id: 'reviewer-no-children' }), TEST_ROOT)).toBe(true);
   });
-  it('excludes human-owned, [EPIC], and [GATE] leaves', () => {
+  it('excludes human-owned, epic-kind, mission-kind, and [GATE] leaves', () => {
+    // role now comes from `kind`, not the title; the stage-C strip removed the prefix
     expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ title: '[EPIC] x' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ title: '[GATE] x' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'epic', title: 'Bugfix inbox' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'mission', title: 'Converge X' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[GATE] x' }), TEST_ROOT)).toBe(false);
+    // topic tag ≠ role prefix: a bare-titled leaf that merely starts with a bracket is claimable
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[UI] Plan list refresh' }), TEST_ROOT)).toBe(true);
   });
   it('admits an ordinary agent code leaf', () => {
     expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), TEST_ROOT)).toBe(true);
+  });
+});
+
+describe('displayTitle', () => {
+  it('labels a role-kind todo with its bracketed prefix', () => {
+    expect(displayTitle({ kind: 'epic', title: 'Bugfix inbox' })).toBe('[EPIC] Bugfix inbox');
+  });
+  it('is idempotent against a still-prefixed stored title (no doubling)', () => {
+    expect(displayTitle({ kind: 'epic', title: '[EPIC] Bugfix inbox' })).toBe('[EPIC] Bugfix inbox');
   });
 });
 

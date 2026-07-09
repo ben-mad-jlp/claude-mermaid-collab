@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
-import { isEpic } from './todo-kind.ts';
+import { isEpic, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
@@ -499,12 +499,26 @@ export function workerIsolationEnabled(): boolean {
 }
 
 
+/** `[GATE]` is NOT a role prefix — it has no `kind` value and the stage-C strip does not
+ *  remove it (see claimability.ts: gates are human-assignee). It stays a title marker. */
+const GATE_TITLE_RE = /^\s*\[GATE\]/i;
+
+/** Human-facing label for a todo: role label from `kind`, never from the title.
+ *  `stripLabel` first so this is idempotent against not-yet-migrated stored titles;
+ *  leaves have an empty label and render bare. */
+export function displayTitle(t: { kind?: TodoKind | null; title?: string | null; id?: string }): string {
+  const label = labelFor(kindOf(t));
+  const bare = stripLabel(t.title ?? '') || (t.id ?? '');
+  return label ? `${label} ${bare}` : bare;
+}
+
 /** A leaf the headless executor may drive: a work todo with NO children (a leaf in
- *  the work-graph) that is not human-owned. Keeps gates/epics/human todos out of
- *  the executor (those go the legacy path). `project` is the tracking project. */
+ *  the work-graph) that is not human-owned. Keeps gates/epics/missions/human todos out
+ *  of the executor (those go the legacy path). `project` is the tracking project. */
 export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   if (todo.assigneeKind === 'human') return false;
-  if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return false;
+  if (isEpic(todo) || isMission(todo)) return false;
+  if (GATE_TITLE_RE.test(todo.title ?? '')) return false;
   // NOTE: 'reviewer' leaves USED to be excluded here (a review's deliverable is a judgment,
   // not a commit, so the code path's work-committed re-verify wrongly reversed accept→ready —
   // the L7 case). That exclusion stranded every epic that ends with a completeness-review leaf
@@ -520,11 +534,12 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
  *  exclusion reason (the inverse of isHeadlessLeaf, in the same order), or null
  *  when it IS headless. Used only to LOG tmux-fallback claims while the executor is
  *  default-on, so we can prove — before deleting the tmux lane — that every claim
- *  that still falls through is an EXPECTED non-work exclusion (human/epic/gate/
+ *  that still falls through is an EXPECTED non-work exclusion (human/epic/mission/gate/
  *  reviewer/parent) and never a genuine work leaf that would strand. Pure/read-only. */
 export function headlessExclusionReason(todo: Todo, project: string): string | null {
   if (todo.assigneeKind === 'human') return 'human';
-  if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return 'epic-or-gate';
+  if (isEpic(todo) || isMission(todo)) return 'epic-or-mission';
+  if (GATE_TITLE_RE.test(todo.title ?? '')) return 'gate';
   // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
   if (listTodos(project, {}).some((t) => t.parentId === todo.id)) return 'has-children';
   return null;
@@ -549,16 +564,16 @@ export function getWorktreeManager(projectRoot: string): WorktreeManager {
 }
 
 // --- FBPE P2: real per-epic resolution ------------------------------------------
-// Each [EPIC] gets its OWN accumulation branch off master (collab/epic/<id8>);
+// Each epic-kind root gets its OWN accumulation branch off master (collab/epic/<id8>);
 // children of that epic accumulate on it. resolveEpicId walks a todo's parentId
 // chain (via getTodo, in the TRACKING project where the work-graph lives) to the
-// nearest [EPIC] ancestor and returns its id — the token epicBranchName hashes to
-// the per-epic branch. A todo with no [EPIC] ancestor falls back to the synthetic
+// nearest epic-kind ancestor and returns its id — the token epicBranchName hashes to
+// the per-epic branch. A todo with no epic-kind ancestor falls back to the synthetic
 // single Inbox epic (INBOX_EPIC_ID) so every todo still maps to exactly one branch.
 // Cycle- and depth-guarded against a malformed parent chain.
 
-/** Resolve the [EPIC] root id for `todo` by walking parentId via getTodo in
- *  `project` (the tracking store). Returns INBOX_EPIC_ID when no [EPIC] ancestor
+/** Resolve the epic root id for `todo` by walking parentId via getTodo in
+ *  `project` (the tracking store). Returns INBOX_EPIC_ID when no epic-kind ancestor
  *  exists. Exported for unit testing. */
 export function resolveEpicId(todo: Todo, project: string): string {
   let cur: Todo | null | undefined = todo;
@@ -954,7 +969,7 @@ export interface ClaimSuppressionReport {
 export async function diagnoseClaimSuppression(project: string): Promise<ClaimSuppressionReport> {
   const level = getOrchestratorLevel(project);
   const ready = listReadyTodos(project);
-  const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: t.title ?? t.id, reason }));
+  const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: displayTitle(t), reason }));
   // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
   if (overDailyBudget(project)) {
     return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [] };
@@ -968,7 +983,7 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
   const afterHeadless = afterBp1.filter((t) => isHeadlessLeaf(t, project));
   const headlessOk = ids(afterHeadless);
   const suppressed = classifyClaimSuppression(
-    ready.map((t) => ({ id: t.id, title: t.title ?? t.id, claimProbe: t.claimProbe ?? null, notHeadlessReason: headlessExclusionReason(t, project) })),
+    ready.map((t) => ({ id: t.id, title: displayTitle(t), claimProbe: t.claimProbe ?? null, notHeadlessReason: headlessExclusionReason(t, project) })),
     probeOk, bp1Ok, headlessOk,
   );
   // The breaker gate applies AFTER the per-leaf filters in claimGuard, suppressing the
@@ -1556,8 +1571,8 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       if (overDailyBudget(project)) return [];
       let claimable = await bp1FilterStrandedFoundations(project, await filterClaimable(todos));
       // S4 (epic b2c858d4): the daemon can ONLY launch HEADLESS LEAVES (node-invoker spawns).
-      // A non-headless-leaf that is isClaimable (e.g. an [EPIC]/[GATE] left status='ready') would
-      // otherwise be claimed → launchWorker rejects (excl: epic-or-gate) → released every tick —
+      // A non-headless-leaf that is isClaimable (e.g. an epic/mission/[GATE] left status='ready')
+      // would otherwise be claimed → launchWorker rejects (excl: epic-or-mission/gate) → released every tick —
       // pure churn, and a livelock when any release fires a kick. Pre-filter so it's NEVER
       // claimed. (Defense-in-depth with dropping the releaseClaim capacity-kick.)
       claimable = claimable.filter((t) => isHeadlessLeaf(t, project));
@@ -1614,7 +1629,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const accepted = (acceptance ?? r.completed.acceptanceStatus) === 'accepted';
       // DOGFOOD #5 isolation: on acceptance, commit the worker's worktree and
       // merge its branch back into its EPIC's accumulation branch (FBPE P2 — each
-      // [EPIC] has its own collab/epic/<id8> off master). A conflict leaves the
+      // epic-kind root has its own collab/epic/<id8> off master). A conflict leaves the
       // epic branch untouched and is escalated for a human to resolve. The merge
       // commit carries Collab-Epic/Collab-Todo trailers (commitAndMergeToEpic).
       if (accepted && workerIsolationEnabled() && session) {
@@ -1661,7 +1676,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               session,
               todoId: id,
               kind: 'assumption-invalidated',
-              questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${r.completed.title}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
+              questionText: `Worker-isolation merge conflict: branch ${merge.workerBranch} could not merge into ${merge.epicBranch} for todo "${displayTitle(r.completed)}". Resolve the conflict manually, then merge the branch into ${merge.epicBranch}.`,
             });
             // DEFECT 3 — tear down the lane worktree so it can NEVER be reused stale
             // (a surviving worktree feeds the cached-reuse bug). `git worktree
@@ -1688,7 +1703,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // NOT survive that — the upstream guarantee is accepted ⇒ work-on-branch.
             // Reverse the premature acceptance: re-surface this todo (and any epic
             // the store just rolled up off the back of this child) and escalate.
-            await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, merge.epicBranch, session);
+            await reopenStrandedAccept(project, id, epicId, r.rolledUp, displayTitle(r.completed), merge.epicBranch, session);
           } else {
             // OI-1 ACCEPT-TIME ANCESTOR GATE: the worker→epic merge succeeded, but
             // `accepted` must imply `reachable from the integration branch`, not
@@ -1700,7 +1715,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // (or fail-safe: indeterminate/non-git → accept). Best-effort.
             let safe = true;
             try {
-              safe = await acceptTimeAncestorGate(project, id, epicId, r.rolledUp, r.completed.title, session);
+              safe = await acceptTimeAncestorGate(project, id, epicId, r.rolledUp, displayTitle(r.completed), session);
             } catch (e) {
               // Gate threw → fail-safe to accept (today's behaviour), but log it.
               recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: id, epicId, oi1: 'gate-error-failsafe-accept', reason: e instanceof Error ? e.message : String(e) }) });
@@ -1746,14 +1761,14 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               try { await killTmuxSession(tmuxBaseName(errTargetProject, session)); } catch { /* best-effort teardown */ }
               removeSlot(errTargetProject, session);
             } else if (!(await wm.todoOnEpicBranch(epicId, id))) {
-              await reopenStrandedAccept(project, id, epicId, r.rolledUp, r.completed.title, wm.epicBranchName(epicId), session);
+              await reopenStrandedAccept(project, id, epicId, r.rolledUp, displayTitle(r.completed), wm.epicBranchName(epicId), session);
               try {
                 createEscalation({
                   project,
                   session,
                   todoId: id,
                   kind: 'assumption-invalidated',
-                  questionText: `Stranded leaf: todo "${r.completed.title}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
+                  questionText: `Stranded leaf: todo "${displayTitle(r.completed)}" was accepted but its commit was NOT integrated onto its epic branch (merge-back failed: ${reason}). The work lives only on the worker's session branch — integrate it manually onto the epic branch, then it will land with the epic.`,
                 });
               } catch { /* best-effort: never let escalation failure mask the accept */ }
               // DEFECT 3 — an errored lane must also be torn down so its worktree
@@ -1942,7 +1957,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             try { clearLeafInflight(todo.id); } catch { /* best-effort */ }
             try {
               createEscalation({ project, session: poolName, kind: 'blocker', todoId: todo.id,
-                questionText: `Leaf-executor failed for "${todo.title ?? todo.id}": ${e instanceof Error ? e.message : String(e)}` });
+                questionText: `Leaf-executor failed for "${displayTitle(todo)}": ${e instanceof Error ? e.message : String(e)}` });
             } catch { /* escalation best-effort */ }
           } finally {
             // Release the in-flight slot the tick reserved for this leaf (fire-and-track
@@ -1960,7 +1975,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // worker path; the legacy tmux CLI spawn and the in-process grok-build/anthropic-core
       // harnesses have been deleted. Reaching here means a CLAIMED todo is NOT a headless
       // leaf — which, for claimable WORK, isHeadlessLeaf coverage proved should not happen
-      // (EPIC/GATE/human/reviewer/parent are never claimed as work). Fail SAFE: release the
+      // (epic/mission/GATE/human/reviewer/parent are never claimed as work). Fail SAFE: release the
       // claim and escalate a blocker rather than silently dropping it. (No tmux lane remains
       // to fall back to; the LEAF_EXECUTOR escape hatch is retired with it.)
       try { await releaseClaim(project, todo.id); } catch { /* lease backstops */ }
@@ -1972,7 +1987,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           kind: 'blocker',
           todoId: todo.id,
           questionText:
-            `No worker lane for "${todo.title ?? todo.id}": the tmux worker lane was retired (P7) and ` +
+            `No worker lane for "${displayTitle(todo)}": the tmux worker lane was retired (P7) and ` +
             `the headless leaf-executor only runs headless work leaves. This todo is not one (${exclReason}). ` +
             `Re-scope it as a headless work leaf, split it under an epic, or handle it manually.`,
         });
@@ -2227,7 +2242,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               kind: 'blocker',
               todoId: t.id,
               questionText:
-                `Worker for "${t.title ?? t.id}" DIED — its Claude process exited but the tmux ` +
+                `Worker for "${displayTitle(t)}" DIED — its Claude process exited but the tmux ` +
                 `session stayed alive (a bare shell), so it silently held its slot with nothing ` +
                 `running and showed RED without raising anything. The lane has been reset and the ` +
                 `claim reclaimed. Re-open/retry with guidance, or drop it. (63a59bd6 auto-detected).`,
@@ -2274,7 +2289,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
                 kind: 'blocker',
                 todoId: t.id,
                 questionText:
-                  `Worker for "${t.title ?? t.id}" has been API rate-limited for a while ` +
+                  `Worker for "${displayTitle(t)}" has been API rate-limited for a while ` +
                   `(${rl.attempts} retry nudges over ~${Math.max(1, Math.round((nowRL - rl.firstSeen) / 60000))} min) ` +
                   `and isn't recovering. This is a TRANSIENT server throttle (not your usage cap) — ` +
                   `consider pausing the fleet (level → off) until it clears, then resume.`,
@@ -2339,7 +2354,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               kind: 'approval',
               todoId: t.id,
               questionText:
-                `Permission needed: worker for "${t.title ?? t.id}" is blocked on a Claude Code ` +
+                `Permission needed: worker for "${displayTitle(t)}" is blocked on a Claude Code ` +
                 `permission prompt for ${toolLabel} (non-allowlisted) and has been idle ${idleMin}+ min. ` +
                 `Root fix: add ${toolLabel} to the worker profile allowlist so it never prompts ` +
                 `(see P3 cad-profile). This is a permission stall, not a decision (DOGFOOD #6 follow-up).`,
@@ -2352,7 +2367,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
               kind: 'question',
               todoId: t.id,
               questionText:
-                `Worker for "${t.title ?? t.id}" appears STALLED — idle at its prompt with no progress for ` +
+                `Worker for "${displayTitle(t)}" appears STALLED — idle at its prompt with no progress for ` +
                 `${idleMin}+ min, awaiting input but no escalation was filed ` +
                 `(DOGFOOD #6 auto-detected). Pending context:\n\n${workerAgent.extractStallContext(pane)}`,
             });
@@ -2386,7 +2401,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // card resolves by todoId, so a neutral label is safe when unspawned).
         session: todo?.sessionName ?? 'unassigned',
         kind: 'blocker',
-        questionText: `Todo "${todo?.title ?? todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
+        questionText: `Todo "${todo ? displayTitle(todo) : todoId}" exhausted its retry budget (worker repeatedly failed to complete it). Parked as blocked — needs a human decision.`,
         todoId,
       });
     },
@@ -2400,7 +2415,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       const now = Date.now();
       const rows: LaneBudgetRow[] = listTodos(project, { status: 'in_progress' }).map((t) => ({
         todoId: t.id,
-        title: t.title ?? undefined,
+        title: displayTitle(t),
         session: t.sessionName,
         claimedAtMs: t.claimedAt ? new Date(t.claimedAt as unknown as string).getTime() : undefined,
         iterations: typeof t.retryCount === 'number' ? t.retryCount : undefined,
@@ -2431,7 +2446,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           kind: 'blocker',
           todoId: trip.todoId,
           questionText:
-            `Lane "${todo?.title ?? trip.todoId}" hit a HARD budget cap and was PARKED (blocked, cannot re-spawn). ` +
+            `Lane "${todo ? displayTitle(todo) : trip.todoId}" hit a HARD budget cap and was PARKED (blocked, cannot re-spawn). ` +
             `Trip: ${trip.reason}. ` +
             `It burned its budget without completing — running longer is the same action class at higher cost. ` +
             `Decide: (1) extend the cap and re-open (if it was genuinely close), ` +
@@ -2461,7 +2476,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
           project,
           session: todo?.sessionName ?? 'unassigned',
           kind: 'blocker',
-          questionText: `Leaf "${todo?.title ?? entry.todoId}" is RATE-CAP exhausted — the claude.ai account stayed capped for over 2h. Parked blocked; needs a human (wait for the cap to reset, then re-open, or split/drop).`,
+          questionText: `Leaf "${todo ? displayTitle(todo) : entry.todoId}" is RATE-CAP exhausted — the claude.ai account stayed capped for over 2h. Parked blocked; needs a human (wait for the cap to reset, then re-open, or split/drop).`,
           todoId: entry.todoId,
         });
         recordResume(project, entry.todoId);
@@ -2475,7 +2490,7 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
         // card resolves by todoId, so a neutral label is safe when unspawned).
         session: todo?.sessionName ?? 'unassigned',
         kind: 'blocker',
-        questionText: `Worker REJECTED todo "${todo?.title ?? todoId}" — its mechanical acceptance gate (tsc + tests) failed and it couldn't fix it in scope. Not auto-retried. Re-open with guidance, split, or drop it.`,
+        questionText: `Worker REJECTED todo "${todo ? displayTitle(todo) : todoId}" — its mechanical acceptance gate (tsc + tests) failed and it couldn't fix it in scope. Not auto-retried. Re-open with guidance, split, or drop it.`,
         todoId,
       });
     },
