@@ -1341,3 +1341,91 @@ describe('epic close → cascade-drop undone descendants', () => {
     expect((await getTodo(project, leaf.id))!.status).not.toBe('dropped');
   });
 });
+
+describe('ClaimedTodoDropError — refuse to drop a live-claimed todo (1de16a83)', () => {
+  test('drop with a live claim refuses', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+    await expect(updateTodo(project, t.id, { status: 'dropped' })).rejects.toThrow(/claimed by/);
+    // the throw must not half-apply — the row stays in_progress with its claim intact
+    const after = await getTodo(project, t.id);
+    expect(after!.status).toBe('in_progress');
+    expect(after!.claim).not.toBeNull();
+  });
+
+  test('drop after releaseClaim succeeds', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+    await releaseClaim(project, t.id);
+    const dropped = await updateTodo(project, t.id, { status: 'dropped' });
+    expect(dropped.status).toBe('dropped');
+  });
+
+  test('force:true drops a claimed todo and clears the claim', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+    const dropped = await updateTodo(project, t.id, { status: 'dropped', force: true });
+    expect(dropped.status).toBe('dropped');
+    expect(dropped.claim).toBeNull();
+  });
+
+  test('an orphan/half-set claim does not block a drop', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    // Directly set a half-set claim (claimedBy only, no token) — the orphan class,
+    // unrepresentable via claimTodo. readClaim returns null for this shape.
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    db.exec(`UPDATE todos SET status='in_progress', claimedBy='ghost', claimToken=NULL, claim=NULL WHERE id='${t.id}'`);
+    db.close();
+    _closeProject(project);
+    const dropped = await updateTodo(project, t.id, { status: 'dropped' });
+    expect(dropped.status).toBe('dropped');
+  });
+
+  test('dropping an [EPIC] still cascade-drops a claimed descendant (pins today\'s out-of-scope behaviour)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'claimed child', parentId: epic.id });
+    await updateTodo(project, child.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, child.id, 'agent-1', 60_000);
+
+    await updateTodo(project, epic.id, { status: 'dropped' });
+
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
+    const after = await getTodo(project, child.id);
+    expect(after!.status).toBe('dropped');
+    expect(after!.claim).toBeNull();
+  });
+});
+
+describe('claimToken CAS on completeTodo (1de16a83)', () => {
+  test('late completion against a re-claimed row (different token) no-ops', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    const claimedA = await claimTodo(project, t.id, 'agent-A', 60_000);
+    const tokenA = claimedA!.claim!.token;
+    await releaseClaim(project, t.id);
+    await claimTodo(project, t.id, 'agent-B', 60_000);
+
+    const result = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true, claimToken: tokenA });
+    expect(result.skipped).toBe(true);
+    const after = await getTodo(project, t.id);
+    expect(after!.status).toBe('in_progress');
+    expect(after!.claim!.by).toBe('agent-B');
+    expect(after!.acceptanceStatus).not.toBe('accepted');
+  });
+
+  test('same-token completion applies', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    const claimed = await claimTodo(project, t.id, 'agent-A', 60_000);
+    const token = claimed!.claim!.token;
+
+    const result = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true, claimToken: token });
+    expect(result.skipped).toBeFalsy();
+    const after = await getTodo(project, t.id);
+    expect(after!.status).toBe('done');
+    expect(after!.acceptanceStatus).toBe('accepted');
+  });
+});
