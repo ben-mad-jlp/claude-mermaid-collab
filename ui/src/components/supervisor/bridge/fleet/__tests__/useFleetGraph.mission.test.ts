@@ -41,7 +41,7 @@ describe('useFleetGraph — missions', () => {
     const todos = [
       todo({ id: 'M', kind: 'mission' }),
       todo({ id: 'E', kind: 'epic', parentId: 'M' }),
-      todo({ id: 'A', parentId: 'E' }),
+      todo({ id: 'A', parentId: 'E', approvedAt: '2025-01-01' }),
     ];
     const { result } = renderHook(() =>
       useFleetGraph({ ...base, todos, expandedEpics: new Set() }),

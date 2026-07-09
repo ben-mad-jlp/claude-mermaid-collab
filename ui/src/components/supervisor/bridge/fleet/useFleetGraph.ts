@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeWaveMap } from '@/components/supervisor/roadmapToMermaid';
 import { liveBucketTodo, epicBucket, type FunnelKey } from '../funnel';
 import { currentTodoFor, deriveLiveness, roleGlyph } from '@/lib/liveness';
+import { epicIdSet, isEpic, parentEpicIdOf } from '@/lib/todoKind';
 import type { SessionTodo } from '@/types/sessionTodo';
 import type { Escalation } from '@/stores/supervisorStore';
 import { layoutFleet, type LayoutDirection, type LayoutEdge, type LayoutNode, type Positioned } from './layout';
@@ -131,25 +132,28 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
     const isDone = (t: SessionTodo) => t.status === 'done' || t.status === 'dropped';
     const byId = new Map<string, SessionTodo>();
     for (const t of rawTodos) byId.set(t.id, t);
-    const childrenByEpic = new Map<string, SessionTodo[]>();
+    const childrenByParent = new Map<string, SessionTodo[]>();
     for (const t of rawTodos) {
       if (t.parentId != null && byId.has(t.parentId)) {
-        const arr = childrenByEpic.get(t.parentId) ?? [];
+        const arr = childrenByParent.get(t.parentId) ?? [];
         arr.push(t);
-        childrenByEpic.set(t.parentId, arr);
+        childrenByParent.set(t.parentId, arr);
       }
     }
-    const epicIds = new Set(childrenByEpic.keys());
+    const epicIds = epicIdSet(rawTodos);
     const hidden = new Set<string>();
     for (const t of rawTodos) {
-      if (epicIds.has(t.id)) {
-        const kids = childrenByEpic.get(t.id) ?? [];
+      const kids = childrenByParent.get(t.id) ?? [];
+      if (isEpic(t)) {
+        // An epic is hidden when it is itself done, or when it HAS children and every one is done.
+        // A childless epic is NEVER hidden by the rollup arm — it must render as an empty lane.
         if (isDone(t) || (kids.length > 0 && kids.every(isDone))) {
           hidden.add(t.id);
           for (const k of kids) hidden.add(k.id);
         }
-      } else if ((t.parentId == null || !epicIds.has(t.parentId)) && isDone(t)) {
-        hidden.add(t.id); // completed orphan / top-level leaf
+      } else if (parentEpicIdOf(t, epicIds) == null && isDone(t)) {
+        // completed orphan / top-level leaf / done sub-task of a split leaf
+        hidden.add(t.id);
       }
     }
     return hidden.size ? rawTodos.filter((t) => !hidden.has(t.id)) : rawTodos;
@@ -166,26 +170,27 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
     [rawSubs, spawnedSessions, todos],
   );
 
-  // Structure: an EPIC is any todo that actually HAS children. A parentId==null
-  // todo with no children is a readable LEAF, not an empty-rollup epic block —
-  // this is what made an idle fleet read as a field of dots.
+  // Structure: parent/child relationships (who is whose parent). An EPIC is a todo
+  // whose DECLARED `kind` is 'epic' — never 'a todo that has children'. A leaf the
+  // auto-splitter gave children is still a leaf; a brand-new epic with zero children
+  // is still an epic (constraint 373a2d52).
   const struct = useMemo(() => {
     const byId = new Map<string, SessionTodo>();
     for (const t of todos) byId.set(t.id, t);
-    const childrenByEpic = new Map<string, SessionTodo[]>();
+    const childrenByParent = new Map<string, SessionTodo[]>();
     for (const t of todos) {
       if (t.parentId != null && byId.has(t.parentId)) {
-        const arr = childrenByEpic.get(t.parentId) ?? [];
+        const arr = childrenByParent.get(t.parentId) ?? [];
         arr.push(t);
-        childrenByEpic.set(t.parentId, arr);
+        childrenByParent.set(t.parentId, arr);
       }
     }
-    return { byId, childrenByEpic, epicIds: new Set(childrenByEpic.keys()) };
+    return { byId, childrenByParent, epicIds: epicIdSet(todos) };
   }, [todos]);
 
   // The visible epic an orphan/leaf hangs under (null = it's a top-level node).
   const parentEpicOf = useCallback(
-    (t: SessionTodo): string | null => (t.parentId != null && struct.epicIds.has(t.parentId) ? t.parentId : null),
+    (t: SessionTodo): string | null => parentEpicIdOf(t, struct.epicIds),
     [struct],
   );
   const isVisibleTodo = useCallback(
@@ -255,7 +260,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
     const epicSize = new Map<string, { width: number; height: number }>();
     for (const epicId of st.epicIds) {
       if (!expanded.has(epicId)) continue;
-      const kids = (st.childrenByEpic.get(epicId) ?? []).filter((c) => vis.some((v) => v.id === c.id));
+      const kids = (st.childrenByParent.get(epicId) ?? []).filter((c) => vis.some((v) => v.id === c.id));
       if (kids.length === 0) continue;
       const kidIds = new Set(kids.map((k) => k.id));
       const innerNodes: LayoutNode[] = kids.map((k) => ({ id: k.id, width: SIZES.todo.width, height: SIZES.todo.height }));
@@ -294,7 +299,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       const t = st.byId.get(id);
       if (!t) return null;
       if (st.epicIds.has(id)) return id;
-      const pe = t.parentId != null && st.epicIds.has(t.parentId) ? t.parentId : null;
+      const pe = parentEpicIdOf(t, st.epicIds);
       return pe ?? id; // child → its epic; otherwise a top-level leaf
     };
 
@@ -324,6 +329,13 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         }
       }
     }
+    // Attach a split leaf's sub-tasks to it via muted dashed edges.
+    for (const t of allTodos) {
+      const pid = t.parentId;
+      if (!pid || !st.byId.has(pid) || st.epicIds.has(pid)) continue; // epic children nest, not edge
+      const src = outerRep(pid), tgt = outerRep(t.id);
+      if (src && tgt && src !== tgt && !seen.has(`${src}->${tgt}`)) { seen.add(`${src}->${tgt}`); outerEdges.push({ source: src, target: tgt }); }
+    }
     for (const sub of curSubs) {
       const todo = workerOf.get(sub.session);
       const tgt = todo ? outerRep(todo.id) : null;
@@ -338,7 +350,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         return todo ? waveMap.get(outerRep(todo.id) ?? todo.id) : 0;
       }
       if (st.epicIds.has(id)) {
-        const kids = st.childrenByEpic.get(id) ?? [];
+        const kids = st.childrenByParent.get(id) ?? [];
         const waves = kids.map((k) => waveMap.get(k.id)).filter((w): w is number => w != null);
         return waves.length ? Math.min(...waves) : waveMap.get(id);
       }
@@ -366,7 +378,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       if (struct.epicIds.has(t.id)) {
         const counts = EMPTY_COUNTS();
         let total = 0;
-        for (const c of struct.childrenByEpic.get(t.id) ?? []) {
+        for (const c of struct.childrenByParent.get(t.id) ?? []) {
           const b = liveBucketTodo(c, struct.byId, inflightLeafIds);
           if (b) {
             counts[b] += 1;
@@ -429,10 +441,12 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
 
   // EDGES — dep edges (muted/static) re-routed through collapsed epics so they
   // always connect visible nodes; claim edges (accent/animated) only for active
-  // workers (an idle worker has no in_progress todo → no claim edge).
+  // workers (an idle worker has no in_progress todo → no claim edge); sub-task
+  // edges (muted/dashed) connect a split leaf to its children.
   const edges = useMemo<FleetEdge[]>(() => {
     const out: FleetEdge[] = [];
     const seen = new Set<string>();
+    const seenSub = new Set<string>();
     for (const t of todos) {
       const tgt = visibleRep(t.id);
       if (!tgt) continue;
@@ -452,6 +466,22 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
         }
       }
     }
+    // Sub-task edges: connect a non-epic parent to its children (split leaf).
+    for (const t of todos) {
+      const pid = t.parentId;
+      if (!pid || !struct.byId.has(pid) || struct.epicIds.has(pid)) continue; // epic children nest, not edge
+      const src = visibleRep(pid), tgt = visibleRep(t.id);
+      if (src && tgt && src !== tgt && !seen.has(`${src}->${tgt}`) && !seenSub.has(`${src}->${tgt}`)) {
+        seenSub.add(`${src}->${tgt}`);
+        out.push({
+          id: `sub:${src}->${tgt}`,
+          source: src,
+          target: tgt,
+          animated: false,
+          style: { stroke: '#64748b', strokeWidth: 1, strokeDasharray: '4 3' },
+        });
+      }
+    }
     for (const sub of subs) {
       const todo = currentTodoFor(sub.session, todos);
       const tgt = todo ? visibleRep(todo.id) : null;
@@ -466,7 +496,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
       }
     }
     return out;
-  }, [todos, subs, visibleRep]);
+  }, [todos, subs, visibleRep, struct]);
 
   return { nodes, edges };
 }
