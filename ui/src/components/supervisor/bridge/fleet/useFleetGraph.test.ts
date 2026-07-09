@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useFleetGraph, type WorkerSub } from './useFleetGraph';
 import type { SessionTodo } from '@/types/sessionTodo';
+import type { EpicNodeData } from './types';
 
 function sub(session: string): WorkerSub {
   return { serverId: 'local', project: 'P', session, status: 'active', lastUpdate: 0 };
@@ -26,6 +27,7 @@ function todo(p: Partial<SessionTodo>): SessionTodo {
     updatedAt: '',
     completedAt: null,
     asanaGid: null,
+    kind: 'leaf',
     ...p,
   } as SessionTodo;
 }
@@ -210,5 +212,54 @@ describe('useFleetGraph', () => {
       useFleetGraph({ ...base, todos, subs, expandedEpics: new Set(), spawnedSessions: new Set(['planner-1']) }),
     );
     expect(spawned.result.current.nodes.map((n) => n.id)).toContain('worker:planner-1');
+  });
+
+  it('omits a mission node from the fleet graph', () => {
+    const todos = [todo({ id: 'M', kind: 'mission' }), todo({ id: 'E', parentId: 'M' })];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
+    );
+    expect(result.current.nodes.map((n) => n.id)).not.toContain('M');
+  });
+
+  it('renders a mission-parented epic as a top-level epic container', () => {
+    const todos = [
+      todo({ id: 'M', kind: 'mission' }),
+      todo({ id: 'E', kind: 'epic', parentId: 'M' }),
+      todo({ id: 'A', parentId: 'E' }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(['E']) }),
+    );
+    const epic = result.current.nodes.find((n) => n.id === 'E')!;
+    expect(epic.type).toBe('epic');
+    expect(epic.parentId).toBeUndefined();
+    expect((epic.data as EpicNodeData).total).toBe(1);
+    const a = result.current.nodes.find((n) => n.id === 'A')!;
+    expect(a.parentId).toBe('E');
+  });
+
+  it("keeps a mission's epics visible after every epic completes", () => {
+    const todos = [
+      todo({ id: 'M', kind: 'mission', status: 'ready' }),
+      todo({ id: 'E', kind: 'epic', parentId: 'M', status: 'ready' }),
+      todo({ id: 'A', parentId: 'E', status: 'ready' }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
+    );
+    expect(result.current.nodes.map((n) => n.id)).toContain('E');
+
+    const doneTodos = [
+      todo({ id: 'M', kind: 'mission', status: 'ready' }),
+      todo({ id: 'E', kind: 'epic', parentId: 'M', status: 'done' }),
+      todo({ id: 'A', parentId: 'E', status: 'done' }),
+    ];
+    const done = renderHook(() =>
+      useFleetGraph({ ...base, todos: doneTodos, expandedEpics: new Set() }),
+    );
+    const ids = done.result.current.nodes.map((n) => n.id);
+    expect(ids).not.toContain('E');
+    expect(ids).not.toContain('M');
   });
 });

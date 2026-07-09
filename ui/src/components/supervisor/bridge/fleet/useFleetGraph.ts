@@ -72,6 +72,24 @@ const SIZES = {
   worker: { width: 170, height: 60 },
 };
 
+/**
+ * Missions are NOT fleet entities. Since Phase 2b a deliverable epic carries
+ * `parentId = <mission id>`, which would make the mission "a todo with children"
+ * — the only definition of epic this hook has (see `struct` below) — and
+ * demote every real epic to a flat child chip. Worse, a mission is DURABLE and
+ * must never read as complete when its iteration's epics all finish (the same
+ * invariant `todo-store.ts` guards at its rollup/sweep breaks), yet the `hidden`
+ * pass below would hide it and its whole subtree.
+ *
+ * So the mission is dropped at the boundary and its epics re-root: every parent
+ * lookup here is guarded by `byId.has(parentId)` / `epicIds.has(parentId)`, so a
+ * mission-parented epic falls through to exactly the top-level-epic path.
+ *
+ * Column-only read, never `kindOf()` — that throws on a missing `kind`, and a
+ * single malformed row off the socket must not take the graph down.
+ */
+const isMissionTodo = (t: SessionTodo): boolean => t.kind === 'mission';
+
 // Framed-container chrome (expanded epic): a header band holds the label +
 // status bar; padding frames the nested children below it. G1: roomier so the
 // grouped contents breathe now that every epic is an always-open container.
@@ -99,7 +117,10 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; edges: FleetEdge[] } {
-  const { todos: rawTodos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions, inflightLeafIds } = input;
+  const { todos: inputTodos, subs: rawSubs, openEscalations, expandedEpics, now, direction = 'LR', spawnedSessions, inflightLeafIds } = input;
+
+  // Drop missions before ANY structural derivation (see isMissionTodo).
+  const rawTodos = useMemo(() => inputTodos.filter((t) => !isMissionTodo(t)), [inputTodos]);
 
   // Hide finished work so the graph shows only what's live/pending: drop
   // completed orphan/leaf todos (no active epic parent) and any epic that is
