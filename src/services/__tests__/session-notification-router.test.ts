@@ -60,6 +60,28 @@ describe('diffTodos', () => {
     expect(changes[0].epicId).toBe('E');
     expect(changes[0].todoId).toBe('L');
   });
+
+  it('resolves a grandchild leaf under a mission-parented epic to the EPIC', () => {
+    const mission = todo('M', { kind: 'mission', title: 'Converge' } as Partial<Todo>);
+    const epic = todo('E', { kind: 'epic', parentId: 'M', title: 'Do the thing' } as Partial<Todo>);
+    const prev = snapshotTodos([mission, epic]);
+    const leaf = todo('L', { kind: 'leaf', parentId: 'E', status: 'planned', title: 'Do the leaf' } as Partial<Todo>);
+    const changes = diffTodos(prev, [mission, epic, leaf], P);
+    expect(changes).toHaveLength(1);
+    expect(changes[0].todoId).toBe('L');
+    expect(changes[0].epicId).toBe('E');
+  });
+
+  it('an epic-scoped subscription fires for a grandchild leaf status change', () => {
+    const mission = todo('M', { kind: 'mission', title: 'Converge' } as Partial<Todo>);
+    const epic = todo('E', { kind: 'epic', parentId: 'M', title: 'Do the thing' } as Partial<Todo>);
+    const leafBefore = todo('L', { kind: 'leaf', parentId: 'E', status: 'planned', title: 'Do the leaf' } as Partial<Todo>);
+    const prev = snapshotTodos([mission, epic, leafBefore]);
+    const leafAfter = todo('L', { kind: 'leaf', parentId: 'E', status: 'done', title: 'Do the leaf' } as Partial<Todo>);
+    const changes = diffTodos(prev, [mission, epic, leafAfter], P);
+    const got = planNotifications(changes, [sub({ scope: 'epic', targetId: 'E' })]);
+    expect(got).toHaveLength(1);
+  });
 });
 
 describe('planNotifications', () => {
