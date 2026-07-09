@@ -6,7 +6,7 @@ import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, g
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume, clearLeafBlueprint } from './worker-ledger';
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
@@ -1937,7 +1937,12 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // P3 follow-up: an ACCEPTED leaf proves the account is serving again — reset the
             // backoff STREAK (not the whole breaker) so the next isolated cap starts at
             // BASE_BACKOFF_MS instead of inheriting a stale, ceiling-high consecutiveTrips.
-            if (res.outcome === 'accepted') resetBreakerStreak();
+            // G8: also clear the durable blueprint row so an accepted leaf's blueprint does
+            // not linger forever.
+            if (res.outcome === 'accepted') {
+              resetBreakerStreak();
+              clearLeafBlueprint(todo.id);
+            }
           } catch (e) {
             try { await releaseClaim(project, todo.id); } catch { /* best-effort */ }
             // E4: an errored run never reached finishWith, so its run-spanning inflight
