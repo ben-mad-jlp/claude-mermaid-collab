@@ -4,9 +4,12 @@
  * The old KPI grid is gone. The Bridge is now a SplitDeck: a CommandBar on top
  * (identity + project selector + the glanceable pulse that absorbed the deleted
  * AlertRibbon), a LEFT instrument panel in strict hierarchy
- * (NeedsYouZone ▸ FleetVitals ▸ WorkerRoster ▸ StreamTicker), and a RIGHT graph
- * stage (a placeholder frame until FleetGraph lands in BR-3). This component
- * owns the data scoping; the panel pieces are pure presentational cards.
+ * (NeedsYouZone ▸ FleetVitals ▸ WorkerRoster ▸ StreamTicker), and a RIGHT stage
+ * (MissionsStrip over PlanPanel). This component owns the data scoping; the panel
+ * pieces are pure presentational cards.
+ *
+ * The Bridge takes no props: the artifact viewer is a SEPARATE component and does
+ * not nest inside the stage.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -20,7 +23,6 @@ import { useUIStore } from '@/stores/uiStore';
 import { useEventStreamStore } from '@/stores/eventStreamStore';
 import { useDiveIn, useSelectSessionInPlace } from '@/hooks/useDiveIn';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
-import { SplitPane } from '@/components/layout/SplitPane';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { isOrchestratorSession } from '@/lib/liveness';
@@ -57,17 +59,7 @@ import { getWebSocketClient } from '@/lib/websocket';
 const ESCALATION_POLL_MS = 10_000;
 const DAEMON_COUNTS_POLL_MS = 10_000;
 
-export interface BridgeDashboardProps {
-  /**
-   * P5: the artifact viewer/editor node (App's renderMainContent output) when
-   * the viewer is open for the current session. Present → the Z3 graph stage
-   * becomes a nested SplitPane {FleetGraph}{viewer} so artifacts show BESIDE the
-   * live graph without leaving Bridge. Absent → the stage is just the graph.
-   */
-  artifactViewer?: React.ReactNode;
-}
-
-export const BridgeDashboard: React.FC<BridgeDashboardProps> = ({ artifactViewer }) => {
+export const BridgeDashboard: React.FC = () => {
   const currentSession = useSessionStore((s) => s.currentSession);
   const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
   const serverScope = currentSession?.serverId ?? 'local';
