@@ -120,6 +120,9 @@ function makeDeps(opts: {
   mergeThrows?: boolean;
   blueprintFails?: number; // first N blueprint-node invocations return ok:false (non-rate-limited)
   markRejectingOwned?: boolean; // bug aadd927b: markRejecting returns this (false ⇒ run lost the todo)
+  // G2: mechanical gate hooks. Absent ⇒ unwired ⇒ pre-G2 behaviour (the floor never calls them).
+  runGate?: LeafExecutorDeps['runGate'];
+  ensureBaseGreen?: LeafExecutorDeps['ensureBaseGreen'];
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -197,6 +200,8 @@ function makeDeps(opts: {
     recordNode: () => null,
     setInflight: (e) => { spies.inflightSeq.push(`set:${e.nodeKind ?? '?'}`); },
     clearInflight: () => { spies.inflightSeq.push('clear'); },
+    runGate: opts.runGate,
+    ensureBaseGreen: opts.ensureBaseGreen,
   };
   return { deps, spies };
 }
@@ -517,6 +522,94 @@ describe('runLeaf state machine', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(spies.ensureCalls.length).toBeGreaterThan(1); // bailed to a fresh attempt
+  });
+});
+
+// ── G2: `final = mechanical AND llm` — the mechanical gate the executor runs ─────
+describe('runLeaf G2 mechanical gate', () => {
+  it('the 84048309 shape: a bare "VERDICT: PASS" cannot accept a red gate, and the review node is never spent', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'fail', command: 'npx tsc --noEmit', output: '1 fail', reasons: ['x'], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).not.toBe('accepted');
+    expect(spies.completeCalls.some((c) => c.acceptance === 'accepted')).toBe(false);
+    const reviewSpecs = spies.invokeSpecs.filter((s) => s.allowedTools === 'Read Grep Glob Bash');
+    expect(reviewSpecs.length).toBe(0); // a mechanically-red tree never spends a review node
+  });
+
+  it('gate "error" ⇒ park blocked (INFRA), not a fail; no fix node spawned', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'error', command: 'no-such-binary --x', output: 'ENOENT', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^gate-could-not-run:/);
+    expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(1); // only the initial implement — no fix node on an INFRA gate
+  });
+
+  it('veto path: a green gate lets a FAILing review reject as usual (the revise loop is intact)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — missing test', 'VERDICT: FAIL — missing test'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBeGreaterThan(1); // the fix node ran
+  });
+
+  it('green gate + green review ⇒ accepted (happy path unchanged)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('red base ⇒ zero leaves, zero nodes, escalation carries the command and output', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'npx tsc --noEmit', output: 'src/x.ts(3,1): error TS2304', reasons: [], declared: true, fresh: true,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.nodesSpent).toBe(0);
+    expect(spies.invokeSpecs.length).toBe(0);
+    const esc = spies.escalations.find((e) => e.kind === 'blocker');
+    expect(esc?.questionText).toContain('npx tsc --noEmit');
+    expect(esc?.questionText).toContain('TS2304');
+  });
+
+  it('base gate is escalated only on the fresh computation, not on cached reads', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'npx tsc --noEmit', output: 'still red', reasons: [], declared: true, fresh: false,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // fresh:false ⇒ no base-specific escalation naming the failing command (parkBlocked's
+    // own generic blocker escalation still fires — that's unrelated to the base check).
+    expect(spies.escalations.some((e) => e.questionText.includes('Epic base is RED'))).toBe(false);
+  });
+
+  it('unwired runGate/ensureBaseGreen ⇒ unchanged floor: the LLM verdict alone still decides', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no G2 hooks supplied
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.nodesSpent).toBe(3);
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
   });
 });
 

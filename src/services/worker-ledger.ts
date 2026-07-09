@@ -182,6 +182,18 @@ function openDb(): Database {
     merged INTEGER NOT NULL DEFAULT 0,
     updatedAt INTEGER NOT NULL
   )`);
+  // G2 once-per-epic base gate cache. Keyed on epicId ALONE (not the moving epic tip) —
+  // the acceptance criterion "one base-gate execution total, not one per leaf" forbids
+  // keying on the tip, which would re-run after every leaf merge.
+  db.exec(`CREATE TABLE IF NOT EXISTS epic_base_gate (
+    epicId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    baseSha TEXT,
+    status TEXT NOT NULL,
+    command TEXT,
+    output TEXT,
+    checkedAt INTEGER NOT NULL
+  )`);
   return db;
 }
 
@@ -450,6 +462,50 @@ export function getLatestNodeOutput(leafId: string, nodeKind: string): string | 
     ).get(leafId, nodeKind) as { outputText?: string } | undefined;
     return r?.outputText ?? null;
   } catch { return null; }
+}
+
+// --- G2 once-per-epic base gate cache (epic_base_gate) ------------------------
+export interface EpicBaseGateRow {
+  epicId: string;
+  project: string;
+  baseSha: string | null;
+  status: 'pass' | 'fail' | 'error';
+  command: string | null;
+  output: string | null;
+  checkedAt: number;
+}
+
+/** Upsert an epic's cached base-gate verdict. `output` is truncated to
+ *  MAX_OUTPUT_CHARS on write. Best-effort: if the write throws, the next leaf simply
+ *  re-runs the base gate — extra work, never a skipped gate. */
+export function recordEpicBaseGate(e: Omit<EpicBaseGateRow, 'checkedAt'>, now: number = Date.now()): void {
+  try {
+    openDb().prepare(
+      `INSERT INTO epic_base_gate (epicId, project, baseSha, status, command, output, checkedAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(epicId) DO UPDATE SET
+         project=excluded.project, baseSha=excluded.baseSha, status=excluded.status,
+         command=excluded.command, output=excluded.output, checkedAt=excluded.checkedAt`,
+    ).run(
+      e.epicId, e.project, e.baseSha ?? null, e.status, e.command ?? null,
+      e.output == null ? null : e.output.slice(0, MAX_OUTPUT_CHARS),
+      now,
+    );
+  } catch { /* best-effort */ }
+}
+
+/** Read an epic's cached base-gate verdict (null if none computed yet). */
+export function getEpicBaseGate(epicId: string): EpicBaseGateRow | null {
+  try {
+    const r = openDb().prepare('SELECT * FROM epic_base_gate WHERE epicId=?').get(epicId) as EpicBaseGateRow | undefined;
+    return r ?? null;
+  } catch { return null; }
+}
+
+/** Drop an epic's cached base-gate verdict — call when the human fixes the base, so
+ *  the next dispatch re-checks instead of trusting the stale cache. */
+export function clearEpicBaseGate(epicId: string): void {
+  try { openDb().prepare('DELETE FROM epic_base_gate WHERE epicId=?').run(epicId); } catch { /* best-effort */ }
 }
 
 /** List currently-running leaves (newest-started first). Optional project filter. */
