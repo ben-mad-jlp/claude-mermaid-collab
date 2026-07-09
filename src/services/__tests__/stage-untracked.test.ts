@@ -65,10 +65,27 @@ describe('stage-untracked', () => {
 
     stageUntrackedIntentToAdd(repo);
 
+    // An intent-to-add entry is a ZERO-CONTENT index entry, so index-vs-HEAD sees no content
+    // at all and prints nothing — the empty output IS the proof the content was not staged.
     const cachedStat = git(repo, 'diff', '--cached', '--numstat');
-    expect(cachedStat.trim()).toBe('0\t0\tsrc/new.ts');
+    expect(cachedStat.trim()).toBe('');
+    // ...while the content itself is still in the worktree, unstaged.
     const unstagedStat = git(repo, 'diff', '--numstat');
     expect(unstagedStat.trim()).toBe('3\t0\tsrc/new.ts');
+  });
+
+  it('git diff HEAD lists the new file only after the sweep (the review node\'s view)', () => {
+    mkdirSync(join(repo, 'src'), { recursive: true });
+    writeFileSync(join(repo, 'src', 'new.ts'), 'export const x = 1;\n');
+
+    // Untracked: `git status` shows it as `??`, but `git diff HEAD` omits it entirely.
+    expect(git(repo, 'status', '--porcelain')).toContain('?? src/new.ts');
+    expect(git(repo, 'diff', 'HEAD', '--name-only')).not.toContain('src/new.ts');
+
+    stageUntrackedIntentToAdd(repo);
+
+    expect(git(repo, 'diff', 'HEAD', '--name-only')).toContain('src/new.ts');
+    expect(git(repo, 'diff', 'HEAD', '--numstat').trim()).toBe('1\t0\tsrc/new.ts');
   });
 
   it('is idempotent across laps', () => {
