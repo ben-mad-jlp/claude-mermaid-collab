@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { isInboxEpic, INBOX_EPIC_TITLE } from '../claimability';
+import { isInboxEpic, INBOX_EPIC_TITLE, claimReason, derivedStatus, isClaimable, buildById } from '../claimability';
 import type { SessionTodo } from '@/types/sessionTodo';
+import cases from '../../../../src/services/__tests__/fixtures/claimability-cases.json';
 
 function mk(over: Partial<SessionTodo> = {}): SessionTodo {
   return {
@@ -33,4 +34,23 @@ describe('claimability (UI mirror) — Inbox identity', () => {
   it('isInboxEpic: false for undefined', () => {
     expect(isInboxEpic(undefined)).toBe(false);
   });
+});
+
+describe('claimability (UI mirror) — shared fixture (claimability-cases.json)', () => {
+  it('fixture schemaVersion is 1', () => {
+    expect(cases.schemaVersion).toBe(1);
+  });
+
+  for (const c of cases.cases) {
+    it(c.name, () => {
+      const todos = c.todos.map((t) => mk(t as Partial<SessionTodo>));
+      const byId = buildById(todos);
+      const subject = byId.get(c.subject)!;
+      const failMsg = c.why;
+
+      expect(claimReason(subject, byId), failMsg).toBe(c.expect.claimReason);
+      expect(derivedStatus(subject, byId), failMsg).toBe(c.expect.derivedStatus);
+      expect(isClaimable(subject, byId), failMsg).toBe(c.expect.isClaimable);
+    });
+  }
 });
