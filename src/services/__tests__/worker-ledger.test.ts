@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -189,5 +189,44 @@ describe('isLeafInflightLive', () => {
     expect(isLeafInflightLive('L2')).toBe(false);
     clearLeafInflight('L1');
     expect(isLeafInflightLive('L1')).toBe(false);
+  });
+});
+
+describe('epic_base_gate cache key (baseSha validation)', () => {
+  test('hit: same baseSha ⇒ the cached verdict is returned', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: null, output: null });
+    const r = getEpicBaseGate('e1', 'aaa');
+    expect(r).not.toBeNull();
+    expect(r?.status).toBe('pass');
+  });
+
+  test("stale 'fail' does not block: baseSha moved ⇒ MISS", () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'npx tsc --noEmit', output: 'error' });
+    const r = getEpicBaseGate('e1', 'bbb');
+    expect(r).toBeNull();
+  });
+
+  test("stale 'pass' does not greenlight: baseSha moved ⇒ MISS", () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: null, output: null });
+    const r = getEpicBaseGate('e1', 'bbb');
+    expect(r).toBeNull();
+  });
+
+  test('unknown current sha ⇒ MISS', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: null, output: null });
+    expect(getEpicBaseGate('e1', null)).toBeNull();
+    expect(getEpicBaseGate('e1', undefined)).toBeNull();
+  });
+
+  test('re-record under the new sha overwrites the row and hits', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'bbb', status: 'pass', command: null, output: null });
+    expect(getEpicBaseGate('e1', 'bbb')?.status).toBe('pass');
+    expect(getEpicBaseGate('e1', 'aaa')).toBeNull();
+  });
+
+  test("an 'error' is never cached (G7, unchanged)", () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'error', command: 'gate', output: 'OOM' });
+    expect(getEpicBaseGate('e1', 'aaa')).toBeNull();
   });
 });

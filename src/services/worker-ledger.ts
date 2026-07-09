@@ -495,18 +495,26 @@ export function recordEpicBaseGate(e: Omit<EpicBaseGateRow, 'checkedAt'>, now: n
   } catch { /* best-effort */ }
 }
 
-/** Read an epic's cached base-gate verdict (null if none computed yet). */
-export function getEpicBaseGate(epicId: string): EpicBaseGateRow | null {
+/** Read an epic's cached base-gate verdict, valid ONLY for `currentBaseSha`.
+ *
+ *  The row is keyed on epicId alone (one execution per epic, not per leaf — see the DDL
+ *  comment), but the verdict it holds is a fact about ONE base commit. When the epic's
+ *  base moves (forward-integration, a master merge), the cached row describes a tree that
+ *  no longer exists: a stale 'fail' would block every leaf on a base that may now be green,
+ *  and — worse — a stale 'pass' would silently greenlight an UNEXAMINED base, which is the
+ *  exact failure the G2 base gate exists to prevent.
+ *
+ *  So a baseSha mismatch is a cache MISS (null ⇒ caller re-runs the gate), not a verdict.
+ *  A null/absent sha on either side is also a MISS: we cannot prove the row describes the
+ *  base in hand, and re-running is the safe direction (extra work, never a skipped gate). */
+export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | undefined): EpicBaseGateRow | null {
+  if (!currentBaseSha) return null;
   try {
     const r = openDb().prepare('SELECT * FROM epic_base_gate WHERE epicId=?').get(epicId) as EpicBaseGateRow | undefined;
-    return r ?? null;
+    if (!r) return null;
+    if (!r.baseSha || r.baseSha !== currentBaseSha) return null; // stale row ⇒ MISS, re-check
+    return r;
   } catch { return null; }
-}
-
-/** Drop an epic's cached base-gate verdict — call when the human fixes the base, so
- *  the next dispatch re-checks instead of trusting the stale cache. */
-export function clearEpicBaseGate(epicId: string): void {
-  try { openDb().prepare('DELETE FROM epic_base_gate WHERE epicId=?').run(epicId); } catch { /* best-effort */ }
 }
 
 /** List currently-running leaves (newest-started first). Optional project filter. */

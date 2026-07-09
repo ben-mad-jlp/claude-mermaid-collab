@@ -643,6 +643,9 @@ describe('runLeaf G2 mechanical gate', () => {
     const esc = spies.escalations.find((e) => e.kind === 'blocker');
     expect(esc?.questionText).toContain('npx tsc --noEmit');
     expect(esc?.questionText).toContain('TS2304');
+    // Finding 1: escalation does NOT contain clearEpicBaseGate (reachable recovery is to fix base + commit)
+    expect(esc?.questionText).not.toContain('clearEpicBaseGate');
+    expect(esc?.questionText).toContain('commit the fix');
   });
 
   it('base gate is escalated only on the fresh computation, not on cached reads', async () => {
@@ -656,6 +659,23 @@ describe('runLeaf G2 mechanical gate', () => {
     expect(res.outcome).toBe('blocked');
     // fresh:false ⇒ no base-specific escalation naming the failing command (parkBlocked's
     // own generic blocker escalation still fires — that's unrelated to the base check).
+    expect(spies.escalations.some((e) => e.questionText.includes('Epic base is RED'))).toBe(false);
+  });
+
+  it('a leaf parking on a cached fail reports the failing command and output tail', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'npx tsc --noEmit', output: 'src/x.ts(3,1): error TS2304', reasons: [], declared: true, fresh: false,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // Finding 3: a cached fail (fresh:false) still reports command + output tail in the reason
+    expect(res.reason).toContain('epic-base-red');
+    expect(res.reason).toContain('npx tsc --noEmit');
+    expect(res.reason).toContain('TS2304');
+    // No base-specific escalation fired (fresh:false)
     expect(spies.escalations.some((e) => e.questionText.includes('Epic base is RED'))).toBe(false);
   });
 
