@@ -196,3 +196,51 @@ describe('todoKind (UI mirror) — no title reader remains', () => {
     expect((ui as Record<string, unknown>).isMissionInput).toBeUndefined();
   });
 });
+
+describe('todoKind (UI mirror) — mission is a root, and root is not a role', () => {
+  // File-local: STRUCTURE_FIXTURE (server) has no mission row, and this leaf may not edit it.
+  const mission = { id: 'm1', kind: 'mission' as const, title: 'Converge on X', parentId: null };
+  const epicUnderMission = { id: 'e2', kind: 'epic' as const, title: 'child epic', parentId: 'm1' };
+  const rootEpic = { id: 'e-new', kind: 'epic' as const, title: 'Freshly created epic', parentId: null };
+
+  it('a mission is isMission and is a root', () => {
+    expect(ui.isMission(mission)).toBe(true);
+    expect(ui.isEpic(mission)).toBe(false);
+    expect(ui.isLeaf(mission)).toBe(false);
+    expect(mission.parentId).toBe(null);          // root by STRUCTURE …
+  });
+
+  it('an epic parented to a mission is still an epic', () => {
+    expect(ui.isEpic(epicUnderMission)).toBe(true);     // … but not by ROLE
+    expect(ui.isMission(epicUnderMission)).toBe(false);
+  });
+
+  it('parentId === null does not imply epic — it means epic OR mission', () => {
+    // Both are roots; only `kind` separates them.
+    expect(rootEpic.parentId).toBe(mission.parentId);
+    expect(ui.kindOf(rootEpic)).not.toBe(ui.kindOf(mission));
+  });
+
+  it('epicIdSet admits the root epic and the nested epic, never the root mission', () => {
+    const ids = ui.epicIdSet([mission, epicUnderMission, rootEpic]);
+    expect(ids).toEqual(new Set(['e2', 'e-new']));
+    expect(ids.has('m1')).toBe(false);
+  });
+
+  it('parentEpicIdOf: an epic under a mission has no parent EPIC', () => {
+    const ids = ui.epicIdSet([mission, epicUnderMission, rootEpic]);
+    expect(ui.parentEpicIdOf(epicUnderMission, ids)).toBe(null);
+  });
+
+  it('ui and server agree on the mission scenario', () => {
+    const todos = [mission, epicUnderMission, rootEpic];
+    expect(ui.epicIdSet(todos)).toEqual(server.epicIdSet(todos));
+    for (const t of todos) expect(ui.kindOf(t)).toBe(server.kindOf(t));
+  });
+
+  it('labelFor(mission) is the display label; the stored title carries no prefix', () => {
+    expect(ui.labelFor('mission')).toBe('[MISSION]');
+    expect(mission.title).toBe('Converge on X');       // no role prefix stored
+    expect(ui.stripKindPrefix(mission.title)).toBe(mission.title);
+  });
+});
