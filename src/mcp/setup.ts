@@ -106,7 +106,8 @@ import { validateStewardProof, isOverrideRateLimited, type StewardProof, type St
 import { getConfig, getSecret } from '../services/config-service.js';
 import { consultCodex } from '../services/consult-openai.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
-import { makeCoordinatorDeps, landEpic, diagnoseClaimSuppression } from '../services/coordinator-live.js';
+import { makeCoordinatorDeps, landEpic, diagnoseClaimSuppression, resolveEpicId } from '../services/coordinator-live.js';
+import { checkOwnership, landedByTrailer, type LandActor } from '../services/land-authority.js';
 import { requestSelfDeploy } from '../services/deploy-service.js';
 import { awaitHumanDecision } from '../services/decision-relay.js';
 import { updateTaskStatus, updateTasksStatus, getTaskGraph } from './workflow/task-status.js';
@@ -1009,7 +1010,7 @@ export async function setupMCPServer(): Promise<Server> {
       { name: 'escalation_history', description: "Read-only escalation history — OPEN and RESOLVED escalations with how each was triaged and resolved (escalation_list shows OPEN only). The store is GLOBAL, so an unfiltered call spans all projects and defaults to the recent-N newest-first. FILTERS (all optional): epicId (resolves escalation.todoId → parentId chain → [EPIC] ancestor), project, todoId, session, status, kind, routedTo ('steward'=ai-resolved | 'human'=escalated-to-human), since/until (createdAt ms range), limit (default 50). PER-ROW: kind, status, createdAt/resolvedAt, timeToResolutionMs, routedTo, stewardAttempts, suggestedAction (Grok bucket+confidence+rationale), the human decision (optionId/note/decidedBy), resolutionActor (decider handle | 'daemon-auto'), recurrenceCount (how many escalations share project+session+questionText). With epicId, folds in that epic's decision records. summary:true returns aggregate counts (auto-resolved vs escalated-to-human), avg stewardAttempts, median timeToResolution, grouped by epic/project — answers 'is drive-level Grok triage resolving escalations or just bouncing them to the human?'.", inputSchema: { type: 'object', properties: { epicId: { type: 'string' }, project: { type: 'string' }, todoId: { type: 'string' }, session: { type: 'string' }, status: { type: 'string' }, kind: { type: 'string' }, routedTo: { type: 'string', enum: ['steward', 'human'] }, since: { type: 'number', description: 'Lower bound on createdAt (ms epoch).' }, until: { type: 'number', description: 'Upper bound on createdAt (ms epoch).' }, limit: { type: 'number', description: 'Recent-N cap, newest-first (default 50).' }, summary: { type: 'boolean', description: 'Return the aggregate breakdown instead of rows.' } } } },
       { name: 'escalation_resolve', description: 'Resolve an escalation by id with a status.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch; a superseded supervisor is rejected.' } }, required: ['id', 'status'] } },
       { name: 'escalation_brief', description: "Get a DEEP markdown decision briefing for one escalation — Decision (with the fixed options + each consequence) / Situation (what led here) / System context (plan-graph blast radius, epic branch health, prior escalations) / Recommendation (labelled steward opinion). Generated LAZILY on first call from the enriched ground-truth bundle via the swappable triage tier-role LLM, then CACHED on the escalation (so a reload keeps it). FAILS OPEN to a deterministic no-LLM briefing on any model error. Pass refresh:true to regenerate. This is what the human reads to decide.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, escalationId: { type: 'string' }, refresh: { type: 'boolean', description: 'Regenerate even if a cached briefing exists.' } }, required: ['project', 'escalationId'] } },
-      { name: 'land_epic', description: "LAND an epic onto master (FBPE P4 — human-gated, irreversible). Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at click time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded).", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project (where the work-graph + escalation live).' }, escalationId: { type: 'string', description: "The open 'epic-ready-to-land' escalation id to land." }, allowDirty: { type: 'boolean', description: "Bypass the clean-tree guard: land even though the main checkout has uncommitted/untracked changes. The dirty paths are still printed, an `Allow-Dirty: <paths>` trailer is added to the land commit, and an orchestration friction note is recorded. Per-call only — NOT a persistent flag." } }, required: ['project', 'escalationId'] } },
+      { name: 'land_epic', description: "LAND an epic onto master (FBPE P4 — human-gated, irreversible). Given an open 'epic-ready-to-land' escalation, the server RE-DERIVES land-readiness from ground truth at click time (children done+accepted; tsc clean in the epic worktree; epic branch dry-merges into master) — never trusts the card summary. On a green proof it performs ONE --no-ff epic→master merge behind a per-project land mutex, removes the epic branch+worktree, and resolves the card. A conflict leaves master UNTOUCHED and re-surfaces a human-rebase escalation. Clean-tree guard: refuses if the main checkout has uncommitted/untracked changes — pass allowDirty:true to override (dirty paths are still printed, an Allow-Dirty trailer is added to the land commit, and a friction note is recorded). Landing is a ROLE, not an autonomy level: a conductor lands its own mission's epics only; bucket roots and foreign missions are refused with the owner named. The actor is recorded in the response and audit trail.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Tracking project (where the work-graph + escalation live).' }, escalationId: { type: 'string', description: "The open 'epic-ready-to-land' escalation id to land." }, allowDirty: { type: 'boolean', description: "Bypass the clean-tree guard: land even though the main checkout has uncommitted/untracked changes. The dirty paths are still printed, an `Allow-Dirty: <paths>` trailer is added to the land commit, and an orchestration friction note is recorded. Per-call only — NOT a persistent flag." }, actor: { type: 'string', enum: ['human', 'conductor', 'daemon'], description: "Who is taking this irreversible action. Defaults to 'human'. 'conductor' additionally requires `session` and is gated on OWNERSHIP: the epic must be a descendant of that session's ACTIVE mission, and must not be a bucket root." }, session: { type: 'string', description: "Conductor session id. Required when actor='conductor'." } }, required: ['project', 'escalationId'] } },
       { name: 'deploy_self', description: "DEPLOY the running sidecar from its own repo (human-gated, STRICTLY SEPARATE from land). After a self-project epic lands, the live :9002 binary is stale against master; this rebuilds sidecar+UI and restarts the app. Server hard-gates self-project (project must equal the sidecar's MERMAID_PROJECT) AND macOS AND the presence of scripts/deploy-desktop.sh — never deploys another repo. Spawned DETACHED, so it survives killing this very process; returns immediately with a logPath to tail. Reasons: ok | not-self-project | unsupported-platform | deploy-script-missing | spawn-failed.", inputSchema: { type: 'object', properties: { project: { type: 'string', description: "The project to deploy — must be the sidecar's own repo (MERMAID_PROJECT)." } }, required: ['project'] } },
       { name: 'escalation_create', description: 'Create (or dedupe) an open escalation for a session. Pass todoId to link it to a work-graph todo so it auto-resolves when that todo completes. For an A/B-style decision, pass structured options[] (and optionally recommended) instead of a raw JSON questionText.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, kind: { type: 'string' }, questionText: { type: 'string', description: 'Human-readable prompt for the decision/question.' }, todoId: { type: 'string', description: 'Optional work-graph todo id this escalation is about (exact auto-resolve link).' }, options: { type: 'array', description: 'Optional structured choices for an A/B-style decision.', items: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' } }, required: ['id', 'label'] } }, recommended: { type: 'string', description: 'Optional id of the recommended option (must match one of options[].id).' }, ui: { type: 'object', description: 'Optional rich decision spec (BR-4): { elements: [...] } over the closed catalog (Heading, Text, Callout, CodeBlock, DiffView, CompareTable, KeyValue, OptionButton, Form, SubmitButton). Server-validated; must contain a terminal action (OptionButton/SubmitButton/Form), ≤40 elements. Compose ONLY when the decision needs evidence (a diff/compare/form); otherwise use plain options[]. Invalid specs are dropped, falling back to options[].' }, supervisorEpoch: { type: 'number', description: 'Supervisor ownership epoch. Workers escalating omit this; a superseded supervisor that passes its stale epoch is rejected (superseded).' } }, required: ['project', 'session', 'kind', 'questionText'] } },
       { name: 'await_human_decision', description: 'Block until a human posts a decision for the given escalation (via the decide endpoint), then return the chosen optionId + any note. Use after filing a structured escalation (escalation_create with options[]) to relay an A/B decision without ending the turn. Returns { timedOut: true } if no answer arrives within timeoutMs.', inputSchema: { type: 'object', properties: { escalationId: { type: 'string' }, timeoutMs: { type: 'number', description: 'Max time to wait in ms (default 600000 = 10 min).' } }, required: ['escalationId'] } },
@@ -1953,14 +1954,54 @@ export async function setupMCPServer(): Promise<Server> {
             return JSON.stringify({ success: true, id, status }, null, 2);
           }
           case 'land_epic': {
-            const { project, escalationId, allowDirty } = args as { project: string; escalationId: string; allowDirty?: boolean };
+            const { project, escalationId, allowDirty, actor: actorKind, session } = args as { project: string; escalationId: string; allowDirty?: boolean; actor?: string; session?: string };
             if (!project || !escalationId) throw new Error('Missing required: project, escalationId');
+
+            // Build the actor (default human, so every existing caller is byte-for-byte unchanged)
+            let actor: LandActor = { kind: 'human' };
+            if (actorKind === 'conductor') {
+              if (!session) throw new Error("Missing required: session (required when actor='conductor')");
+              actor = { kind: 'conductor', session };
+            } else if (actorKind === 'daemon') {
+              actor = { kind: 'daemon', level: 'auto' };
+            }
+
+            // Ownership gate — conductor only.
+            if (actor.kind === 'conductor') {
+              const esc = supervisorStore.getEscalation(escalationId);
+              if (!esc || esc.kind !== 'epic-ready-to-land' || !esc.todoId) {
+                return JSON.stringify({ ok: false, landed: false, reason: 'not-a-land-escalation' }, null, 2);
+              }
+              const child = getTodo(project, esc.todoId);
+              if (!child) return JSON.stringify({ ok: false, landed: false, reason: 'todo-not-found' }, null, 2);
+              const epicId = resolveEpicId(child, project);
+              const own = checkOwnership(project, epicId, actor);
+              if (!own.ok) {
+                recordSupervisorDecision('reconcile', project, session!, JSON.stringify({ escalationId, epicId, land: 'refused', reason: own.blocker?.code, ownership: own.ownership }));
+                return JSON.stringify({
+                  ok: false, landed: false, epicId,
+                  reason: own.blocker?.code ?? 'unauthorized',
+                  ownership: own.ownership,
+                  message: own.blocker?.message,
+                  instruction: 'ESCALATE TO THE HUMAN. A conductor may only land epics under its own ACTIVE mission. Never land another mission\'s epic, and never land a bucket root.',
+                }, null, 2);
+              }
+            }
+
             const result = await landEpic(project, escalationId, { allowDirty });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
-            // Clean-tree refusal: attach the operator instruction alongside the dirty paths.
+
+            // Attach the actor and trailer to the result
+            const trailer = landedByTrailer(actor);
             const payload = result.reason === 'dirty-tree'
-              ? { ...result, instruction: 'Main checkout is dirty. File a todo for the daemon, or EnterWorktree to hand-code, or commit / discard the changes — then re-land. To override for this call, pass allowDirty:true.' }
-              : result;
+              ? { ...result, instruction: 'Main checkout is dirty. File a todo for the daemon, or EnterWorktree to hand-code, or commit / discard the changes — then re-land. To override for this call, pass allowDirty:true.', landedBy: trailer, actor: actor.kind }
+              : { ...result, landedBy: trailer, actor: actor.kind };
+
+            // Record audit on successful land
+            if (result.landed === true && result.epicId) {
+              recordSupervisorDecision('reconcile', project, actor.kind === 'conductor' ? session! : actor.kind, JSON.stringify({ escalationId, epicId: result.epicId, land: 'landed', trailer }));
+            }
+
             return JSON.stringify(payload, null, 2);
           }
           case 'deploy_self': {
