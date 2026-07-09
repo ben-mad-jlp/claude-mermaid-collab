@@ -67,11 +67,17 @@ export function depDropped(dep: Pick<SessionTodo, 'status'> | undefined): boolea
 
 /**
  * The ONE eligibility predicate. Order is load-bearing (see backend doc): terminal/in-flight
- * first (lifecycle), then the decision gates (unapproved, held), then the dependency gates
- * most-severe-first — severity = cost of human recovery:
- *   1. dep-dropped  — a human must re-point the edge, `reset_todo` the dep, or drop this todo
- *   2. dep-rejected — reset the dep; the dep row is alive and re-runnable
+ * first (lifecycle), then the decision gates (unapproved, held), then the dependency gates:
+ *   1. dep-rejected — reset the dep; the dep row is alive and re-runnable
+ *   2. dep-dropped  — a human must re-point the edge, `reset_todo` the dep, or drop this todo
  *   3. deps-pending — wait; no human needed
+ * `dep-rejected` stays first even though `dep-dropped` is the *harder* blocker: a rejected dep
+ * is a gate failure a human is already being asked to look at, and it is the more actionable
+ * signal. A todo blocked by both reports `dep-rejected` — fix that, and it re-reports
+ * `dep-dropped` on the next read. Both precede `deps-pending`, the only dep state that
+ * resolves without a human. Do NOT "helpfully" re-order these to put the harder blocker
+ * first — that divergence shipped once already and is pinned by the shared fixture case
+ * `dep-rejected-outranks-dep-dropped`.
  * — and finally the agent-vs-human split last.
  */
 export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): ClaimReason {
@@ -85,9 +91,11 @@ export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): Cla
   if (parentIsInbox(t, byId)) return 'inbox-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
-  if ((t.dependsOn ?? []).some((id) => depDropped(byId.get(id)))) return 'dep-dropped';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {
     return 'dep-rejected';
+  }
+  if ((t.dependsOn ?? []).some((id) => depDropped(byId.get(id)))) {
+    return 'dep-dropped';
   }
   if (!(t.dependsOn ?? []).every((id) => depSatisfied(byId.get(id)))) {
     return 'deps-pending';
