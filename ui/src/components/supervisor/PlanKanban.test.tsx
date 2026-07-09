@@ -16,6 +16,7 @@ import type { SessionTodo } from '@/types/sessionTodo';
 function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
   return {
     id: p.id,
+    kind: 'leaf',
     ownerSession: '',
     assigneeSession: null,
     title: p.id,
@@ -52,7 +53,7 @@ describe('PlanKanban', () => {
 
   it('renders an epic swimlane per epic with its child todos', () => {
     const withEpic = [
-      todo({ id: 'E', title: 'Epic-E' }),
+      todo({ id: 'E', title: 'Epic-E', kind: 'epic' }),
       todo({ id: 'E1', status: 'planned', parentId: 'E' }),
     ];
     render(<PlanKanban todos={withEpic} showCompleted={false} />);
@@ -63,7 +64,7 @@ describe('PlanKanban', () => {
 
   it('hides completed epics by default and reveals them via the showCompleted prop', () => {
     const todos = [
-      todo({ id: 'DONE', title: 'Done-Epic' }),
+      todo({ id: 'DONE', title: 'Done-Epic', kind: 'epic' }),
       todo({ id: 'D1', status: 'done', completed: true, parentId: 'DONE' }),
       todo({ id: 'D2', status: 'done', completed: true, parentId: 'DONE' }),
     ];
@@ -75,7 +76,7 @@ describe('PlanKanban', () => {
 
   it('always shows a cohesive ACTIVE epic\'s completed children (progress)', () => {
     const todos = [
-      todo({ id: 'E', title: 'Feature-Epic' }),
+      todo({ id: 'E', title: 'Feature-Epic', kind: 'epic' }),
       todo({ id: 'E1', status: 'done', completed: true, parentId: 'E' }),
       todo({ id: 'E2', status: 'ready', parentId: 'E' }),
     ];
@@ -87,7 +88,7 @@ describe('PlanKanban', () => {
 
   it('a BUCKET (Inbox) epic hides completed children unless showCompleted', () => {
     const inbox = [
-      todo({ id: 'INBOX', title: '[EPIC] Inbox' }),
+      todo({ id: 'INBOX', title: '[EPIC] Inbox', kind: 'epic' }),
       todo({ id: 'i1', status: 'done', completed: true, parentId: 'INBOX' }),
       todo({ id: 'i2', status: 'ready', parentId: 'INBOX' }),
     ];
@@ -101,7 +102,7 @@ describe('PlanKanban', () => {
 
   it('shows "Clear completed" on a bucket epic and fires onClearCompleted', () => {
     const inbox = [
-      todo({ id: 'INBOX', title: '[EPIC] Inbox' }),
+      todo({ id: 'INBOX', title: '[EPIC] Inbox', kind: 'epic' }),
       todo({ id: 'i1', status: 'done', completed: true, parentId: 'INBOX' }),
       todo({ id: 'i2', status: 'ready', parentId: 'INBOX' }),
     ];
@@ -114,7 +115,7 @@ describe('PlanKanban', () => {
 
   it('does NOT show "Clear completed" on a cohesive epic', () => {
     const todos = [
-      todo({ id: 'E', title: 'Feature-Epic' }),
+      todo({ id: 'E', title: 'Feature-Epic', kind: 'epic' }),
       todo({ id: 'E1', status: 'done', completed: true, parentId: 'E' }),
       todo({ id: 'E2', status: 'ready', parentId: 'E' }),
     ];
@@ -137,7 +138,7 @@ describe('PlanKanban', () => {
 
   it('does NOT show any clear button on a cohesive (non-bucket) epic with done children', () => {
     const todos = [
-      todo({ id: 'E', title: 'Cohesive Feature' }),
+      todo({ id: 'E', title: 'Cohesive Feature', kind: 'epic' }),
       todo({ id: 'E1', status: 'done', completed: true, parentId: 'E' }),
       todo({ id: 'E2', status: 'ready', parentId: 'E' }),
     ];
@@ -164,7 +165,7 @@ describe('PlanKanban', () => {
   it('wraps a long unbroken title within the card (break-words)', () => {
     const longPath = 'src/components/' + 'x'.repeat(110); // ~125 chars, no break point
     const todos = [
-      todo({ id: 'E', title: 'Feature-Epic' }),
+      todo({ id: 'E', title: 'Feature-Epic', kind: 'epic' }),
       todo({ id: 'L', title: longPath, parentId: 'E' }),
     ];
     render(<PlanKanban todos={todos} showCompleted={false} />);
