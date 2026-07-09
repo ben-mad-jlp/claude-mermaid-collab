@@ -913,6 +913,21 @@ function warnGateAbstention(project: string, epicId: string, gateProject: string
   );
 }
 
+/** The `runGate` dep is UNWIRED (no G2 mechanical layer at all — not even a manifest
+ *  consult). Distinct from an ABSENT declaration: there, the project said "no gate";
+ *  here, the executor was constructed without the seam. Both end at "the LLM verdict
+ *  alone decides", and neither may be invisible. */
+const warnedGateUnwired = new Set<string>();
+function warnGateUnwired(project: string, epicId: string): void {
+  const key = `${project}::${epicId}`;
+  if (warnedGateUnwired.has(key)) return;
+  warnedGateUnwired.add(key);
+  console.warn(
+    `[leaf-gate] runGate DEP UNWIRED for project ${project} (epic ${epicId.slice(0, 8)}): the executor ` +
+    `has no mechanical gate seam. Leaves will be accepted on the reviewer's verdict ALONE.`,
+  );
+}
+
 /**
  * Drive ONE leaf todo through the deterministic blueprint→implement→review loop.
  *
@@ -1034,6 +1049,12 @@ export async function runLeaf(
   // Which execution path the last attempt took — recorded on the terminal record so a
   // run's shape (and which path a failure came from) is legible without re-deriving.
   let pathTaken: 'floor' | 'waves' | 'review' | null = null;
+
+  // Whether a PROJECT-DECLARED mechanical gate actually ran for the deciding review.
+  // null = the gate was never evaluated (parked before the loop). false = pass without a
+  // command running (undeclared, misconfigured-early, or an unwired seam) — the LLM alone
+  // decided. See LeafGateResult.declared.
+  let gateDeclared: boolean | null = null;
 
   // Per-(project, node-kind) model + effort overrides, resolved once per run.
   // model  : per-kind override → NODE_PROFILE default.
@@ -1182,6 +1203,7 @@ export async function runLeaf(
           pathTaken,
           attempts: state.attempt,
           nodesSpent: state.nodesSpent,
+          ...(gateDeclared !== null ? { gateDeclared } : {}),
           ...(detail?.reason ? { reason: detail.reason } : {}),
           ...(detail?.pendingReason ? { pendingReason: detail.pendingReason } : {}),
           ...(detail?.gateReasons?.length ? { gateReasons: detail.gateReasons } : {}),
@@ -1755,8 +1777,32 @@ export async function runLeaf(
       // The executor runs the PROJECT's own gate at this leaf's HEAD. The base was
       // proven green once per epic, so any failure here is BY CONSTRUCTION this leaf's
       // own — no baseline diff, no per-file test selection heuristics.
-      const mech: LeafGateResult = (await deps.runGate?.(cwd))
-        ?? { status: 'pass', output: '', reasons: [], declared: false };
+      let mech: LeafGateResult;
+      const gateRun = await deps.runGate?.(cwd);
+      if (gateRun) {
+        mech = gateRun;
+      } else {
+        // UNWIRED SEAM — not a pass anybody computed. Say so, and leave a ledger row, exactly
+        // as the `absent` DECLARATION path does (see makeLeafExecutorDeps.runGate). Silence
+        // here restores LLM-ratifies-itself, which is the failure G4 exists to make loud.
+        warnGateUnwired(project, epicId);
+        try {
+          deps.recordNode({
+            project,
+            todoId: leaf.id,
+            session: sessionKey,
+            epicId,
+            leafId: leaf.id,
+            nodeKind: 'gate-abstain',
+            nodesSpent: 0,
+            verdict: 'pass',
+            outcomeDetail: 'gate-unwired',
+            outputText: 'deps.runGate is not wired — no mechanical gate ran for this leaf',
+          });
+        } catch { /* best-effort telemetry */ }
+        mech = { status: 'pass', output: '', reasons: ['gate: runGate dep unwired'], declared: false };
+      }
+      gateDeclared = mech.declared;
 
       // A GATE THAT COULD NOT RUN IS NOT A FAILING GATE. An INCIDENT, not a finding:
       // park blocked, escalate, spawn NO fix node (80bacbc4, one layer down).

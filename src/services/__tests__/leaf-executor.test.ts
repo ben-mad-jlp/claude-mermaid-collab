@@ -110,6 +110,8 @@ interface Spies {
   /** Ordered log of 'set:<kind>' (setInflight) and 'clear' (clearInflight) — bug
    *  0f1df3d2: the row must span the whole run (set per-node, cleared ONCE at the end). */
   inflightSeq: string[];
+  /** Captured recordNode calls. */
+  nodeRows: Array<any>;
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -138,6 +140,7 @@ function makeDeps(opts: {
     bumpRetryCalls: [],
     seq: [],
     inflightSeq: [],
+    nodeRows: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -200,7 +203,7 @@ function makeDeps(opts: {
     escalate(input) {
       spies.escalations.push({ kind: input.kind, questionText: input.questionText });
     },
-    recordNode: () => null,
+    recordNode: (e) => { spies.nodeRows.push(e); return null as any; },
     setInflight: (e) => { spies.inflightSeq.push(`set:${e.nodeKind ?? '?'}`); },
     clearInflight: () => { spies.inflightSeq.push('clear'); },
     runGate: opts.runGate,
@@ -713,6 +716,51 @@ describe('runLeaf G2 mechanical gate', () => {
     expect(res.outcome).toBe('accepted');
     expect(res.nodesSpent).toBe(3);
     expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('unwired runGate emits a gate-abstain ledger row and warns', async () => {
+    let warnCalled = false;
+    const originalWarn = console.warn;
+    console.warn = (...args: any[]) => {
+      if (args[0]?.includes('runGate DEP UNWIRED')) warnCalled = true;
+    };
+    try {
+      const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no G2 hooks supplied
+      const res = await runLeaf('unwired-test-proj-1', makeLeaf(), deps);
+      expect(res.outcome).toBe('accepted');
+      expect(warnCalled).toBe(true);
+      const gateAbstainRow = spies.nodeRows.find((r) => r.nodeKind === 'gate-abstain');
+      expect(gateAbstainRow).toBeDefined();
+      expect(gateAbstainRow?.outcomeDetail).toBe('gate-unwired');
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it('the terminal outcome record carries gateDeclared:false when no gate ran', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no G2 hooks supplied
+    const res = await runLeaf('unwired-test-proj-2', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow).toBeDefined();
+    const parsed = JSON.parse(outcomeRow?.outcomeDetail ?? '{}');
+    expect(parsed.gateDeclared).toBe(false);
+  });
+
+  it('gateDeclared:true when a declared gate passed', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('unwired-test-proj-3', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow).toBeDefined();
+    const parsed = JSON.parse(outcomeRow?.outcomeDetail ?? '{}');
+    expect(parsed.gateDeclared).toBe(true);
+    // Verify no gate-abstain row was written
+    const gateAbstainRow = spies.nodeRows.find((r) => r.nodeKind === 'gate-abstain');
+    expect(gateAbstainRow).toBeUndefined();
   });
 
   it('isCacheableBaseGateStatus: pass/fail are cacheable, error is not', () => {
@@ -1261,6 +1309,7 @@ function makeVerifyDeps(opts: {
     bumpRetryCalls: [] as Spies['bumpRetryCalls'],
     seq: [] as Spies['seq'],
     inflightSeq: [] as Spies['inflightSeq'],
+    nodeRows: [] as Spies['nodeRows'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
