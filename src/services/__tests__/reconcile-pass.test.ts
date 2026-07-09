@@ -183,7 +183,7 @@ async function makeEpicWithChildren(
   // De-conflate (b2c858d4): epics are 'planned' (non-terminal); the seam rejects a manual
   // 'in_progress'. An "open" child stays non-terminal (created 'ready'→planned+approved) — what
   // the rollup actually keys on is NOT-done+accepted, so a non-terminal child blocks rollup.
-  const epic = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] sweep test', status: 'planned' });
+  const epic = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] sweep test', kind: 'epic', status: 'planned' });
   const childIds: string[] = [];
   for (const c of children) {
     const child = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'child', parentId: epic.id, status: 'ready' });
@@ -261,8 +261,8 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
     const project = freshProject();
     // root → mid (epic) → leaf(done+accepted). root also has another direct
     // done+accepted child. Closing mid should let root roll up in the same call.
-    const root = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] root', status: 'planned' });
-    const mid = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] mid', parentId: root.id, status: 'planned' });
+    const root = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] root', kind: 'epic', status: 'planned' });
+    const mid = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] mid', kind: 'epic', parentId: root.id, status: 'planned' });
     const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'leaf', parentId: mid.id, status: 'ready' });
     await updateTodo(project, leaf.id, { status: 'done', acceptanceStatus: 'accepted' });
     const rootChild = await createTodo(project, { allowOrphan: true, ownerSession: 'w', title: 'root-child', parentId: root.id, status: 'ready' });
@@ -289,7 +289,7 @@ describe('sweepEpicRollups — rolls up epics whose children all settled', () =>
 
   it('never closes a childless epic', async () => {
     const project = freshProject();
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] empty', status: 'planned' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 'planner', title: '[EPIC] empty', kind: 'epic', status: 'planned' });
 
     const { rolledUp, flagged } = await sweepEpicRollups(project);
 

@@ -52,7 +52,7 @@ async function doneObjectTodo(objectRef: string, parentId: string | null) {
 
 describe('inverse coverage — the satisfy-edge KEY (aboutObjectId, not srcId)', () => {
   test('a done object-todo with EXACTLY ONE epic requirement proposes a satisfy edge', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     const reqId = activeRequirement(epic.id, 'req-A');
     await doneObjectTodo(objId, epic.id);
 
@@ -64,7 +64,7 @@ describe('inverse coverage — the satisfy-edge KEY (aboutObjectId, not srcId)',
   });
 
   test('an ACTIVE satisfy edge keyed on aboutObjectId clears the gap', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     const reqId = activeRequirement(epic.id, 'req-A');
     await doneObjectTodo(objId, epic.id);
 
@@ -73,7 +73,7 @@ describe('inverse coverage — the satisfy-edge KEY (aboutObjectId, not srcId)',
   });
 
   test('an edge whose srcId is the object but aboutObjectId is ANOTHER object does NOT count as proof', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     const reqId = activeRequirement(epic.id, 'req-A');
     await doneObjectTodo(objId, epic.id);
 
@@ -85,7 +85,7 @@ describe('inverse coverage — the satisfy-edge KEY (aboutObjectId, not srcId)',
   });
 
   test('zero active requirements → downgrade to an uncovered-requirement QUESTION (no guess)', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     await doneObjectTodo(objId, epic.id); // epic has NO requirement
 
     const cands = inverseCoverage(project);
@@ -96,7 +96,7 @@ describe('inverse coverage — the satisfy-edge KEY (aboutObjectId, not srcId)',
   });
 
   test('many active requirements → also a question, never a guessed satisfy', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     activeRequirement(epic.id, 'req-A');
     activeRequirement(epic.id, 'req-B');
     await doneObjectTodo(objId, epic.id);
@@ -107,7 +107,7 @@ describe('inverse coverage — the satisfy-edge KEY (aboutObjectId, not srcId)',
   });
 
   test('a NON-done object-todo is not a coverage gap', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     activeRequirement(epic.id, 'req-A');
     await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'wip', status: 'planned', objectRef: objId, parentId: epic.id });
     expect(inverseCoverage(project)).toHaveLength(0);
@@ -169,7 +169,7 @@ describe('syncShortlist — rank / dedupe / cap (cartographer_sync payload)', ()
 
   test('drift outranks inverse-coverage, and same-object candidates dedupe', async () => {
     // Inverse-coverage gap on objId (done todo, one epic requirement, no satisfy).
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     activeRequirement(epic.id, 'req-A');
     await doneObjectTodo(objId, epic.id);
     // Drift on the SAME object (a stale proof to a different requirement).
@@ -212,7 +212,7 @@ describe('syncShortlist — rank / dedupe / cap (cartographer_sync payload)', ()
 describe('ZERO-WRITE contract', () => {
   test('no detector mutates edges, decision records, or objects; writes are unexecuted thunks', async () => {
     // Set up every signal at once.
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC]', kind: 'epic' });
     activeRequirement(epic.id, 'req-A');
     await doneObjectTodo(objId, epic.id);
     satisfy(project, objId, 'req:stale');
