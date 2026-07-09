@@ -45,6 +45,13 @@ function todo(over: Partial<Todo>): Todo {
     approvedBy: null,
     heldAt: null,
     heldReason: null,
+    retryCount: 0,
+    completedBy: null,
+    objectRef: null,
+    decisionRef: null,
+    claimProbe: null,
+    inheritedBlueprintFrom: null,
+    inheritedFiles: [],
     ...over,
   } as Todo;
 }

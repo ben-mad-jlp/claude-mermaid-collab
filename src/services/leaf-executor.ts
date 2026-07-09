@@ -25,7 +25,7 @@ import { existsSync } from 'node:fs';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
-import { parseSplitDecision, topoSortSplitItems } from './split-decision';
+import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
@@ -415,6 +415,12 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
 };
 
+/** SR-7: a split child inherits its parent's plan slice, so its blueprint node RECONCILES
+ *  instead of re-deriving. Cheap model, low effort. It is NOT skipped: the parent plan
+ *  encodes cross-file contracts + test strategy that later siblings can invalidate, and
+ *  SR-6's dependsOn bounds — but does not eliminate — that staleness. */
+export const BLUEPRINT_REFRESH_PROFILE = { model: 'sonnet', effort: 'low' as EffortLevel };
+
 /** Process-wide effort override: MERMAID_NODE_EFFORT forces every spawned node to a
  *  single level (blunt instrument; the per-project knob is preferred). */
 const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
@@ -544,6 +550,56 @@ export function buildNodePrompt(
       // reaches here — this switch is exhaustive over the FLOOR kinds it owns.
       throw new Error(`buildNodePrompt: unsupported floor kind "${kind}"`);
   }
+}
+
+/** SR-7: Build the refresh prompt for a split child's BLUEPRINT node. The child reconciles
+ *  the inherited parent plan against the current tree (reading only its file slice) rather
+ *  than re-deriving from zero. The prompt inlines the parent's durable plan and the child's
+ *  file slice, and instructs the node to RECONCILE (tree wins on disagreements, don't re-derive). */
+export function buildBlueprintRefreshPrompt(leaf: Todo, inheritedText: string, files: string[]): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+  const bp = blueprintPath(leaf);
+  return [
+    'You are the BLUEPRINT REFRESH node for ONE split child leaf. Do NOT write implementation code.',
+    `Title: ${title}`,
+    `Description: ${description}`,
+    `You own EXACTLY these files: ${files.join(', ')}.`,
+    '',
+    'The parent plan you inherited (below) was authored BEFORE your sibling leaves landed. RECONCILE',
+    'it against the CURRENT tree: read the files you own and the interfaces your dependencies actually',
+    'shipped. Where the inherited prose disagrees with the tree, the TREE wins. Do not re-derive the',
+    'design from zero.',
+    '',
+    `=== INHERITED PARENT PLAN (${leaf.inheritedBlueprintFrom}) START ===`,
+    inheritedText,
+    '=== INHERITED PARENT PLAN END ===',
+    '',
+    `Produce your reconciliation and WRITE it to \`${bp}\`.`,
+    'The blueprint must cite the real files/symbols to touch and the exact change shape.',
+    '',
+    'FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable',
+    'size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file',
+    'and parse as:',
+    '```json',
+    '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
+    '  "nonEnumerableFanout": <bool>,',
+    '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
+    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
+    '  "splitDecision": { "split": <bool>, "reason": "<why>",',
+    '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
+    '```',
+    'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
+    'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
+    'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+    '',
+    'Emit `splitDecision.split: false` unless your slice genuinely decomposes further — you are',
+    'already a split child.',
+    '',
+    `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your`,
+    `FINAL reply message — verbatim — so the executor has the blueprint even if the file`,
+    `read fails. (Write the file AND emit the full text as your final message.)`,
+  ].join('\n');
 }
 
 /** Build the inline prompt for a VERIFY-pipeline node (epic f5c7fc46). Three kinds:
@@ -928,6 +984,28 @@ export function planResume(
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
 }
 
+/** SR-7: inheritance from a parent's durable blueprint plan, scoped to a child's file slice.
+ *  A split child's blueprint node RECONCILES instead of deriving from zero. */
+export interface InheritedSlice {
+  from: string;
+  files: string[];
+  text: string;
+}
+
+/** SR-7: null ⇒ run the ordinary FULL blueprint (not a split child, plan gone, or the
+ *  inherited slice never mentions a file the child owns — an under-specified parent). */
+export function resolveInheritedSlice(
+  leaf: Todo,
+  restore: ((leafId: string) => string | null) | undefined,
+): InheritedSlice | null {
+  const from = leaf.inheritedBlueprintFrom;
+  const files = leaf.inheritedFiles ?? [];
+  if (!from || files.length === 0 || !restore) return null;
+  const text = restore(from);
+  if (!sliceCoversFiles(text, files)) return null;
+  return { from, files, text: text as string };
+}
+
 export async function runLeaf(
   project: string,
   leaf: Todo,
@@ -1215,6 +1293,15 @@ export async function runLeaf(
     transcriptLabel: kind,
   });
 
+  /** SR-7: blueprint refresh spec for split children. Honors per-project overrides exactly
+   *  like buildSpec, just uses a different (cheaper) model/effort default and the refresh prompt. */
+  const buildRefreshSpec = (cwd: string, slice: InheritedSlice): NodeSpec => ({
+    ...buildSpec('blueprint', cwd),
+    prompt: buildBlueprintRefreshPrompt(leaf, slice.text, slice.files),
+    model: nodeOverrides.blueprint?.model ?? BLUEPRINT_REFRESH_PROFILE.model,
+    effort: nodeOverrides.blueprint?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? BLUEPRINT_REFRESH_PROFILE.effort,
+  });
+
   /** Verify-pipeline NodeSpec (epic f5c7fc46) — mirrors buildSpec but uses buildVerifyPrompt
    *  and threads the resolved gate `verb` into both the prompt and (for driveexec) the per-leaf
    *  allowlist, so a non-default verb is referenced AND tool-allowlisted correctly (L3). */
@@ -1477,6 +1564,10 @@ export async function runLeaf(
     return finishWith({ outcome: effective, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   }
 
+  // SR-7: a split child reuses its parent's durable plan; its blueprint node is a cheap
+  // sonnet REFRESH. Missing/under-specified plan ⇒ null ⇒ the full opus blueprint.
+  const inherited = resolveInheritedSlice(leaf, deps.restoreBlueprint);
+
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
   // iteration (no surgical reuse of the prior attempt's edits — that's P6).
   // IN-RUN blueprint carry (token-burn lever bfc915dc): a SUCCESSFUL blueprint from a prior
@@ -1513,7 +1604,8 @@ export async function runLeaf(
     } else {
       // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
       // must not interpret its empty/error output as a FAIL nor advance the attempt).
-      bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      const bpSpec = inherited ? buildRefreshSpec(cwd, inherited) : buildSpec('blueprint', cwd);
+      bp = await runNode('blueprint', bpSpec);
       if (bp.rateLimited) return pausedResult('blueprint', bp);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
@@ -1525,7 +1617,8 @@ export async function runLeaf(
     // retry (still counted against the node budget); if it still fails, short-circuit
     // to a fresh attempt rather than running the rest of the pipeline blind.
     if (!bp.ok) {
-      bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      const bpSpec = inherited ? buildRefreshSpec(cwd, inherited) : buildSpec('blueprint', cwd);
+      bp = await runNode('blueprint', bpSpec);
       if (bp.rateLimited) return pausedResult('blueprint', bp);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }

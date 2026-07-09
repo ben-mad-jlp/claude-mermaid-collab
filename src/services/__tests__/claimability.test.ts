@@ -25,7 +25,7 @@ function mk(over: Partial<Todo> = {}): Todo {
     acceptanceStatus: null, claimedBy: null, claimToken: null, claimedAt: null,
     claimLeaseMs: null, claim: null, approvedAt: null, approvedBy: null, heldAt: null,
     heldReason: null, retryCount: 0, completedBy: null, objectRef: null, decisionRef: null,
-    claimProbe: null, ...over,
+    claimProbe: null, inheritedBlueprintFrom: null, inheritedFiles: [], ...over,
   };
 }
 const APPROVED = '2026-06-17T00:00:00Z';

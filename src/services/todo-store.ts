@@ -117,6 +117,11 @@ export interface Todo {
    *  claimable set at CLAIM time while the probe fails — auto-claimable once it
    *  passes, with NO status write and no stored cleared-bit. Null = no probe. */
   claimProbe: string | null;
+  /** SR-7: parent leaf id whose durable blueprint this split child inherits (ledger ref,
+   *  read via getLatestNodeOutput). null = not a split child ⇒ full blueprint. */
+  inheritedBlueprintFrom: string | null;
+  /** SR-7: the files this split child owns (its slice of the parent plan). */
+  inheritedFiles: string[];
 }
 
 export interface TodoFilter {
@@ -147,6 +152,8 @@ export interface CreateTodoInput {
   objectRef?: string | null;
   decisionRef?: string | null;
   claimProbe?: string | null;
+  inheritedBlueprintFrom?: string | null;
+  inheritedFiles?: string[];
   /** EVERY-TODO-NEEDS-AN-EPIC guard (373a2d52). A non-epic top-level create (no
    *  parentId, title not `[EPIC] …`) is an ORPHAN and is REJECTED — so a planning
    *  skill that forgets to attach an epic fails LOUDLY instead of silently dumping
@@ -199,6 +206,8 @@ export type UpdateTodoPatch = Partial<{
   objectRef: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
+  inheritedBlueprintFrom: string | null;
+  inheritedFiles: string[];
   /** De-conflate S1 (additive). Decision axes; readers ignore these until S3.
    *  `claim` is intentionally NOT patchable here — it is mutated only via writeClaim. */
   approvedAt: string | null;
@@ -245,6 +254,8 @@ interface TodoRow {
   objectRef: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
+  inheritedBlueprintFrom: string | null;
+  inheritedFiles: string | null;
 }
 
 const DDL = `
@@ -280,7 +291,9 @@ CREATE TABLE IF NOT EXISTS todos (
   completedBy TEXT,
   objectRef TEXT,
   decisionRef TEXT,
-  claimProbe TEXT
+  claimProbe TEXT,
+  inheritedBlueprintFrom TEXT,
+  inheritedFiles TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
 CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);
@@ -339,6 +352,10 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'heldAt', 'heldAt TEXT');
   addColumnIfMissing(db, 'todos', 'heldReason', 'heldReason TEXT');
   addColumnIfMissing(db, 'todos', 'claim', 'claim TEXT');
+  // SR-7: split children inherit the parent's durable blueprint plan (ledger ref) +
+  // their slice of files. Both nullable; present iff a split child.
+  addColumnIfMissing(db, 'todos', 'inheritedBlueprintFrom', 'inheritedBlueprintFrom TEXT');
+  addColumnIfMissing(db, 'todos', 'inheritedFiles', 'inheritedFiles TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -615,6 +632,8 @@ const CLAIM_CLEAR_SQL = 'claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimL
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
+  let inheritedFiles: string[] = [];
+  try { inheritedFiles = JSON.parse(row.inheritedFiles ?? '[]'); } catch { /* default [] */ }
   let link: TodoLink | null = null;
   if (row.link) { try { link = JSON.parse(row.link); } catch { /* null */ } }
   return {
@@ -656,6 +675,8 @@ function rowToTodo(row: TodoRow): Todo {
     objectRef: row.objectRef ?? null,
     decisionRef: row.decisionRef ?? null,
     claimProbe: row.claimProbe ?? null,
+    inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
+    inheritedFiles,
   };
 }
 
@@ -726,8 +747,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -738,7 +759,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? [])
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -825,6 +846,8 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       objectRef: patch.objectRef !== undefined ? patch.objectRef : existing.objectRef,
       decisionRef: patch.decisionRef !== undefined ? patch.decisionRef : existing.decisionRef,
       claimProbe: patch.claimProbe !== undefined ? patch.claimProbe : existing.claimProbe,
+      inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
+      inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
     };
     const db = openDb(project);
     // Claim invariant: claim fields are non-null IFF status==='in_progress'. Any
@@ -835,13 +858,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
         dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
         approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
-        completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
+        completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
     ).run(
       next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
       JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
       next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
       approvedAt, approvedBy, heldAt, heldReason,
-      completedAt, completedBy, nowIso(), id
+      completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), id
     );
     // EVENT-DRIVEN (S3) — retargeted to the INPUT edges that can newly make some
     // todo claimable. Approval going null→non-null is the 'approved' input kick;
@@ -1601,6 +1624,12 @@ export async function splitLeafInto(
       type: leaf.type,
       targetProject: leaf.targetProject ?? project,
       sessionName: leaf.sessionName ?? null,
+      // SR-7: the child inherits the parent's DURABLE blueprint (ledger ref) scoped to
+      // its own files. Its blueprint node becomes a cheap sonnet REFRESH, not an opus
+      // re-derivation. The ref is resolved at run time; a missing/under-specified plan
+      // falls back to a full blueprint.
+      inheritedBlueprintFrom: leaf.id,
+      inheritedFiles: item.files,
     });
     idOf.set(item.id, child.id);
     childIds.push(child.id);
