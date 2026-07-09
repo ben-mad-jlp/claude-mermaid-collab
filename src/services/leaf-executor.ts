@@ -636,7 +636,8 @@ export function buildVerifyPrompt(
  *  node-written report never reaches mergeToEpic → accept reverses; same L5 gotcha as
  *  verify's report node). The trailing `VERDICT:` line is the content gate that re-arms the
  *  hallucination guard at the content layer (a vacuous report has no parseable verdict →
- *  the executor parks it blocked). Self-contained (references nothing in skills/). */
+ *  the executor parks it blocked). Teaches the three-dot diff caveat (lesson 5) and verify
+ *  discipline (lesson 1). Self-contained (references nothing in skills/). */
 export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
   const title = leaf.title ?? leaf.id;
   const spec = leaf.description ?? '(no spec provided)';
@@ -656,9 +657,21 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
     `  • the file list:  \`git diff --stat ${baseRef}...HEAD\``,
     `  • the full diff:  \`git diff ${baseRef}...HEAD\``,
     `  • per-commit log: \`git log --oneline ${baseRef}..HEAD\``,
+    'CAVEAT — three-dot diff shows COMMITS ONLY. `git diff <base>...HEAD` can never show',
+    'uncommitted or unstaged work, and no staging trick makes it. If a sibling leaf left work',
+    'in the working tree, only `git status --porcelain` (which collapses a new directory to',
+    '`?? dir/`) and `git diff HEAD` will see it. Check the working tree before concluding a',
+    'file is absent.',
     `(If \`${baseRef}\` is not resolvable, fall back to \`git merge-base HEAD @{u} 2>/dev/null\` or`,
     'review the working tree directly — do the best honest review you can and SAY which base you used.)',
     'Read the actual changed source to confirm behavior — do not review from the diff alone.',
+    '',
+    'VERIFY DISCIPLINE — a verdict needs a BASELINE. If the change-set has tests:',
+    `  1. Run each relevant test file ALONE on this branch (e.g. \`bun test <file>\`).`,
+    `  2. Run that SAME file ALONE on \`${baseRef}\` (a worktree/checkout of the base).`,
+    '  3. Compare. A failure present on BOTH is pre-existing and is NOT your finding.',
+    'Do NOT judge from a whole-directory run: files share a SQLite database and the runner',
+    'parallelizes, so aggregate red/green is noise. One file, in isolation, on both sides.',
     '',
     'Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or',
     'unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.',

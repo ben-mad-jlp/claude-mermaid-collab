@@ -75,6 +75,8 @@ Present the proposed plan to the human: the epics/tasks, their deps, and any pro
 2. **Approve proposed constraints**: `approve_decision_record { project, id, approvedBy: "<human>" }` → active.
 3. Do NOT promote anything the human didn't approve. Leave it `planned`.
 
+**Approval is publication.** Promotion to `ready` publishes the spec; the daemon claims the todo within seconds. Finalize the spec *before* you call `update_session_todo status=ready`. To revise after a claim: `reset_todo`, edit, then promote again.
+
 ## Step 5 — Hand off to the Orchestrator daemon
 
 Once todos are `ready`, the always-on **Orchestrator daemon** claims and spawns workers for them automatically — provided the project's level is **`on` or `auto`** (set by the human on the Bridge ladder; the daemon is always running, so there is nothing to start). At `off` the daemon skips the project. Then your job for this pass is done — the daemon's Build pass + workers execute and report via `complete_todo`.
@@ -111,3 +113,4 @@ Caveat: PUSH nudges are reliable only for **server-launched** sessions; a human-
 - Prefer explicit `dependsOn` over implicit ordering — the Build pass parallelizes anything not blocked.
 - Re-validate against `get_active_constraints` before promoting; if a new plan contradicts an active constraint, surface it to the human rather than silently overriding.
 - Never claim, spawn, or complete todos yourself — that's the Orchestrator daemon's and workers' job.
+- A prohibition in a spec is not a constraint. Before writing "do NOT do X", grep for who actually does X — if the executor or a node prompt does it, the ban is decoration. File it as a code change instead.
