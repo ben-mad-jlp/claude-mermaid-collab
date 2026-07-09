@@ -12,7 +12,7 @@
 
 import { subscriptionMatches, type Subscription, type SubscribableEvent } from './session-subscriptions';
 import type { Todo } from './todo-store';
-import { isEpic } from './todo-kind';
+import { isEpic, isMission } from './todo-kind';
 
 export interface TodoSnapshot {
   status: string;
@@ -24,6 +24,7 @@ export interface ChangeEvent {
   project: string;
   todoId: string;
   epicId: string | null;
+  missionId: string | null;
   /** lifecycle change kind */
   event:
     | 'todo_new'
@@ -54,19 +55,28 @@ export function snapshotTodos(todos: Todo[]): SnapshotMap {
   return m;
 }
 
-/** Nearest EPIC ancestor id (walks parentId), or null. Kind-based, cycle-safe.
- *  Returns null — NOT the Inbox epic — when there is no epic ancestor; epic-scoped
- *  subscriptions depend on that. A MISSION ancestor is not an epic and does not stop
- *  the walk. */
-function resolveEpicId(todo: Todo, byId: Map<string, Todo>): string | null {
+/** Nearest ancestor (self included) satisfying `pred`, walking parentId. Depth-capped
+ *  (50) so a cycle terminates. The ONE ancestor walker — epic and mission both use it. */
+function resolveAncestorId(todo: Todo, byId: Map<string, Todo>, pred: (t: Todo) => boolean): string | null {
   let cur: Todo | undefined = todo;
   for (let i = 0; cur && i < 50; i++) {
-    if (isEpic(cur)) return cur.id;
+    if (pred(cur)) return cur.id;
     if (!cur.parentId) return null;
     cur = byId.get(cur.parentId);
   }
   return null;
 }
+
+/** Nearest EPIC ancestor id (walks parentId), or null. Kind-based, cycle-safe.
+ *  Returns null — NOT the Inbox epic — when there is no epic ancestor; epic-scoped
+ *  subscriptions depend on that. A MISSION ancestor is not an epic and does not stop
+ *  the walk. */
+const resolveEpicId = (t: Todo, byId: Map<string, Todo>) => resolveAncestorId(t, byId, isEpic);
+
+/** Nearest MISSION ancestor id (walks parentId), or null if no mission ancestor.
+ *  Self-inclusive, so resolveMissionId(missionNode) returns the mission's own id,
+ *  and a change to the mission node itself notifies its subscriber. */
+const resolveMissionId = (t: Todo, byId: Map<string, Todo>) => resolveAncestorId(t, byId, isMission);
 
 /** Stored-status → event kind. Anything not listed → 'todo_updated' (generic). */
 const STATUS_EVENT: Record<string, ChangeEvent['event']> = {
@@ -91,20 +101,21 @@ export function diffTodos(prev: SnapshotMap, todos: Todo[], project: string): Ch
   for (const t of todos) {
     const before = prev.get(t.id);
     const epicId = resolveEpicId(t, byId);
+    const missionId = resolveMissionId(t, byId);
     const title = t.title ?? t.id;
     const short = t.id.slice(0, 8);
     if (!before) {
-      out.push({ project, todoId: t.id, epicId, event: 'todo_new', summary: `${short} new: ${title}` });
+      out.push({ project, todoId: t.id, epicId, missionId, event: 'todo_new', summary: `${short} new: ${title}` });
       continue;
     }
     // Acceptance transition takes priority (it's the real outcome).
     const acc = t.acceptanceStatus ?? null;
     if (acc !== before.acceptanceStatus && (acc === 'accepted' || acc === 'rejected')) {
-      out.push({ project, todoId: t.id, epicId, event: acc === 'accepted' ? 'todo_accepted' : 'todo_rejected', summary: `${short} ${acc}: ${title}` });
+      out.push({ project, todoId: t.id, epicId, missionId, event: acc === 'accepted' ? 'todo_accepted' : 'todo_rejected', summary: `${short} ${acc}: ${title}` });
       continue;
     }
     if (t.status !== before.status) {
-      out.push({ project, todoId: t.id, epicId, event: STATUS_EVENT[t.status] ?? 'todo_updated', summary: `${short} ${t.status}: ${title}` });
+      out.push({ project, todoId: t.id, epicId, missionId, event: STATUS_EVENT[t.status] ?? 'todo_updated', summary: `${short} ${t.status}: ${title}` });
     }
   }
   return out;
@@ -122,7 +133,7 @@ export function planNotifications(
 ): PlannedNotification[] {
   const out: PlannedNotification[] = [];
   for (const c of changes) {
-    const evt: SubscribableEvent = { project: c.project, todoId: c.todoId, epicId: c.epicId };
+    const evt: SubscribableEvent = { project: c.project, todoId: c.todoId, epicId: c.epicId, missionId: c.missionId };
     const actor = actorBySession?.get(c.todoId);
     for (const s of subs) {
       if (actor && actor === s.session) continue; // self-suppression
