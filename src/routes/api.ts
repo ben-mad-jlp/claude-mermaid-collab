@@ -33,6 +33,7 @@ import {
   reorder,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
+import type { TodoKind } from '../services/todo-kind';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { recordUsage, getUsage } from '../services/usage-store';
 import { refreshSummaryNow } from '../services/session-summary-loop';
@@ -71,6 +72,10 @@ async function loadSpritePipeline() {
 }
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile, readdir as fsReaddir, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from 'fs/promises';
+
+// Wire-level allowlist for POST /api/session-todos `kind` — an unknown string from
+// the request body must not reach the (NOT-NULL) column.
+const VALID_KINDS: readonly TodoKind[] = ['mission', 'epic', 'land', 'leaf'];
 
 /**
  * Uniform 500 response for a caught error. Safely extracts a message whether or
@@ -3044,6 +3049,7 @@ export async function handleAPI(
     const { listTodos } = await import('../services/todo-store');
     const { summarize } = await import('../services/worker-ledger');
     const { getGrokHarnessForInspection, getAnthropicCoreHarnessForInspection } = await import('../agent/registry');
+    const { kindOf } = await import('../services/todo-kind');
     const grok = getGrokHarnessForInspection();
     const claude = getAnthropicCoreHarnessForInspection();
     const lanes = listTodos(project, { status: 'in_progress' })
@@ -3057,6 +3063,7 @@ export async function handleAPI(
           epicId: t.parentId ?? undefined,
           session,
           title: t.title,
+          kind: kindOf(t),
           alive,
           runCostUsd: cost.totalUsd,
           byPhase: cost.byPhase,
@@ -3618,9 +3625,10 @@ export async function handleAPI(
         description?: string;
         parentId?: string | null;
         inbox?: boolean;
+        kind?: TodoKind;
       };
 
-      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox } = body;
+      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, kind } = body;
       const title = body.title ?? body.text;
 
       if (!project || !session || !title) {
@@ -3629,10 +3637,15 @@ export async function handleAPI(
       if (!title.trim()) {
         return Response.json({ error: 'title must be non-empty' }, { status: 400 });
       }
+      if (kind !== undefined && !VALID_KINDS.includes(kind)) {
+        return Response.json({ error: `kind must be one of ${VALID_KINDS.join('|')}` }, { status: 400 });
+      }
 
       // every-todo-needs-an-epic: createTodo REJECTS a non-epic top-level create unless
       // parentId (an epic) or inbox:true is given — the catch below returns it as a 400.
-      const todo = await createTodo(project, { ownerSession: session, title, link, status, assigneeSession, priority, dueDate, description, parentId, inbox });
+      // `kind ?? 'leaf'` defaults HERE, at the generic REST "add a todo" boundary, because
+      // todo-store.createTodo requires an explicit kind and must never infer one from title.
+      const todo = await createTodo(project, { ownerSession: session, title, kind: kind ?? 'leaf', link, status, assigneeSession, priority, dueDate, description, parentId, inbox });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
@@ -3702,6 +3715,10 @@ export async function handleAPI(
   }
 
   // PATCH /api/session-todos/:id - Update a session todo
+  // Deliberately no `kind` field on this body: a todo's kind is set at insert and never
+  // mutated over the wire (re-kinding a node would re-parent its whole drop cascade). If a
+  // future change needs to re-kind a todo, give it its own dedicated route + guard — do not
+  // add `kind` here.
   const sessionTodosPatchMatch = path.match(/^\/api\/session-todos\/([^/]+)$/);
   if (sessionTodosPatchMatch && req.method === 'PATCH') {
     try {
