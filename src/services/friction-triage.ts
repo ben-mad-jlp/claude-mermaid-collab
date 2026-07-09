@@ -2,6 +2,7 @@ import { frictionTrends, type FrictionTrends } from './friction-trends.ts';
 import { type FrictionLayer, isReasonActioned, markReasonActioned } from './friction-store.ts';
 import { listTodos, createTodo, type Todo } from './todo-store.ts';
 import { getConfig } from './config-service.ts';
+import { isEpic } from './todo-kind.ts';
 
 /**
  * DF3 friction triage — periodic, deterministic (no-LLM) pass that reads the
@@ -9,7 +10,9 @@ import { getConfig } from './config-service.ts';
  * retryReason that hasn't been actioned yet.
  *
  * Anti-spam: threshold + actioned marker (permanent per MVP) + per-tick cap.
- * Bucket routing: domain → [EPIC] Bugfix inbox; orchestration/operational → [EPIC] Collab gaps.
+ * Bucket routing: domain → the '[EPIC] Bugfix inbox' todo; orchestration/operational →
+ * '[EPIC] Collab gaps'. Those two strings are bucket IDENTITIES (looked up by exact title),
+ * not role markers — the role check goes through isEpic()/`kind` (decision e852fb0c).
  *
  * Caveats:
  * - invariant-check will flag bucket epics (Bugfix inbox, Collab gaps) as stranded-epic
@@ -31,8 +34,6 @@ const LAYER_ROUTE: Record<FrictionLayer, LayerRoute> = {
   operational:   { epicTitle: COLLAB_GAPS_TITLE,  category: 'gap' },
 };
 
-const isEpicTitle = (t: string | null | undefined) => /^\s*\[EPIC\]/i.test(t ?? '');
-
 export interface FrictionTriageDeps {
   trends?: (project: string) => FrictionTrends;
   listTodos?: (project: string) => Todo[];
@@ -50,7 +51,7 @@ async function findOrCreateEpic(
   createTodoFn: (p: string, i: Parameters<typeof createTodo>[1]) => Promise<Todo>,
 ): Promise<Todo> {
   const existing = listTodosFn(project).find(
-    (t) => isEpicTitle(t.title) && (t.title ?? '').trim() === title,
+    (t) => isEpic(t) && (t.title ?? '').trim() === title,
   );
   if (existing) return existing;
   return createTodoFn(project, {

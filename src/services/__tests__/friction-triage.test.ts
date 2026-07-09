@@ -209,6 +209,19 @@ describe('friction-triage: find-or-create epic', () => {
     expect(todoCreate?.input.parentId).toBe('epic-1');
   });
 
+  it('does not reuse a bucket-titled todo whose kind is not epic', async () => {
+    const impostor = makeTodo({ id: 'not-an-epic', title: '[EPIC] Bugfix inbox', status: 'planned', parentId: null });
+    (impostor as any).kind = 'leaf';
+    const { deps, created } = makeDeps([
+      { layer: 'domain', retryReason: 'missing-model', count: 4 },
+    ], [impostor]);
+
+    await runFrictionTriagePass(project, deps);
+
+    const epicCreates = created.filter((c) => /\[EPIC\]/i.test(c.input.title ?? ''));
+    expect(epicCreates.length).toBe(1); // impostor is not reused; a real epic is created
+  });
+
   it('creates the epic when it does not exist and uses its id as parentId', async () => {
     const { deps, created } = makeDeps([
       { layer: 'domain', retryReason: 'missing-model', count: 4 },
