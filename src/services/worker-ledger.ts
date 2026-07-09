@@ -479,6 +479,7 @@ export interface EpicBaseGateRow {
  *  MAX_OUTPUT_CHARS on write. Best-effort: if the write throws, the next leaf simply
  *  re-runs the base gate — extra work, never a skipped gate. */
 export function recordEpicBaseGate(e: Omit<EpicBaseGateRow, 'checkedAt'>, now: number = Date.now()): void {
+  if (e.status === 'error') return; // an incident is not a base fact — never cached (see leaf-executor ensureBaseGreen)
   try {
     openDb().prepare(
       `INSERT INTO epic_base_gate (epicId, project, baseSha, status, command, output, checkedAt)
