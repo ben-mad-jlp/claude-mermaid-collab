@@ -3,12 +3,11 @@
  * answer "what ROLE does this todo play" (mission / epic / land / leaf).
  *
  * This is a byte-faithful mirror of the backend source of truth
- * `src/services/claimability.ts` (see `kindFromTitle`/`TodoKind` there). It exists
- * separately ONLY because the backend module's predicates take a backend `Todo`
- * (imported from `todo-store`, which pulls in `bun:sqlite` and does not typecheck
- * under the UI's `include: ["src"]` config) — same precedent as
- * `ui/src/lib/claimability.ts`. The function BODIES are identical; keep them in
- * lockstep with the backend if the rule ever changes.
+ * `src/services/todo-kind.ts`. It exists separately ONLY because the backend
+ * module's predicates take a backend `Todo` (imported from `todo-store`, which
+ * pulls in `bun:sqlite` and does not typecheck under the UI's `include: ["src"]`
+ * config) — same precedent as `ui/src/lib/claimability.ts`. The function BODIES
+ * are identical; keep them in lockstep with the backend if the rule ever changes.
  *
  * This module has ZERO runtime imports (type-only at most) so a backend test can
  * import it directly to prove server/UI agreement.
@@ -22,44 +21,38 @@ export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf';
  *  assignable to this (kind?/title both present). */
 export type TodoLike = { kind?: TodoKind | null; title?: string | null };
 
-// Legacy title-prefix regexes (module-private — do NOT re-export these; publishing
-// title predicates would invite new title readers, the exact thing stage B exists
-// to eliminate). Mirrors src/services/claimability.ts:29,46,55 verbatim.
-const isMissionTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[MISSION\]/i.test(title ?? '');
-const isEpicTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[EPIC\]/i.test(title ?? '');
-const isLandTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[LAND\]/i.test(title ?? '');
-
-/** Legacy title-prefix regexes. STAGE C: delete — nothing may read a title for a
- *  role. Mission is checked FIRST; that order is load-bearing (mirrors
- *  src/services/claimability.ts:62-67 verbatim). */
-export const kindFromTitle = (title: string | null | undefined): TodoKind => {
-  if (isMissionTitle(title)) return 'mission';
-  if (isEpicTitle(title)) return 'epic';
-  if (isLandTitle(title)) return 'land';
-  return 'leaf';
-};
-
 const KINDS = ['mission', 'epic', 'land', 'leaf'] as const;
 const isTodoKind = (v: unknown): v is TodoKind =>
   typeof v === 'string' && (KINDS as readonly string[]).includes(v);
 
-/** Resolve the role of a node. Reads the `kind` column; falls back to the legacy
- *  title prefix ONLY for pre-column payloads (WebSocket frames replayed from an old
- *  snapshot, test fixtures, optimistic client-side todos) OR an invalid/garbage
- *  `kind` value. STAGE C: drop the fallback — kind is then guaranteed on every
- *  payload. */
+export class MissingKindError extends Error {
+  constructor(t: TodoLike | null | undefined) {
+    super(
+      `todoKind: kindOf() received a payload with no valid \`kind\` ` +
+        `(got ${JSON.stringify(t?.kind)}, title ${JSON.stringify(t?.title ?? null)}). ` +
+        `\`kind\` is a required column since stage C; a missing kind is a bug at the ` +
+        `producer, not a default. Never infer a role from a title.`,
+    );
+    this.name = 'MissingKindError';
+  }
+}
+
+/** Column-only. `kind` is a NOT-NULL column since stage C and every payload that
+ *  crosses a boundary carries it; a missing/garbage `kind` throws rather than
+ *  silently resolving (e.g. to 'leaf') — that silent default is the bug this
+ *  function used to hide. */
 export const kindOf = (t: TodoLike | null | undefined): TodoKind => {
-  if (!t) return 'leaf';
-  if (isTodoKind(t.kind)) return t.kind;
-  return kindFromTitle(t.title); // STAGE C: delete this fallback
+  if (isTodoKind(t?.kind)) return t.kind;
+  throw new MissingKindError(t);
 };
 
 export const isMission = (t: TodoLike | null | undefined): boolean => kindOf(t) === 'mission';
 export const isEpic = (t: TodoLike | null | undefined): boolean => kindOf(t) === 'epic';
 export const isLand = (t: TodoLike | null | undefined): boolean => kindOf(t) === 'land';
+/** `isLeaf(t) === kindOf(t) === 'leaf'` — i.e. "not mission, not epic, not land".
+ *  A `[LAND]` node is NOT a leaf under this definition even though it is childless
+ *  work. Anything that today means "any executable node" must say
+ *  `!isEpic(t) && !isMission(t)`, not `isLeaf(t)`. */
 export const isLeaf = (t: TodoLike | null | undefined): boolean => kindOf(t) === 'leaf';
 
 const LABELS: Record<TodoKind, string> = {

@@ -1,116 +1,78 @@
 import { describe, it, expect } from 'vitest';
-import fixture from '@shared-fixtures/todo-kind-cases.json';
 import * as ui from '../todoKind';
 import * as server from '@server/services/todo-kind.ts';
 
-type Case = {
-  name: string;
-  title: string | null;
-  kind: ui.TodoKind;
-  isMission: boolean;
-  isEpic: boolean;
-  isLand: boolean;
-  isLeaf: boolean;
-  label: string;
-  backfillParity?: boolean;
-};
-
-const cases = fixture.cases as Case[];
-
 describe('todoKind (UI mirror) — kindOf reads the column', () => {
-  for (const c of cases) {
-    it(c.name, () => {
-      expect(ui.kindOf({ kind: c.kind, title: c.title })).toBe(c.kind);
+  for (const c of server.KIND_FIXTURE) {
+    it(JSON.stringify(c.input), () => {
+      expect(ui.kindOf(c.input)).toBe(c.expect);
     });
   }
 });
 
+describe('todoKind (UI mirror) — BOMB 2: missing/garbage kind throws', () => {
+  for (const c of server.KIND_THROW_FIXTURE) {
+    it(JSON.stringify(c.input), () => {
+      expect(() => ui.kindOf(c.input)).toThrow(ui.MissingKindError);
+      expect(() => server.kindOf(c.input)).toThrow();
+    });
+  }
+
+  it('predicates throw too', () => {
+    expect(() => ui.isLeaf({})).toThrow();
+  });
+});
+
 describe('todoKind (UI mirror) — predicates', () => {
-  for (const c of cases) {
-    it(c.name, () => {
-      const t = { kind: c.kind, title: c.title };
-      expect(ui.isMission(t)).toBe(c.isMission);
-      expect(ui.isEpic(t)).toBe(c.isEpic);
-      expect(ui.isLand(t)).toBe(c.isLand);
-      expect(ui.isLeaf(t)).toBe(c.isLeaf);
+  for (const c of server.KIND_FIXTURE) {
+    it(JSON.stringify(c.input), () => {
+      expect(ui.isMission(c.input)).toBe(c.expect === 'mission');
+      expect(ui.isEpic(c.input)).toBe(c.expect === 'epic');
+      expect(ui.isLand(c.input)).toBe(c.expect === 'land');
+      expect(ui.isLeaf(c.input)).toBe(c.expect === 'leaf');
     });
   }
 });
 
 describe('todoKind (UI mirror) — labelFor', () => {
-  for (const c of cases) {
-    it(c.name, () => {
-      expect(ui.labelFor(c.kind)).toBe(c.label);
-    });
-  }
-
   it('labelFor("leaf") is empty string', () => {
     expect(ui.labelFor('leaf')).toBe('');
   });
 
-  it('labels table maps onto labelFor for all fixture kinds', () => {
-    for (const key of Object.keys(fixture.labels)) {
-      const kind = key as ui.TodoKind;
-      expect(ui.labelFor(kind)).toBe((fixture.labels as Record<string, string>)[key]);
-    }
-  });
-});
-
-describe('todoKind (UI mirror) — stage-A backfill parity (title ⇒ kind)', () => {
-  for (const c of cases) {
-    if (c.backfillParity === false) continue;
-    it(c.name, () => {
-      expect(ui.kindFromTitle(c.title)).toBe(c.kind);
-    });
-  }
-});
-
-describe('todoKind (UI mirror) — server/UI agreement', () => {
-  for (const c of cases) {
-    it(c.name, () => {
-      const t = { kind: c.kind, title: c.title };
-      expect(ui.kindOf(t)).toBe(server.kindOf(t));
-      expect(ui.isMission(t)).toBe(server.isMission(t));
-      expect(ui.isEpic(t)).toBe(server.isEpic(t));
-      expect(ui.isLand(t)).toBe(server.isLand(t));
-      expect(ui.isLeaf(t)).toBe(server.isLeaf(t));
-      expect(ui.labelFor(c.kind)).toBe(server.labelFor(c.kind));
-    });
-  }
-
-  it('label tables agree wholesale', () => {
-    expect(fixture.labels).toEqual(server.KIND_LABEL);
-    for (const kind of fixture.kinds as ui.TodoKind[]) {
+  it('matches server KIND_LABEL for all four kinds', () => {
+    for (const kind of ['mission', 'epic', 'land', 'leaf'] as ui.TodoKind[]) {
       expect(ui.labelFor(kind)).toBe(server.KIND_LABEL[kind]);
     }
   });
 });
 
-describe('todoKind (UI mirror) — null/undefined totality', () => {
-  it('kindOf(null) is leaf and matches server', () => {
-    expect(ui.kindOf(null)).toBe('leaf');
-    expect(ui.kindOf(null)).toBe(server.kindOf(null));
-  });
-
-  it('kindOf(undefined) is leaf and matches server', () => {
-    expect(ui.kindOf(undefined)).toBe('leaf');
-    expect(ui.kindOf(undefined)).toBe(server.kindOf(undefined));
-  });
-
-  it('kindOf({}) is leaf and matches server', () => {
-    expect(ui.kindOf({})).toBe('leaf');
-    expect(ui.kindOf({})).toBe(server.kindOf({}));
-  });
-
-  it('kindOf({ title: null }) is leaf and matches server', () => {
-    expect(ui.kindOf({ title: null })).toBe('leaf');
-    expect(ui.kindOf({ title: null })).toBe(server.kindOf({ title: null }));
-  });
+describe('todoKind (UI mirror) — server/UI agreement', () => {
+  for (const c of server.KIND_FIXTURE) {
+    it(JSON.stringify(c.input), () => {
+      expect(ui.kindOf(c.input)).toBe(server.kindOf(c.input));
+      expect(ui.isMission(c.input)).toBe(server.isMission(c.input));
+      expect(ui.isEpic(c.input)).toBe(server.isEpic(c.input));
+      expect(ui.isLand(c.input)).toBe(server.isLand(c.input));
+      expect(ui.isLeaf(c.input)).toBe(server.isLeaf(c.input));
+    });
+  }
 });
 
 describe('todoKind (UI mirror) — column beats title', () => {
   it('kind column wins over a conflicting title prefix', () => {
     expect(ui.kindOf({ kind: 'epic', title: '[MISSION] x' })).toBe('epic');
+  });
+});
+
+describe('todoKind (UI mirror) — topic tags are not roles', () => {
+  it('a [UI] title tag does not affect kindOf', () => {
+    expect(ui.kindOf({ kind: 'leaf', title: '[UI] Plan list doesn’t refresh' })).toBe('leaf');
+  });
+
+  it('stripKindPrefix leaves a non-role bracket tag unchanged', () => {
+    expect(ui.stripKindPrefix('[UI] Plan list doesn’t refresh')).toBe(
+      '[UI] Plan list doesn’t refresh',
+    );
   });
 });
 
@@ -129,7 +91,7 @@ describe('todoKind (UI mirror) — stripKindPrefix is render-only', () => {
 
   it('does not strip a mid-string role mention', () => {
     expect(ui.stripKindPrefix('Stop reading [EPIC] out of titles')).toBe(
-      'Stop reading [EPIC] out of titles'
+      'Stop reading [EPIC] out of titles',
     );
   });
 
@@ -142,12 +104,8 @@ describe('todoKind (UI mirror) — stripKindPrefix is render-only', () => {
   });
 });
 
-describe('todoKind (UI mirror) — fixture is non-degenerate', () => {
-  it('has at least 10 cases', () => {
-    expect(cases.length).toBeGreaterThanOrEqual(10);
-  });
-
-  it('covers every fixture kind', () => {
-    expect(new Set(cases.map((c) => c.kind))).toEqual(new Set(fixture.kinds));
+describe('todoKind (UI mirror) — no title reader remains', () => {
+  it('kindFromTitle no longer exists', () => {
+    expect((ui as Record<string, unknown>).kindFromTitle).toBeUndefined();
   });
 });
