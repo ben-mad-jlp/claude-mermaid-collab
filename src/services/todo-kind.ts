@@ -4,7 +4,11 @@ export type { TodoKind };
 
 /** The minimum a caller must supply. Structural so BOTH the server `Todo`
  *  (todo-store.ts) and the UI `SessionTodo` (ui/src/types/sessionTodo.ts) satisfy
- *  it without either side importing the other's aggregate. */
+ *  it without either side importing the other's aggregate.
+ *
+ *  Role is the `kind` column. Neither a title nor the presence of children is
+ *  ever consulted — a leaf with children is a leaf; an epic with no children is
+ *  an epic. */
 export interface KindBearing {
   kind?: TodoKind | null;
   title?: string | null;
@@ -55,6 +59,34 @@ export function isLeaf(t: KindBearing | null | undefined): boolean {
   return kindOf(t) === 'leaf';
 }
 
+/** A `KindBearing` that also has identity. Both the server `Todo` and the UI
+ *  `SessionTodo` satisfy it. `parentId` is STRUCTURE, and structure is never a role:
+ *  it is read only to answer "who is my parent", never "am I an epic". */
+export interface IdentifiedKindBearing extends KindBearing {
+  id: string;
+  parentId?: string | null;
+}
+
+/** The set of todo ids that are epics BY DECLARED KIND.
+ *  Replaces `new Set(childrenByParent.keys())` everywhere (PlanKanban.tsx:158,
+ *  useFleetGraph.ts:142). A brand-new epic with zero children IS in this set; a leaf
+ *  the auto-splitter gave nine children is NOT. */
+export function epicIdSet<T extends IdentifiedKindBearing>(todos: readonly T[]): Set<string> {
+  const out = new Set<string>();
+  for (const t of todos) if (isEpic(t)) out.add(t.id);
+  return out;
+}
+
+/** The id of this todo's parent IF that parent is a declared epic — else null.
+ *  A child of a split LEAF returns null here: it is a sub-task of a leaf, not a lane
+ *  member. Callers render such nodes under their leaf, not as an epic's children. */
+export function parentEpicIdOf(
+  t: IdentifiedKindBearing,
+  epicIds: ReadonlySet<string>,
+): string | null {
+  return t.parentId != null && epicIds.has(t.parentId) ? t.parentId : null;
+}
+
 export const KIND_LABEL: Readonly<Record<TodoKind, string>> = {
   mission: '[MISSION]',
   epic: '[EPIC]',
@@ -95,6 +127,32 @@ export const KIND_THROW_FIXTURE: ReadonlyArray<{ input: KindBearing | null | und
   { input: {} },
   { input: null },
   { input: undefined },
+];
+
+/** STRUCTURE TRAP (the 9acb7cb2 bug). Every case carries the child/parent structure that
+ *  the OLD emergent definition ("an epic is any todo that is some other todo's parent")
+ *  would have misread. The predicates must ignore `childCount` and `parentId` entirely. */
+export const STRUCTURE_FIXTURE: ReadonlyArray<{
+  name: string;
+  input: IdentifiedKindBearing;
+  childCount: number;
+  expect: TodoKind;
+}> = [
+  { name: 'split leaf with 9 children is STILL a leaf (todo 9acb7cb2)',
+    input: { id: '9acb7cb2', kind: 'leaf', title: 'UI still infers epic from has-children', parentId: 'e1' },
+    childCount: 9, expect: 'leaf' },
+  { name: 'brand-new epic with ZERO children is STILL an epic',
+    input: { id: 'e-new', kind: 'epic', title: 'Freshly created epic', parentId: null },
+    childCount: 0, expect: 'epic' },
+  { name: 'child of a split leaf is a leaf whose parent is not an epic',
+    input: { id: 'c1', kind: 'leaf', title: 'file 1 of 9', parentId: '9acb7cb2' },
+    childCount: 0, expect: 'leaf' },
+  { name: 'ordinary epic with children',
+    input: { id: 'e1', kind: 'epic', title: 'kind column migration', parentId: null },
+    childCount: 3, expect: 'epic' },
+  { name: 'LAND node parented to an epic is land, never a lane',
+    input: { id: 'l1', kind: 'land', title: 'merge to master', parentId: 'e1' },
+    childCount: 0, expect: 'land' },
 ];
 
 /** CREATE-TIME resolution. `CreateTodoInput.kind` is optional and an absent kind on a
