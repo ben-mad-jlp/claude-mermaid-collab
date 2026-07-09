@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, grokModelForKind, xaiApiLedgerModel } from '../node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokLedgerModel, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from '../node-provider';
 import { setNodeProfileOverride, setProjectNodeProvider, _closeDb } from '../orchestrator-config';
 
 // resolveNodeProvider precedence: mcp → per-kind DB → project DB → per-kind env → project
@@ -123,5 +123,67 @@ describe('grokLedgerModel', () => {
     expect(grokLedgerModel('blueprint')).toBe('grok-build');
     expect(grokLedgerModel('review')).toBe('grok-build');
     expect(grokLedgerModel('implement')).toBe('grok-composer-2.5-fast');
+  });
+});
+
+describe('resolveNodeModel — defensive override validation', () => {
+  it('claude provider returns the default when override is absent', () => {
+    expect(resolveNodeModel(P, 'implement', 'claude', 'opus')).toBe('opus');
+  });
+
+  it('grok-build provider returns default when override is absent', () => {
+    expect(resolveNodeModel(P, 'implement', 'grok-build', 'unused')).toBe('grok-composer-2.5-fast');
+  });
+
+  it('grok-api provider returns grok-4.3 default when override is absent', () => {
+    expect(resolveNodeModel(P, 'implement', 'grok-api', 'unused')).toBe('grok-4.3');
+  });
+
+  it('claude provider honors a valid claude model override', () => {
+    setNodeProfileOverride(P, 'implement', 'sonnet', null, 'claude');
+    expect(resolveNodeModel(P, 'implement', 'claude', 'opus')).toBe('sonnet');
+  });
+
+  it('grok-build provider honors a valid grok-build model override', () => {
+    setNodeProfileOverride(P, 'implement', 'grok-build-0.1', null, 'grok-build');
+    expect(resolveNodeModel(P, 'implement', 'grok-build', 'unused')).toBe('grok-build-0.1');
+  });
+
+  it('grok-api provider honors a valid grok-api model override', () => {
+    setNodeProfileOverride(P, 'implement', 'grok-4.3', null, 'grok-api');
+    expect(resolveNodeModel(P, 'implement', 'grok-api', 'unused')).toBe('grok-4.3');
+  });
+
+  it('claude provider ignores a mismatched override and returns default + warns', () => {
+    const consoleSpy = console.warn;
+    let warnCalled = false;
+    console.warn = (...args: unknown[]) => {
+      if (String(args[0]).includes('provider/model mismatch')) {
+        warnCalled = true;
+      }
+    };
+    setNodeProfileOverride(P, 'review', 'grok-4.3', null, null);
+    const result = resolveNodeModel(P, 'review', 'claude', 'opus');
+    expect(result).toBe('opus');
+    expect(warnCalled).toBe(true);
+    console.warn = consoleSpy;
+  });
+
+  it('grok-build provider ignores a mismatched override (claude model) and returns default', () => {
+    setNodeProfileOverride(P, 'implement', 'opus', null, null);
+    const result = resolveNodeModel(P, 'implement', 'grok-build', 'unused');
+    expect(result).toBe('grok-composer-2.5-fast');
+  });
+
+  it('grok-api provider ignores a mismatched override (claude model) and returns default', () => {
+    setNodeProfileOverride(P, 'implement', 'opus', null, null);
+    const result = resolveNodeModel(P, 'implement', 'grok-api', 'unused');
+    expect(result).toBe('grok-4.3');
+  });
+
+  it('returns default when DB access fails (defensive)', () => {
+    // This simulates a scenario where DB read fails; the function should fall back gracefully
+    const result = resolveNodeModel(undefined, 'implement', 'grok-build', 'unused');
+    expect(result).toBe('grok-composer-2.5-fast');
   });
 });

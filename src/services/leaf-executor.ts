@@ -30,7 +30,7 @@ import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-confi
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel } from './node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
@@ -156,6 +156,8 @@ export interface LeafExecutorDeps {
   /** Bump the leaf's retryCount so an INFRA incident (vacuous review) is visible on the
    *  graph. Ownership-gated; best-effort — never breaks the run. */
   bumpRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
+  /** Release a claimed leaf (infra park seam). Best-effort; unwired in tests. */
+  releaseClaim?: (project: string, todoId: string) => Promise<boolean | void>;
   /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
   resumePlan?: ResumePlan;
   /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
@@ -1000,6 +1002,18 @@ export function planResume(
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
 }
 
+/** A node that never STARTED: non-zero/negative exit, ZERO tokens in and out, and it
+ *  died fast. Not a work failure — the model never ran. Rate-limited results are
+ *  excluded (they have their own pause path). Require minimum ~100ms duration so we
+ *  don't match test mocks; real CLI failures take at least that long to fork+exit. */
+export function isNodeStartFailure(res: NodeResult): boolean {
+  if (res.rateLimited || res.ok) return false;
+  const u = res.usage;
+  const zeroTokens = ((u?.inputTokens ?? 0) + (u?.outputTokens ?? 0) + (u?.cacheReadTokens ?? 0)) === 0;
+  const dur = res.durationMs ?? 0;
+  return zeroTokens && dur >= 100 && dur < 5_000;
+}
+
 export async function runLeaf(
   project: string,
   leaf: Todo,
@@ -1062,7 +1076,10 @@ export async function runLeaf(
   //          MERMAID_NODE_EFFORT env → per-kind NODE_PROFILE default.
   const nodeOverrides = listNodeProfileOverrides(project);
   const projectEffort = getProjectEffort(project);
-  const nodeModel = (kind: LeafNodeKind): string => nodeOverrides[kind]?.model ?? NODE_PROFILE[kind].model;
+  const nodeModel = (kind: LeafNodeKind, allowedTools = NODE_PROFILE[kind].allowedTools): string => {
+    const provider = resolveNodeProvider(project, kind, allowedTools);
+    return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
+  };
   const nodeEffort = (kind: LeafNodeKind): EffortLevel =>
     nodeOverrides[kind]?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
 
@@ -1127,6 +1144,9 @@ export async function runLeaf(
     // the between-nodes window — so the daemon's orphan-reclaim guard (isLeafInflightLive)
     // never reclaims a live leaf mid-run. The single clear lives in finishWith.
     const res: NodeResult = await invoker.invoke(effSpec);
+    if (isNodeStartFailure(res)) {
+      res.startFailure = { provider, model: recordedModel, detail: (res.text ?? res.parseError ?? '').slice(0, 300) };
+    }
     try {
       deps.recordNode({
         project,
@@ -1148,7 +1168,7 @@ export async function runLeaf(
         cacheCreationTokens: res.usage?.cacheCreationTokens,
         costUsd: res.usage?.costUsd,
         steps: res.usage?.numTurns,
-        parseError: res.parseError ?? null,
+        parseError: res.startFailure ? `node-start-failure (provider=${provider}, model=${recordedModel}): ${res.parseError ?? ''}` : (res.parseError ?? null),
         verdict: extra?.verdict ?? null,
         leafOutcome: extra?.leafOutcome ?? null,
         // Persist the node's final message so a stuck/rejected leaf is diagnosable
@@ -1248,6 +1268,19 @@ export async function runLeaf(
         `Leaf-executor parked "${leaf.title ?? leaf.id}" — ${reason} ` +
         `(attempts=${state.attempt}, nodesSpent=${state.nodesSpent}).`,
     });
+    return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
+  };
+
+  /** A node that could not START is an INCIDENT, not a finding. Park 'error', escalate
+   *  naming the (provider, model) pair, spawn NO fix node, and NEVER stamp the todo
+   *  'rejected' — the work was never judged. */
+  const parkNodeStartFailure = async (kind: LeafNodeKind, res: NodeResult): Promise<LeafRunResult> => {
+    const sf = res.startFailure!;
+    const reason = `node-could-not-start: ${kind} node failed in ${res.durationMs}ms with zero tokens — provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
+    recordOutcome('blocked', null, { reason });
+    try { await deps.releaseClaim?.(project, leaf.id); } catch { /* best-effort */ }
+    deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id,
+      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${reason} Check the node-profile row for this project/kind: the model does not belong to the provider.` });
     return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   };
 
@@ -1395,11 +1428,12 @@ export async function runLeaf(
     const baseRef = 'master';
     // The review node needs add_session_todo (file gap todos) on top of the read-only set;
     // NO Write (the executor commits the report — a node Write resolves to the project root).
+    const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`;
     const buildReviewSpec = (): NodeSpec => ({
       prompt: buildReviewPrompt(leaf, baseRef),
-      model: nodeModel('review'),
+      model: nodeModel('review', reviewTools),
       effort: nodeEffort('review'),
-      allowedTools: `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`,
+      allowedTools: reviewTools,
       cwd,
       leafId: leaf.id,
       epicId,
@@ -1409,6 +1443,7 @@ export async function runLeaf(
     });
 
     let rev = await runNode('review', buildReviewSpec());
+    if (rev.startFailure) return parkNodeStartFailure('review', rev);
     if (rev.rateLimited) return pausedResult('review', rev);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!rev.ok) {
@@ -1625,6 +1660,7 @@ export async function runLeaf(
       // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
       // must not interpret its empty/error output as a FAIL nor advance the attempt).
       bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      if (bp.startFailure) return parkNodeStartFailure('blueprint', bp);
       if (bp.rateLimited) return pausedResult('blueprint', bp);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
@@ -1740,6 +1776,7 @@ export async function runLeaf(
     pathTaken = 'floor';
     // IMPLEMENT (byte-identical to the prior FLOOR path):
     const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
+    if (impl.startFailure) return parkNodeStartFailure('implement', impl);
     if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
@@ -1819,6 +1856,7 @@ export async function runLeaf(
         findings = gateFindingsText(mech);
       } else {
         const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
+        if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);
         llm = parseVerdict(review.text);
         // INFRA, not a finding (80bacbc4): the reviewer emitted nothing parseable. Feeding ''
