@@ -68,14 +68,27 @@ export type ClaimReason =
   // 'probe-failing' is NOT decided here — the daemon layers the live probe on top at claim time.
 
 /**
- * A dependency counts as satisfied iff it is terminally DONE and was not rejected.
+ * A dependency counts as satisfied iff it is terminally complete and was not rejected.
  *
- * NOTE — genuine behavior change vs the legacy todo-store `depSatisfied` (which keyed ONLY on
- * status==='done'): adding the `acceptanceStatus !== 'rejected'` clause newly blocks dependents
- * of rejected-but-done deps. That is precisely the dep-rejected fix (see HARD PARTS #6 / the S3
- * soak in design-todo-model-refactor) — it alters live claim behavior, not just labeling.
+ * THE single definition (F3). `todo-store.ts` previously carried a private, divergent copy;
+ * it now imports this one. The two axes it disagreed on, and how they are resolved:
+ *
+ *  - DANGLING dep id (`byId.get(id)` misses): NOT satisfied. A dep id that resolves to no row
+ *    is a DATA BUG, not an external/complete dependency. The permissive reading silently made
+ *    orphaned work claimable; here the dependent surfaces as `deps-pending`, which is visible
+ *    and human-recoverable.
+ *  - `accepted` but not `done`: SATISFIED. `claimReason` already treats acceptanceStatus==='accepted'
+ *    as terminal for the todo itself (the 75f7e304 reset/reaper path, see below); a dep that is
+ *    terminal for itself must satisfy its dependents or the graph contradicts itself.
+ *
+ * NOTE — genuine behavior change vs the pre-b2c858d4 status-only rule: the `!== 'rejected'`
+ * clause blocks dependents of rejected-but-done deps (HARD PARTS #6 / the S3 soak in
+ * design-todo-model-refactor). It alters live claim behavior, not just labeling.
+ *
+ * Takes the narrowest shape it reads so non-graph callers (the deconflate migration backfill,
+ * which has only SQL columns in hand) can pass a projection rather than a full `Todo`.
  */
-export function depSatisfied(dep: Todo | undefined): boolean {
+export function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined): boolean {
   if (!dep) return false;
   if (dep.acceptanceStatus === 'rejected') return false;
   return dep.status === 'done' || dep.acceptanceStatus === 'accepted';
