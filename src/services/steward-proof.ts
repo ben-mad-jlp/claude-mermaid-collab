@@ -24,6 +24,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { detectCompileCheck } from './compile-gate.ts';
+import { getEpicLandReadiness } from './epic-land-readiness.ts';
 
 export type StewardVerb = 'reset_todo' | 'override_accept_todo' | 'land_epic';
 
@@ -90,6 +91,9 @@ export interface ProofRunners {
    *  the merge applies cleanly (no conflict). Never commits; master ref + main checkout
    *  are untouched. */
   epicMergeClean: (masterCwd: string, epicBranch: string) => boolean;
+  /** epic-landable (G9): blocking land-readiness findings — accepted CODE leaves in the
+   *  epic's descendant set with no commit reachable from the epic tip. [] = all present. */
+  unlandedLeaves: (project: string, epicId: string) => any[];
 }
 
 export interface ProofResult {
@@ -97,8 +101,9 @@ export interface ProofResult {
   /** Machine reason: 'ok' | 'no-proof' | 'wrong-proof-for-verb' | 'merged-failed' |
    *  'tsc-failed' | 'grep-mismatch' | 'hallucinated-resolve' | 'override-default-defer' |
    *  'override-no-in-tree-artifact' | 'override-error-not-foreign' |
-   *  'epic-children-incomplete' | 'epic-merge-conflict'. */
+   *  'epic-children-incomplete' | 'epic-merge-conflict' | 'epic-leaves-unlanded'. */
   reason: string;
+  detail?: string;
 }
 
 const realRunners: ProofRunners = {
@@ -163,6 +168,13 @@ const realRunners: ProofRunners = {
   fileExists(project, relPath) {
     return existsSync(join(project, relPath));
   },
+  unlandedLeaves(project: string, epicId: string) {
+    try {
+      return getEpicLandReadiness(project, epicId).findings;
+    } catch {
+      return [];
+    }
+  },
 };
 
 /** True iff `file` is NOT in the todo's change-set (i.e. the gate error is a sibling lane's). */
@@ -200,6 +212,16 @@ export function validateStewardProof(
     // (3) The epic branch dry-merges cleanly into a master checkout (no commit, aborted).
     if (!r.epicMergeClean(ctx.masterCwd ?? ctx.project, proof.epicBranch)) {
       return { ok: false, reason: 'epic-merge-conflict' };
+    }
+    // (4) G9 — PRESENCE: every accepted CODE leaf beneath the epic has a commit reachable
+    // from the epic tip. Complements the correctness gate; presence != correctness.
+    const unlanded = r.unlandedLeaves(ctx.project, proof.epicId);
+    if (unlanded.length > 0) {
+      return {
+        ok: false,
+        reason: 'epic-leaves-unlanded',
+        detail: unlanded.map((f: any) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
+      };
     }
     return { ok: true, reason: 'ok' };
   }
