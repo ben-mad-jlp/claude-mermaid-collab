@@ -34,6 +34,7 @@ import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, gr
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
+import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
@@ -215,6 +216,14 @@ export interface LeafExecutorDeps {
    *  (headless-breaker) carries the paused leaf's prior `nodesSpent` in here on
    *  re-dispatch. Defaults 0 (a fresh, never-paused leaf). */
   startNodesSpent?: number;
+  /** Return a non-null reason to stop the run at the next node boundary (ancestor drop,
+   *  hold, or claim loss). Checked before AND after every node spawn so a between-nodes
+   *  kill turns into a clean 'aborted' return instead of the next node being spawned.
+   *  Optional `?.` — unwired (tests / legacy dispatch) ⇒ never aborts. */
+  shouldAbort?: (project: string, leafId: string) => AbortReason;
+  /** Clear the durable resume row on abort — `finishWith` owns it (a hard kill/throw
+   *  never reaches the daemon's own `clearLeafResume` call). Best-effort. */
+  clearResume?: (leafId: string) => void;
 }
 
 export interface LeafRunResult {
@@ -227,7 +236,10 @@ export interface LeafRunResult {
   // when its children settle; the enclosing epic's LAND leaf stays the merge authority.
   // The coordinator treats it as "this dispatch produced no acceptance" (returns false);
   // the container claim-guard then keeps the parent from being re-claimed.
-  outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | 'split';
+  // 'aborted': the daemon stopped the run at a node boundary (ancestor drop, hold, or
+  // claim loss) — the todo's terminal state was already set by whoever aborted it; the
+  // executor does NO completion, merge, or escalation of its own on this outcome.
+  outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | 'split' | 'aborted';
   attempts: number;
   nodesSpent: number;
   /** Set on a 'blocked' outcome (the cap/budget reason). */
@@ -936,6 +948,10 @@ export async function runLeaf(
     // TERMINAL outcome (accepted/blocked/rejected/split).
     if (r.outcome !== 'pending' && r.outcome !== 'paused') {
       try { await deps.wm.remove(sessionKey); } catch { /* best-effort reap */ }
+      // A dead worktree must never leave a leaf_resume row pointing at it — a hard kill
+      // or a throw (aborted/blocked/rejected) never reaches the daemon's own
+      // `clearLeafResume` call (that lives on the RETURNED-result continuation path only).
+      try { deps.clearResume?.(leaf.id); } catch { /* best-effort */ }
     }
     return r;
   };
@@ -981,6 +997,11 @@ export async function runLeaf(
      *  the leaf's final outcome here so no extra row is emitted). */
     extra?: { verdict?: 'pass' | 'fail' | null; leafOutcome?: LeafRunResult['outcome'] | null },
   ): Promise<NodeResult> => {
+    // Cooperative abort — before the spawn. Catches an ancestor drop / hold / claim
+    // loss at the node boundary so we never launch a node the daemon has already
+    // decided to stop (E1's SIGTERM handles a LIVE node; this handles between-nodes).
+    const preAbort = deps.shouldAbort?.(project, leaf.id);
+    if (preAbort) throw new LeafAborted(preAbort);
     state.nodesSpent += 1;
     // LIVE signal: mark the leaf as running THIS node before the (slow) spawn, clear it
     // the instant the node returns — so the in-flight node is visible cross-process.
@@ -1020,6 +1041,11 @@ export async function runLeaf(
     // the between-nodes window — so the daemon's orphan-reclaim guard (isLeafInflightLive)
     // never reclaims a live leaf mid-run. The single clear lives in finishWith.
     const res: NodeResult = await invoker.invoke(effSpec);
+    // Cooperative abort — after the spawn returns. A `killLeafSubtree` SIGTERM (E1)
+    // makes the node return non-zero; without this check the revise/WAVES loop reads
+    // that as a plain node failure and spawns the NEXT node instead of stopping.
+    const postAbort = deps.shouldAbort?.(project, leaf.id);
+    if (postAbort) throw new LeafAborted(postAbort);
     try {
       deps.recordNode({
         project,
@@ -1420,6 +1446,12 @@ export async function runLeaf(
     return finalizeReportLeaf(gateVerdict, `verify: ${leaf.title ?? leaf.id}`);
   };
 
+  // Cooperative abort: everything past this point can spawn nodes via `runNode`, which
+  // throws LeafAborted at either node boundary once the daemon has stopped the run
+  // (ancestor drop / hold / claim loss). Catch it here — a SINGLE funnel for every
+  // pipeline (code/verify/review) — and finish cleanly with NO completion, merge, or
+  // escalation of our own; the aborter already decided the todo's terminal state.
+  try {
   // EXECUTION-MODE DISPATCH. A 'verify' leaf (epic f5c7fc46) runs the non-code dogfood
   // pipeline (plan → deterministic build_assembly_plan → domain gate → committed report);
   // a 'review' leaf (epic d8ac1a18) runs the completeness-review pipeline (one judgment
@@ -1427,10 +1459,10 @@ export async function runLeaf(
   // shapes — force-fitting either into blueprint→implement→tsc is exactly the build123d T14
   // failure (vacuous "TSC: CLEAN") and the reviewer-strands-the-epic failure this dispatch fixes.
   if (leafExecutionMode(leaf) === 'verify') {
-    return runVerifyPipeline();
+    return await runVerifyPipeline();
   }
   if (leafExecutionMode(leaf) === 'review') {
-    return runReviewPipeline();
+    return await runReviewPipeline();
   }
 
   // RESUME: SKIP-TO-GATE (slice 2). A prior (killed) run already committed this
@@ -1688,6 +1720,13 @@ export async function runLeaf(
 
   // Unreachable in practice (the loop returns), but keeps the type total.
   return parkBlocked('attempt-cap-exhausted');
+  } catch (e) {
+    if (e instanceof LeafAborted) {
+      recordOutcome('aborted', null, { reason: e.abortReason ?? undefined });
+      return finishWith({ outcome: 'aborted', attempts: state.attempt, nodesSpent: state.nodesSpent, reason: e.abortReason ?? undefined });
+    }
+    throw e;
+  }
 }
 
 /** Per-attempt blueprint document name. Mint and prefix-scan share this so they can't drift. */

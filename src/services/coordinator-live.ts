@@ -9,7 +9,7 @@ import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
 import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume } from './worker-ledger';
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
-import { reapOrphanedLeafWorktrees } from './leaf-worktree-reaper.js';
+import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID, type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addSupervised, addWatchedProject, getEscalation, resolveEscalation } from './supervisor-store';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
@@ -31,6 +31,7 @@ import { validateStewardProof } from './steward-proof';
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executor';
+import { leafAbortReason } from './leaf-abort';
 import { getLeafRun } from './ledger-stats';
 import {
   breakerOpen,
@@ -1922,8 +1923,26 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
             // (slice 1b) is the fallback that survives a hard kill / hot-swap so a crashed
             // mid-run leaf doesn't reset its budget to 20 and redo blueprint+implement.
             const carried = pausedNodesSpent(project, todo.id) || getLeafResume(project, todo.id)?.nodesSpent || 0;
-            const res = await runLeaf(project, todo, await makeLeafExecutorDeps(project, ledProject, todo, carried));
+            // Captured at LAUNCH (this dispatch's claim token) — threaded into the executor's
+            // shouldAbort so a later claim release/re-mint (a DIFFERENT run now owns the todo)
+            // stops THIS run instead of racing the new owner.
+            const launchToken = todo.claimToken ?? null;
+            const execDeps = await makeLeafExecutorDeps(project, ledProject, todo, carried);
+            execDeps.shouldAbort = (p, id) => leafAbortReason(p, id, launchToken);
+            execDeps.clearResume = (id) => clearLeafResume(id);
+            const res = await runLeaf(project, todo, execDeps);
             recordSupervisorAudit({ kind: 'spawn', project, session: poolName, detail: JSON.stringify({ todoId: todo.id, executor: 'leaf', outcome: res.outcome, attempts: res.attempts, nodesSpent: res.nodesSpent, reason: res.reason }) });
+            if (res.outcome === 'aborted') {
+              // The daemon (ancestor-drop cascade, hold, or a claim-loss it detected
+              // elsewhere) already decided this todo's terminal state — do NOT
+              // recordResume/resetBreakerStreak and do NOT releaseClaim (re-releasing
+              // could stomp a claim a fresh run already took). Just clear this run's
+              // own bookkeeping and stop.
+              recordSupervisorAudit({ kind: 'reconcile', project, session: poolName, detail: JSON.stringify({ source: 'executor-aborted', todoId: todo.id, reason: res.reason }) });
+              clearLeafInflight(todo.id);
+              clearLeafResume(todo.id);
+              return;
+            }
             if (res.outcome === 'paused') {
               // The executor hit a rate cap and yielded WITHOUT backing off. The DAEMON
               // owns the response: trip the breaker (backoff/capReset), record the leaf
@@ -2062,13 +2081,19 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       for (const tracked of listTrackedLeaves()) {
         if (tracked.project !== project) continue;
         const todo = getTodo(project, tracked.leafId);
-        const stop = !todo || todo.status === 'dropped' || todo.heldAt != null;
-        if (stop && killLeafSubtree(tracked.leafId)) {
+        // No launch token here (E1 has no dispatch context) — gone/dropped/held cover the
+        // ancestor-drop cascade. A tracked, still-`in_progress` leaf whose claim vanished
+        // (claimedBy null) is a claim RELEASE mid-run — the exact 22:09 CDT observation
+        // (row not dropped/held, so the plain leafAbortReason check misses it) — so stop it
+        // too, one tick after the release.
+        const reason = leafAbortReason(project, tracked.leafId, null)
+          ?? (todo && todo.status === 'in_progress' && todo.claimedBy == null ? 'claim-lost' : null);
+        if (reason && killLeafSubtree(tracked.leafId)) {
           recordSupervisorAudit({
             kind: 'reconcile',
             project,
             session: todo?.sessionName ?? '',
-            detail: JSON.stringify({ source: 'e1-stop-leaf', todoId: tracked.leafId, reason: !todo ? 'gone' : todo.status === 'dropped' ? 'dropped' : 'held' }),
+            detail: JSON.stringify({ source: 'e1-stop-leaf', todoId: tracked.leafId, reason }),
           });
         }
       }
@@ -2077,6 +2102,9 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // survived (epoch-death case — process killed before finishWith ran). Throttled
       // to once per 5 min to avoid per-tick fs + git overhead.
       void reapOrphanedLeafWorktrees(project);
+      // Directory-driven GC (its own coarser throttle): drains orphans whose JSON record
+      // was already deleted (invisible to the record-driven reap above).
+      void tickGcLeafWorktrees(project);
 
       // PRIOR-EPOCH FAST PATH (heal-on-restart): a claim stamped with a daemon
       // epoch other than THIS process's was minted by a now-dead daemon. The
