@@ -1489,6 +1489,12 @@ export async function runLeaf(
   const base = await deps.ensureBaseGreen?.();
   if (base && base.status !== 'pass') {
     const head = base.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
+    const cmd = base.command ?? 'gate';
+    // Finding 3: a leaf parking on a CACHED verdict (fresh:false) escalates nothing — it
+    // must still say WHY. The reason is the leaf's only durable trace, so it carries the
+    // failing command and a short output tail, not a bare "epic-base-red".
+    const tail = lastLines(base.output, 10);
+    const reason = tail ? `${head}: ${cmd}\n--- output (tail) ---\n${tail}` : `${head}: ${cmd}`;
     if (base.fresh) {
       deps.escalate({
         project,
@@ -1497,12 +1503,14 @@ export async function runLeaf(
         todoId: leaf.id,
         questionText:
           `Epic base is RED — no leaf on ${epicBranch} can be trusted, so NONE will start.\n` +
-          `failing command: ${base.command ?? '(unknown)'}\n` +
+          `failing command: ${cmd}\n` +
           `--- output (tail) ---\n${lastLines(base.output, 40)}\n---\n` +
-          `Fix the base on ${epicBranch}, then clear the cached verdict (clearEpicBaseGate) to re-check.`,
+          `Fix the base and commit the fix to ${epicBranch}. The cached verdict is keyed to the ` +
+          `base commit it examined, so moving the base invalidates it: the next leaf re-runs the ` +
+          `gate automatically. No manual cache-clearing step exists or is needed.`,
       });
     }
-    return parkBlocked(`${head}: ${base.command ?? 'gate'}`);
+    return parkBlocked(reason);
   }
 
   // EXECUTION-MODE DISPATCH. A 'verify' leaf (epic f5c7fc46) runs the non-code dogfood
@@ -2062,7 +2070,7 @@ export async function makeLeafExecutorDeps(
       const early = gateResultForDeclaration(gateDecl);
       if (early) return { ...early, fresh: true }; // escalate once; never cache a config error as a base fact
       if (!gateCfg) return null; // absent → abstain (unchanged)
-      const cached = getEpicBaseGate(epicId);
+      const cached = getEpicBaseGate(epicId, epicBaseSha);
       if (cached) {
         return {
           status: cached.status,
