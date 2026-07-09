@@ -1,5 +1,6 @@
 import type { SessionTodo } from '@/types/sessionTodo';
 import { buildById, claimReason } from '@/lib/claimability';
+import { isEpic } from '@/lib/todoKind';
 
 // Zen "Pulse" — spark next work when a session goes idle WITHOUT a question (design
 // doc design-zen-spark-work). The idle invitation is a slow temporal gradient off
@@ -41,8 +42,6 @@ export function isPulsing(stage: PulseStage): boolean {
   return stage === 'settled' || stage === 'warm' || stage === 'glowing';
 }
 
-const isEpic = (t: SessionTodo) => /^\s*\[EPIC\]/i.test(t.title ?? '');
-
 /**
  * The single next-ready leaf for a project: claimable / human-assignee, lowest priority
  * then order. Mirrors the funnel "Ready" predicate VERBATIM (claimReason) — never inlines
@@ -83,7 +82,9 @@ export function nextUp(todos: SessionTodo[]): NextUp {
   return { mode: 'empty' };
 }
 
-/** Is this the special Inbox epic (planning-only parent)? */
+/** Is this the special Inbox epic (planning-only parent)? The role half comes from
+ *  `kind`; the `inbox` half is a TOPIC match on the title, deliberately kept as a
+ *  title convention (there is no inbox marker column) — it is not a role decision. */
 const isInboxEpic = (t: SessionTodo): boolean => isEpic(t) && /inbox/i.test(t.title ?? '');
 
 /** A filed epic plus its single next-ready child leaf (the startable thing) + a ready count.
