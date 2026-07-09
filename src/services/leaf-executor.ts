@@ -35,7 +35,8 @@ import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
 import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
-import { createEscalation } from './supervisor-store';
+import { createEscalation, resolveEscalation } from './supervisor-store';
+import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-proposal';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
@@ -133,6 +134,27 @@ export interface LeafExecutorDeps {
     todoId?: string | null;
     questionText: string;
   }) => void;
+  /** SR-3: raise/find the ONE open split proposal for this leaf. Never materializes children.
+   *  Default → `proposeSplit`. Unwired (`?.`) ⇒ the caller skips straight to the FLOOR. */
+  proposeSplit?: (input: {
+    project: string;
+    session: string;
+    leaf: { id: string; title?: string | null };
+    itemCount: number;
+    reason: string;
+  }) => { escalationId: string; createdAt: number; isNew: boolean };
+  /** SR-3: bounded wait for the proposal's answer. Default → `awaitSplitDecision`. */
+  awaitSplitDecision?: (input: {
+    escalationId: string;
+    createdAt: number;
+    timeoutMs?: number;
+    pollMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+    readDecision?: (id: string) => { optionId: string | null } | null;
+  }) => Promise<'split' | 'linear' | 'timeout'>;
+  /** SR-3: close the proposal card once the run has acted on it. Default → `resolveEscalation`. */
+  resolveProposal?: (escalationId: string, status: string, resolvedBy?: 'ai' | 'human') => void;
   /** Append a best-effort node-ledger row. */
   recordNode: typeof recordNode;
   /** LIVE in-flight signal (optional): mark/clear the leaf as running a node so separate
@@ -232,12 +254,12 @@ export interface LeafRunResult {
   // 'pending' is a FIRST-CLASS outcome (no longer collapsed into 'rejected'): the
   // review PASSed and the work merged, but the completion gate's work-committed
   // re-verify deferred. Distinct from 'rejected' (gate/review actually failed).
-  // 'split' (worker-decomposition): the leaf was too big to build in one run, so it was
-  // decomposed PRE-FLIGHT into one child leaf per file and became a non-executable
-  // dependency-grouping container. No completion, no merge — sweepEpicRollups closes it
-  // when its children settle; the enclosing epic's LAND leaf stays the merge authority.
-  // The coordinator treats it as "this dispatch produced no acceptance" (returns false);
-  // the container claim-guard then keeps the parent from being re-claimed.
+  // 'split' (SR-3): an explicit 'split' answer was given to a proposal, and children
+  // were materialized. The leaf became a non-executable dependency-grouping container.
+  // No completion, no merge — sweepEpicRollups closes it when its children settle;
+  // the enclosing epic's LAND leaf stays the merge authority. The coordinator treats it
+  // as "this dispatch produced no acceptance" (returns false); the container claim-guard
+  // then keeps the parent from being re-claimed.
   outcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | 'split';
   attempts: number;
   nodesSpent: number;
@@ -1663,9 +1685,38 @@ export async function runLeaf(
     }
 
     // --- AUTO-SPLIT (worker-decomposition) ---
+    // SR-3: propose → bounded wait → act. Children are only created if an explicit
+    // 'split' answer arrives; otherwise the leaf runs LINEAR with raised budget.
     // SR-6: the BLUEPRINT decides. A file count has no model of coupling. A blueprint-emitted
     // decision directs the split (if any) and its dependency edges. A malformed decision falls
     // through to the FLOOR (fail-safe). No decision emitted → legacy file-count gate (back-compat).
+
+    const proposeThenAct = async (
+      items: LeafSplitItem[],
+      reason: string,
+    ): Promise<'split' | 'linear'> => {
+      if (!deps.proposeSplit || !deps.awaitSplitDecision) return 'linear';
+      const proposal = deps.proposeSplit({
+        project, session: sessionKey, leaf, itemCount: items.length, reason,
+      });
+      const answer = await deps.awaitSplitDecision({
+        escalationId: proposal.escalationId, createdAt: proposal.createdAt,
+      });
+      if (answer === 'split') {
+        await deps.splitInto!(leaf, items);
+        try {
+          deps.resolveProposal?.(proposal.escalationId, 'resolved', 'human');
+        } catch { /* best-effort */ }
+        return 'split';
+      }
+      // 'linear' | 'timeout' — the SAFE DEFAULT
+      try {
+        deps.resolveProposal?.(proposal.escalationId, 'resolved', answer === 'timeout' ? 'ai' : 'human');
+      } catch { /* best-effort */ }
+      budget = Math.max(budget, raisedNodeBudget(deps.nodeBudget ?? NODE_BUDGET));
+      return 'linear';
+    };
+
     if (deps.splitInto && manifest) {
       const decision = manifest.splitDecision;
 
@@ -1674,20 +1725,10 @@ export async function runLeaf(
         // (fall through, no split)
       } else if (decision) {
         if (decision.split) {
-          await deps.splitInto(leaf, decision.items);
-          try {
-            deps.escalate({
-              project, session: sessionKey, kind: 'decision', todoId: leaf.id,
-              questionText:
-                `Leaf "${leaf.title ?? leaf.id}" was decomposed BY ITS BLUEPRINT into ` +
-                `${decision.items.length} PLANNED children with dependency edges (not yet runnable). ` +
-                `Blueprint's reason: ${decision.reason}\n` +
-                `Review the decomposition: PROMOTE the children to ready (approve) if the split and ` +
-                `its build order are sound, or reset this leaf to build it LINEARLY in one run. ` +
-                `Nothing runs until you promote.`,
-            });
-          } catch { /* escalation best-effort */ }
-          return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+          if (await proposeThenAct(decision.items, decision.reason) === 'split') {
+            return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+          }
+          // else: fall through to the FLOOR with a raised budget
         }
         // decision.split === false ⇒ a COUPLED change. Runs WHOLE, at any file count.
         // decision.reason states the cross-file invariant. Fall through to the floor.
@@ -1697,23 +1738,10 @@ export async function runLeaf(
           ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
         ])];
         if (splitFiles.length > SPLIT_CEILING) {
-          // Normalize legacy string[] to items (one per file, no edges).
-          await deps.splitInto(leaf, splitFiles.map((f) => ({ id: f, files: [f], dependsOn: [] })));
-          try {
-            deps.escalate({
-              project,
-              session: sessionKey,
-              kind: 'decision',
-              todoId: leaf.id,
-              questionText:
-                `Leaf "${leaf.title ?? leaf.id}" exceeded the size gate (${splitFiles.length} files) and was ` +
-                `auto-split into ${splitFiles.length} PLANNED file-children (not yet runnable). Review the ` +
-                `decomposition: PROMOTE the children to ready (approve) if the split is sound, or reset this ` +
-                `leaf to build it LINEARLY in one run if the files are interdependent (shared modules don't ` +
-                `parallelize as atoms). Nothing runs until you promote.`,
-            });
-          } catch { /* escalation best-effort — never block the split outcome */ }
-          return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+          const items = splitFiles.map((f) => ({ id: f, files: [f], dependsOn: [] }));
+          if (await proposeThenAct(items, `${splitFiles.length} enumerated files exceeds the size gate`) === 'split') {
+            return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+          }
         }
       }
     }
@@ -1953,6 +1981,9 @@ export async function makeLeafExecutorDeps(
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,
+    proposeSplit,
+    awaitSplitDecision,
+    resolveProposal: resolveEscalation,
     recordNode,
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,

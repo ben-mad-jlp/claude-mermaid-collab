@@ -31,6 +31,7 @@ import { validateStewardProof } from './steward-proof';
 import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executor';
+import { listOpenSplitProposals } from './split-proposal';
 import { getLeafRun } from './ledger-stats';
 import {
   breakerOpen,
@@ -976,7 +977,9 @@ export interface ClaimSuppressionReport {
   /** Split parents with unapproved open children — the project is BLOCKED ON A DECISION,
    *  not idle. Non-empty ⇒ `claimable: 0` is NEVER quiescence. */
   blockedSplits: import('./claimability').BlockedSplit[];
-  /** Convenience flag: blockedSplits.length > 0. */
+  /** SR-3: open split PROPOSALS (raised, no children yet). Non-empty ⇒ a decision is pending. */
+  pendingSplitProposals: Array<{ escalationId: string; todoId: string | null; createdAt: number }>;
+  /** blockedSplits.length > 0 || pendingSplitProposals.length > 0. */
   blocked: boolean;
 }
 
@@ -985,10 +988,11 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
   const ready = listReadyTodos(project);
   const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: t.title ?? t.id, reason }));
   const blockedSplits = findBlockedSplits(listTodos(project, { includeCompleted: true }));
-  const blocked = blockedSplits.length > 0;
+  const pendingSplitProposals = listOpenSplitProposals(project);
+  const blocked = blockedSplits.length > 0 || pendingSplitProposals.length > 0;
   // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
   if (overDailyBudget(project)) {
-    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [], blockedSplits, blocked };
+    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [], blockedSplits, pendingSplitProposals, blocked };
   }
   // Per-leaf pipeline, in claimGuard order: probe → stranded-foundation → headless.
   const ids = (ts: Todo[]) => new Set(ts.map((t) => t.id));
@@ -1015,6 +1019,7 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
     suppressed,
     claimableIds: claimable.map((t) => t.id),
     blockedSplits,
+    pendingSplitProposals,
     blocked,
   };
 }

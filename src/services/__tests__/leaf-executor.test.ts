@@ -675,6 +675,11 @@ interface WaveOpts {
   /** When provided, wires the auto-split seam and captures each splitInto call.
    *  Unset ⇒ seam unwired ⇒ never splits (prior behaviour). */
   splitCalls?: Array<{ leafId: string; items: LeafSplitItem[] | string[] }>;
+  /** SR-3: split proposal answer ('split' | 'linear' | 'timeout'). When set, wires
+   *  proposeSplit, awaitSplitDecision, and resolveProposal seams. */
+  proposeAnswer?: 'split' | 'linear' | 'timeout';
+  /** SR-3: spy collector for proposal-related calls (proposeSplit and resolveProposal). */
+  proposalCalls?: Array<{ kind: string; escalationId?: string; resolvedBy?: string }>;
 }
 
 function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[] } {
@@ -728,6 +733,22 @@ function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[]
           return `doc-${attempt}`;
         }
       : undefined,
+    proposeSplit: opts.proposeAnswer
+      ? (input) => {
+          opts.proposalCalls?.push({ kind: 'proposeSplit', escalationId: 'test-esc-' + Math.random() });
+          return { escalationId: 'test-esc-' + Date.now(), createdAt: Date.now(), isNew: true };
+        }
+      : undefined,
+    awaitSplitDecision: opts.proposeAnswer
+      ? async (input) => {
+          return opts.proposeAnswer!;
+        }
+      : undefined,
+    resolveProposal: opts.proposeAnswer
+      ? (escalationId, status, resolvedBy) => {
+          opts.proposalCalls?.push({ kind: 'resolveProposal', escalationId, resolvedBy });
+        }
+      : undefined,
   };
   if (opts.nodeBudget !== undefined) deps.nodeBudget = opts.nodeBudget;
   return { deps, calls };
@@ -758,6 +779,7 @@ describe('runLeaf P5 size gate', () => {
     const { deps, calls } = makeWaveDeps({
       manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 3, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: [] },
       splitCalls,
+      proposeAnswer: 'split',
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('split');
@@ -859,6 +881,7 @@ describe('runLeaf P5 size gate', () => {
         },
       },
       splitCalls,
+      proposeAnswer: 'split',
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('split');
@@ -890,6 +913,7 @@ describe('runLeaf P5 size gate', () => {
         },
       },
       splitCalls,
+      proposeAnswer: 'split',
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('split'); // blueprint decision, not file count
@@ -936,6 +960,7 @@ describe('runLeaf P5 size gate', () => {
         // NO splitDecision key
       },
       splitCalls,
+      proposeAnswer: 'split',
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('split');
@@ -943,6 +968,144 @@ describe('runLeaf P5 size gate', () => {
     expect(calls).toEqual(['blueprint']);
   });
 
+});
+
+describe('runLeaf SR-3 split proposal (propose → wait → act)', () => {
+  it('timeout ⇒ linear, no children, bounded nodesSpent, resolved resolvedBy:ai', async () => {
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const proposalCalls: Array<{ kind: string; escalationId?: string; resolvedBy?: string }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 3,
+        estimatedTasks: 1,
+        nonEnumerableFanout: false,
+        filesToCreate: [],
+        filesToEdit: ['a.ts', 'b.ts', 'c.ts'],
+        tasks: [],
+        splitDecision: {
+          split: true,
+          reason: 'test split',
+          items: [
+            { id: 'a', files: ['a.ts'], dependsOn: [] },
+            { id: 'b', files: ['b.ts'], dependsOn: [] },
+            { id: 'c', files: ['c.ts'], dependsOn: [] },
+            { id: 'd', files: ['d.ts'], dependsOn: [] },
+            { id: 'e', files: ['e.ts'], dependsOn: [] },
+          ],
+        },
+      },
+      reviewVerdict: 'VERDICT: PASS',
+      proposeAnswer: 'timeout',
+      splitCalls,
+      proposalCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).not.toBe('split');
+    expect(splitCalls.length).toBe(0); // No split on timeout
+    expect(proposalCalls.length).toBe(2); // proposeSplit + resolveProposal
+    expect(proposalCalls[1].kind).toBe('resolveProposal');
+    expect(proposalCalls[1].resolvedBy).toBe('ai');
+    // Raised budget: default 20 → 40
+    expect(res.nodesSpent).toBeLessThanOrEqual(40);
+  });
+
+  it('linear answer ⇒ linear, no children, resolved resolvedBy:human', async () => {
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const proposalCalls: Array<{ kind: string; escalationId?: string; resolvedBy?: string }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 3,
+        estimatedTasks: 1,
+        nonEnumerableFanout: false,
+        filesToCreate: [],
+        filesToEdit: ['a.ts', 'b.ts', 'c.ts'],
+        tasks: [],
+        splitDecision: {
+          split: true,
+          reason: 'test',
+          items: [
+            { id: 'a', files: ['a.ts'], dependsOn: [] },
+            { id: 'b', files: ['b.ts'], dependsOn: [] },
+          ],
+        },
+      },
+      reviewVerdict: 'VERDICT: PASS',
+      proposeAnswer: 'linear',
+      splitCalls,
+      proposalCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).not.toBe('split');
+    expect(splitCalls.length).toBe(0);
+    expect(proposalCalls[1].resolvedBy).toBe('human');
+    expect(calls).toContain('implement'); // Runs to completion
+    expect(res.outcome).toBe('accepted');
+  });
+
+  it('split answer ⇒ materializes children, outcome split, resolved resolvedBy:human', async () => {
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const proposalCalls: Array<{ kind: string; escalationId?: string; resolvedBy?: string }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 3,
+        estimatedTasks: 1,
+        nonEnumerableFanout: false,
+        filesToCreate: [],
+        filesToEdit: [],
+        tasks: [],
+        splitDecision: {
+          split: true,
+          reason: 'independent',
+          items: [
+            { id: 'mod', files: ['mod.ts', 'mod-helper.ts'], dependsOn: [] },
+            { id: 'test', files: ['mod.test.ts'], dependsOn: ['mod'] },
+          ],
+        },
+      },
+      proposeAnswer: 'split',
+      splitCalls,
+      proposalCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('split');
+    expect(splitCalls.length).toBe(1);
+    expect(splitCalls[0].items).toHaveLength(2);
+    const items = splitCalls[0].items as LeafSplitItem[];
+    expect(items[0].files).toContain('mod.ts');
+    expect(items[1].dependsOn).toContain('mod');
+    expect(proposalCalls[1].resolvedBy).toBe('human');
+    expect(calls).toEqual(['blueprint']); // Just blueprint, no implement
+  });
+
+  it('legacy file-count path: 14 files → propose → timeout ⇒ linear, no split', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const proposalCalls: Array<{ kind: string; escalationId?: string; resolvedBy?: string }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 14,
+        estimatedTasks: 1,
+        nonEnumerableFanout: false,
+        filesToCreate: files,
+        filesToEdit: [],
+        tasks: [],
+        // NO splitDecision
+      },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 40,
+      proposeAnswer: 'timeout',
+      splitCalls,
+      proposalCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(splitCalls.length).toBe(0); // No split on timeout
+    expect(proposalCalls.length).toBe(2); // Proposal was raised
+    expect(res.outcome).toBe('accepted'); // Runs linear
+  });
 });
 
 describe('runLeaf 86b persistBlueprint (durable per-attempt)', () => {
