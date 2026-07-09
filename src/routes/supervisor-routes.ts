@@ -36,6 +36,8 @@ import { bom } from '../services/system-object-bom.ts';
 import { satisfy } from '../services/system-object-edges.ts';
 import { specCoverage, decideRequirement, type RequirementDecision } from '../services/spec-coverage.ts';
 import { landEpic, getWorktreeManager } from '../services/coordinator-live.ts';
+import { landReadiness, landAuthority, type LandActor } from '../services/land-authority.ts';
+import { isEpicTodo } from '../services/invariant-check.ts';
 import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt } from '../services/deploy-service.ts';
 import { systemStatus } from '../services/system-status.ts';
 import { execFileSync } from 'node:child_process';
@@ -46,6 +48,26 @@ import { capturePaneText } from '../services/tmux-capture.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
+}
+
+/** Resolve the land actor for an HTTP land. Absent actor = the human click (this endpoint's
+ *  default lane). A conductor must name its session. `daemon:auto` is NEVER accepted over the
+ *  wire — the daemon lands in-process, and an HTTP daemon actor would be a forged trailer.
+ *  This is a shape guard, not an identity check; supervisor routes are loopback-trusted. */
+function resolveLandActor(raw: unknown): { actor: LandActor } | { error: string } {
+  if (!raw) return { actor: { kind: 'human' } };
+  if (typeof raw !== 'object') return { error: 'actor must be an object' };
+  const obj = raw as Record<string, unknown>;
+  const kind = obj.kind;
+  if (!kind) return { actor: { kind: 'human' } };
+  if (kind === 'human') return { actor: { kind: 'human' } };
+  if (kind === 'conductor') {
+    const session = obj.session;
+    if (!session || typeof session !== 'string') return { error: 'actor.session is required for a conductor land' };
+    return { actor: { kind: 'conductor', session } };
+  }
+  if (kind === 'daemon') return { error: 'daemon:auto is never accepted over the wire' };
+  return { error: `unknown actor kind: ${kind}` };
 }
 
 export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Response | null> {
@@ -530,11 +552,71 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // A conflict leaves master untouched and re-surfaces a human-rebase escalation.
   if (url.pathname === '/api/supervisor/escalations/land' && req.method === 'POST') {
     try {
-      const { project, escalationId } = (await req.json()) as { project?: string; escalationId?: string };
+      const { project, escalationId, allowDirty, actor: rawActor } = (await req.json()) as {
+        project?: string;
+        escalationId?: string;
+        allowDirty?: boolean;
+        actor?: unknown;
+      };
       if (!project || !escalationId) return jsonError('project and escalationId are required', 400);
-      const result = await landEpic(project, escalationId);
-      getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+
+      const actorResolution = resolveLandActor(rawActor);
+      if ('error' in actorResolution) return jsonError(actorResolution.error, 400);
+      const actor = actorResolution.actor;
+
+      // Get escalation to validate it exists and extract todoId for epic resolution
+      const esc = getEscalation(escalationId);
+      if (!esc) return jsonError(`escalation not found: ${escalationId}`, 404);
+      if (esc.kind !== 'epic-ready-to-land') return jsonError(`escalation is not epic-ready-to-land: ${esc.kind}`, 400);
+
+      // For conductor lane, gate on ownership before attempting the merge
+      if (actor.kind === 'conductor') {
+        if (!esc.todoId) return jsonError(`escalation has no associated todo`, 400);
+        const todo = getTodo(project, esc.todoId);
+        if (!todo) return jsonError(`todo not found: ${esc.todoId}`, 404);
+        const epicId = isEpicTodo(todo) ? todo.id : todo.parentId || todo.id;
+        const verdict = await landAuthority(project, epicId, actor);
+        if (!verdict.authorized) {
+          return Response.json(
+            {
+              ok: false,
+              landed: false,
+              reason: 'land-refused',
+              ownership: verdict.ownership,
+              blockers: verdict.blockers,
+              summary: verdict.summary,
+            },
+            { status: 409 }
+          );
+        }
+      }
+
+      const result = await landEpic(project, escalationId, { allowDirty });
+      if (result.landed) {
+        getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
+      }
       return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // GET /api/supervisor/land-readiness?project=&epicId=&session= — read-only land
+  // readiness check. Returns blockers, inheritedRed, summary WITHOUT merging. Optional
+  // session param gates the conductor lane on ownership (landAuthority); absent session
+  // uses the actor-independent landReadiness proof. This lets the UI discover blockers
+  // before clicking land, and surfaces who can land (ownership) without the click's
+  // irreversibility.
+  if (url.pathname === '/api/supervisor/land-readiness' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      const epicId = url.searchParams.get('epicId');
+      if (!project || !epicId) return jsonError('project and epicId are required', 400);
+      const session = url.searchParams.get('session');
+      const verdict = session != null
+        ? await landAuthority(project, epicId, { kind: 'conductor', session })
+        : await landReadiness(project, epicId);
+      return Response.json({ readiness: verdict });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
