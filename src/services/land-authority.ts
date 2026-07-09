@@ -83,18 +83,26 @@ export interface LandProbes {
   todos?: (project: string) => Todo[];
 }
 
-/** Canonical set of bucket epic titles, stored WITHOUT a role prefix (the `kind` column
- *  carries the role now). Compared against `stripLabel(title)`, so a legacy "[EPIC] Bugfix
- *  inbox" and a stripped "Bugfix inbox" both match. Keeping the bracketed literals here
- *  after the de-titling would make this gate FAIL OPEN on every real bucket. */
-export const BUCKET_EPIC_TITLES = [INBOX_EPIC_TITLE, 'Bugfix inbox', 'Collab gaps'] as const;
+/** Bucket titles, stored WITHOUT a role prefix since the stage-C strip (the `kind` column
+ *  carries the role). Matched against `stripLabel(title)`, so a legacy "[EPIC] Bugfix inbox"
+ *  and a stripped "Bugfix inbox" resolve to the same bucket.
+ *
+ *  NOTE: `mission-parenting.isBucketEpic` / `todo-store.isBucketEpicTitle` match these by
+ *  EQUALITY. That is adequate for deciding graph parenting, but it FAILS OPEN on the suffixed
+ *  rows below — unacceptable for the gate on an irreversible merge. Hence this stricter,
+ *  prefix-matching predicate lives here and is deliberately NOT shared with them. */
+const BUCKET_TITLE_PREFIXES = [INBOX_EPIC_TITLE, 'Bugfix inbox', 'Collab gaps'] as const;
 
 /**
  * Check if a todo is a bucket epic.
  *
+ * Titles are read POST-STRIP (`stripLabel`), because the role prefix no longer exists in stored
+ * titles — the `kind` column carries the role. Both "[EPIC] Bugfix inbox …" (a replayed frame, an
+ * old fixture) and "Bugfix inbox …" therefore resolve to the same bucket.
+ *
  * PREFIX match, not equality — and it must stay that way.
  * Real bucket titles carry descriptive suffixes, e.g.
- *   "[EPIC] Bugfix inbox — ad-hoc bugs found while dogfooding; default bucket for stray bugfixes"
+ *   "Bugfix inbox — ad-hoc bugs found while dogfooding; default bucket for stray bugfixes"
  * An exact-equality check misses those and the gate FAILS OPEN: `checkOwnership` skips its bucket
  * rule and a conductor is authorized to merge a bucket root to master.
  *
@@ -103,14 +111,15 @@ export const BUCKET_EPIC_TITLES = [INBOX_EPIC_TITLE, 'Bugfix inbox', 'Collab gap
  *                    another way. One escalation. RECOVERABLE.
  *   false negative — a bucket not recognised -> bucket merges to master. IRREVERSIBLE.
  *
- * Consequence, accepted on purpose: "[EPIC] Inbox rendering bugs" starts with "[EPIC] Inbox" and is
- * therefore treated as a bucket and refused. That is the safe side of the trade. Do NOT "fix" this
- * back into an exact match.
+ * Consequence, accepted on purpose: "Inbox rendering bugs" starts with "Inbox" and is therefore
+ * treated as a bucket and refused. That is the safe side of the trade. Do NOT "fix" this back
+ * into an exact match — `isInboxEpicTitle`'s identity check is right for naming the singleton
+ * and wrong for guarding a merge.
  */
 export function isBucketEpic(t: Todo): boolean {
   if (!isEpicTodo(t)) return false;
   const title = stripLabel(t.title).toLowerCase();
-  return BUCKET_EPIC_TITLES.some((bucket) => title.startsWith(bucket.trim().toLowerCase()));
+  return BUCKET_TITLE_PREFIXES.some((bucket) => title.startsWith(bucket.trim().toLowerCase()));
 }
 
 /**
