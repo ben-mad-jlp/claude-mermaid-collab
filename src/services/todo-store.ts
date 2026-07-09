@@ -1,6 +1,6 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable, claimReason, derivedStatus, isEpicTitle, isMissionTitle, INBOX_EPIC_TITLE, type ClaimReason } from './claimability';
+import { isClaimable, claimReason, derivedStatus, depSatisfied, isEpicTitle, isMissionTitle, INBOX_EPIC_TITLE, type ClaimReason } from './claimability';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -389,7 +389,9 @@ export function backfillDeconflateV1(db: Database): void {
   );
 
   // heldAt: only existing 'blocked' rows are candidates. Recompute depsSatisfied
-  // per-row in TS (depSatisfied keys on status==='done' && acceptanceStatus!='rejected').
+  // per-row in TS via the shared claimability.depSatisfied (done-or-accepted, never rejected;
+  // a dangling dep id is NOT satisfied → the row re-derives as deps-pending rather than
+  // being stamped 'migrated-park').
   {
     const rows = db.query(
       `SELECT id, updatedAt, retryCount, dependsOn FROM todos WHERE status='blocked' AND heldAt IS NULL`
@@ -1124,8 +1126,9 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
  * claimToken / lease / gateCommand. This is the single chokepoint, NOT a
  * skip-flag sprinkled through lease/retry/gate.
  *
- * Dependency resolution still flows both ways: depSatisfied keys only on a dep's
- * status='done' (independent of assigneeKind), so an agent todo depending on a
+ * Dependency resolution still flows both ways: depSatisfied keys on a dep's
+ * terminal completion (done-or-accepted, never rejected), regardless of assigneeKind,
+ * so an agent todo depending on a
  * human todo becomes claimable the moment the human marks it done, and a human
  * todo depending on an agent todo becomes actionable (in the B3 inbox VIEW) once
  * the agent finishes + gate passes. The filter only removes human todos from the
@@ -1212,7 +1215,8 @@ export interface CreateGateResult { gate: Todo; workTodo: Todo; }
  *     filters assigneeKind!=='agent');
  *  2. append the gate's id to the work-todo's dependsOn and park the work-todo
  *     'blocked'.
- * Because depSatisfied keys only on status==='done' (regardless of assigneeKind),
+ * Because depSatisfied keys on a dep's terminal completion (done-or-accepted, never
+ * rejected), regardless of assigneeKind,
  * the open gate holds the work-todo blocked — never auto-promoted, never claimed/
  * false-failed — and completing the gate auto-promotes it to 'ready' on the SAME
  * completeTodo tick (the unblock pass), with no new status and no reset_todo.
@@ -1323,19 +1327,6 @@ export interface CompleteTodoResult {
    *  this to discard a zombie/stale run's outcome instead of merging it. Absent on
    *  a normal completion. */
   skipped?: boolean;
-}
-
-/**
- * Whether a dependency satisfies its dependents (PCS design #1: unblock only on
- * done-AND-accepted). A dep counts as satisfied when it is 'done' and NOT
- * explicitly 'rejected' — so a rejected completion never propagates to
- * dependents (they stay blocked), while null/pending/accepted completions
- * propagate as before (backward-compatible). An unknown dep id is treated as
- * external/satisfied, preserving prior behavior.
- */
-function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined): boolean {
-  if (dep === undefined) return true;
-  return dep.status === 'done' && dep.acceptanceStatus !== 'rejected';
 }
 
 /**

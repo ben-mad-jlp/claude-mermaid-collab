@@ -46,6 +46,15 @@ describe('depSatisfied', () => {
     expect(depSatisfied(mk({ status: 'in_progress', acceptanceStatus: 'accepted' }))).toBe(true);
     expect(depSatisfied(mk({ status: 'done', acceptanceStatus: 'rejected' }))).toBe(false);
   });
+  it('F3 unification: a dangling dep id is a data bug, not a satisfied dep', () => {
+    expect(depSatisfied(undefined)).toBe(false);
+  });
+  it('F3 unification: accepts a bare {status,acceptanceStatus} projection (migration call shape)', () => {
+    expect(depSatisfied({ status: 'done', acceptanceStatus: null })).toBe(true);
+    expect(depSatisfied({ status: 'in_progress', acceptanceStatus: 'accepted' })).toBe(true);
+    expect(depSatisfied({ status: 'done', acceptanceStatus: 'rejected' })).toBe(false);
+    expect(depSatisfied({ status: 'in_progress', acceptanceStatus: null })).toBe(false);
+  });
 });
 
 describe('claimReason — each branch', () => {
@@ -92,6 +101,11 @@ describe('claimReason — each branch', () => {
     const dep = mk({ id: 'D', status: 'in_progress' });
     const t = mk({ ...approved, dependsOn: ['D'] });
     expect(claimReason(t, map(dep))).toBe('deps-pending');
+  });
+  it('deps-pending: a dangling dep id blocks (never silently claimable)', () => {
+    const t = mk({ id: 'A', ...approved, dependsOn: ['ghost'] });
+    expect(claimReason(t, map(t))).toBe('deps-pending');
+    expect(isClaimable(t, map(t))).toBe(false);
   });
   it('human-assignee: fully unblocked + approved human → not auto-claimed', () => {
     const t = mk({ ...approved, assigneeKind: 'human' });
