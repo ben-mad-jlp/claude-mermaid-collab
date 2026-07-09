@@ -8,9 +8,19 @@
  * "Clear completed" housekeeping action. A deliverable epic (an arc with a LAND
  * leaf) keeps the always-show-completed behavior.
  *
- * Identified by title convention today ([EPIC] Inbox / [EPIC] Bugfix inbox / any
- * title with the word "inbox"). Swap this for a real per-todo marker if/when the
- * auto-created inbox epics carry one — every call site goes through here.
+ * WHY THIS STILL READS A TITLE (deliberate, reviewed under the kind-column migration):
+ * bucket-ness is a TOPIC, not a ROLE. The `kind` column answers only "what role does
+ * this node play in the work graph" (mission / epic / land / leaf), and a bucket epic
+ * is a perfectly ordinary epic — same claim, rollup and land semantics. It differs in
+ * one presentational rule, nothing more. So this predicate does NOT belong in
+ * `ui/src/lib/todoKind.ts`, and callers must decide the epic role via `isEpic` from
+ * that module before consulting this function.
+ *
+ * It is also strip-safe: the migration only removes the leading bracket label from
+ * stored titles, so "Inbox" and "Bugfix inbox" keep matching afterwards.
+ *
+ * Swap this for a real per-todo bucket marker if/when the auto-created inbox epics
+ * carry one — every call site goes through here.
  */
 export function isBucketEpic(title?: string | null): boolean {
   return !!title && /\binbox\b/i.test(title);
