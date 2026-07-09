@@ -31,6 +31,7 @@ import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
 import { NeedsYouZone } from './NeedsYouZone';
 import { InflightPanel } from './InflightPanel';
 import { ReadyPanel } from './ReadyPanel';
+import { StrandedPanel } from './StrandedPanel';
 import { projectPlanStats } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
 import { FleetVitals } from './FleetVitals';
@@ -41,7 +42,7 @@ import { PlanPanel } from '../PlanPanel';
 import { MissionsStrip } from '../MissionsStrip';
 import { DecisionCard } from './focal/DecisionCard';
 import { EpicHistoryView } from './EpicHistoryView';
-import { funnelCounts, excludeEpics } from './funnel';
+import { funnelCounts, excludeEpics, isStranded } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
@@ -387,6 +388,11 @@ export const BridgeDashboard: React.FC = () => {
     [todos],
   );
 
+  const strandedCount = useMemo(() => {
+    const byId = buildById(todos);
+    return excludeEpics(todos).filter((t) => isStranded(t, byId)).length;
+  }, [todos]);
+
   // todoId→title for enriching the stream's thin todo-lifecycle events (render-time join).
   const titleByTodoId = useMemo(
     () => new Map(todos.map((t) => [t.id, t.title ?? t.id])),
@@ -436,7 +442,7 @@ export const BridgeDashboard: React.FC = () => {
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'subscribers' | 'stream' | 'executor' | 'dogfood' | 'detail'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'stranded' | 'subscribers' | 'stream' | 'executor' | 'dogfood' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -526,6 +532,7 @@ export const BridgeDashboard: React.FC = () => {
                     { key: 'land', label: 'Land', count: landEscalations.length, info: true },
                     { key: 'inflight', label: 'In-flight', count: daemonCounts.inflight ?? inflightCount, info: true },
                     { key: 'ready', label: 'Ready', count: daemonCounts.claimable ?? readyCount, info: true },
+                    { key: 'stranded', label: 'Stranded', count: strandedCount, warn: true },
                     { key: 'subscribers', label: 'Subscribers' },
                     { key: 'stream', label: 'Stream' },
                     { key: 'executor', label: 'Executor' },
@@ -533,7 +540,7 @@ export const BridgeDashboard: React.FC = () => {
                     ...((selectedTodoId || selectedEpic)
                       ? [{ key: 'detail' as const, label: selectedEpic ? 'Epic' : 'Todo', closable: true }]
                       : []),
-                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; info?: boolean; closable?: boolean }>).map((t) => (
+                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; warn?: boolean; info?: boolean; closable?: boolean }>).map((t) => (
                     <button
                       key={t.key}
                       type="button"
@@ -548,7 +555,7 @@ export const BridgeDashboard: React.FC = () => {
                     >
                       {t.label}
                       {t.count != null && t.count > 0 && (
-                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : t.info ? 'text-info-700 dark:text-info-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
+                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : t.warn ? 'text-warning-600 dark:text-warning-400 font-semibold' : t.info ? 'text-info-700 dark:text-info-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
                       )}
                       {t.closable && (
                         <span
@@ -575,6 +582,9 @@ export const BridgeDashboard: React.FC = () => {
                   )}
                   {bridgeTab === 'ready' && (
                     <ReadyPanel todos={todos} claimableIds={daemonCounts.claimableIds} onSelectTodo={handleSelectTodo} />
+                  )}
+                  {bridgeTab === 'stranded' && (
+                    <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />
                   )}
                   {bridgeTab === 'subscribers' && (
                     <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />
