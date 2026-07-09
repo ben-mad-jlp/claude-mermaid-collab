@@ -102,6 +102,7 @@ interface Spies {
   escalations: Array<{ kind: string; questionText: string }>;
   removeCalls: string[];
   markRejectingCalls: string[];
+  bumpRetryCalls: Array<{ project: string; leafId: string }>;
   /** Ordered log of 'mark' (markRejecting) vs 'complete:<acceptance>' to assert the
    *  reject pre-stamp lands BEFORE the slow gate. */
   seq: string[];
@@ -128,6 +129,7 @@ function makeDeps(opts: {
     escalations: [],
     removeCalls: [],
     markRejectingCalls: [],
+    bumpRetryCalls: [],
     seq: [],
     inflightSeq: [],
   };
@@ -179,6 +181,10 @@ function makeDeps(opts: {
       spies.markRejectingCalls.push(leafId);
       spies.seq.push('mark');
       return opts.markRejectingOwned ?? true; // default owned (legacy behaviour)
+    },
+    async bumpRetry(p, leafId) {
+      spies.bumpRetryCalls.push({ project: p, leafId });
+      return true;
     },
     async mergeToEpic() {
       spies.mergeCalls += 1;
@@ -238,15 +244,24 @@ describe('parseVerdict (fail-closed)', () => {
     expect(parseVerdict('blah\nVERDICT: PASS')).toBe('pass');
     expect(parseVerdict('VERDICT: PASS — looks good')).toBe('pass');
     expect(parseVerdict('VERDICT: FAIL — nope')).toBe('fail');
-    expect(parseVerdict('no verdict line at all')).toBe('fail');
-    expect(parseVerdict(undefined)).toBe('fail');
-    expect(parseVerdict('')).toBe('fail');
   });
   it('tolerates markdown wrapping the model echoes from the prompt (backticks/bold)', () => {
     // The L4 false-stuck class: the prompt SHOWS `VERDICT: PASS` in backticks, so the
     // model echoes them — a line-anchored regex must not be defeated by the wrapper.
     expect(parseVerdict('`VERDICT: PASS`')).toBe('pass');
     expect(parseVerdict('**VERDICT: PASS**')).toBe('pass');
+  });
+  it('is an INFRA "error", not a fail, when the reviewer said nothing parseable (bug 80bacbc4)', () => {
+    expect(parseVerdict('no verdict line at all')).toBe('error');
+    expect(parseVerdict(undefined)).toBe('error');
+    expect(parseVerdict('')).toBe('error');
+    expect(parseVerdict('   \n  ')).toBe('error');
+    expect(parseVerdict('I looked at it, seems fine.')).toBe('error');
+  });
+  it('a terse-but-real verdict is still PASS/FAIL, not error — terseness is not emptiness', () => {
+    expect(parseVerdict('VERDICT: FAIL')).toBe('fail');
+    expect(parseVerdict('`VERDICT: FAIL`')).toBe('fail');
+    expect(parseVerdict('VERDICT: PASS')).toBe('pass');
   });
 });
 
@@ -413,11 +428,22 @@ describe('runLeaf state machine', () => {
     expect(spies.ensureCalls.length).toBe(0);
   });
 
-  it('unparseable verdict ⇒ treated as FAIL (fail-closed) → blocked after cap', async () => {
+  it('unparseable verdict ⇒ INFRA error, not fail → blocked immediately as review-vacuous', async () => {
     const { deps } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('attempt-cap-exhausted');
+    expect(res.reason).toBe('review-vacuous');
+  });
+
+  it('EMPTY review (bug 80bacbc4): blocked review-vacuous, implement runs once, no fix node, retryCount bumped', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: [''] });
+    const leaf = makeLeaf();
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('review-vacuous');
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(1); // no fix node spent on a phantom empty finding
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
   });
 
   it('gate downgrade: PASS but gate returns pending ⇒ outcome PENDING (first-class, not rejected)', async () => {
@@ -1012,6 +1038,7 @@ function makeVerifyDeps(opts: {
     escalations: [] as Spies['escalations'],
     removeCalls: [] as Spies['removeCalls'],
     markRejectingCalls: [] as Spies['markRejectingCalls'],
+    bumpRetryCalls: [] as Spies['bumpRetryCalls'],
     seq: [] as Spies['seq'],
     inflightSeq: [] as Spies['inflightSeq'],
     reportFindings: [] as string[],
