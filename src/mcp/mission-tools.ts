@@ -14,6 +14,7 @@ import {
   MISSION_PHASES, type MissionPhase,
 } from '../services/mission-store.js';
 import { MISSION_TITLE_PREFIX, isMissionTitle } from '../services/claimability.js';
+import { isMission } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
 import { addSessionTodo } from './tools/session-todos.js';
 
@@ -83,7 +84,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId || !session) throw new Error('Missing required: project, todoId, session');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
-      if (!isMissionTitle(node.title)) throw new Error(`not a [MISSION] node: ${todoId}`);
+      if (!isMission(node)) throw new Error(`not a [MISSION] node: ${todoId}`);
       const updated = await reassignOwnerSession(project, todoId, session);
       return JSON.stringify({ todoId, ownerSession: updated.ownerSession, assigneeSession: updated.assigneeSession }, null, 2);
     }
@@ -99,7 +100,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
-      if (!isMissionTitle(node.title)) throw new Error(`not a [MISSION] node: ${todoId}`);
+      if (!isMission(node)) throw new Error(`not a [MISSION] node: ${todoId}`);
       const patch: { title?: string; description?: string } = {};
       if (title !== undefined) patch.title = isMissionTitle(title) ? title : `${MISSION_TITLE_PREFIX} ${title.trim()}`;
       if (description !== undefined) patch.description = description;
@@ -111,7 +112,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
-      if (!isMissionTitle(node.title)) throw new Error(`not a [MISSION] node: ${todoId}`);
+      if (!isMission(node)) throw new Error(`not a [MISSION] node: ${todoId}`);
       deleteMission(project, todoId);            // control state + criteria
       await updateTodoStore(project, todoId, { status: 'dropped' }); // drop the graph node
       return JSON.stringify({ deleted: todoId }, null, 2);
