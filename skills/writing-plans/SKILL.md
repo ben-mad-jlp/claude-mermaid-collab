@@ -107,6 +107,8 @@ git commit -m "feat: add specific feature"
 - Exact commands with expected output
 - Reference relevant skills with @ syntax
 - DRY, YAGNI, TDD, frequent commits
+- A prohibition is not a constraint — grep for who does X before writing "do NOT do X"; if a tool or runner does it, enforce it in code, not in prose.
+- Approval is publication — an executor may claim a task seconds after approval; finalize the spec before you approve it.
 
 ## Design Alignment Verification
 

@@ -11,6 +11,7 @@ import {
   parseVerdict,
   isCacheableBaseGateStatus,
   buildNodePrompt,
+  buildReviewPrompt,
   parseSizeManifest,
   leafExecutionMode,
   parseVerifyGate,
@@ -1285,6 +1286,19 @@ describe('buildVerifyPrompt per-node specs', () => {
     const withFindings = buildVerifyPrompt('report', makeLeaf(), 'PLAN', 'dof failed: over-constrained');
     expect(withFindings).toContain('over-constrained');
     expect(withFindings.toLowerCase()).toContain('do not edit any source');
+  });
+});
+
+describe('buildReviewPrompt ships the verify discipline (G13)', () => {
+  const p = () => buildReviewPrompt(makeLeaf(), 'origin/master');
+  it('states the three-dot caveat', () => {
+    expect(p()).toContain('three-dot diff shows COMMITS ONLY');
+    expect(p()).toContain('git status --porcelain');
+  });
+  it('instructs branch-vs-base comparison of the same file in isolation', () => {
+    expect(p()).toContain('VERIFY DISCIPLINE');
+    expect(p()).toContain('origin/master');
+    expect(p()).toContain('present on BOTH is pre-existing');
   });
 });
 
