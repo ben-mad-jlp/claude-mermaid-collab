@@ -104,6 +104,7 @@ import { frictionTrends } from '../services/friction-trends.js';
 import { runtimeConfig } from '../services/runtime-config.js';
 import { validateStewardProof, isOverrideRateLimited, type StewardProof, type StewardVerb } from '../services/steward-proof.js';
 import { getConfig, getSecret } from '../services/config-service.js';
+import { consultCodex } from '../services/consult-openai.js';
 import { handleWorkerComplete } from '../services/coordinator-daemon.js';
 import { makeCoordinatorDeps, landEpic, diagnoseClaimSuppression } from '../services/coordinator-live.js';
 import { requestSelfDeploy } from '../services/deploy-service.js';
@@ -826,6 +827,19 @@ export async function setupMCPServer(): Promise<Server> {
             prompt: { type: 'string', description: 'The question or prompt to send to Grok' },
             system: { type: 'string', description: 'Optional system prompt to set context for Grok' },
             model: { type: 'string', description: 'Grok model to use. Default: grok-build-0.1.' },
+          },
+          required: ['prompt'],
+        },
+      },
+      {
+        name: 'consult_codex',
+        description: 'Consult Codex (OpenAI) with a question or prompt. A second, independent opinion at design time — the OpenAI-backed peer of consult_grok. Consult both when pressure-testing a design: they are different models with different failure modes. Requires OPENAI_API_KEY (Settings → Secrets).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            prompt: { type: 'string', description: 'The question or prompt to send to Codex' },
+            system: { type: 'string', description: 'Optional system prompt to set context' },
+            model: { type: 'string', description: 'OpenAI model to use. Default: gpt-5-codex.' },
           },
           required: ['prompt'],
         },
@@ -1558,6 +1572,12 @@ export async function setupMCPServer(): Promise<Server> {
               response: reply,
               usage: data.usage,
             }, null, 2);
+          }
+
+          case 'consult_codex': {
+            const { prompt, system, model } = args as { prompt: string; system?: string; model?: string };
+            const result = await consultCodex({ prompt, system, model });
+            return JSON.stringify(result, null, 2);
           }
 
           case 'archive_session': {
