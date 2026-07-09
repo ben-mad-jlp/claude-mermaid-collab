@@ -58,8 +58,9 @@ export type ClaimReason =
   | 'inbox-planning'  // parent is the [EPIC] Inbox — planning-only triage; re-home to a real epic to run
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
-  | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable)
-  | 'deps-pending';   // a dep is not yet terminal
+  | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable by reset)
+  | 'dep-dropped'     // a dep was DROPPED — permanently unsatisfiable; needs a human (re-point the edge, reset the dep, or drop this todo)
+  | 'deps-pending';   // a dep is not yet terminal — recoverable by waiting
   // 'probe-failing' is NOT decided here — the daemon layers the live probe on top at claim time.
 
 /**
@@ -90,11 +91,37 @@ export function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | un
 }
 
 /**
+ * A dependency is PERMANENTLY unsatisfiable iff it was dropped.
+ *
+ * Complement of `depSatisfied` on the axis that matters for triage, not its negation:
+ * a dep can be unsatisfied because it is still *running* (recoverable by waiting) or
+ * because it is *dead* (recoverable only by a human). `status === 'dropped'` is the only
+ * terminal-and-never-satisfying state — `done`/`accepted` satisfy, `rejected` is caught
+ * earlier by the `dep-rejected` gate, everything else is live work.
+ *
+ * DERIVED from the dep row, never stored: reset the dep and the dependent silently
+ * returns to `deps-pending`/`ready` with no migration and no cleanup pass.
+ */
+export function depDropped(dep: Pick<Todo, 'status'> | undefined): boolean {
+  return dep?.status === 'dropped';
+}
+
+/**
  * The ONE eligibility predicate. Order is load-bearing: terminal/in-flight first (lifecycle),
  * then the decision gates (unapproved, held) which apply to BOTH agent and human todos, then
- * the dependency gates (dep-rejected BEFORE deps-pending so the recoverable blocker surfaces
- * first), and finally the agent-vs-human split LAST (a fully-unblocked human todo is
- * actionable-by-a-human, not auto-claimed).
+ * the dependency gates, and finally the agent-vs-human split LAST (a fully-unblocked human
+ * todo is actionable-by-a-human, not auto-claimed).
+ *
+ * The dependency gates run most-severe-first, where severity = how much human intervention
+ * recovery costs:
+ *   1. dep-rejected — reset the dep; the dep row is alive and re-runnable
+ *   2. dep-dropped  — a human must re-point the edge, `reset_todo` the dep, or drop this todo
+ *   3. deps-pending — wait; no human needed
+ * `dep-rejected` stays first even though `dep-dropped` is the *harder* blocker: a rejected dep
+ * is a gate failure a human is already being asked to look at, and it is the more actionable
+ * signal. A todo blocked by both reports `dep-rejected` — fix that, and it re-reports
+ * `dep-dropped` on the next read. Both precede `deps-pending`, the only dep state that
+ * resolves without a human.
  */
 export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // An ACCEPTED leaf is terminal regardless of the stored `status` enum: completeTodo
@@ -122,6 +149,14 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {
     return 'dep-rejected';
   }
+  // A DROPPED dep never satisfies (`depSatisfied` requires done|accepted), so without this
+  // gate the dependent reads `deps-pending` forever — indistinguishable from one merely
+  // waiting on live work (F4). The drop cascade walks `parentId` only and deliberately does
+  // NOT follow `dependsOn` (68b8bb09: it is a DAG, blast radius invisible at click time), so
+  // stranding OUTSIDE dependents is the accepted cost — this reason is how the cost is paid.
+  if ((t.dependsOn ?? []).some((id) => depDropped(byId.get(id)))) {
+    return 'dep-dropped';
+  }
   if (!(t.dependsOn ?? []).every((id) => depSatisfied(byId.get(id)))) {
     return 'deps-pending';
   }
@@ -139,6 +174,8 @@ export const isClaimable = (t: Todo, byId: Map<string, Todo>): boolean =>
  * on the now-untrusted shadow enum. NOT a stored value — recomputed on read like everything else.
  */
 export function derivedStatus(t: Todo, byId: Map<string, Todo>): string {
+  // A 'dep-dropped' todo (see claimReason) falls through to 'blocked' here — no distinct
+  // legacy label. The distinct rendering is claimReason's job, surfaced in the Bridge.
   if (t.status === 'done' || t.status === 'dropped') return t.status;
   if (t.claim != null) return 'in_progress';
   if (isClaimable(t, byId)) return 'ready';
