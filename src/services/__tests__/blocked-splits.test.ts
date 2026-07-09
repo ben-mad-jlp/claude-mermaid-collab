@@ -38,7 +38,7 @@ afterEach(() => {
 
 describe('findBlockedSplits (SR-1 — a wedged project must not look finished)', () => {
   test('finished epic with no blocked splits', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] done' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] done' });
     const child = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'completed child', status: 'ready',
       parentId: epic.id,
@@ -54,7 +54,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('split parent with 9 unapproved children reports as blocked', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'split parent', status: 'ready',
       parentId: epic.id,
@@ -78,7 +78,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('approving the children clears the blocked signal', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'split parent', status: 'ready',
       parentId: epic.id,
@@ -99,7 +99,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('declined split does not report as blocked', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'split parent', status: 'ready',
       parentId: epic.id,
@@ -116,7 +116,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('an [EPIC] with planned children is NOT a blocked split', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] planning' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] planning' });
     const child1 = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'child 1', status: 'planned',
       parentId: epic.id,
@@ -133,7 +133,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('a [MISSION] with planned children is NOT a blocked split', async () => {
-    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] m1' });
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'mission', title: '[MISSION] m1' });
     const child1 = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'mission child 1', status: 'planned',
       parentId: mission.id,
@@ -150,7 +150,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('partial approval: some children approved clears the signal, some unapproved does not', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'split parent', status: 'ready',
       parentId: epic.id,
@@ -173,7 +173,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('dropped children are not counted as open', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'split parent', status: 'ready',
       parentId: epic.id,
@@ -194,7 +194,7 @@ describe('findBlockedSplits (SR-1 — a wedged project must not look finished)',
   });
 
   test('terminal parent (done/accepted) is not reported', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'split parent', status: 'ready',
       parentId: epic.id,
@@ -221,7 +221,7 @@ function completeTodo(project: string, todoId: string, acceptance: 'accepted' | 
 
 describe('diagnoseClaimSuppression — SR-3 pending split proposals', () => {
   test('open split proposal with zero children → blocked=true, pendingSplitProposals non-empty', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'test leaf', status: 'ready',
       parentId: epic.id,

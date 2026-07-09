@@ -33,7 +33,7 @@ afterEach(() => {
 
 describe('collapseSplit (SR-2 — decline a split)', () => {
   test('decline-a-split restores the leaf: same id, blueprint preserved, children dropped, claimable again', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'big leaf', status: 'ready',
       parentId: epic.id, description: 'the original blueprint spec',
@@ -60,7 +60,7 @@ describe('collapseSplit (SR-2 — decline a split)', () => {
   });
 
   test('idempotent: a second collapseSplit is a no-op that reports alreadyCollapsed', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     const leaf = await createTodo(project, {
       allowOrphan: true, ownerSession: 's1', title: 'big leaf', status: 'ready', parentId: epic.id,
     });
@@ -76,12 +76,12 @@ describe('collapseSplit (SR-2 — decline a split)', () => {
   });
 
   test('refuses an [EPIC] container', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] E' });
     await expect(collapseSplit(project, epic.id)).rejects.toThrow();
   });
 
   test('rollup not broken by the terminal-children status filter', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] rollup', status: 'planned' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] rollup', status: 'planned' });
     const c1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c1', status: 'ready', parentId: epic.id });
     const c2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'c2', status: 'ready', parentId: epic.id });
 
@@ -91,7 +91,7 @@ describe('collapseSplit (SR-2 — decline a split)', () => {
     expect(getTodo(project, epic.id)!.status).toBe('done');
 
     // Separate graph, settled out-of-band, still rolls up via the sweep path.
-    const epic2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] rollup2', status: 'planned' });
+    const epic2 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', kind: 'epic', title: '[EPIC] rollup2', status: 'planned' });
     const d1 = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'd1', status: 'ready', parentId: epic2.id });
     // Directly mark done+accepted, bypassing completeTodo's own rollup, so sweepEpicRollups
     // is the one that has to close the epic.

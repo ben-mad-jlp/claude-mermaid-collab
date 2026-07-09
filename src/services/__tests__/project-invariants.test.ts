@@ -306,67 +306,30 @@ describe('project standing invariants', () => {
         match: 'INBOX_EPIC_TITLE',
         reason: 'Identity check on a named singleton, explicitly permitted',
       },
+      {
+        file: 'src/services/todo-kind-backfill.ts',
+        match: 'MISSION_RE',
+        reason: 'ONE-TIME BACKFILL: reads the legacy title to DERIVE the kind column. This is the only place a title may inform a role, and it runs once. Reading a title to WRITE `kind` is the inverse of the banned direction (deciding a role FROM a title at read time).',
+      },
+      {
+        file: 'src/services/todo-kind-backfill.ts',
+        match: 'EPIC_RE',
+        reason: 'ONE-TIME BACKFILL (see MISSION_RE above).',
+      },
+      {
+        file: 'src/services/todo-kind-backfill.ts',
+        match: 'LAND_RE',
+        reason: 'ONE-TIME BACKFILL (see MISSION_RE above).',
+      },
     ];
 
+    // The kind-column migration (ea83ac9f) has LANDED for every site that read a title to
+    // decide a role — except one. The test FAILS on a stale entry as loudly as on a new
+    // violation: an allowlist that outlives its reason is how a convention quietly returns.
     const PENDING: PendingEntry[] = [
       {
-        file: 'src/mcp/tools/session-todos.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[EPIC\\]',
-      },
-      {
-        file: 'src/services/claimability.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[EPIC\\]',
-      },
-      {
-        file: 'src/services/claimability.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[MISSION\\]',
-      },
-      {
-        file: 'src/services/coordinator-live.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[EPIC\\]',
-      },
-      {
-        file: 'src/services/friction-triage.ts',
-        owner: '8a570045 / 447826e8 ([kind D])',
-        match: '\\[EPIC\\]',
-      },
-      {
-        file: 'src/services/invariant-check.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[EPIC\\]',
-      },
-      {
-        file: 'src/services/invariant-check.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[LAND\\]',
-      },
-      {
         file: 'src/services/mission-loop.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[MISSION\\]',
-      },
-      {
-        file: 'src/services/session-notification-router.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: "startsWith('[EPIC]')",
-      },
-      {
-        file: 'src/services/todo-store.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[EPIC\\]',
-      },
-      {
-        file: 'src/services/todo-store.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: '\\[MISSION\\]',
-      },
-      {
-        file: 'src/services/todo-store.ts',
-        owner: 'ea83ac9f (kind-column migration)',
+        owner: 'ea83ac9f (kind-column migration) — last remaining reader',
         match: '\\[MISSION\\]',
       },
     ];
@@ -404,18 +367,9 @@ describe('project standing invariants', () => {
     const allFiles = sourceFiles(['ui/src']);
     const allHits = hits(pattern, allFiles);
 
-    const PENDING: PendingEntry[] = [
-      {
-        file: 'ui/src/components/supervisor/bridge/BridgeDashboard.tsx',
-        owner: '82f1011a ([kind E])',
-        match: 'childrenByParent',
-      },
-      {
-        file: 'ui/src/components/supervisor/bridge/fleet/useFleetGraph.ts',
-        owner: '82f1011a ([kind E])',
-        match: 'parentId == null',
-      },
-    ];
+    const PENDING: PendingEntry[] = [];
+    // [kind E] (82f1011a) landed: BridgeDashboard and useFleetGraph now render by declared
+    // `kind`, not by childrenByParent / parentId structure. Both entries were stale.
 
     const nonExemptHits = allHits.filter(
       (hit) =>
@@ -498,21 +452,32 @@ describe('project standing invariants', () => {
     const srcFiles = allFiles.filter((f) => f.startsWith('src/'));
     const allHits = hits(pattern, srcFiles);
 
-    const PENDING: PendingEntry[] = [
+    const EXEMPT: ExemptEntry[] = [
       {
-        file: 'src/mcp/mission-tools.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: 'MISSION_TITLE_PREFIX',
+        file: 'src/services/todo-store.ts',
+        match: "LIKE '[MISSION]%'",
+        reason: 'STRIP migration: this statement REMOVES the prefix. The regex sees `title=...[MISSION]` and calls it a write; it is the fix, not the violation.',
       },
       {
-        file: 'src/mcp/mission-tools.ts',
-        owner: 'ea83ac9f (kind-column migration)',
-        match: 'MISSION_TITLE_PREFIX',
+        file: 'src/services/todo-store.ts',
+        match: "LIKE '[EPIC]%'",
+        reason: 'STRIP migration (see above).',
+      },
+      {
+        file: 'src/services/todo-store.ts',
+        match: "LIKE '[LAND]%'",
+        reason: 'STRIP migration (see above).',
       },
     ];
 
+    const PENDING: PendingEntry[] = [];
+
+    const exemptHits = allHits.filter((hit) =>
+      EXEMPT.some((ex) => normalizeFileForComparison(hit.file) === normalizeFileForComparison(ex.file) && hit.text.includes(ex.match)),
+    );
     const nonExemptHits = allHits.filter(
       (hit) =>
+        !exemptHits.includes(hit) &&
         !PENDING.some(
           (p) =>
             normalizeFileForComparison(hit.file) === normalizeFileForComparison(p.file) &&

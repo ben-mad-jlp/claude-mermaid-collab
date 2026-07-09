@@ -97,8 +97,8 @@ describe('displayTitle', () => {
 });
 
 describe('isHeadlessLeaf / headlessExclusionReason — terminal children', () => {
-  const parent = { id: 'parent-1', title: 'leaf', assigneeKind: 'agent', type: 'backend' } as Todo;
-  const childBase = { id: 'child-1', parentId: 'parent-1', title: 'child', assigneeKind: 'agent', type: 'backend' };
+  const parent = { id: 'parent-1', kind: 'leaf', title: 'leaf', assigneeKind: 'agent', type: 'backend' } as Todo;
+  const childBase = { id: 'child-1', kind: 'leaf' as const, parentId: 'parent-1', title: 'child', assigneeKind: 'agent', type: 'backend' };
   afterEach(() => {
     mockListTodosImpl = () => [];
   });
