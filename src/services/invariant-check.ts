@@ -2,6 +2,7 @@ import type { Todo, TodoStatus } from './todo-store';
 import { listTodos } from './todo-store';
 import { recordSupervisorAudit } from './supervisor-store';
 import { isClaimable } from './claimability';
+import { isEpic, isLand, isMission } from './todo-kind.ts';
 
 /**
  * Work-graph invariant checker (read-only health report).
@@ -19,8 +20,9 @@ import { isClaimable } from './claimability';
  *  - epic-planned-ready-child an [EPIC] still 'planned' that has a 'ready' child.
  *  - broken-depends-on       dependsOn points at a missing or dropped todo.
  *
- * Epics and land leaves are identified by their title prefix ([EPIC] / [LAND]),
- * matching coordinator-live's isEpicTodo and the planner's land-leaf convention.
+ * Epics and land leaves are identified by the `kind` column via the shared predicate
+ * module (./todo-kind), not by title prefix. Titles still carry their prefixes; they
+ * are simply no longer read to decide a role (stage B of decision e852fb0c).
  */
 
 export type InvariantKind =
@@ -36,14 +38,15 @@ export interface InvariantViolation {
   reason: string;
 }
 
-/** True when a todo's title marks it an [EPIC] root (mirrors coordinator-live.isEpicTodo). */
+/** True when a todo is an EPIC root. Delegates to the one predicate module (kind
+ *  column, title-fallback); re-exported here for `epic-branch-status.ts`. */
 export function isEpicTodo(t: Todo): boolean {
-  return /^\s*\[EPIC\]/i.test(t.title ?? '');
+  return isEpic(t);
 }
 
-/** True when a todo's title marks it a [LAND] → master leaf. */
+/** True when a todo is a LAND → master leaf. Same delegation. */
 export function isLandTodo(t: Todo): boolean {
-  return /^\s*\[LAND\]/i.test(t.title ?? '');
+  return isLand(t);
 }
 
 /** Terminal states excluded from "active" health checks. */
@@ -261,7 +264,9 @@ export function findClaimInvariantViolations(todos: Todo[]): ClaimInvariantViola
     }
 
     // epic-rollup consistency: assert the real rollup didn't miss a fully-settled epic.
-    if (!terminal) {
+    // A mission is durable: it has epic children but is never rolled up (todo-store's
+    // non-closing guard). Asserting rollup on one would alarm on correct behavior.
+    if (!terminal && !isMission(t)) {
       const children = childrenOf.get(t.id)?.filter((c) => c.status !== 'dropped') ?? [];
       if (
         children.length > 0 &&

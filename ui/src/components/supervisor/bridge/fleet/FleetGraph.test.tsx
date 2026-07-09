@@ -61,6 +61,7 @@ function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
     updatedAt: '',
     completedAt: null,
     asanaGid: null,
+    kind: 'leaf',
     ...p,
   } as SessionTodo;
 }

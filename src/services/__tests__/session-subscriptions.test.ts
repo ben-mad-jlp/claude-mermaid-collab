@@ -43,6 +43,11 @@ describe('subscriptionMatches (pure)', () => {
     expect(subscriptionMatches(sub({ scope: 'epic', targetId: 'e1' }), { project: P, epicId: 'e1' })).toBe(true);
     expect(subscriptionMatches(sub({ scope: 'epic', targetId: 'e1' }), { project: P, epicId: 'e2' })).toBe(false);
   });
+  it('mission scope matches only its target mission id', () => {
+    expect(subscriptionMatches(sub({ scope: 'mission', targetId: 'm1' }), { project: P, missionId: 'm1' })).toBe(true);
+    expect(subscriptionMatches(sub({ scope: 'mission', targetId: 'm1' }), { project: P, missionId: 'm2' })).toBe(false);
+    expect(subscriptionMatches(sub({ scope: 'mission', targetId: 'm1' }), { project: P, todoId: 't1' })).toBe(false);
+  });
 });
 
 describe('subscription store CRUD', () => {
@@ -88,6 +93,25 @@ describe('subscription store CRUD', () => {
     const removed = expireSubscriptionsForTarget(P, 'e1');
     expect(removed).toBe(2);
     expect(listAllSubscriptions().map((r) => r.scope)).toEqual(['project']);
+  });
+
+  it('mission subscription is idempotent (second add = same row)', () => {
+    addSubscription(P, 's1', 'mission', 'm1');
+    addSubscription(P, 's1', 'mission', 'm1');
+    expect(listSubscriptionsForSession(P, 's1')).toHaveLength(1);
+  });
+
+  it('mission subscription requires a targetId', () => {
+    expect(() => addSubscription(P, 's1', 'mission')).toThrow(/targetId/);
+  });
+
+  it('expireSubscriptionsForTarget leaves mission subs intact', () => {
+    addSubscription(P, 's1', 'mission', 'm1');
+    addSubscription(P, 's1', 'epic', 'e1');
+    const removed = expireSubscriptionsForTarget(P, 'e1');
+    expect(removed).toBe(1);
+    expect(listAllSubscriptions()).toHaveLength(1);
+    expect(listAllSubscriptions()[0].scope).toBe('mission');
   });
 });
 

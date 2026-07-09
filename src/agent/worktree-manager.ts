@@ -634,6 +634,76 @@ export class WorktreeManager {
   }
 
   // ---------------------------------------------------------------------------
+  // baseDir / listRegisteredPaths / statusAt / removePath — GC primitives
+  // (kill-the-running-build epic, HALF 2). Read/act on the checkout DIRECTORY,
+  // not the JSON record — the record can be deleted (e.g. _removeInner's
+  // best-effort fs.rm fallback) while the directory still exists on disk, which
+  // is exactly the orphan channel `list()` can't see.
+  // ---------------------------------------------------------------------------
+
+  /** Absolute dir all session worktrees live under (opts.baseDir). Read-only accessor. */
+  baseDir(): string {
+    return this.opts.baseDir;
+  }
+
+  /** Paths git currently has REGISTERED, from `git worktree list --porcelain` (the main
+   *  checkout included). [] off non-git / on error. Pure read — no prune. */
+  async listRegisteredPaths(): Promise<string[]> {
+    const res = await this.runGit(
+      this.opts.projectRoot,
+      ['worktree', 'list', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0) return [];
+    const paths: string[] = [];
+    for (const line of res.stdout.split('\n')) {
+      if (line.startsWith('worktree ')) paths.push(line.slice('worktree '.length).trim());
+    }
+    return paths;
+  }
+
+  /** `git status --porcelain` inside an arbitrary path (not record-keyed). Returns null
+   *  when the path is not a usable working tree (dangling .git → git errors). */
+  async statusAt(worktreePath: string): Promise<string[] | null> {
+    const res = await this.runGit(
+      worktreePath,
+      ['status', '--porcelain'],
+      QUICK_TIMEOUT_MS,
+    ).catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0) return null;
+    return res.stdout.split('\n').filter((l) => l.length > 0);
+  }
+
+  /** `git worktree prune` + `worktree remove --force <path>`, falling back to `fs.rm` for
+   *  a dangling (unregistered) checkout. Path-keyed sibling of `_removeInner`. Serialised
+   *  behind the per-project worktree lock (the same shared-admin hazard `remove` guards
+   *  against). Also deletes the matching `<slug>.json` record if one exists. */
+  async removePath(worktreePath: string): Promise<void> {
+    return this.withWorktreeLock(() => this._removePathInner(worktreePath));
+  }
+
+  private async _removePathInner(worktreePath: string): Promise<void> {
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    const res = await this.runGit(
+      this.opts.projectRoot,
+      ['worktree', 'remove', '--force', worktreePath],
+      QUICK_TIMEOUT_MS,
+    ).catch((err) => ({
+      code: 1,
+      stdout: '',
+      stderr: err instanceof Error ? err.message : String(err),
+    }));
+    if (res.code !== 0) {
+      // Not registered with git (dangling checkout) or already gone — fall back to a
+      // direct filesystem removal so the orphan dir is actually reclaimed.
+      await fs.rm(worktreePath, { recursive: true, force: true }).catch(() => {});
+    }
+    await this.deleteRecord(path.basename(worktreePath));
+  }
+
+  // ---------------------------------------------------------------------------
   // commitPushPR — add/commit/push/pr pipeline. Spawns with cwd=worktreePath.
   // ---------------------------------------------------------------------------
   async commitPushPR(sessionId: string, opts: CommitPushPROpts): Promise<PRResult> {

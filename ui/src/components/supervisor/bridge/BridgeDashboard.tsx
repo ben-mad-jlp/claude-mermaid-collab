@@ -31,6 +31,7 @@ import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
 import { NeedsYouZone } from './NeedsYouZone';
 import { InflightPanel } from './InflightPanel';
 import { ReadyPanel } from './ReadyPanel';
+import { StrandedPanel } from './StrandedPanel';
 import { projectPlanStats } from '@/components/layout/SupervisorPanel';
 import { RequirementsInbox } from './RequirementsInbox';
 import { FleetVitals } from './FleetVitals';
@@ -41,7 +42,7 @@ import { PlanPanel } from '../PlanPanel';
 import { MissionsStrip } from '../MissionsStrip';
 import { DecisionCard } from './focal/DecisionCard';
 import { EpicHistoryView } from './EpicHistoryView';
-import { funnelCounts, excludeEpics } from './funnel';
+import { funnelCounts, excludeEpics, isStranded } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
@@ -51,6 +52,7 @@ import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { DogfoodHealthPanel } from './DogfoodHealthPanel';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
+import { epicIdSet, isEpic } from '@/lib/todoKind';
 
 // Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
 // Escalations inbox and the worker roster refresh on the SAME clock — a
@@ -58,6 +60,40 @@ import { getWebSocketClient } from '@/lib/websocket';
 // within the same window the worker card turns red.
 const ESCALATION_POLL_MS = 10_000;
 const DAEMON_COUNTS_POLL_MS = 10_000;
+
+/** Graph-only view: hide finished noise. An epic is an epic BY DECLARED KIND
+ *  (`kind === 'epic'`), never "a todo that has children" — a split leaf keeps its
+ *  children as sub-tasks and a childless epic is still an epic. */
+export function selectGraphTodos(todos: SessionTodo[]): SessionTodo[] {
+  const finished = (t: SessionTodo) => t.status === 'done' || t.status === 'dropped';
+  const ids = new Set(todos.map((t) => t.id));
+  const epicIds = epicIdSet(todos);
+
+  // STRUCTURE (not role): children of each present parent, for the done-rollup below.
+  const childrenByParent = new Map<string, SessionTodo[]>();
+  for (const t of todos) {
+    if (t.parentId && ids.has(t.parentId)) {
+      const arr = childrenByParent.get(t.parentId) ?? [];
+      arr.push(t);
+      childrenByParent.set(t.parentId, arr);
+    }
+  }
+
+  // A "done epic" is a declared epic that HAS children and all of them are finished.
+  // Zero children ⇒ not done (an empty epic lane stays visible).
+  const doneEpics = new Set<string>();
+  for (const pid of epicIds) {
+    const kids = childrenByParent.get(pid);
+    if (kids && kids.length > 0 && kids.every(finished)) doneEpics.add(pid);
+  }
+
+  return todos.filter((t) => {
+    if (t.parentId && doneEpics.has(t.parentId)) return false;   // child of a done epic
+    if (doneEpics.has(t.id)) return false;                        // the done epic itself
+    if (!t.parentId && !isEpic(t) && finished(t)) return false;   // completed orphan
+    return true;
+  });
+}
 
 export const BridgeDashboard: React.FC = () => {
   const currentSession = useSessionStore((s) => s.currentSession);
@@ -350,34 +386,7 @@ export const BridgeDashboard: React.FC = () => {
       .map((s) => ({ ...s, status: s.status as 'active' | 'waiting' | 'permission' | 'unknown' }));
   }, [supervised, projectSubs, project, serverScope, sessionStatuses, fleet]);
 
-  // Graph-only view of the todos: the FleetGraph should not show finished noise —
-  // (a) completed/dropped ORPHAN todos (no parent, not an epic), and (b) EPICS
-  // whose every child is finished (hide the epic and its finished children).
-  // Active epics keep showing all their children (incl. done ones) for context.
-  // The inboxes/funnel/roster still use the full `todos`.
-  const graphTodos = useMemo(() => {
-    const finished = (t: SessionTodo) => t.status === 'done' || t.status === 'dropped';
-    const ids = new Set(todos.map((t) => t.id));
-    const childrenByParent = new Map<string, SessionTodo[]>();
-    for (const t of todos) {
-      if (t.parentId && ids.has(t.parentId)) {
-        const arr = childrenByParent.get(t.parentId) ?? [];
-        arr.push(t);
-        childrenByParent.set(t.parentId, arr);
-      }
-    }
-    const isEpic = (id: string) => childrenByParent.has(id);
-    const doneEpics = new Set<string>();
-    for (const [pid, kids] of childrenByParent) {
-      if (kids.every(finished)) doneEpics.add(pid);
-    }
-    return todos.filter((t) => {
-      if (t.parentId && doneEpics.has(t.parentId)) return false; // child of a fully-done epic
-      if (isEpic(t.id) && doneEpics.has(t.id)) return false;     // the fully-done epic itself
-      if (!t.parentId && !isEpic(t.id) && finished(t)) return false; // completed orphan
-      return true;
-    });
-  }, [todos]);
+  const graphTodos = useMemo(() => selectGraphTodos(todos), [todos]);
 
   const readyCount = useMemo(
     () => {
@@ -386,6 +395,11 @@ export const BridgeDashboard: React.FC = () => {
     },
     [todos],
   );
+
+  const strandedCount = useMemo(() => {
+    const byId = buildById(todos);
+    return excludeEpics(todos).filter((t) => isStranded(t, byId)).length;
+  }, [todos]);
 
   // todoId→title for enriching the stream's thin todo-lifecycle events (render-time join).
   const titleByTodoId = useMemo(
@@ -436,7 +450,7 @@ export const BridgeDashboard: React.FC = () => {
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'subscribers' | 'stream' | 'executor' | 'dogfood' | 'detail'>('escalations');
+  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'stranded' | 'subscribers' | 'stream' | 'executor' | 'dogfood' | 'detail'>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
@@ -526,6 +540,7 @@ export const BridgeDashboard: React.FC = () => {
                     { key: 'land', label: 'Land', count: landEscalations.length, info: true },
                     { key: 'inflight', label: 'In-flight', count: daemonCounts.inflight ?? inflightCount, info: true },
                     { key: 'ready', label: 'Ready', count: daemonCounts.claimable ?? readyCount, info: true },
+                    { key: 'stranded', label: 'Stranded', count: strandedCount, warn: true },
                     { key: 'subscribers', label: 'Subscribers' },
                     { key: 'stream', label: 'Stream' },
                     { key: 'executor', label: 'Executor' },
@@ -533,7 +548,7 @@ export const BridgeDashboard: React.FC = () => {
                     ...((selectedTodoId || selectedEpic)
                       ? [{ key: 'detail' as const, label: selectedEpic ? 'Epic' : 'Todo', closable: true }]
                       : []),
-                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; info?: boolean; closable?: boolean }>).map((t) => (
+                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; warn?: boolean; info?: boolean; closable?: boolean }>).map((t) => (
                     <button
                       key={t.key}
                       type="button"
@@ -548,7 +563,7 @@ export const BridgeDashboard: React.FC = () => {
                     >
                       {t.label}
                       {t.count != null && t.count > 0 && (
-                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : t.info ? 'text-info-700 dark:text-info-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
+                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : t.warn ? 'text-warning-600 dark:text-warning-400 font-semibold' : t.info ? 'text-info-700 dark:text-info-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
                       )}
                       {t.closable && (
                         <span
@@ -575,6 +590,9 @@ export const BridgeDashboard: React.FC = () => {
                   )}
                   {bridgeTab === 'ready' && (
                     <ReadyPanel todos={todos} claimableIds={daemonCounts.claimableIds} onSelectTodo={handleSelectTodo} />
+                  )}
+                  {bridgeTab === 'stranded' && (
+                    <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />
                   )}
                   {bridgeTab === 'subscribers' && (
                     <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />

@@ -127,6 +127,10 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
   } catch {
     /* keep { project } */
   }
+  // Capture the lane's claim token at LANE START (deps are built PER todo), not at
+  // completion — a token read at completion time would always match the current row
+  // and defeat the CAS.
+  const laneClaimToken = storeGetTodo(project, todoId)?.claim?.token ?? undefined;
   return {
     getTodo: (p, id) => {
       const t = storeGetTodo(p, id);
@@ -179,7 +183,7 @@ export function makeCoordinatorWorkerDeps(project: string, todoId: string, opts:
     completeAccepted: async (p, id) => {
       const { makeCoordinatorDeps } = await import('../../services/coordinator-live');
       const { handleWorkerComplete } = await import('../../services/coordinator-daemon');
-      await handleWorkerComplete(makeCoordinatorDeps(), p, id, 'accepted');
+      await handleWorkerComplete(makeCoordinatorDeps(), p, id, 'accepted', laneClaimToken);
     },
 
     escalate: async (p, id, kind, detail) => {

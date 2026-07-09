@@ -6,8 +6,9 @@ import { createTodo, type TodoLink } from './todo-store';
  * One-time, idempotent migration of the legacy per-session todo files
  * (`<project>/.collab/sessions/<session>/session-todos.json`) into the new
  * per-project todo-store. Stamps ownerSession = assigneeSession = <session>,
- * maps completed→status, records a legacy-id→uuid sidecar, and renames the
- * source so it never re-runs.
+ * maps completed→status, stamps `kind:'leaf'` explicitly (legacy checklist
+ * items have no work-graph role), records a legacy-id→uuid sidecar, and
+ * renames the source so it never re-runs.
  */
 
 interface LegacyTodo {
@@ -59,6 +60,12 @@ export async function migrateProject(project: string): Promise<{ migrated: numbe
         assigneeSession: session,
         title: old.text,
         status: old.completed ? 'done' : 'todo',
+        // Stage C / BOMB 1: `kind` is stated, never inferred. Legacy per-session todos
+        // predate the work-graph roles entirely — every one of them is a plain checklist
+        // item, i.e. a leaf. This is a caller that *means* 'leaf', not a caller relying
+        // on a default. If a legacy title happens to start with '[EPIC]' etc, that's an
+        // opaque topic tag from before roles existed — it still imports as a leaf.
+        kind: 'leaf',
         // Legacy import predates every-todo-needs-an-epic — preserve structure verbatim,
         // never reject/auto-home during migration.
         allowOrphan: true,

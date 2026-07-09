@@ -1,12 +1,16 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable, claimReason, derivedStatus, isEpicTitle, isMissionTitle, INBOX_EPIC_TITLE, type ClaimReason } from './claimability';
+import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, type ClaimReason, type TodoKind } from './claimability';
+import { isEpic, isMission, isEpicInput, isMissionInput, kindOfInput, stripLabel } from './todo-kind';
+import type { KindBearing } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
 import { trackingProjectRoot } from './project-registry';
+import type { LeafSplitItem } from './split-decision';
+import { topoSortSplitItems } from './split-decision';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -14,6 +18,13 @@ import { trackingProjectRoot } from './project-registry';
  * so a "managing session" can own/assign todos across sessions with a plain
  * query/write (no cross-store merge). Source of truth is local disk.
  */
+
+/** Bucket epics (Inbox, Bugfix inbox) are NOT convergence work — they are durable
+ *  intake containers and stay work-graph ROOTS even when a mission is active.
+ *  Identity is the title (same convention as `isInboxEpicTitle`), never `kind`. */
+export const BUCKET_EPIC_TITLES: readonly string[] = [INBOX_EPIC_TITLE, 'Bugfix inbox'];
+export const isBucketEpicTitle = (title: string | null | undefined): boolean =>
+  BUCKET_EPIC_TITLES.some((b) => stripLabel(title ?? '').toLowerCase() === b.toLowerCase());
 
 export type TodoStatus = 'backlog' | 'planned' | 'todo' | 'ready' | 'in_progress' | 'blocked' | 'done' | 'dropped';
 
@@ -78,6 +89,10 @@ export interface Todo {
    *  project. The Coordinator spawns the worker with cwd=this and runs the
    *  acceptance gate against this repo's change-set + manifest gate command. */
   targetProject: string | null;
+  /** Work-graph role, migrated off the `[EPIC]`/`[MISSION]`/`[LAND]` title prefix
+   *  (decision e852fb0c, stage A). Nullable ONLY for rows read from a DB opened by
+   *  an older binary; the backfill + create path make it total. NO READER YET. */
+  kind: TodoKind | null;
   acceptanceStatus: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy: string | null;
   claimToken: string | null;
@@ -115,6 +130,11 @@ export interface Todo {
    *  claimable set at CLAIM time while the probe fails — auto-claimable once it
    *  passes, with NO status write and no stored cleared-bit. Null = no probe. */
   claimProbe: string | null;
+  /** SR-7: parent leaf id whose durable blueprint this split child inherits (ledger ref,
+   *  read via getLatestNodeOutput). null = not a split child ⇒ full blueprint. */
+  inheritedBlueprintFrom: string | null;
+  /** SR-7: the files this split child owns (its slice of the parent plan). */
+  inheritedFiles: string[];
 }
 
 export interface TodoFilter {
@@ -141,19 +161,33 @@ export interface CreateTodoInput {
   executedBySession?: string | null;
   blueprintId?: string | null;
   type?: string | null;
+  /** Work-graph role. Explicit only — stage C removed the title-prefix fallback.
+   *  Omitting it means 'leaf'; a mission/epic/land create MUST pass this. */
+  kind?: TodoKind;
   targetProject?: string | null;
   objectRef?: string | null;
   decisionRef?: string | null;
   claimProbe?: string | null;
+  inheritedBlueprintFrom?: string | null;
+  inheritedFiles?: string[];
   /** EVERY-TODO-NEEDS-AN-EPIC guard (373a2d52). A non-epic top-level create (no
-   *  parentId, title not `[EPIC] …`) is an ORPHAN and is REJECTED — so a planning
-   *  skill that forgets to attach an epic fails LOUDLY instead of silently dumping
-   *  into the Inbox. To deliberately file an unplanned high-level thought, set
-   *  `inbox:true` (the ONLY path that homes to [EPIC] Inbox — never assumed). */
+   *  parentId, kind not 'epic'/'mission') is an ORPHAN and is REJECTED — so a
+   *  planning skill that forgets to attach an epic fails LOUDLY instead of silently
+   *  dumping into the Inbox. To deliberately file an unplanned high-level thought,
+   *  set `inbox:true` (the ONLY path that homes to the Inbox epic — never assumed).
+   *  Note: a stored `parentId === null` no longer implies "this row is an epic" —
+   *  a deliverable epic is now parented under the active mission by default (§4d);
+   *  only bucket epics (Inbox/Bugfix inbox), root epics, and missions stay roots.
+   *  Check `kind`, not nullness of `parentId`. */
   inbox?: boolean;
   /** Internal escape hatch for the few legit top-level non-epic creates (data
    *  migration, the readiness-gate dependency primitive). Skips the orphan guard. */
   allowOrphan?: boolean;
+  /** Mission homing for a `kind:'epic'` create (§4d). Omitted → the epic is parented
+   *  to the caller's ACTIVE mission BY DEFAULT. `null` → force a root epic (opt-out).
+   *  A string → parent to that mission explicitly. Ignored for non-epic creates and
+   *  for bucket epics, which are always roots. */
+  missionId?: string | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -163,10 +197,38 @@ export class OrphanTodoError extends Error {
   constructor(title: string) {
     super(
       `Every work todo must belong to an epic — refusing to create "${title}" with no epic. ` +
-      `Pass parentId=<epic id> (the [EPIC] this belongs under), or set inbox:true to deliberately ` +
-      `file an unplanned high-level thought under [EPIC] Inbox.`,
+      `Pass parentId=<epic id> (the epic this belongs under; if you're creating the epic itself, ` +
+      `pass kind:'epic'), or set inbox:true to deliberately file an unplanned high-level thought ` +
+      `under the Inbox epic.`,
     );
     this.name = 'OrphanTodoError';
+  }
+}
+
+/** Thrown by updateTodo when a status:'dropped' patch targets a todo that still
+ *  holds a LIVE claim — dropping it would silently clear the claim out from under
+ *  the run that owns it while it keeps building. Release the claim first
+ *  (releaseClaim / reset_todo), or pass force:true to drop anyway. */
+export class ClaimedTodoDropError extends Error {
+  constructor(public readonly todoId: string, public readonly claimedBy: string, public readonly claimToken: string) {
+    super(
+      `todo ${todoId.slice(0, 8)} is claimed by "${claimedBy}" (token ${claimToken.slice(0, 8)}) and cannot be dropped. ` +
+      `Release the claim first (releaseClaim / reset_todo), or pass force:true to drop and abandon the running build.`,
+    );
+    this.name = 'ClaimedTodoDropError';
+  }
+}
+
+/** A container (mission/epic) cannot be explicitly marked `done` while it still has
+ *  non-terminal descendants — silent abandonment is worse than a loud failure. Drop it
+ *  (`status:'dropped'`, which cascades) or settle the children first. The AUTO-rollup path
+ *  (sweepEpicRollups / completeTodo) never hits this: it writes raw SQL and only fires when
+ *  every child is already done. */
+export class ContainerHasOpenChildrenError extends Error {
+  constructor(public readonly id: string, public readonly openCount: number) {
+    super(`todo ${id.slice(0, 8)} is a container with ${openCount} open descendant(s): ` +
+      `refusing an explicit 'done'. Drop it (cascades) or settle its children first.`);
+    this.name = 'ContainerHasOpenChildrenError';
   }
 }
 
@@ -197,12 +259,17 @@ export type UpdateTodoPatch = Partial<{
   objectRef: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
+  inheritedBlueprintFrom: string | null;
+  inheritedFiles: string[];
   /** De-conflate S1 (additive). Decision axes; readers ignore these until S3.
    *  `claim` is intentionally NOT patchable here — it is mutated only via writeClaim. */
   approvedAt: string | null;
   approvedBy: string | null;
   heldAt: string | null;
   heldReason: string | null;
+  /** Escape hatch for a STALE claim: drop a claimed todo anyway (claim is cleared).
+   *  Without it, dropping a live-claimed todo throws ClaimedTodoDropError. */
+  force: boolean;
 }>;
 
 interface TodoRow {
@@ -227,6 +294,7 @@ interface TodoRow {
   executedBySession: string | null;
   blueprintId: string | null;
   type: string | null;
+  kind: string | null;
   targetProject: string | null;
   acceptanceStatus: string | null;
   claimedBy: string | null;
@@ -243,6 +311,8 @@ interface TodoRow {
   objectRef: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
+  inheritedBlueprintFrom: string | null;
+  inheritedFiles: string | null;
 }
 
 const DDL = `
@@ -268,6 +338,7 @@ CREATE TABLE IF NOT EXISTS todos (
   executedBySession TEXT,
   blueprintId TEXT,
   type TEXT,
+  kind TEXT,
   targetProject TEXT,
   acceptanceStatus TEXT,
   claimedBy TEXT,
@@ -278,7 +349,9 @@ CREATE TABLE IF NOT EXISTS todos (
   completedBy TEXT,
   objectRef TEXT,
   decisionRef TEXT,
-  claimProbe TEXT
+  claimProbe TEXT,
+  inheritedBlueprintFrom TEXT,
+  inheritedFiles TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
 CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);
@@ -328,6 +401,12 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'decisionRef', 'decisionRef TEXT');
   // Readiness-gates P4: nullable operator-env probe spec for the claim-time filter.
   addColumnIfMissing(db, 'todos', 'claimProbe', 'claimProbe TEXT');
+  // Stage C of the title-prefix → column migration (decision e852fb0c). Additive,
+  // nullable at the SQL level, but TOTAL in practice: the backfill below plus the
+  // create-path default mean no row is ever left NULL. This is now the SOLE source
+  // of role truth — the title prefix is stripped below and no longer authoritative.
+  // NB: distinct from `type` (backend|ui|frontend worker routing).
+  addColumnIfMissing(db, 'todos', 'kind', 'kind TEXT');
   // De-conflate Todo work-graph status (S1) — additive, nullable. The decision
   // axes (approval / hold) split out of the overloaded enum, and the in-progress
   // claim collapses to ONE JSON column. Readers are unchanged in S1; these are
@@ -337,6 +416,10 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'heldAt', 'heldAt TEXT');
   addColumnIfMissing(db, 'todos', 'heldReason', 'heldReason TEXT');
   addColumnIfMissing(db, 'todos', 'claim', 'claim TEXT');
+  // SR-7: split children inherit the parent's durable blueprint plan (ledger ref) +
+  // their slice of files. Both nullable; present iff a split child.
+  addColumnIfMissing(db, 'todos', 'inheritedBlueprintFrom', 'inheritedBlueprintFrom TEXT');
+  addColumnIfMissing(db, 'todos', 'inheritedFiles', 'inheritedFiles TEXT');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -349,6 +432,22 @@ function openDb(project: string): Database {
   // DB it lives in" and combine cross-project todos into one diagram. Stamp every
   // NULL with this db's tracking project so the UI can partition by targetProject.
   db.prepare(`UPDATE todos SET targetProject = ? WHERE targetProject IS NULL`).run(project);
+  // One-shot-per-row, idempotent backfill of `kind` from the legacy role prefix.
+  // `WHERE kind IS NULL` makes a second run touch zero rows. Titles are NOT modified
+  // (prefix stripping is stage C). SQLite LIKE is case-insensitive for ASCII, which
+  // matches the /i on the title regexes.
+  db.exec(`UPDATE todos SET kind='mission' WHERE kind IS NULL AND TRIM(title) LIKE '[MISSION]%'`);
+  db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+  db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
+  db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
+  // Stage C (decision e852fb0c): the role prefix is now redundant with `kind`.
+  // Strip EXACTLY the three role prefixes, keyed on the already-backfilled `kind`
+  // column, never on a generic `title LIKE '[%]%'` — most bracketed titles are
+  // human-authored TOPIC tags ([UI], [BUG], [kind C]) and must survive verbatim.
+  // Idempotent: the LIKE guard matches zero rows on a second run.
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), 10)) WHERE kind='mission' AND TRIM(title) LIKE '[MISSION]%'`);
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='epic'    AND TRIM(title) LIKE '[EPIC]%'`);
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='land'    AND TRIM(title) LIKE '[LAND]%'`);
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
   const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -389,7 +488,9 @@ export function backfillDeconflateV1(db: Database): void {
   );
 
   // heldAt: only existing 'blocked' rows are candidates. Recompute depsSatisfied
-  // per-row in TS (depSatisfied keys on status==='done' && acceptanceStatus!='rejected').
+  // per-row in TS via the shared claimability.depSatisfied (done-or-accepted, never rejected;
+  // a dangling dep id is NOT satisfied → the row re-derives as deps-pending rather than
+  // being stamped 'migrated-park').
   {
     const rows = db.query(
       `SELECT id, updatedAt, retryCount, dependsOn FROM todos WHERE status='blocked' AND heldAt IS NULL`
@@ -610,9 +711,22 @@ export function writeClaim(db: Database, id: string, claim: ClaimStruct | null):
  *  (behavior-identical to a separate writeClaim(db,id,null), one fewer write). */
 const CLAIM_CLEAR_SQL = 'claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, claim=NULL';
 
+/** The EXPLICIT container set (decision 3021daa6). Deliberately NOT "has descendants":
+ *  any node that acquires a child would become a drop-bomb, and blast radius stops being
+ *  legible from the node's label. */
+const isContainerKind = (t: KindBearing) => isMission(t) || isEpic(t);
+
+const DESCENDANTS_CTE = `WITH RECURSIVE descendants(did) AS (
+    SELECT id FROM todos WHERE parentId = ?1
+    UNION
+    SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
+  )`;
+
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
+  let inheritedFiles: string[] = [];
+  try { inheritedFiles = JSON.parse(row.inheritedFiles ?? '[]'); } catch { /* default [] */ }
   let link: TodoLink | null = null;
   if (row.link) { try { link = JSON.parse(row.link); } catch { /* null */ } }
   return {
@@ -638,6 +752,7 @@ function rowToTodo(row: TodoRow): Todo {
     executedBySession: row.executedBySession ?? null,
     blueprintId: row.blueprintId ?? null,
     type: row.type ?? null,
+    kind: (row.kind as TodoKind) ?? null,
     targetProject: row.targetProject ?? null,
     acceptanceStatus: (row.acceptanceStatus as Todo['acceptanceStatus']) ?? null,
     claimedBy: row.claimedBy ?? null,
@@ -654,6 +769,8 @@ function rowToTodo(row: TodoRow): Todo {
     objectRef: row.objectRef ?? null,
     decisionRef: row.decisionRef ?? null,
     claimProbe: row.claimProbe ?? null,
+    inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
+    inheritedFiles,
   };
 }
 
@@ -684,21 +801,58 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
   return rows.map(rowToTodo);
 }
 
+/** The one mission a create should home under: `active`, non-terminal, live node.
+ *  Prefers a mission owned by the creating session; with no session match and more
+ *  than one candidate the answer is AMBIGUOUS → null (the epic stays a root rather
+ *  than being silently mis-homed). Lazy import: mission-store imports todo-store, so a
+ *  static edge would close a cycle. Any failure (no mission.db yet) → null, never throw. */
+async function resolveActiveMissionId(project: string, ownerSession?: string | null): Promise<string | null> {
+  try {
+    const { listMissions, isTerminalPhase } = await import('./mission-store.ts');
+    const live = listMissions(project).filter(
+      (m) => m.mission.active && !isTerminalPhase(m.mission.phase) &&
+             m.node.status !== 'done' && m.node.status !== 'dropped',
+    );
+    if (live.length === 0) return null;
+    if (ownerSession) {
+      const mine = live.filter((m) => (m.ownerSession ?? m.assigneeSession) === ownerSession);
+      if (mine.length === 1) return mine[0]!.node.id;
+      if (mine.length > 1) return null;               // ambiguous within the session
+    }
+    return live.length === 1 ? live[0]!.node.id : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve the parent for a create, enforcing every-todo-needs-an-epic. Runs BEFORE
  *  the insert lock (it may itself create the Inbox epic — a recursive createTodo whose
  *  epic title exempts it, so no re-entrant lock). Throws OrphanTodoError for a non-epic
  *  top-level create unless `inbox`/`allowOrphan` is set. */
 async function resolveTodoParent(project: string, input: CreateTodoInput): Promise<string | null> {
   if (input.parentId) return input.parentId;        // caller attached a parent
-  if (isEpicTitle(input.title)) return null;         // an epic is a legitimate root
-  if (isMissionTitle(input.title)) return null;      // a [MISSION] is a durable root (Phase 2a)
+  // isEpicInput/isMissionInput handle CREATE-TIME defaults: an epic/mission create
+  // MUST pass kind:'epic'/'mission' explicitly, or it is treated as a leaf (kindOfInput)
+  // and hits the orphan guard below.
+  if (isEpicInput(input)) {
+    // §4d: DELIVERABLE epics are mission children by DEFAULT; BUCKET epics stay roots.
+    if (input.missionId === null) return null;              // explicit opt-out
+    if (input.missionId) return input.missionId;            // explicit homing
+    if (isBucketEpicTitle(input.title)) return null;        // Inbox / Bugfix inbox
+    return await resolveActiveMissionId(project, input.ownerSession);
+  }
+  if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
-  // inbox:true → home under [EPIC] Inbox (find-or-create). The ONLY auto-home, and explicit.
+  // inbox:true → home under the Inbox epic (find-or-create). The ONLY auto-home, and explicit.
+  // Compare via stripLabel so this matches both the pre-strip row (`[EPIC] Inbox`)
+  // and the post-strip row (`Inbox`) — else the find-or-create forks a duplicate
+  // Inbox epic across the migration boundary.
+  const inboxTitle = stripLabel(INBOX_EPIC_TITLE);
   const existing = listTodos(project, { includeCompleted: true })
-    .find((t) => t.title?.trim() === INBOX_EPIC_TITLE && t.status !== 'dropped');
+    .find((t) => isEpic(t) && stripLabel(t.title) === inboxTitle && t.status !== 'dropped');
   if (existing) return existing.id;
-  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned' });
+  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned', kind: 'epic' });
   return inbox.id;
 }
 
@@ -723,9 +877,9 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, executedBySession, blueprintId, type, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe,
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -735,8 +889,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? [])
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -785,6 +939,29 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     } else {
       status = existing.status;
     }
+
+    // F5: a node holding a LIVE claim must not go terminal-dropped out from under the run
+    // that owns it — the daemon's worker keeps building work the human abandoned. Refuse;
+    // the claim must be released first (releaseClaim / reset_todo), which gives the daemon
+    // a tick to observe the transition. `force:true` is the documented stale-claim escape.
+    if (status === 'dropped' && existing.status !== 'dropped' && !patch.force) {
+      const live = existing.claim ?? (existing.claimedBy && existing.claimToken
+        ? { by: existing.claimedBy, token: existing.claimToken } : null);
+      if (live) throw new ClaimedTodoDropError(id, live.by, live.token);
+    }
+
+    // F2: `done` MUST NOT cascade. An explicit human `done` on a container that still has
+    // open descendants would silently abandon them; refuse instead. Auto-rollup is unaffected
+    // (sweepEpicRollups/completeTodo close containers via raw SQL, and only once every child
+    // has settled — there is nothing to cascade).
+    if (status === 'done' && existing.status !== 'done' && isContainerKind({ kind: existing.kind })) {
+      const openCount = (openDb(project).prepare(
+        `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
+           WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+      ).get(id) as { n: number }).n;
+      if (openCount > 0) throw new ContainerHasOpenChildrenError(id, openCount);
+    }
+
     const completedAt = status === 'done' ? (existing.completedAt ?? nowIso()) : null;
 
     const assigneeKind: AssigneeKind = patch.assigneeKind ?? existing.assigneeKind;
@@ -823,24 +1000,65 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       objectRef: patch.objectRef !== undefined ? patch.objectRef : existing.objectRef,
       decisionRef: patch.decisionRef !== undefined ? patch.decisionRef : existing.decisionRef,
       claimProbe: patch.claimProbe !== undefined ? patch.claimProbe : existing.claimProbe,
+      inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
+      inheritedFiles: patch.inheritedFiles ?? existing.inheritedFiles,
     };
     const db = openDb(project);
     // Claim invariant: claim fields are non-null IFF status==='in_progress'. Any
     // write that moves the todo to a non-in_progress status clears the claim
     // (matches reclaimClaim / releaseExpiredClaims).
     const clearClaim = status !== 'in_progress';
-    db.prepare(
-      `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
-        approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
-        completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
-    ).run(
-      next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
-      JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-      next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
-      approvedAt, approvedBy, heldAt, heldReason,
-      completedAt, completedBy, nowIso(), id
-    );
+    // Auto-cleanup: a todo transitioning INTO a terminal status (done/dropped)
+    // expires any todo/epic subscriptions pointing at it, so a subscriber that
+    // was watching it doesn't accumulate a dead subscription. (completeTodo does
+    // the same for its path incl. rolled-up epics; the notification tick is the
+    // backstop for out-of-band terminal transitions.)
+    const wasTerminal = existing.status === 'done' || existing.status === 'dropped';
+    const nowTerminal = status === 'done' || status === 'dropped';
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
+          approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
+          completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
+      ).run(
+        next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
+        JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
+        approvedAt, approvedBy, heldAt, heldReason,
+        completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), id
+      );
+
+      // CASCADE-DROP: dropping a container (mission or epic) abandons its still-open work —
+      // drop every non-terminal transitive descendant so the lane goes fully terminal instead
+      // of leaving orphaned, still-CLAIMABLE children behind (the daemon would keep building
+      // epics belonging to a mission the human killed).
+      //
+      // `done` is NOT here: see the ContainerHasOpenChildrenError guard above (F2).
+      //
+      // Claim interaction (F5): this RELEASES descendant claims rather than refusing the drop —
+      // refusing a container close because some deep leaf is claimed is its own footgun. But a
+      // released claim does NOT stop the executor already running: leaf 241e72fc ("kill the
+      // running build + clean its worktree") is what makes the release actually stop the work.
+      // Until 241e72fc lands, the release is deliberately incomplete: an orphaned worker can
+      // keep burning tokens on a stranded worktree.
+      //
+      // Also clears heldAt/heldReason/acceptanceStatus (F6) — a dropped descendant that keeps
+      // its hold or its rejected verdict can be resurrected by a later re-parent or re-approve.
+      //
+      // Not best-effort: a cascade that exists to prevent orphaned claimable work must fail
+      // LOUDLY. A throw here rolls back the status write above.
+      if (status === 'dropped' && !wasTerminal && isContainerKind({ kind: existing.kind })) {
+        db.prepare(
+          `${DESCENDANTS_CTE}
+           UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
+             heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
+           WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+        ).run(id, nowIso());
+      }
+    })();
+
     // EVENT-DRIVEN (S3) — retargeted to the INPUT edges that can newly make some
     // todo claimable. Approval going null→non-null is the 'approved' input kick;
     // clearing a hold (heldAt non-null→null) is the 'unheld' input kick.
@@ -849,33 +1067,8 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     } else if (existing.heldAt != null && heldAt == null) {
       fireOrchestratorKick(`unheld:${id.slice(0, 8)}`);
     }
-    // Auto-cleanup: a todo transitioning INTO a terminal status (done/dropped)
-    // expires any todo/epic subscriptions pointing at it, so a subscriber that
-    // was watching it doesn't accumulate a dead subscription. (completeTodo does
-    // the same for its path incl. rolled-up epics; the notification tick is the
-    // backstop for out-of-band terminal transitions.)
-    const wasTerminal = existing.status === 'done' || existing.status === 'dropped';
-    const nowTerminal = status === 'done' || status === 'dropped';
     if (nowTerminal && !wasTerminal) {
       try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
-      // CASCADE-CLOSE: closing an EPIC abandons its still-open work — DROP every non-terminal
-      // transitive descendant so the plan's epic lane goes fully terminal (and hides), instead
-      // of a closed epic lingering on the board because of orphaned undone children. No-op on
-      // the normal auto-complete path (an epic that completes has no open descendants). Inline
-      // [EPIC] check — importing isEpicTodo would cycle (invariant-check imports todo-store).
-      if (/^\s*\[EPIC\]/i.test(next.title ?? '')) {
-        try {
-          db.prepare(
-            `WITH RECURSIVE descendants(did) AS (
-               SELECT id FROM todos WHERE parentId = ?1
-               UNION
-               SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
-             )
-             UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL}, claim=NULL
-             WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`,
-          ).run(id, nowIso());
-        } catch { /* best-effort — never block the epic close on the cascade */ }
-      }
     }
     return getTodo(project, id)!;
   });
@@ -1124,8 +1317,9 @@ export function releaseClaim(project: string, id: string): Promise<boolean> {
  * claimToken / lease / gateCommand. This is the single chokepoint, NOT a
  * skip-flag sprinkled through lease/retry/gate.
  *
- * Dependency resolution still flows both ways: depSatisfied keys only on a dep's
- * status='done' (independent of assigneeKind), so an agent todo depending on a
+ * Dependency resolution still flows both ways: depSatisfied keys on a dep's
+ * terminal completion (done-or-accepted, never rejected), regardless of assigneeKind,
+ * so an agent todo depending on a
  * human todo becomes claimable the moment the human marks it done, and a human
  * todo depending on an agent todo becomes actionable (in the B3 inbox VIEW) once
  * the agent finishes + gate passes. The filter only removes human todos from the
@@ -1212,7 +1406,8 @@ export interface CreateGateResult { gate: Todo; workTodo: Todo; }
  *     filters assigneeKind!=='agent');
  *  2. append the gate's id to the work-todo's dependsOn and park the work-todo
  *     'blocked'.
- * Because depSatisfied keys only on status==='done' (regardless of assigneeKind),
+ * Because depSatisfied keys on a dep's terminal completion (done-or-accepted, never
+ * rejected), regardless of assigneeKind,
  * the open gate holds the work-todo blocked — never auto-promoted, never claimed/
  * false-failed — and completing the gate auto-promotes it to 'ready' on the SAME
  * completeTodo tick (the unblock pass), with no new status and no reset_todo.
@@ -1230,6 +1425,7 @@ export async function createGate(project: string, input: CreateGateInput): Promi
     title,
     description: input.description ?? null,
     decisionRef: input.decisionRef ?? null,
+    kind: 'leaf',  // a gate is a human leaf, never a container
     // A [GATE] is a dependency PRIMITIVE, not a work todo: when the caller leaves it
     // unparented it attaches to the work-todo via dependsOn, so don't orphan-reject it.
     allowOrphan: input.parentId == null,
@@ -1326,19 +1522,6 @@ export interface CompleteTodoResult {
 }
 
 /**
- * Whether a dependency satisfies its dependents (PCS design #1: unblock only on
- * done-AND-accepted). A dep counts as satisfied when it is 'done' and NOT
- * explicitly 'rejected' — so a rejected completion never propagates to
- * dependents (they stay blocked), while null/pending/accepted completions
- * propagate as before (backward-compatible). An unknown dep id is treated as
- * external/satisfied, preserving prior behavior.
- */
-function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined): boolean {
-  if (dep === undefined) return true;
-  return dep.status === 'done' && dep.acceptanceStatus !== 'rejected';
-}
-
-/**
  * Mark a todo done and unblock its dependents.
  * Status semantics: planned=proposed-not-yet-approved; ready=approved & deps-done (claimable);
  * blocked=approved but deps pending; in_progress=claimed; done; dropped=abandoned.
@@ -1430,9 +1613,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       if (!parent || parent.status === 'done' || parent.status === 'dropped' || parent.heldAt != null) break;
       // Convergence-loop MISSION root (Phase 2a): a `[MISSION]` container is DURABLE and
       // must never auto-close when its iteration's epics all complete — the mission
-      // outlives them. Inline [MISSION] check mirrors the [EPIC] cascade guard below
-      // (importing isMissionTitle would cycle: claimability imports the Todo type here).
-      if (/^\s*\[MISSION\]/i.test(parent.title ?? '')) break;
+      // outlives them.
+      if (isMission(parent)) break;
       const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId && t.status !== 'dropped');
       if (children.length === 0) break;
       const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
@@ -1552,55 +1734,80 @@ export interface SplitLeafResult {
 }
 
 /**
- * Worker-decomposition: split a too-big LEAF into one child leaf per file, UNDER the
- * leaf itself. The leaf becomes a non-executable dependency-grouping CONTAINER — it owns
+ * Worker-decomposition: split a too-big LEAF into one child leaf per ITEM (not per file),
+ * UNDER the leaf itself. SR-6: items may carry multiple files and real sibling `dependsOn`
+ * edges. The leaf becomes a non-executable dependency-grouping CONTAINER — it owns
  * NO git branch and triggers NO merge; its children commit to the same enclosing epic
  * branch (resolveEpicId walks past this node) and complete as ordinary leaves, and
  * {@link sweepEpicRollups} closes the container once they all settle. Dependents of the
  * leaf keep pointing AT it and unblock when the rollup marks it done — so NO dependency
  * repointing is needed, and the epic's [LAND] leaf stays the sole merge-to-master authority.
  *
+ * Accepts `LeafSplitItem[] | string[]` for back-compat; plain strings are normalized to one
+ * edgeless item per file (the legacy file-count path).
+ *
  * Idempotent: a leaf that already has live (non-dropped) children is a no-op. Children are
- * created FIRST, THEN the leaf's own claim is cleared and it is parked 'planned', so the
- * container claim-guard (planCoordinatorTick) never re-claims it between the two writes.
+ * created FIRST (in topological order), THEN the leaf's own claim is cleared and it is parked
+ * 'planned', so the container claim-guard (planCoordinatorTick) never re-claims it between
+ * the two writes.
  */
 export async function splitLeafInto(
   project: string,
   leaf: Todo,
-  files: string[],
+  items: LeafSplitItem[] | string[],
 ): Promise<SplitLeafResult> {
-  const uniqueFiles = [...new Set(files.map((f) => f.trim()).filter(Boolean))];
+  // Legacy string[] ⇒ one edgeless item per file.
+  const normalised: LeafSplitItem[] = (items as unknown[]).map((it) =>
+    typeof it === 'string'
+      ? { id: it.trim(), files: [it.trim()], dependsOn: [] }
+      : it as LeafSplitItem,
+  ).filter((i) => i.id && i.files.length > 0);
+
   // Re-entrancy: never re-split a leaf that already has live children.
   const existing = listTodos(project, { includeCompleted: true })
     .filter((t) => t.parentId === leaf.id && t.status !== 'dropped');
   if (existing.length > 0) {
     return { parentId: leaf.id, childIds: existing.map((t) => t.id) };
   }
+
+  // Create in DEPENDENCY order so a child's dep ids already exist when it is written.
+  const ordered = topoSortSplitItems(normalised);
+  const idOf = new Map<string, string>();              // item id -> created todo id
   const childIds: string[] = [];
-  for (const file of uniqueFiles) {
+  for (const item of ordered) {
     const child = await createTodo(project, {
       ownerSession: leaf.ownerSession ?? 'coordinator',
       assigneeSession: leaf.assigneeSession ?? null,
       assigneeKind: 'agent',
-      title: `${leaf.title ?? leaf.id} — ${file}`,
+      title: `${leaf.title ?? leaf.id} — ${item.files.join(', ')}`,
       description:
-        `Split child of leaf ${leaf.id.slice(0, 8)} (auto-decomposed: too many files for one run).\n` +
-        `Implement ONLY this file: ${file}\n\n` +
+        `Split child of leaf ${leaf.id.slice(0, 8)} (decomposed by its blueprint).\n` +
+        `Implement ONLY these files: ${item.files.join(', ')}\n` +
+        (item.description ? `${item.description}\n` : '') + '\n' +
         `Parent leaf spec:\n${leaf.description ?? '(no description)'}`,
-      // 5dffee35: split children are PROPOSED (planned), NOT auto-promoted to ready. The
-      // planner-promotes-ready invariant: a worker proposes a split; only the planner (human)
-      // promotes the children. Auto-readying them let the daemon immediately claim 14
-      // un-reviewed file-atoms (incl. interdependent shared modules) → broken parallel build.
+      // 5dffee35: split children are PROPOSED (planned), NOT auto-promoted to ready.
       status: 'planned',
       priority: leaf.priority,
       parentId: leaf.id,
-      dependsOn: leaf.dependsOn ?? [],
+      // SR-6: the parent's deps PLUS real edges to the sibling items this one waits on.
+      dependsOn: [
+        ...(leaf.dependsOn ?? []),
+        ...item.dependsOn.map((d) => idOf.get(d)).filter((x): x is string => !!x),
+      ],
       type: leaf.type,
       targetProject: leaf.targetProject ?? project,
       sessionName: leaf.sessionName ?? null,
+      // SR-7: the child inherits the parent's DURABLE blueprint (ledger ref) scoped to
+      // its own files. Its blueprint node becomes a cheap sonnet REFRESH, not an opus
+      // re-derivation. The ref is resolved at run time; a missing/under-specified plan
+      // falls back to a full blueprint.
+      inheritedBlueprintFrom: leaf.id,
+      inheritedFiles: item.files,
     });
+    idOf.set(item.id, child.id);
     childIds.push(child.id);
   }
+
   // The leaf is now a container: clear its claim and park it non-terminal so the container
   // claim-guard skips it and sweepEpicRollups rolls it up once all children are accepted.
   await withLock(project, () => {
@@ -1610,6 +1817,51 @@ export async function splitLeafInto(
     ).run(nowIso(), leaf.id);
   });
   return { parentId: leaf.id, childIds };
+}
+
+export interface CollapseSplitResult {
+  leafId: string;
+  /** ids of children this call dropped (empty on a re-run → idempotent). */
+  droppedChildIds: string[];
+  /** true when there was nothing to drop (already collapsed / never split). */
+  alreadyCollapsed: boolean;
+}
+
+/**
+ * The inverse of {@link splitLeafInto}: undo a leaf split by dropping its open children and
+ * restoring the leaf itself to a claimable leaf, atomically, preserving the leaf's id (and
+ * therefore its blueprint). Idempotent — a second call finds no live children and reports
+ * `alreadyCollapsed: true`.
+ *
+ * Collapsing does NOT make a decline durable — the size gate re-splits on the next claim
+ * until the spec changes (SR-3).
+ */
+export async function collapseSplit(project: string, leafId: string): Promise<CollapseSplitResult> {
+  assertProjectLocal(project);
+  const leaf = getTodo(project, leafId);
+  if (!leaf) throw new Error(`No such todo: ${leafId}`);
+  // Containers are recognised by DECLARED kind, never by a title prefix (criterion 1).
+  // Merge note: arrived from 9b32bdbc against isEpicTitle/isMissionTitle, deleted by the
+  // kind migration. The text merge was clean; only tsc caught it.
+  if (isEpic(leaf) || isMission(leaf)) {
+    throw new Error('collapseSplit refuses an epic/mission container — it is not a split leaf');
+  }
+  const liveChildren = listTodos(project, { includeCompleted: true })
+    .filter((t) => t.parentId === leafId && t.status !== 'dropped' && t.status !== 'done');
+  const droppedChildIds = liveChildren.map((t) => t.id);
+  await withLock(project, () => {
+    const db = openDb(project);
+    const ts = nowIso();
+    for (const childId of droppedChildIds) {
+      db.prepare(
+        `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+      ).run(ts, childId);
+    }
+    db.prepare(
+      `UPDATE todos SET status='planned', acceptanceStatus=NULL, ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+    ).run(ts, leafId);
+  });
+  return { leafId, droppedChildIds, alreadyCollapsed: droppedChildIds.length === 0 };
 }
 
 export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
@@ -1653,7 +1905,7 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
         if (epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) continue;
         // Phase 2a: a `[MISSION]` root is durable — never rolled up even when all its
         // iteration epics settle (mirrors the event-path guard in completeTodo).
-        if (/^\s*\[MISSION\]/i.test(epic.title ?? '')) continue;
+        if (isMission(epic)) continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) continue; // not an epic / no live children
         if (!children.every((c) => c.status === 'done')) continue; // a child still open
@@ -1797,6 +2049,49 @@ export interface ImportTodoInput {
   sessionName?: string | null;
   blueprintId?: string | null;
   type?: string | null;
+}
+
+export interface EpicBackfillResult {
+  moved: string[];
+  skipped: Array<{ id: string; reason: string }>;
+}
+
+/** Re-home the NAMED deliverable epics under `missionId`. Caller decides per-epic
+ *  (design doc §4d: "do NOT bulk-move" — this is not a scan-and-move sweep). Refuses:
+ *  unknown id, non-epic kind, bucket epic, already-parented epic, non-mission target.
+ *  Idempotent: re-running with the same ids/mission is a no-op skip, not an error. */
+export async function backfillEpicsUnderMission(
+  project: string,
+  missionId: string,
+  epicIds: string[],
+): Promise<EpicBackfillResult> {
+  const mission = getTodo(project, missionId);
+  if (!mission || !isMission(mission)) {
+    throw new Error(`backfillEpicsUnderMission: ${missionId.slice(0, 8)} is not a mission`);
+  }
+  const result: EpicBackfillResult = { moved: [], skipped: [] };
+  for (const id of epicIds) {
+    const epic = getTodo(project, id);
+    if (!epic) {
+      result.skipped.push({ id, reason: 'not-found' });
+      continue;
+    }
+    if (!isEpic(epic)) {
+      result.skipped.push({ id, reason: 'not-an-epic' });
+      continue;
+    }
+    if (isBucketEpicTitle(epic.title)) {
+      result.skipped.push({ id, reason: 'bucket-epic' });
+      continue;
+    }
+    if (epic.parentId != null) {
+      result.skipped.push({ id, reason: 'already-parented' });
+      continue;
+    }
+    await updateTodo(project, id, { parentId: missionId });
+    result.moved.push(id);
+  }
+  return result;
 }
 
 export function importTodo(project: string, input: ImportTodoInput): void {

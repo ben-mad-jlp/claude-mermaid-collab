@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 2,
+  "note": "Shared server+UI case table for the `kind` column, stage C (decisions e852fb0c / ea83ac9f). Stored titles no longer carry a role prefix. `kind` is the ONLY source of role truth: no predicate, and nothing on any insert path, may read a title. `cases[].title` is display text only and several cases deliberately CONTRADICT their `kind` (a stale `[MISSION]` prefix on an `epic`) to prove it is never consulted. `backfillCases` are the sole place a title implies a kind, and they describe rows written BEFORE the strip - input to the one-way migration only, never to a runtime predicate.",
+  "kinds": ["mission", "epic", "land", "leaf"],
+  "labels": {
+    "mission": "[MISSION]",
+    "epic": "[EPIC]",
+    "land": "[LAND]",
+    "leaf": ""
+  },
+  "cases": [
+    {
+      "name": "canonical mission",
+      "title": "Converge the build loop",
+      "kind": "mission",
+      "isMission": true,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[MISSION]"
+    },
+    {
+      "name": "canonical epic",
+      "title": "Escalation briefing",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]"
+    },
+    {
+      "name": "canonical land",
+      "title": "merge epic 45e2fb60 to master",
+      "kind": "land",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": true,
+      "isLeaf": false,
+      "label": "[LAND]"
+    },
+    {
+      "name": "plain leaf, no prefix",
+      "title": "Wire resolveEpicId to kind",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "the Inbox epic is an epic by kind - BOMB 1 witness: kindFromTitle would say leaf",
+      "title": "Bugfix inbox",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]"
+    },
+    {
+      "name": "leaf whose title merely CONTAINS the word inbox (topic-vs-role trap)",
+      "title": "Fix inbox planning-only guard",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "leaf whose title MENTIONS a role prefix mid-string - never a role",
+      "title": "Stop reading [EPIC] out of titles",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "empty title is a leaf",
+      "title": "",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "null title is a leaf",
+      "title": null,
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "topic tag survives - bracketed title that is NOT a role",
+      "title": "[UI] Plan list doesn't refresh",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "this epic's own topic tag",
+      "title": "[kind C] STRIP: remove role prefixes",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "stale prefix, column wins - title and kind deliberately disagree",
+      "title": "[MISSION] stale prefix, column wins",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]"
+    },
+    {
+      "name": "stale prefix on a leaf, left over from a hand-edited title",
+      "title": "[LAND] left over from a hand-edited title",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    }
+  ],
+  "throwCases": [
+    {
+      "name": "kind:null with a [MISSION] title (explicit null)",
+      "input": { "kind": null, "title": "[MISSION] Converge" },
+      "throws": "MissingKindError"
+    },
+    {
+      "name": "kind key absent with a bare title (undefined)",
+      "input": { "title": "plain leaf" },
+      "throws": "MissingKindError"
+    },
+    {
+      "name": "kind:\"bogus\" with a [LAND] title",
+      "input": { "kind": "bogus", "title": "[LAND] x" },
+      "throws": "MissingKindError"
+    },
+    {
+      "name": "empty payload",
+      "input": {},
+      "throws": "MissingKindError"
+    },
+    {
+      "name": "null payload",
+      "input": null,
+      "throws": "MissingKindError"
+    }
+  ],
+  "backfillCases": [
+    {
+      "name": "mission prefix",
+      "title": "[MISSION] Converge the build loop",
+      "kind": "mission",
+      "stripped": "Converge the build loop"
+    },
+    {
+      "name": "epic prefix",
+      "title": "[EPIC] Escalation briefing",
+      "kind": "epic",
+      "stripped": "Escalation briefing"
+    },
+    {
+      "name": "land prefix",
+      "title": "[LAND] merge epic 45e2fb60 to master",
+      "kind": "land",
+      "stripped": "merge epic 45e2fb60 to master"
+    },
+    {
+      "name": "leading whitespace is tolerated (regex ^\\s*, SQL TRIM) - stripped has no leading/trailing space",
+      "title": "   [EPIC] leading spaces",
+      "kind": "epic",
+      "stripped": "leading spaces"
+    },
+    {
+      "name": "prefix match is case-insensitive (regex /i, SQLite LIKE)",
+      "title": "[epic] lowercase prefix",
+      "kind": "epic",
+      "stripped": "lowercase prefix"
+    },
+    {
+      "name": "mission wins over epic when checked in order - exactly one prefix comes off (String.replace, not a loop)",
+      "title": "[MISSION] [EPIC] ambiguous double prefix",
+      "kind": "mission",
+      "stripped": "[EPIC] ambiguous double prefix"
+    },
+    {
+      "name": "topic tag untouched - never strip on title LIKE '[%]%'",
+      "title": "[UI] Plan list doesn't refresh",
+      "kind": "leaf",
+      "stripped": "[UI] Plan list doesn't refresh"
+    },
+    {
+      "name": "this epic's own topic tag, stripped verbatim",
+      "title": "[kind C] STRIP: remove role prefixes",
+      "kind": "leaf",
+      "stripped": "[kind C] STRIP: remove role prefixes"
+    },
+    {
+      "name": "no prefix at all, stripped verbatim - this is why insert-time inference is BOMB 1: the real row is an epic",
+      "title": "Bugfix inbox",
+      "kind": "leaf",
+      "stripped": "Bugfix inbox"
+    },
+    {
+      "name": "empty title",
+      "title": "",
+      "kind": "leaf",
+      "stripped": ""
+    }
+  ]
+}

@@ -12,6 +12,16 @@ import {
 import { validateStewardProof, type ProofContext } from '../steward-proof';
 
 let seq = 0;
+
+/** `kind` is authoritative now, but these fixtures are written in the older title
+ *  dialect ("[EPIC] …", "[LAND] …"). Derive the kind from that prefix so a fixture
+ *  keeps reading as one line. An explicit `kind` in the partial always wins. */
+function inferKind(title: string): Todo['kind'] {
+  if (/^\s*\[EPIC\]/i.test(title)) return 'epic';
+  if (/^\s*\[LAND\]/i.test(title)) return 'land';
+  return 'leaf';
+}
+
 function todo(partial: Partial<Todo> & { id?: string; title: string; status?: TodoStatus }): Todo {
   const status = partial.status ?? 'ready';
   return {
@@ -50,6 +60,9 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     decisionRef: null,
     claimProbe: null,
     ...partial,
+    kind: partial.kind ?? inferKind(partial.title),
+    inheritedBlueprintFrom: partial.inheritedBlueprintFrom ?? null,
+    inheritedFiles: partial.inheritedFiles ?? [],
     id: partial.id ?? `t${++seq}`,
     status,
     completed: status === 'done',

@@ -72,12 +72,23 @@ const SESSION = 'conductor-A';
 
 let seq = 0;
 
+/** `kind` is authoritative now, but these fixtures are written in the older title
+ *  dialect ("[EPIC] …", "[MISSION] …", "[LAND] …"). Derive the kind from that prefix
+ *  so each fixture stays a one-liner. An explicit `kind` in the partial always wins. */
+function inferKind(title: string): Todo['kind'] {
+  if (/^\s*\[MISSION\]/i.test(title)) return 'mission';
+  if (/^\s*\[EPIC\]/i.test(title)) return 'epic';
+  if (/^\s*\[LAND\]/i.test(title)) return 'land';
+  return 'leaf';
+}
+
 function todo(partial: Partial<Todo> & { id?: string; title: string }): Todo {
   const { title, id, status: statusOverride, ...rest } = partial;
   const status = statusOverride ?? ('ready' as const);
   return {
     id: id ?? `t${++seq}`,
     title,
+    kind: inferKind(title),
     ownerSession: 's',
     assigneeSession: null,
     assigneeKind: 'agent',

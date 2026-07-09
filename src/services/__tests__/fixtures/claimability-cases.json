@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "$comment": "SHARED fixture proving src/services/claimability.ts and ui/src/lib/claimability.ts agree, byte for byte, on claimReason/derivedStatus/isClaimable. Decision 68b8bb09 (option A) added the DERIVED reason `dep-dropped`. Cascade order pinned here: terminal > in-flight > rejected > inbox-planning > unapproved > held > dep-rejected > dep-dropped > deps-pending > human-assignee > claimable. dep-rejected precedes dep-dropped because a rejected dep is a gate failure a human is already being asked to look at — the more actionable signal. Fix it, and the todo re-reports dep-dropped on the next read. Both precede deps-pending, the only dep state that resolves without a human. Each `todos[]` entry is a Partial<Todo> INTERSECT Partial<SessionTodo>: spread it through each suite's own mk() factory. Never add a field outside that intersection.",
+  "constants": {
+    "APPROVED": "2026-06-17T00:00:00Z",
+    "CLAIM": { "by": "coordinator", "token": "tok", "at": "2026-06-17T00:00:00Z", "leaseMs": 1000 }
+  },
+  "cases": [
+    {
+      "name": "terminal-done",
+      "why": "a done todo never re-enters the pipeline",
+      "subject": "T",
+      "todos": [{ "id": "T", "kind": "leaf", "status": "done", "approvedAt": "2026-06-17T00:00:00Z" }],
+      "expect": { "claimReason": "terminal", "derivedStatus": "done", "isClaimable": false }
+    },
+    {
+      "name": "in-flight-claimed",
+      "why": "an active claim outranks every dependency gate",
+      "subject": "T",
+      "todos": [{
+        "id": "T", "kind": "leaf", "status": "planned", "approvedAt": "2026-06-17T00:00:00Z",
+        "claim": { "by": "coordinator", "token": "tok", "at": "2026-06-17T00:00:00Z", "leaseMs": 1000 }
+      }],
+      "expect": { "claimReason": "in-flight", "derivedStatus": "in_progress", "isClaimable": false }
+    },
+    {
+      "name": "own-rejected",
+      "why": "80f85190 — a self-rejected leaf parks for a human, never auto-reclaims",
+      "subject": "T",
+      "todos": [{ "id": "T", "kind": "leaf", "status": "planned", "acceptanceStatus": "rejected", "approvedAt": "2026-06-17T00:00:00Z" }],
+      "expect": { "claimReason": "rejected", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "inbox-planning-child",
+      "why": "an Inbox child is planning-only even when approved (373a2d52)",
+      "subject": "T",
+      "todos": [
+        { "id": "INBOX", "kind": "epic", "title": "Inbox", "status": "planned" },
+        { "id": "T", "kind": "leaf", "parentId": "INBOX", "status": "planned", "approvedAt": "2026-06-17T00:00:00Z" }
+      ],
+      "expect": { "claimReason": "inbox-planning", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "unapproved",
+      "why": "approvedAt is the stored DECISION gate",
+      "subject": "T",
+      "todos": [{ "id": "T", "kind": "leaf", "status": "planned", "approvedAt": null }],
+      "expect": { "claimReason": "unapproved", "derivedStatus": "planned", "isClaimable": false }
+    },
+    {
+      "name": "held",
+      "why": "heldAt gates an otherwise-approved todo",
+      "subject": "T",
+      "todos": [{
+        "id": "T", "kind": "leaf", "status": "planned",
+        "approvedAt": "2026-06-17T00:00:00Z", "heldAt": "2026-06-17T00:00:00Z"
+      }],
+      "expect": { "claimReason": "held", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "dep-dropped-strands-outside-dependent",
+      "why": "THE F4 BUG (68b8bb09). T lives outside the dropped subtree; its dependsOn points in. Pre-change this read `deps-pending` and T was silently, permanently unclaimable.",
+      "subject": "T",
+      "todos": [
+        { "id": "E1", "kind": "epic", "title": "Live epic", "status": "planned" },
+        { "id": "E2", "kind": "epic", "title": "Dropped epic", "status": "dropped" },
+        { "id": "D", "kind": "leaf", "parentId": "E2", "status": "dropped" },
+        { "id": "T", "kind": "leaf", "parentId": "E1", "status": "planned", "dependsOn": ["D"], "approvedAt": "2026-06-17T00:00:00Z" }
+      ],
+      "expect": { "claimReason": "dep-dropped", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "dep-rejected-outranks-dep-dropped",
+      "why": "ORDERING PIN (claimability.ts:118-124): blocked by BOTH a rejected and a dropped dep, the todo reports `dep-rejected` — the rejected dep is alive, reset-able, and already on a human's desk. Fix it and the next read reports `dep-dropped`.",
+      "subject": "T",
+      "todos": [
+        { "id": "D_DROPPED", "kind": "leaf", "status": "dropped" },
+        { "id": "D_REJECTED", "kind": "leaf", "status": "done", "acceptanceStatus": "rejected" },
+        { "id": "T", "kind": "leaf", "status": "planned", "dependsOn": ["D_REJECTED", "D_DROPPED"], "approvedAt": "2026-06-17T00:00:00Z" }
+      ],
+      "expect": { "claimReason": "dep-rejected", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "dep-dropped-outranks-deps-pending",
+      "why": "ORDERING PIN: the permanent blocker wins over the wait-and-it-resolves one",
+      "subject": "T",
+      "todos": [
+        { "id": "D_DROPPED", "kind": "leaf", "status": "dropped" },
+        { "id": "D_PENDING", "kind": "leaf", "status": "planned" },
+        { "id": "T", "kind": "leaf", "status": "planned", "dependsOn": ["D_PENDING", "D_DROPPED"], "approvedAt": "2026-06-17T00:00:00Z" }
+      ],
+      "expect": { "claimReason": "dep-dropped", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "reset-dep-self-heals",
+      "why": "SELF-HEAL PROOF: identical graph to dep-dropped-strands-outside-dependent with D reset off `dropped`. T falls straight back to deps-pending, so `dep-dropped` is DERIVED — no column, nothing to migrate.",
+      "subject": "T",
+      "todos": [
+        { "id": "E1", "kind": "epic", "title": "Live epic", "status": "planned" },
+        { "id": "E2", "kind": "epic", "title": "Un-dropped epic", "status": "planned" },
+        { "id": "D", "kind": "leaf", "parentId": "E2", "status": "planned" },
+        { "id": "T", "kind": "leaf", "parentId": "E1", "status": "planned", "dependsOn": ["D"], "approvedAt": "2026-06-17T00:00:00Z" }
+      ],
+      "expect": { "claimReason": "deps-pending", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "dep-rejected",
+      "why": "a rejected dep is DISTINCT from a merely-pending one and is recoverable by reset_todo",
+      "subject": "T",
+      "todos": [
+        { "id": "D", "kind": "leaf", "status": "done", "acceptanceStatus": "rejected" },
+        { "id": "T", "kind": "leaf", "status": "planned", "dependsOn": ["D"], "approvedAt": "2026-06-17T00:00:00Z" }
+      ],
+      "expect": { "claimReason": "dep-rejected", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "dangling-dep-is-not-dropped",
+      "why": "F3: a dep id resolving to no row is a DATA BUG, not a drop. It must NOT masquerade as dep-dropped.",
+      "subject": "T",
+      "todos": [{ "id": "T", "kind": "leaf", "status": "planned", "dependsOn": ["GHOST"], "approvedAt": "2026-06-17T00:00:00Z" }],
+      "expect": { "claimReason": "deps-pending", "derivedStatus": "blocked", "isClaimable": false }
+    },
+    {
+      "name": "dep-accepted-not-done-satisfies",
+      "why": "75f7e304 symmetry: a dep terminal for ITSELF must satisfy its dependents. Fails on the UI side until the sibling leaf unifies ui/src/lib/claimability.ts::depSatisfied — that failure is the fixture doing its job.",
+      "subject": "T",
+      "todos": [
+        { "id": "D", "kind": "leaf", "status": "in_progress", "acceptanceStatus": "accepted" },
+        { "id": "T", "kind": "leaf", "status": "planned", "dependsOn": ["D"], "assigneeKind": "agent", "approvedAt": "2026-06-17T00:00:00Z" }
+      ],
+      "expect": { "claimReason": "claimable", "derivedStatus": "ready", "isClaimable": true }
+    },
+    {
+      "name": "human-assignee",
+      "why": "the agent-vs-human split is LAST: a fully-unblocked human todo is actionable, not daemon-claimed",
+      "subject": "T",
+      "todos": [{ "id": "T", "kind": "leaf", "status": "planned", "assigneeKind": "human", "approvedAt": "2026-06-17T00:00:00Z" }],
+      "expect": { "claimReason": "human-assignee", "derivedStatus": "blocked", "isClaimable": false }
+    }
+  ]
+}

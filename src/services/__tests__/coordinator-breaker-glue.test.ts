@@ -70,20 +70,14 @@ import {
   MAX_TOTAL_WAIT_MS,
 } from '../headless-breaker';
 import type { Todo } from '../todo-store';
+import type { TodoKind } from '../todo-kind';
 import type { LeafNodeKind } from '../leaf-executor';
+import { mkTodo } from './fixtures/mk-todo';
 
 const TEST_PROJECT = mkdtempSync(join(tmpdir(), 'mc-breaker-glue-proj-'));
 
-function makeTodo(overrides: Partial<Todo> = {}): Todo {
-  return {
-    id: 'test-todo-id-0001',
-    title: 'Test leaf todo',
-    status: 'in_progress',
-    assigneeKind: 'agent',
-    parentId: null,
-    ...overrides,
-  } as Todo;
-}
+const makeTodo = (over: Partial<Todo> & { kind: TodoKind }): Todo =>
+  mkTodo({ id: 'test-todo-id-0001', title: 'Test leaf todo', status: 'in_progress', ...over });
 
 beforeEach(() => {
   resetBreaker();
@@ -101,7 +95,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     expect(breakerOpen()).toBe(true);
 
     const deps = makeCoordinatorDeps();
-    const todo = makeTodo();
+    const todo = makeTodo({ kind: 'leaf' });
     const result = await deps.launchWorker(TEST_PROJECT, todo);
 
     expect(result).toBe(false);
@@ -116,7 +110,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     expect(breakerOpen()).toBe(false);
 
     const deps = makeCoordinatorDeps();
-    const todo = makeTodo();
+    const todo = makeTodo({ kind: 'leaf' });
     const result = await deps.launchWorker(TEST_PROJECT, todo);
     await new Promise((r) => setTimeout(r, 0)); // fire-and-track: runLeaf runs in the continuation
 
@@ -130,7 +124,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     leafResult = { outcome: 'paused', paused: pausedPayload, attempts: 1, nodesSpent: 4 };
 
     const deps = makeCoordinatorDeps();
-    const todo = makeTodo();
+    const todo = makeTodo({ kind: 'leaf' });
     const result = await deps.launchWorker(TEST_PROJECT, todo);
     await new Promise((r) => setTimeout(r, 0)); // fire-and-track: pause handling runs in the continuation
 
@@ -166,7 +160,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     leafResult = { outcome: 'accepted', attempts: 1, nodesSpent: 2 };
 
     const deps = makeCoordinatorDeps();
-    await deps.launchWorker(TEST_PROJECT, makeTodo());
+    await deps.launchWorker(TEST_PROJECT, makeTodo({ kind: 'leaf' }));
     await new Promise((r) => setTimeout(r, 0)); // fire-and-track: streak reset runs in the continuation
 
     // After the accepted run, streak was reset → the next trip should start at BASE
@@ -185,7 +179,7 @@ describe('coordinator breaker glue (Finding 1 + P3 wiring seam)', () => {
     // Drive an accepted run for a DIFFERENT todo
     leafResult = { outcome: 'accepted', attempts: 1, nodesSpent: 2 };
     const deps = makeCoordinatorDeps();
-    await deps.launchWorker(TEST_PROJECT, makeTodo({ id: 'different-todo-id' }));
+    await deps.launchWorker(TEST_PROJECT, makeTodo({ id: 'different-todo-id', kind: 'leaf' }));
     await new Promise((r) => setTimeout(r, 0)); // fire-and-track: accepted handling runs in the continuation
 
     // The other-leaf-id paused entry must still be in the registry

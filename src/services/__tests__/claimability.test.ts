@@ -13,7 +13,19 @@ import {
   parentIsInbox,
   INBOX_EPIC_TITLE,
 } from '../claimability';
+import type { ClaimReason } from '../claimability';
 import type { Todo } from '../todo-store';
+import { kindOf, MissingKindError } from '../todo-kind';
+import rawCases from './fixtures/claimability-cases.json';
+
+interface ParityCase {
+  name: string;
+  why: string;
+  subject: string;
+  todos: Partial<Todo>[];
+  expect: { claimReason: ClaimReason; derivedStatus: string; isClaimable: boolean };
+}
+const cases = rawCases as unknown as { cases: ParityCase[] };
 
 function mk(over: Partial<Todo> = {}): Todo {
   return {
@@ -21,11 +33,11 @@ function mk(over: Partial<Todo> = {}): Todo {
     title: 't', description: null, status: 'planned', completed: false, priority: null,
     dueDate: null, parentId: null, dependsOn: [], order: 0, link: null,
     createdAt: '', updatedAt: '', completedAt: null, asanaGid: null, sessionName: null,
-    executedBySession: null, blueprintId: null, type: null, targetProject: null,
+    executedBySession: null, blueprintId: null, type: null, kind: 'leaf', targetProject: null,
     acceptanceStatus: null, claimedBy: null, claimToken: null, claimedAt: null,
     claimLeaseMs: null, claim: null, approvedAt: null, approvedBy: null, heldAt: null,
     heldReason: null, retryCount: 0, completedBy: null, objectRef: null, decisionRef: null,
-    claimProbe: null, ...over,
+    claimProbe: null, inheritedBlueprintFrom: null, inheritedFiles: [], ...over,
   };
 }
 const APPROVED = '2026-06-17T00:00:00Z';
@@ -45,6 +57,15 @@ describe('depSatisfied', () => {
     expect(depSatisfied(mk({ status: 'ready', acceptanceStatus: 'accepted' }))).toBe(true);
     expect(depSatisfied(mk({ status: 'in_progress', acceptanceStatus: 'accepted' }))).toBe(true);
     expect(depSatisfied(mk({ status: 'done', acceptanceStatus: 'rejected' }))).toBe(false);
+  });
+  it('F3 unification: a dangling dep id is a data bug, not a satisfied dep', () => {
+    expect(depSatisfied(undefined)).toBe(false);
+  });
+  it('F3 unification: accepts a bare {status,acceptanceStatus} projection (migration call shape)', () => {
+    expect(depSatisfied({ status: 'done', acceptanceStatus: null })).toBe(true);
+    expect(depSatisfied({ status: 'in_progress', acceptanceStatus: 'accepted' })).toBe(true);
+    expect(depSatisfied({ status: 'done', acceptanceStatus: 'rejected' })).toBe(false);
+    expect(depSatisfied({ status: 'in_progress', acceptanceStatus: null })).toBe(false);
   });
 });
 
@@ -93,6 +114,11 @@ describe('claimReason — each branch', () => {
     const t = mk({ ...approved, dependsOn: ['D'] });
     expect(claimReason(t, map(dep))).toBe('deps-pending');
   });
+  it('deps-pending: a dangling dep id blocks (never silently claimable)', () => {
+    const t = mk({ id: 'A', ...approved, dependsOn: ['ghost'] });
+    expect(claimReason(t, map(t))).toBe('deps-pending');
+    expect(isClaimable(t, map(t))).toBe(false);
+  });
   it('human-assignee: fully unblocked + approved human → not auto-claimed', () => {
     const t = mk({ ...approved, assigneeKind: 'human' });
     expect(claimReason(t, map())).toBe('human-assignee');
@@ -110,14 +136,21 @@ describe('claimReason — each branch', () => {
 });
 
 describe('Inbox = planning-only (inbox-planning gate)', () => {
-  const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null });
-  const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null });
+  const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null, kind: 'epic' });
+  const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null, kind: 'epic' });
 
-  it('isInboxEpic: only the [EPIC] Inbox root', () => {
+  it('isInboxEpic: only the Inbox root', () => {
     expect(isInboxEpic(inbox)).toBe(true);
     expect(isInboxEpic(realEpic)).toBe(false);
-    expect(isInboxEpic(mk({ title: 'Inbox' }))).toBe(false); // missing [EPIC] prefix
     expect(isInboxEpic(undefined)).toBe(false);
+  });
+
+  it('isInboxEpic: tolerates the legacy prefixed literal', () => {
+    expect(isInboxEpic(mk({ title: '[EPIC] Inbox', kind: 'epic' }))).toBe(true);
+  });
+
+  it('isInboxEpic: role comes from kind, never the word alone', () => {
+    expect(isInboxEpic(mk({ title: 'Inbox', kind: 'leaf' }))).toBe(false);
   });
 
   it('parentIsInbox: true only when parent is the Inbox epic', () => {
@@ -147,12 +180,17 @@ describe('Inbox = planning-only (inbox-planning gate)', () => {
   it('Inbox epic itself (root) is unaffected — gated only by normal rules', () => {
     // The Inbox epic has no parent → never 'inbox-planning'. Unapproved → 'unapproved'.
     expect(claimReason(inbox, map(inbox))).toBe('unapproved');
-    expect(claimReason(mk({ id: 'IB2', title: INBOX_EPIC_TITLE, approvedAt: APPROVED }), map())).toBe('claimable');
+    expect(claimReason(mk({ id: 'IB2', title: INBOX_EPIC_TITLE, kind: 'epic', approvedAt: APPROVED }), map())).toBe('claimable');
   });
 
   it('children of a real epic are unaffected', () => {
     const child = mk({ id: 'C', parentId: 'EP' });
     expect(claimReason(child, map(realEpic))).toBe('unapproved'); // normal gate, not inbox
+  });
+
+  it('kindOf still THROWS on a kind-less payload — the throw is the feature, not a default', () => {
+    expect(() => kindOf(mk({ kind: null }))).toThrow(MissingKindError);
+    expect(() => isInboxEpic(mk({ id: 'X', title: INBOX_EPIC_TITLE, kind: null }))).toThrow(MissingKindError);
   });
 });
 
@@ -172,5 +210,54 @@ describe('derivedStatus (legacy-shaped label)', () => {
     expect(derivedStatus(mk({ approvedAt: APPROVED }), map())).toBe('ready');
     expect(derivedStatus(mk({}), map())).toBe('planned'); // unapproved
     expect(derivedStatus(mk({ approvedAt: APPROVED, heldAt: APPROVED }), map())).toBe('blocked');
+  });
+});
+
+describe('shared fixture — server/UI parity table', () => {
+  for (const c of cases.cases) {
+    it(`${c.name}: ${c.why}`, () => {
+      const byId = map(...c.todos.map((t) => mk(t as Partial<Todo>)));
+      const subject = byId.get(c.subject);
+      expect(subject).toBeDefined();
+      expect(claimReason(subject!, byId)).toBe(c.expect.claimReason);
+      expect(derivedStatus(subject!, byId)).toBe(c.expect.derivedStatus);
+      expect(isClaimable(subject!, byId)).toBe(c.expect.isClaimable);
+    });
+  }
+});
+
+describe('dep-dropped (68b8bb09) — derived, never stored', () => {
+  const approved = { approvedAt: APPROVED };
+
+  it('a dropped dep reports dep-dropped, not deps-pending', () => {
+    const dep = mk({ id: 'D', status: 'dropped' });
+    const t = mk({ id: 'T', ...approved, dependsOn: ['D'] });
+    expect(claimReason(t, map(dep, t))).toBe('dep-dropped');
+    expect(isClaimable(t, map(dep, t))).toBe(false);
+    expect(derivedStatus(t, map(dep, t))).toBe('blocked'); // no distinct legacy label
+  });
+
+  it('reset_todo on the dep returns the dependent to deps-pending — the reason is DERIVED', () => {
+    // Same dependent object, byId rebuilt with the dep reset off `dropped`.
+    const t = mk({ id: 'T', ...approved, dependsOn: ['D'] });
+    expect(claimReason(t, map(mk({ id: 'D', status: 'dropped' }), t))).toBe('dep-dropped');
+    expect(claimReason(t, map(mk({ id: 'D', status: 'planned' }), t))).toBe('deps-pending');
+    // …and a dep reset all the way to done makes it claimable, with T never re-read from a column.
+    expect(claimReason(t, map(mk({ id: 'D', status: 'done' }), t))).toBe('claimable');
+  });
+
+  it('dep-rejected wins when a todo is blocked by BOTH (claimability.ts:118-124)', () => {
+    const dropped = mk({ id: 'DD', status: 'dropped' });
+    const rejected = mk({ id: 'DR', status: 'done', acceptanceStatus: 'rejected' });
+    const t = mk({ id: 'T', ...approved, dependsOn: ['DD', 'DR'] });
+    expect(claimReason(t, map(dropped, rejected, t))).toBe('dep-rejected');
+    // Reset the rejected dep → the harder blocker surfaces on the very next read.
+    const healed = mk({ id: 'DR', status: 'done', acceptanceStatus: 'accepted' });
+    expect(claimReason(t, map(dropped, healed, t))).toBe('dep-dropped');
+  });
+
+  it('a dangling dep id is not a drop — it reports deps-pending', () => {
+    const t = mk({ id: 'T', ...approved, dependsOn: ['GHOST'] });
+    expect(claimReason(t, map(t))).toBe('deps-pending');
   });
 });

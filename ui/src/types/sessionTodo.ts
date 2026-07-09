@@ -1,3 +1,5 @@
+import type { TodoKind } from '@/lib/todoKind';
+
 // Mirrors the backend unified work-graph (src/services/todo-store.ts).
 // `planned`/`ready`/`dropped` are work-graph states the Planner/Coordinator use.
 export type TodoStatus = 'backlog' | 'planned' | 'todo' | 'ready' | 'in_progress' | 'blocked' | 'done' | 'dropped';
@@ -32,7 +34,11 @@ export interface SessionTodo {
   /** The WORKER session that ran this todo (the coordinator's pool lane). Distinct
    *  from claimedBy (the coordinator's reservation lock). Persists across done. */
   executedBySession?: string | null;
-  kind?: string | null;
+  /** Work-graph role (decision e852fb0c). REQUIRED and non-null: every payload —
+   *  server row, WebSocket frame, optimistic client-side todo — must carry it at
+   *  construction. A missing `kind` is a bug, not a default; stage C deleted the
+   *  title-prefix fallback that used to paper over it (see ui/src/lib/todoKind.ts). */
+  kind: TodoKind;
   acceptanceStatus?: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy?: string | null;
   retryCount?: number;

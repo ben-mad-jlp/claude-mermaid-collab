@@ -1,13 +1,13 @@
 /**
  * Epic → branch landing status (read-only git health report).
  *
- * For every [EPIC] in a project's work-graph, reports the state of its
+ * For every epic (kind==='epic') in a project's work-graph, reports the state of its
  * `collab/epic/<id8>` accumulation branch versus master:
  *   - exists?        the branch is present at all
  *   - ahead          commits the branch carries that master does NOT (unlanded work)
  *   - behind         commits master carries that the branch does NOT (base drift)
  *   - mergeable      a trial merge into master produces no conflicts
- *   - landLeafDone   the epic's [LAND] → master leaf is marked done
+ *   - landLeafDone   the epic's land leaf (kind==='land') → master is marked done
  *
  * The signal that matters: an epic that looks DONE on the graph but whose branch
  * is still ahead>0 with landLeafDone:false is the BP0 stranding — accepted,
@@ -22,7 +22,7 @@
  */
 import type { Todo } from './todo-store';
 import { listTodos } from './todo-store';
-import { isEpicTodo, isLandTodo } from './invariant-check';
+import { isEpic, isLand } from './todo-kind';
 
 /** Raw git facts for one epic branch — null fields mean "the probe couldn't tell". */
 export interface BranchProbe {
@@ -48,7 +48,7 @@ export interface EpicBranchStatus {
   ahead: number | null;
   behind: number | null;
   mergeable: boolean | null;
-  /** Whether the epic's [LAND] leaf is done. null when the epic has no land leaf. */
+  /** Whether the epic's land leaf is done. null when the epic has no land leaf. */
   landLeafDone: boolean | null;
   /**
    * True when the branch carries unlanded commits (ahead>0) yet the land leaf is
@@ -91,7 +91,7 @@ export function buildEpicBranchStatus(
   baseRef: string = 'master',
   project: string = '',
 ): EpicBranchStatusReport {
-  // Children grouped by parentId, to find each epic's [LAND] descendant leaf.
+  // Children grouped by parentId, to find each epic's land leaf descendant.
   const childrenOf = new Map<string, Todo[]>();
   for (const t of todos) {
     if (t.parentId) {
@@ -101,7 +101,7 @@ export function buildEpicBranchStatus(
     }
   }
 
-  /** The [LAND] leaf among an epic's transitive descendants, if any. Cycle-safe. */
+  /** The land leaf (kind==='land') among an epic's transitive descendants, if any. Cycle-safe. */
   const landLeafOf = (epic: Todo): Todo | null => {
     const stack = [...(childrenOf.get(epic.id) ?? [])];
     const seen = new Set<string>();
@@ -109,7 +109,7 @@ export function buildEpicBranchStatus(
       const node = stack.pop()!;
       if (seen.has(node.id)) continue;
       seen.add(node.id);
-      if (isLandTodo(node)) return node;
+      if (isLand(node)) return node;
       stack.push(...(childrenOf.get(node.id) ?? []));
     }
     return null;
@@ -117,7 +117,7 @@ export function buildEpicBranchStatus(
 
   const epics: EpicBranchStatus[] = [];
   for (const t of todos) {
-    if (!isEpicTodo(t)) continue;
+    if (!isEpic(t)) continue;
     const branch = epicBranchName(t.id);
     const p = probe(branch, baseRef);
     const land = landLeafOf(t);

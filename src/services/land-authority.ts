@@ -17,7 +17,8 @@ import type { EpicLandGateResult, EpicLandGateOpts } from './epic-land-gate';
 import { runEpicLandGate, landGateTrailer, landGateSummary } from './epic-land-gate';
 import { isEpicTodo, isLandTodo } from './invariant-check';
 import { epicBranchName } from './epic-branch-status';
-import { INBOX_EPIC_TITLE, isMissionTitle } from './claimability';
+import { INBOX_EPIC_TITLE } from './claimability';
+import { isMission, stripLabel } from './todo-kind.ts';
 import { getMission, isTerminalPhase } from './mission-store';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
@@ -82,8 +83,11 @@ export interface LandProbes {
   todos?: (project: string) => Todo[];
 }
 
-/** Canonical set of bucket epic titles */
-export const BUCKET_EPIC_TITLES = [INBOX_EPIC_TITLE, '[EPIC] Bugfix inbox', '[EPIC] Collab gaps'] as const;
+/** Canonical set of bucket epic titles, stored WITHOUT a role prefix (the `kind` column
+ *  carries the role now). Compared against `stripLabel(title)`, so a legacy "[EPIC] Bugfix
+ *  inbox" and a stripped "Bugfix inbox" both match. Keeping the bracketed literals here
+ *  after the de-titling would make this gate FAIL OPEN on every real bucket. */
+export const BUCKET_EPIC_TITLES = [INBOX_EPIC_TITLE, 'Bugfix inbox', 'Collab gaps'] as const;
 
 /**
  * Check if a todo is a bucket epic.
@@ -105,7 +109,7 @@ export const BUCKET_EPIC_TITLES = [INBOX_EPIC_TITLE, '[EPIC] Bugfix inbox', '[EP
  */
 export function isBucketEpic(t: Todo): boolean {
   if (!isEpicTodo(t)) return false;
-  const title = (t.title?.trim() ?? '').toLowerCase();
+  const title = stripLabel(t.title).toLowerCase();
   return BUCKET_EPIC_TITLES.some((bucket) => title.startsWith(bucket.trim().toLowerCase()));
 }
 
@@ -126,7 +130,7 @@ export function findOwningMission(todos: Todo[], epicId: string): { mission: Tod
     if (seen.has(cur.id)) break; // cycle detected
     seen.add(cur.id);
 
-    if (isMissionTitle(cur.title)) {
+    if (isMission(cur)) {
       return { mission: cur, chain };
     }
 

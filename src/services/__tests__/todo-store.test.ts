@@ -7,7 +7,7 @@ import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
-  deriveTodoViews, OrphanTodoError,
+  deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
@@ -960,6 +960,25 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
     await completeTodo(project, depA.id, 'accepted');
     expect(listReadyTodos(project).map((t) => t.id)).toContain(dependent.id);
   });
+
+  test('createGate with no parentId defaults to leaf kind, passes MCP arg shape (umbrella test)', async () => {
+    // This is the MCP path — src/mcp/setup.ts:2324-2330 destructures the args and calls
+    // createGate(project, {...}) with parentId undefined when omitted. Exercise it with
+    // exactly that payload shape so the test covers the tool's real call.
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'work-todo' });
+    const { gate, workTodo } = await createGate(project, {
+      workTodoId: work.id,
+      title: 'gate-title',
+      description: undefined,
+      gateKind: undefined,
+      parentId: undefined,
+      decisionRef: undefined,
+    });
+    expect(gate.parentId).toBeNull();
+    expect(gate.kind).toBe('leaf');
+    expect(gate.assigneeKind).toBe('human');
+    expect(workTodo.dependsOn).toContain(gate.id);
+  });
 });
 
 describe('steward verbs', () => {
@@ -1155,7 +1174,7 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
   test("approving via status:'ready' surfaces derivedStatus:'ready' while storedStatus stays 'planned'", async () => {
     // This is the exact planner scenario: write status:'ready' (translated to an
     // approval — stamps approvedAt, keeps stored status 'planned'), then READ it back.
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E', kind: 'epic' });
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'C0', parentId: epic.id, status: 'planned' });
     expect(t.status).toBe('planned');
     expect(t.approvedAt).toBeNull();
@@ -1174,7 +1193,7 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
   });
 
   test('unapproved todo derives planned + unapproved; blocked dep derives deps-pending', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E2' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E2', kind: 'epic' });
     const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', parentId: epic.id });
     const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child', parentId: epic.id, dependsOn: [dep.id] });
     await updateTodo(project, child.id, { status: 'ready' }); // approve, but dep not done
@@ -1192,7 +1211,7 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
 
 describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
   test('stamps the passed epoch into the claim; absent when omitted', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] E' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] E', kind: 'epic' });
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: epic.id, status: 'planned' });
     await updateTodo(project, t.id, { status: 'ready' }); // approve so the CAS claim succeeds
 
@@ -1212,8 +1231,8 @@ describe('claimTodo — daemon epoch stamping (heal-on-restart)', () => {
 describe('Inbox = planning-only — approval block (updateSessionTodo)', () => {
   test('approving an Inbox child throws; re-homing then approving succeeds', async () => {
     const { updateSessionTodo } = await import('../../mcp/tools/session-todos');
-    const inbox = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Inbox' });
-    const realEpic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Real' });
+    const inbox = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Inbox', kind: 'epic' });
+    const realEpic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Real', kind: 'epic' });
     const child = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
 
     // Approve-in-Inbox is refused.
@@ -1230,7 +1249,7 @@ describe('Inbox = planning-only — approval block (updateSessionTodo)', () => {
 
   test('non-approve status transitions on an Inbox child are NOT blocked', async () => {
     const { updateSessionTodo } = await import('../../mcp/tools/session-todos');
-    const inbox = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Inbox' });
+    const inbox = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] Inbox', kind: 'epic' });
     const child = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: inbox.id, status: 'planned' });
     // editing the title (no status:'ready') is fine
     const updated = await updateSessionTodo(project, 's', child.id, { title: 'renamed' });
@@ -1253,7 +1272,7 @@ describe('auto-unsubscribe on terminal transition', () => {
   });
 
   test('completing the last child rolls up the epic and expires the EPIC subscription too', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] roll' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] roll', kind: 'epic' });
     const child = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'leaf', parentId: epic.id });
     addSubscription(project, 'watcher', 'epic', epic.id);
 
@@ -1282,21 +1301,23 @@ describe('createTodo — every-todo-needs-an-epic guard (orphan reject + explici
     expect(listTodos(project, { includeCompleted: true }).length).toBe(0); // nothing created
   });
 
-  test('inbox:true homes under a find-or-create [EPIC] Inbox', async () => {
+  test('inbox:true homes under a find-or-create Inbox epic (post-stage-C strip)', async () => {
     const a = await createTodo(project, { ownerSession: 's', title: 'thought one', inbox: true });
     const b = await createTodo(project, { ownerSession: 's', title: 'thought two', inbox: true });
     expect(a.parentId).toBeTruthy();
     expect(a.parentId).toBe(b.parentId); // same Inbox epic reused
-    expect(getTodo(project, a.parentId!)?.title).toBe('[EPIC] Inbox');
+    const inbox = getTodo(project, a.parentId!)!;
+    expect(inbox.title).toBe('Inbox');
+    expect(inbox.kind).toBe('epic');
   });
 
   test('an [EPIC] title is a legitimate root — never rejected, no parent', async () => {
-    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Real' });
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Real', kind: 'epic' });
     expect(epic.parentId).toBeNull();
   });
 
   test('an explicit parentId is respected (no reject, no inbox)', async () => {
-    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Box' });
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] Box', kind: 'epic' });
     const child = await createTodo(project, { ownerSession: 's', title: 'child', parentId: epic.id });
     expect(child.parentId).toBe(epic.id);
   });
@@ -1307,37 +1328,327 @@ describe('createTodo — every-todo-needs-an-epic guard (orphan reject + explici
   });
 });
 
-describe('epic close → cascade-drop undone descendants', () => {
-  test('closing an [EPIC] drops non-terminal descendants (transitively), keeps terminal ones', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me' });
+describe('container drop → cascade-drop undone descendants', () => {
+  test('dropping an [EPIC] drops non-terminal descendants (transitively), keeps terminal ones', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me', kind: 'epic' });
     const open1 = await createTodo(project, { ownerSession: 's', title: 'open child', parentId: epic.id });
     const open2 = await createTodo(project, { ownerSession: 's', title: 'open child 2', parentId: epic.id });
     const doneChild = await createTodo(project, { ownerSession: 's', title: 'done child', parentId: epic.id });
     await updateTodo(project, doneChild.id, { completed: true });
     const grandchild = await createTodo(project, { ownerSession: 's', title: 'grandchild', parentId: open1.id });
 
-    await updateTodo(project, epic.id, { completed: true });
+    await updateTodo(project, epic.id, { status: 'dropped' });
 
-    expect((await getTodo(project, epic.id))!.status).toBe('done');
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
     expect((await getTodo(project, open1.id))!.status).toBe('dropped');
     expect((await getTodo(project, open2.id))!.status).toBe('dropped');
     expect((await getTodo(project, grandchild.id))!.status).toBe('dropped'); // transitive
     expect((await getTodo(project, doneChild.id))!.status).toBe('done');     // terminal untouched
   });
 
+  test('an explicit `done` on a container with an open child is refused (no half-apply)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me', kind: 'epic' });
+    const open = await createTodo(project, { ownerSession: 's', title: 'open child', parentId: epic.id });
+
+    await expect(updateTodo(project, epic.id, { completed: true })).rejects.toThrow(/open descendant/);
+    await expect(updateTodo(project, epic.id, { completed: true })).rejects.toThrow(ContainerHasOpenChildrenError);
+
+    const after = await getTodo(project, epic.id);
+    expect(after!.status).not.toBe('done');
+    expect(after!.completedAt).toBeNull();
+    expect((await getTodo(project, open.id))!.status).not.toBe('dropped');
+  });
+
   test('completing an epic with no open descendants is a cascade no-op', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] all done' });
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] all done', kind: 'epic' });
     const c = await createTodo(project, { ownerSession: 's', title: 'child', parentId: epic.id });
     await updateTodo(project, c.id, { completed: true });
     await updateTodo(project, epic.id, { completed: true });
     expect((await getTodo(project, c.id))!.status).toBe('done'); // unchanged, not re-dropped
+    expect((await getTodo(project, epic.id))!.status).toBe('done');
   });
 
-  test('closing a NON-[EPIC] parent does NOT cascade', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root' });
+  test('done via auto-rollup (sweepEpicRollups) does not cascade and does not throw', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] rollup', kind: 'epic' });
+    const c = await createTodo(project, { ownerSession: 's', title: 'child', parentId: epic.id });
+    await completeTodo(project, c.id, 'accepted');
+    await sweepEpicRollups(project);
+    expect((await getTodo(project, epic.id))!.status).toBe('done');
+  });
+
+  test('dropping a mission cascade-drops through an intermediate epic (3-deep)', async () => {
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[MISSION] converge', kind: 'mission' });
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] under mission', kind: 'epic', parentId: mission.id });
+    const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+
+    await updateTodo(project, mission.id, { status: 'dropped' });
+
+    expect((await getTodo(project, mission.id))!.status).toBe('dropped');
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
+    expect((await getTodo(project, leaf.id))!.status).toBe('dropped');
+  });
+
+  test('dropping a container clears heldAt/heldReason/acceptanceStatus on cascaded descendants (F6)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] held', kind: 'epic' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'held child', parentId: epic.id });
+    await updateTodo(project, child.id, { heldAt: new Date().toISOString(), heldReason: 'x', acceptanceStatus: 'rejected' });
+
+    await updateTodo(project, epic.id, { status: 'dropped' });
+
+    const after = await getTodo(project, child.id);
+    expect(after!.status).toBe('dropped');
+    expect(after!.heldAt).toBeNull();
+    expect(after!.heldReason).toBeNull();
+    expect(after!.acceptanceStatus).toBeNull();
+    expect(after!.claim).toBeNull();
+  });
+
+  test('closing a NON-container parent does NOT cascade', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
     const mid = await createTodo(project, { ownerSession: 's', title: 'plain parent', parentId: epic.id });
     const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: mid.id });
-    await updateTodo(project, mid.id, { completed: true }); // mid is not an [EPIC]
+    await updateTodo(project, mid.id, { completed: true }); // mid is a plain leaf, not a container
     expect((await getTodo(project, leaf.id))!.status).not.toBe('dropped');
+  });
+
+  describe('SR-7 inherited blueprint fields', () => {
+    test('inheritance fields default null/empty on create', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'normal leaf' });
+      expect(t.inheritedBlueprintFrom).toBe(null);
+      expect(t.inheritedFiles).toEqual([]);
+    });
+
+    test('splitLeafInto stamps inheritedBlueprintFrom and inheritedFiles on children', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      await splitLeafInto(project, parent, [
+        { id: 'a', files: ['src/a.ts'], dependsOn: [] },
+        { id: 'b', files: ['src/b.ts', 'src/b.test.ts'], dependsOn: ['a'] },
+      ]);
+      const children = listTodos(project).filter((t) => t.parentId === parent.id);
+      expect(children).toHaveLength(2);
+      // Both children inherit from the parent.
+      for (const child of children) {
+        expect(child.inheritedBlueprintFrom).toBe(parent.id);
+        expect(child.inheritedFiles.length).toBeGreaterThan(0);
+      }
+      // Child A owns a.ts.
+      const childA = children.find((c) => c.inheritedFiles.includes('src/a.ts'));
+      expect(childA?.inheritedFiles).toEqual(['src/a.ts']);
+      // Child B owns b.ts and b.test.ts.
+      const childB = children.find((c) => c.inheritedFiles.includes('src/b.ts'));
+      expect(childB?.inheritedFiles).toEqual(['src/b.ts', 'src/b.test.ts']);
+    });
+
+    test('inheritance fields round-trip through getTodo', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      const child = await createTodo(project, {
+        ownerSession: 's',
+        title: 'child',
+        parentId: parent.id,
+        inheritedBlueprintFrom: parent.id,
+        inheritedFiles: ['a.ts', 'b.ts'],
+      });
+      const fetched = getTodo(project, child.id)!;
+      expect(fetched.inheritedBlueprintFrom).toBe(parent.id);
+      expect(fetched.inheritedFiles).toEqual(['a.ts', 'b.ts']);
+    });
+
+    test('inheritance fields are patchable via updateTodo', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      let child = await createTodo(project, {
+        ownerSession: 's',
+        title: 'child',
+        parentId: parent.id,
+        inheritedBlueprintFrom: null,
+        inheritedFiles: [],
+      });
+      expect(child.inheritedBlueprintFrom).toBe(null);
+      expect(child.inheritedFiles).toEqual([]);
+      child = await updateTodo(project, child.id, {
+        inheritedBlueprintFrom: parent.id,
+        inheritedFiles: ['x.ts'],
+      });
+      expect(child.inheritedBlueprintFrom).toBe(parent.id);
+      expect(child.inheritedFiles).toEqual(['x.ts']);
+    });
+
+    test('splitLeafInto idempotency: second call is a no-op', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      const result1 = await splitLeafInto(project, parent, [
+        { id: 'a', files: ['src/a.ts'], dependsOn: [] },
+      ]);
+      const result2 = await splitLeafInto(project, parent, [
+        { id: 'b', files: ['src/b.ts'], dependsOn: [] },
+      ]);
+      // Same parent, same children (second call did nothing).
+      expect(result2.childIds).toEqual(result1.childIds);
+      const children = listTodos(project).filter((t) => t.parentId === parent.id);
+      expect(children).toHaveLength(1);
+      expect(children[0].inheritedFiles).toEqual(['src/a.ts']);
+    });
+
+    test('pre-existing rows without inheritance columns read back with defaults', async () => {
+      // Simulate a row created before the columns existed (they're NULL in the DB).
+      // First create a todo to ensure the DB and tables exist.
+      const existing = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'setup' });
+
+      // Now insert a row directly with NULL for the new columns (simulating pre-migration data).
+      const db = new Database(join(project, '.collab', 'todos.db'));
+      const id = crypto.randomUUID();
+      const ts = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO todos (id, ownerSession, title, status, ord, createdAt, updatedAt, dependsOn, inheritedBlueprintFrom, inheritedFiles)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
+      ).run(id, 's', 'old row', 'planned', 20, ts, ts, '[]');
+      db.close();
+      _closeProject(project);
+
+      // Fetch and check defaults.
+      const t = getTodo(project, id)!;
+      expect(t.inheritedBlueprintFrom).toBe(null);
+      expect(t.inheritedFiles).toEqual([]);
+    });
+  });
+});
+
+describe('ClaimedTodoDropError — refuse to drop a live-claimed todo (1de16a83)', () => {
+  test('drop with a live claim refuses', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+    await expect(updateTodo(project, t.id, { status: 'dropped' })).rejects.toThrow(/claimed by/);
+    // the throw must not half-apply — the row stays in_progress with its claim intact
+    const after = await getTodo(project, t.id);
+    expect(after!.status).toBe('in_progress');
+    expect(after!.claim).not.toBeNull();
+  });
+
+  test('drop after releaseClaim succeeds', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+    await releaseClaim(project, t.id);
+    const dropped = await updateTodo(project, t.id, { status: 'dropped' });
+    expect(dropped.status).toBe('dropped');
+  });
+
+  test('force:true drops a claimed todo and clears the claim', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, t.id, 'agent-1', 60_000);
+    const dropped = await updateTodo(project, t.id, { status: 'dropped', force: true });
+    expect(dropped.status).toBe('dropped');
+    expect(dropped.claim).toBeNull();
+  });
+
+  test('an orphan/half-set claim does not block a drop', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    // Directly set a half-set claim (claimedBy only, no token) — the orphan class,
+    // unrepresentable via claimTodo. readClaim returns null for this shape.
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    db.exec(`UPDATE todos SET status='in_progress', claimedBy='ghost', claimToken=NULL, claim=NULL WHERE id='${t.id}'`);
+    db.close();
+    _closeProject(project);
+    const dropped = await updateTodo(project, t.id, { status: 'dropped' });
+    expect(dropped.status).toBe('dropped');
+  });
+
+  test('dropping a container RELEASES a claimed descendant\'s claim (does not refuse) — 241e72fc makes the release stop the work', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me', kind: 'epic' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'claimed child', parentId: epic.id });
+    await updateTodo(project, child.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    await claimTodo(project, child.id, 'agent-1', 60_000);
+
+    await updateTodo(project, epic.id, { status: 'dropped' });
+
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
+    const after = await getTodo(project, child.id);
+    expect(after!.status).toBe('dropped');
+    expect(after!.claim).toBeNull();
+    expect(after!.heldAt).toBeNull();
+    expect(after!.acceptanceStatus).toBeNull();
+  });
+});
+
+describe('claimToken CAS on completeTodo (1de16a83)', () => {
+  test('late completion against a re-claimed row (different token) no-ops', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    const claimedA = await claimTodo(project, t.id, 'agent-A', 60_000);
+    const tokenA = claimedA!.claim!.token;
+    await releaseClaim(project, t.id);
+    await claimTodo(project, t.id, 'agent-B', 60_000);
+
+    const result = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true, claimToken: tokenA });
+    expect(result.skipped).toBe(true);
+    const after = await getTodo(project, t.id);
+    expect(after!.status).toBe('in_progress');
+    expect(after!.claim!.by).toBe('agent-B');
+    expect(after!.acceptanceStatus).not.toBe('accepted');
+  });
+
+  test('same-token completion applies', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'work' });
+    await updateTodo(project, t.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
+    const claimed = await claimTodo(project, t.id, 'agent-A', 60_000);
+    const token = claimed!.claim!.token;
+
+    const result = await completeTodo(project, t.id, 'accepted', undefined, { requireInProgress: true, claimToken: token });
+    expect(result.skipped).toBeFalsy();
+    const after = await getTodo(project, t.id);
+    expect(after!.status).toBe('done');
+    expect(after!.acceptanceStatus).toBe('accepted');
+  });
+});
+
+describe('`kind` column — stage C of title-prefix migration (decision e852fb0c)', () => {
+  // Stage C removed the kindFromTitle fallback on the insert path: kind is now
+  // explicit-only and round-trips through getTodo. A bare title with no kind is 'leaf'.
+  test('createTodo stores the explicit kind (never derived from the title) and it round-trips through getTodo', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x', kind: 'epic' });
+    expect(epic.kind).toBe('epic');
+    expect((await getTodo(project, epic.id))!.kind).toBe('epic');
+
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[MISSION] x', kind: 'mission' });
+    expect(mission.kind).toBe('mission');
+    expect((await getTodo(project, mission.id))!.kind).toBe('mission');
+
+    const land = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LAND] x', kind: 'land' });
+    expect(land.kind).toBe('land');
+    expect((await getTodo(project, land.id))!.kind).toBe('land');
+
+    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'plain leaf title' });
+    expect(leaf.kind).toBe('leaf');
+    expect((await getTodo(project, leaf.id))!.kind).toBe('leaf');
+  });
+
+  test('no row is ever left with a NULL kind after a create', async () => {
+    await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x', kind: 'epic' });
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    const row = db.query(`SELECT count(*) AS n FROM todos WHERE kind IS NULL`).get() as { n: number };
+    db.close();
+    expect(row.n).toBe(0);
+  });
+
+  test('the backfill is idempotent: a NULL row derives on re-run, and re-running touches zero rows', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] x', kind: 'epic' });
+    const dbPath = join(project, '.collab', 'todos.db');
+    const db = new Database(dbPath);
+    db.exec(`UPDATE todos SET kind=NULL WHERE id='${t.id}'`);
+    db.close();
+    _closeProject(project);
+
+    // Reopening the store re-runs the backfill (openDb runs it unconditionally,
+    // guarded only by `WHERE kind IS NULL`).
+    const after = await getTodo(project, t.id);
+    expect(after!.kind).toBe('epic');
+
+    const db2 = new Database(dbPath);
+    const before = db2.query(`SELECT kind FROM todos WHERE id='${t.id}'`).get() as { kind: string };
+    const result = db2.exec(`UPDATE todos SET kind='epic' WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
+    const changes = db2.query('SELECT changes() AS c').get() as { c: number };
+    db2.close();
+    expect(before.kind).toBe('epic');
+    expect(changes.c).toBe(0);
   });
 });

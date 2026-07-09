@@ -106,6 +106,7 @@ describe('land-epic-actor — authority gating', () => {
     const bucketEpic = await createTodo(repo, {
       allowOrphan: true,
       title: '[EPIC] Inbox',
+      kind: 'epic',
       ownerSession: 'conductor-1',
     });
 
@@ -123,6 +124,7 @@ describe('land-epic-actor — authority gating', () => {
     const bucketEpic = await createTodo(repo, {
       allowOrphan: true,
       title: '[EPIC] Bugfix inbox',
+      kind: 'epic',
       ownerSession: 'conductor-1',
     });
 
@@ -140,6 +142,7 @@ describe('land-epic-actor — authority gating', () => {
     const mission = await createTodo(repo, {
       allowOrphan: true,
       title: '[MISSION] Task for conductor-2',
+      kind: 'mission',
       ownerSession: 'conductor-2',
     });
     upsertMission(repo, mission.id);
@@ -148,6 +151,7 @@ describe('land-epic-actor — authority gating', () => {
     // Create an epic under that mission
     const epic = await createTodo(repo, {
       title: '[EPIC] Child of mission',
+      kind: 'epic',
       ownerSession: 'conductor-2',
       parentId: mission.id,
     });
@@ -168,6 +172,7 @@ describe('land-epic-actor — authority gating', () => {
     const mission = await createTodo(repo, {
       allowOrphan: true,
       title: '[MISSION] Task for conductor-1',
+      kind: 'mission',
       ownerSession: 'conductor-1',
     });
     upsertMission(repo, mission.id);
@@ -176,6 +181,7 @@ describe('land-epic-actor — authority gating', () => {
     // Create an epic under that mission
     const epic = await createTodo(repo, {
       title: '[EPIC] Child of mission',
+      kind: 'epic',
       ownerSession: 'conductor-1',
       parentId: mission.id,
     });
@@ -194,6 +200,7 @@ describe('land-epic-actor — authority gating', () => {
     const mission = await createTodo(repo, {
       allowOrphan: true,
       title: '[MISSION] Conductor test',
+      kind: 'mission',
       ownerSession: 'conductor-session-xyz',
     });
     upsertMission(repo, mission.id);
@@ -201,6 +208,7 @@ describe('land-epic-actor — authority gating', () => {
 
     const epic = await createTodo(repo, {
       title: '[EPIC] Owned work',
+      kind: 'epic',
       ownerSession: 'conductor-session-xyz',
       parentId: mission.id,
     });
@@ -236,6 +244,7 @@ describe('land-epic-actor — authority gating', () => {
     const soloEpic = await createTodo(repo, {
       allowOrphan: true,
       title: '[EPIC] Orphan',
+      kind: 'epic',
       ownerSession: 'conductor-1',
     });
 
@@ -252,6 +261,7 @@ describe('land-epic-actor — authority gating', () => {
     const mission = await createTodo(repo, {
       allowOrphan: true,
       title: '[MISSION] Done task',
+      kind: 'mission',
       ownerSession: 'conductor-1',
     });
     upsertMission(repo, mission.id);
@@ -259,6 +269,7 @@ describe('land-epic-actor — authority gating', () => {
 
     const epic = await createTodo(repo, {
       title: '[EPIC] Child of done mission',
+      kind: 'epic',
       ownerSession: 'conductor-1',
       parentId: mission.id,
     });

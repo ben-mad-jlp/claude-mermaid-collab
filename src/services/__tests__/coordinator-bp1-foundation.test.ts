@@ -55,7 +55,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // test the DEPENDENT's epic-branch tip (the base its lane forks from), NOT trunk only.
     // (Trunk-only wrongly stranded EVERY in-epic sibling until the human landed — the bug.)
     setOrchestratorLevel(repo, 'auto');
-    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 test', status: 'planned' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 test', kind: 'epic', status: 'planned' });
     const foundation = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'foundation leaf', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, { allowOrphan: true,
       ownerSession: 's', title: 'dependent leaf', parentId: epic.id, status: 'ready',
@@ -93,7 +93,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // accumulation branch OR master. The dependent's lane (forked from the epic-branch tip)
     // would NOT contain it → building on it is unsafe → drop it this tick.
     setOrchestratorLevel(repo, 'auto');
-    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 true-strand', status: 'planned' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 true-strand', kind: 'epic', status: 'planned' });
     const foundation = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'phantom foundation', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, { allowOrphan: true,
       ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [foundation.id],
@@ -122,7 +122,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
     // done+accepted foundation's commit lives on the epic branch, not integration.
     // BP1 must NOT flag that as stranded (else the whole wave blocks forever).
     setOrchestratorLevel(repo, 'on');
-    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 build-level', status: 'planned' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 build-level', kind: 'epic', status: 'planned' });
     const foundation = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'foundation', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, { allowOrphan: true,
       ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [foundation.id],
@@ -136,7 +136,7 @@ describe('BP1 — block a dependent whose foundation is accepted-but-stranded', 
   });
 
   it('FAIL-SAFE: a dependent whose done dep carries no commit is admitted (indeterminate)', async () => {
-    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 failsafe', status: 'planned' });
+    const epic = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: '[EPIC] bp1 failsafe', kind: 'epic', status: 'planned' });
     const dep0 = await createTodo(repo, { allowOrphan: true, ownerSession: 's', title: 'trailerless dep', parentId: epic.id, status: 'planned' });
     const dependent = await createTodo(repo, { allowOrphan: true,
       ownerSession: 's', title: 'dependent', parentId: epic.id, status: 'ready', dependsOn: [dep0.id],

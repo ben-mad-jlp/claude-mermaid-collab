@@ -20,7 +20,8 @@
       "@hooks/*": ["src/hooks/*"],
       "@stores/*": ["src/stores/*"],
       "@lib/*": ["src/lib/*"],
-      "@types/*": ["src/types/*"]
+      "@types/*": ["src/types/*"],
+      "@fixtures/*": ["../src/services/__fixtures__/*"]
     },
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },

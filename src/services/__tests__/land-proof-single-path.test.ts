@@ -92,12 +92,14 @@ describe('land-proof-single-path — topology verification', () => {
     m1 = (await createTodo(project, {
       allowOrphan: true,
       title: '[MISSION] m1',
+      kind: 'mission',
       ownerSession: 'sess-A',
     })) as Todo;
 
     // Epic under m1
     epic = (await createTodo(project, {
       title: '[EPIC] deliverable',
+      kind: 'epic',
       parentId: m1.id,
       ownerSession: 'sess-A',
     })) as Todo;
@@ -113,6 +115,7 @@ describe('land-proof-single-path — topology verification', () => {
     // [LAND] leaf depending on code
     landLeaf = (await createTodo(project, {
       title: '[LAND] merge deliverable',
+      kind: 'land',
       parentId: epic.id,
       dependsOn: [codeLeaf.id],
       ownerSession: 'sess-A',
@@ -122,6 +125,7 @@ describe('land-proof-single-path — topology verification', () => {
     inboxEpic = (await createTodo(project, {
       allowOrphan: true,
       title: '[EPIC] Inbox',
+      kind: 'epic',
       ownerSession: 'sess-A',
     })) as Todo;
 

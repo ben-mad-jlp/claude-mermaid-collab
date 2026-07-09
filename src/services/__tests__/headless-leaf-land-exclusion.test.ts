@@ -32,50 +32,54 @@ const leaf = (over: Partial<Todo>): Todo =>
   ({
     id: 'x',
     title: 'a leaf',
+    kind: 'leaf',
     assigneeKind: 'agent',
     type: 'backend',
     ...over,
   }) as Todo;
 
-describe('[LAND] leaves are never headless-built (the merge-by-LLM trap)', () => {
-  it('a [LAND] leaf with assigneeKind:"agent" is NOT a headless leaf', () => {
-    expect(isHeadlessLeaf(leaf({ title: '[LAND] merge epic 028625a4 to master', assigneeKind: 'agent' }), PROJECT)).toBe(
-      false,
-    );
+describe('land leaves are never headless-built (the merge-by-LLM trap)', () => {
+  it('a land leaf with assigneeKind:"agent" is NOT a headless leaf', () => {
+    expect(
+      isHeadlessLeaf(leaf({ kind: 'land', title: 'merge epic 028625a4 to master', assigneeKind: 'agent' }), PROJECT),
+    ).toBe(false);
   });
 
-  it('a [LAND] leaf with assigneeKind:"human" is also excluded (pre-G11a shield)', () => {
-    expect(isHeadlessLeaf(leaf({ title: '[LAND] merge epic 028625a4 to master', assigneeKind: 'human' }), PROJECT)).toBe(
-      false,
-    );
+  it('a land leaf with assigneeKind:"human" is also excluded (pre-G11a shield)', () => {
+    expect(
+      isHeadlessLeaf(leaf({ kind: 'land', title: 'merge epic 028625a4 to master', assigneeKind: 'human' }), PROJECT),
+    ).toBe(false);
   });
 
-  it('[LAND] is case-insensitive and allows leading whitespace', () => {
-    expect(isHeadlessLeaf(leaf({ title: '[land] lowercase' }), PROJECT)).toBe(false);
-    expect(isHeadlessLeaf(leaf({ title: '[Land] mixed case' }), PROJECT)).toBe(false);
-    expect(isHeadlessLeaf(leaf({ title: '  [LAND] leading space' }), PROJECT)).toBe(false);
-    expect(isHeadlessLeaf(leaf({ title: '\t[LAND] leading tab' }), PROJECT)).toBe(false);
+  it('the land exclusion keys off `kind`, not the title — a leaf titled "[LAND] ..." is not special', () => {
+    // The inverse of the trap: `kind` is authoritative now. A land NODE is excluded
+    // whatever its title says; a leaf whose title merely mentions landing is not.
+    expect(isHeadlessLeaf(leaf({ kind: 'land', title: 'no bracket in sight' }), PROJECT)).toBe(false);
+    expect(isHeadlessLeaf(leaf({ kind: 'leaf', title: '[FEAT] land the parachute' }), PROJECT)).toBe(true);
+    expect(isHeadlessLeaf(leaf({ kind: 'leaf', title: 'fix the landing page copy' }), PROJECT)).toBe(true);
   });
 
-  it('[EPIC] and [GATE] remain excluded alongside [LAND]', () => {
-    expect(isHeadlessLeaf(leaf({ title: '[EPIC] some epic' }), PROJECT)).toBe(false);
-    expect(isHeadlessLeaf(leaf({ title: '[GATE] some gate' }), PROJECT)).toBe(false);
+  it('epic, mission and [GATE] remain excluded alongside land', () => {
+    expect(isHeadlessLeaf(leaf({ kind: 'epic', title: 'some epic' }), PROJECT)).toBe(false);
+    expect(isHeadlessLeaf(leaf({ kind: 'mission', title: 'some mission' }), PROJECT)).toBe(false);
+    expect(isHeadlessLeaf(leaf({ kind: 'leaf', title: '[GATE] some gate' }), PROJECT)).toBe(false);
   });
 
   it('an ordinary agent code leaf with no children is STILL admitted', () => {
     expect(isHeadlessLeaf(leaf({ title: 'fix: some code change' }), PROJECT)).toBe(true);
-    expect(isHeadlessLeaf(leaf({ title: 'fix the landing page copy' }), PROJECT)).toBe(true);
-    expect(isHeadlessLeaf(leaf({ title: '[FEAT] land the parachute' }), PROJECT)).toBe(true);
   });
 
-  it('headlessExclusionReason returns the correct diagnostic for [LAND]', () => {
-    expect(headlessExclusionReason(leaf({ title: '[LAND] merge' }), PROJECT)).toBe('epic-or-gate-or-land');
-    expect(headlessExclusionReason(leaf({ title: '[land] merge' }), PROJECT)).toBe('epic-or-gate-or-land');
-    expect(headlessExclusionReason(leaf({ title: '  [LAND] merge' }), PROJECT)).toBe('epic-or-gate-or-land');
+  it('headlessExclusionReason returns the correct diagnostic per kind', () => {
+    expect(headlessExclusionReason(leaf({ kind: 'land', title: 'merge' }), PROJECT)).toBe('land');
+    expect(headlessExclusionReason(leaf({ kind: 'epic', title: 'e' }), PROJECT)).toBe('epic-or-mission');
+    expect(headlessExclusionReason(leaf({ kind: 'mission', title: 'm' }), PROJECT)).toBe('epic-or-mission');
+    expect(headlessExclusionReason(leaf({ kind: 'leaf', title: '[GATE] g' }), PROJECT)).toBe('gate');
   });
 
-  it('headlessExclusionReason returns "human" for human-assigned leaves before checking title', () => {
-    expect(headlessExclusionReason(leaf({ title: '[LAND] merge', assigneeKind: 'human' }), PROJECT)).toBe('human');
+  it('headlessExclusionReason returns "human" for human-assigned leaves before checking kind', () => {
+    expect(headlessExclusionReason(leaf({ kind: 'land', title: 'merge', assigneeKind: 'human' }), PROJECT)).toBe(
+      'human',
+    );
   });
 
   it('headlessExclusionReason returns null for an ordinary agent code leaf', () => {
@@ -84,14 +88,14 @@ describe('[LAND] leaves are never headless-built (the merge-by-LLM trap)', () =>
 
   it('headlessExclusionReason and isHeadlessLeaf agree (inverse consistency)', () => {
     const testCases = [
-      leaf({ title: '[LAND] merge epic to master' }),
-      leaf({ title: '[EPIC] some epic' }),
-      leaf({ title: '[GATE] some gate' }),
-      leaf({ title: 'fix: code change' }),
-      leaf({ title: 'Fix the landing page copy' }),
-      leaf({ title: '[FEAT] land the parachute' }),
-      leaf({ title: '[land] lowercase', assigneeKind: 'agent' }),
-      leaf({ title: '[LAND] merge', assigneeKind: 'human' }),
+      leaf({ kind: 'land', title: 'merge epic to master' }),
+      leaf({ kind: 'epic', title: 'some epic' }),
+      leaf({ kind: 'mission', title: 'some mission' }),
+      leaf({ kind: 'leaf', title: '[GATE] some gate' }),
+      leaf({ kind: 'leaf', title: 'fix: code change' }),
+      leaf({ kind: 'leaf', title: 'Fix the landing page copy' }),
+      leaf({ kind: 'leaf', title: '[FEAT] land the parachute' }),
+      leaf({ kind: 'land', title: 'merge', assigneeKind: 'human' }),
     ];
 
     for (const todo of testCases) {

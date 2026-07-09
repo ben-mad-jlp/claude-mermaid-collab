@@ -14,7 +14,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync } from 'fs';
 
-export type SubscriptionScope = 'todo' | 'epic' | 'project';
+export type SubscriptionScope = 'todo' | 'epic' | 'mission' | 'project';
 export type SubscriptionMode = 'nudge'; // nudge-to-pull (only mode for now)
 
 export interface Subscription {
@@ -45,12 +45,17 @@ export interface SubscribableEvent {
   project: string;
   todoId?: string | null;
   epicId?: string | null;
+  missionId?: string | null;
 }
 
 /**
  * Pure match: does `sub` fire for `evt`? Separated from the DB so the matching rule is
- * trivially unit-testable. project-scope matches any event in the project; todo/epic match
- * by id. A daemon-driven event with no todoId/epicId only matches a project subscription.
+ * trivially unit-testable. project-scope matches any event in the project; todo/epic/mission
+ * match by id. Mission subscriptions are resolved from the todo graph at match time (via
+ * ChangeEvent missionId), so a new epic created in a later iteration still matches a mission
+ * subscription created in an earlier one — the walk inherits from the live graph, not from a
+ * baked subscription. A daemon-driven event with no todoId/epicId/missionId only matches a
+ * project subscription.
  */
 export function subscriptionMatches(sub: Subscription, evt: SubscribableEvent): boolean {
   if (sub.project !== evt.project) return false;
@@ -58,6 +63,7 @@ export function subscriptionMatches(sub: Subscription, evt: SubscribableEvent): 
     case 'project': return true;
     case 'todo': return !!evt.todoId && sub.targetId === evt.todoId;
     case 'epic': return !!evt.epicId && sub.targetId === evt.epicId;
+    case 'mission': return !!evt.missionId && sub.targetId === evt.missionId;
     default: return false;
   }
 }

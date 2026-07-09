@@ -28,6 +28,10 @@ let completeSessionName = '';
 let completeResultExtra: Record<string, unknown> = {};
 const updateTodoCalls: Array<{ id: string; patch: any }> = [];
 let resetTodoCalls: Array<{ id: string; status: string }> = [];
+// Overridable by the terminal-children describe block below: listTodos is stubbed
+// module-wide (no real DB in this file), so those tests point this at fixture rows
+// instead of touching todo-store's real listTodos.
+let mockListTodosImpl: (project: string, opts: any) => any[] = () => [];
 mock.module('../todo-store', () => ({
   listReadyTodos: () => [],
   claimTodo: async () => null,
@@ -36,13 +40,13 @@ mock.module('../todo-store', () => ({
   updateTodo: async (_project: string, id: string, patch: any) => { updateTodoCalls.push({ id, patch }); return { id, ...patch }; },
   resetTodo: async (_project: string, id: string, status: string) => { resetTodoCalls.push({ id, status }); return { id, status }; },
   getTodo: () => null,
-  listTodos: () => [],
+  listTodos: (project: string, opts: any) => mockListTodosImpl(project, opts),
   reclaimClaim: async () => 'ready',
   releaseClaim: async () => {},
   reclaimOrphan: async () => null,
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, displayTitle } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -65,22 +69,65 @@ process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-coord-live-s
 const TEST_ROOT = mkdtempSync(join(tmpdir(), 'mc-coord-live-projects-'));
 
 describe('isHeadlessLeaf — non-code leaf exclusion', () => {
-  const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', ...(over as any) }) as Todo;
+  const base = (over: Partial<Todo>): Todo => ({ id: 'x', title: 'a leaf', assigneeKind: 'agent', type: 'backend', kind: 'leaf', ...(over as any) }) as Todo;
   it('ADMITS reviewer-type leaves (epic d8ac1a18: they run the review execution shape, no longer stranded)', () => {
     expect(isHeadlessLeaf(base({ type: 'reviewer', id: 'reviewer-no-children' }), TEST_ROOT)).toBe(true);
   });
-  it('excludes human-owned, [EPIC], and [GATE] leaves', () => {
+  it('excludes human-owned, epic-kind, mission-kind, and [GATE] leaves', () => {
+    // role now comes from `kind`, not the title; the stage-C strip removed the prefix
     expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ title: '[EPIC] x' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ title: '[GATE] x' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'epic', title: 'Bugfix inbox' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'mission', title: 'Converge X' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[GATE] x' }), TEST_ROOT)).toBe(false);
+    // topic tag ≠ role prefix: a bare-titled leaf that merely starts with a bracket is claimable
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[UI] Plan list refresh' }), TEST_ROOT)).toBe(true);
   });
   it('admits an ordinary agent code leaf', () => {
     expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), TEST_ROOT)).toBe(true);
   });
-  it('EXCLUDES [LAND] leaves even when agent-assigned (an agent must never build a merge)', () => {
-    expect(isHeadlessLeaf(base({ title: '[LAND] merge epic to master', assigneeKind: 'agent' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ title: '[land] lowercase' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ title: '  [LAND] leading space' }), TEST_ROOT)).toBe(false);
+  it('EXCLUDES land leaves even when agent-assigned (an agent must never build a merge)', () => {
+    expect(isHeadlessLeaf(base({ kind: 'land', title: 'merge epic to master', assigneeKind: 'agent' }), TEST_ROOT)).toBe(
+      false,
+    );
+    // The exclusion keys off `kind`: a bare-titled land node is still excluded, and a
+    // plain leaf whose title merely mentions landing is still admitted.
+    expect(isHeadlessLeaf(base({ kind: 'land', title: 'no bracket in sight' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: 'fix the landing page copy' }), TEST_ROOT)).toBe(true);
+  });
+});
+
+describe('displayTitle', () => {
+  it('labels a role-kind todo with its bracketed prefix', () => {
+    expect(displayTitle({ kind: 'epic', title: 'Bugfix inbox' })).toBe('[EPIC] Bugfix inbox');
+  });
+  it('is idempotent against a still-prefixed stored title (no doubling)', () => {
+    expect(displayTitle({ kind: 'epic', title: '[EPIC] Bugfix inbox' })).toBe('[EPIC] Bugfix inbox');
+  });
+});
+
+describe('isHeadlessLeaf / headlessExclusionReason — terminal children', () => {
+  const parent = { id: 'parent-1', kind: 'leaf', title: 'leaf', assigneeKind: 'agent', type: 'backend' } as Todo;
+  const childBase = { id: 'child-1', kind: 'leaf' as const, parentId: 'parent-1', title: 'child', assigneeKind: 'agent', type: 'backend' };
+  afterEach(() => {
+    mockListTodosImpl = () => [];
+  });
+
+  it('a dropped-only child does not make the parent a container', () => {
+    mockListTodosImpl = () => [{ ...childBase, status: 'dropped' }];
+    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(true);
+    expect(headlessExclusionReason(parent, TEST_ROOT)).toBeNull();
+  });
+
+  it('a done-only child does not make the parent a container (regression pin)', () => {
+    mockListTodosImpl = () => [{ ...childBase, status: 'done' }];
+    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(true);
+    expect(headlessExclusionReason(parent, TEST_ROOT)).toBeNull();
+  });
+
+  it('a planned (open) child makes the parent a container', () => {
+    mockListTodosImpl = () => [{ ...childBase, status: 'planned' }];
+    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(false);
+    expect(headlessExclusionReason(parent, TEST_ROOT)).toBe('has-children');
   });
 });
 
@@ -218,7 +265,7 @@ describe('completeTodo merge-back conflict (DEFECT 2+3)', () => {
     expect(listPool().some((s) => s.project === repo && s.sessionName === SESSION)).toBe(true);
 
     completeSessionName = SESSION;
-    completeResultExtra = { targetProject: repo, title: 'conflicty todo', acceptanceStatus: 'accepted' };
+    completeResultExtra = { targetProject: repo, title: 'conflicty todo', acceptanceStatus: 'accepted', kind: 'leaf', parentId: null };
 
     const deps = makeCoordinatorDeps();
     await deps.completeTodo(repo, TODO_ID, 'accepted');

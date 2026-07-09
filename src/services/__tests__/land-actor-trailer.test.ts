@@ -14,8 +14,26 @@ import type { EpicLandGateResult, LandGateUnit } from '../epic-land-gate';
 const PROJECT = '/tmp/mc-land-actor-project';
 const SESSION = 'conductor-session-1';
 
+/** `kind` is authoritative now, but these fixtures are written in the older title
+ *  dialect ("[MISSION] …", "[EPIC] …", "[LAND] …"). Derive the kind from that prefix.
+ *  An explicit `kind` in the override always wins. */
+const inferKind = (title: string): Todo['kind'] => {
+  if (/^\s*\[MISSION\]/i.test(title)) return 'mission';
+  if (/^\s*\[EPIC\]/i.test(title)) return 'epic';
+  if (/^\s*\[LAND\]/i.test(title)) return 'land';
+  return 'leaf';
+};
+
 const todo = (over: Partial<Todo>): Todo =>
-  ({ id: 'x', title: 't', status: 'planned', dependsOn: [], assigneeKind: 'agent', ...over }) as Todo;
+  ({
+    id: 'x',
+    title: 't',
+    status: 'planned',
+    dependsOn: [],
+    assigneeKind: 'agent',
+    kind: inferKind(over.title ?? 't'),
+    ...over,
+  }) as Todo;
 
 // mission -> epic -> [ code leaf (done/accepted), [LAND] leaf dependsOn code leaf ]
 const MISSION = todo({ id: 'm1', title: '[MISSION] Converge', ownerSession: SESSION });

@@ -14,6 +14,7 @@ import {
   assignTodo,
   removeTodo,
   clearCompleted,
+  collapseSplit,
   reorder,
   deriveTodoViews,
   type Todo,
@@ -23,7 +24,8 @@ import {
 } from '../../services/todo-store.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
-import { INBOX_EPIC_TITLE, isInboxEpic } from '../../services/claimability.js';
+import { INBOX_EPIC_TITLE, isInboxEpic, isInboxEpicTitle } from '../../services/claimability.js';
+import { labelFor, type TodoKind } from '../../services/todo-kind.js';
 import type { ToolDef } from './registry.js';
 
 // ============= Type Re-exports =============
@@ -177,11 +179,17 @@ export const addSessionTodoSchema = {
       items: { type: 'string' },
       description: 'List of todo ids this todo depends on',
     },
-    parentId: { type: 'string', description: 'Parent todo id — the [EPIC] (or sub-task parent) this belongs under. REQUIRED for work todos: every todo must belong to an epic. Omitting it (and inbox) is REJECTED.' },
+    parentId: { type: 'string', description: 'Parent todo id — the [EPIC] (or sub-task parent) this belongs under. REQUIRED for work todos: every todo must belong to an epic. Omitting it (and inbox) is REJECTED. For a kind:\'epic\' create, an explicit parentId here means "epic OR mission" and wins over missionId.' },
+    missionId: { type: ['string', 'null'], description: "Mission homing for a kind:'epic' create. OMIT for the default: the epic is parented to the session's ACTIVE mission. Pass null to force a root epic (opt-out), or a mission todo id to home it explicitly. Ignored for leaves and for the Inbox / Bugfix inbox bucket epics, which are always roots." },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
     type: { type: 'string', description: 'Agent-profile type (frontend/backend/api/ui/library). Overrides inference from files.' },
     files: { type: 'array', items: { type: 'string' }, description: 'Touched files — used to infer the agent-profile type when `type` is omitted.' },
     inbox: { type: 'boolean', description: 'Deliberately file an UNPLANNED high-level thought under [EPIC] Inbox. The ONLY way into the Inbox — never assumed. Use ONLY for genuine unplanned thoughts; planned work must pass parentId=<epic id> instead.' },
+    kind: {
+      type: 'string',
+      enum: ['leaf', 'epic', 'land', 'mission'],
+      description: "The node's role in the work graph (default: leaf). Set 'epic' for a container, 'land' for the final merge-to-master leaf, 'mission' for a convergence mission root. NEVER encode the role in the title — the [EPIC]/[LAND]/[MISSION] label is rendered from this field.",
+    },
   },
   required: ['project', 'session', 'text'],
 };
@@ -271,6 +279,16 @@ export const clearCompletedSessionTodosSchema = {
   required: ['project', 'session'],
 };
 
+export const collapseSplitSchema = {
+  type: 'object',
+  properties: {
+    project: { type: 'string', description: 'Absolute path to project root' },
+    session: { type: 'string', description: 'Session name' },
+    leafId: { type: 'string', description: 'Id of the split leaf to collapse' },
+  },
+  required: ['project', 'session', 'leafId'],
+};
+
 export const reorderSessionTodosSchema = {
   type: 'object',
   properties: {
@@ -330,18 +348,13 @@ export async function listSessionTodos(
  *  with the claim gate + approval block) and re-exported for back-compat. */
 export { INBOX_EPIC_TITLE };
 
-/** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention.
- *  Epics are exempt from auto-parenting (they ARE the parents). */
-function isEpicTitle(title: string): boolean {
-  return /^\s*\[EPIC\]/i.test(title);
-}
-
 /** Find (or create once) the project's default Inbox epic and return its id. The
- *  epic is created as a root (no parent), so it never recurses through the
- *  auto-parent path. */
+ *  epic stays a root (no parent) because it is a BUCKET epic (isBucketEpicTitle),
+ *  not because epics are roots in general — a non-bucket epic still resolves
+ *  through the §4d mission ladder. */
 async function ensureInboxEpic(project: string, session: string): Promise<string> {
   const all = listTodos(project, { includeCompleted: true }).filter(
-    (t) => t.title?.trim() === INBOX_EPIC_TITLE,
+    (t) => isInboxEpicTitle(t.title) && t.kind === 'epic',
   );
   // Prefer a live (non-terminal) Inbox.
   const live = all.find((t) => t.status !== 'done' && t.status !== 'dropped');
@@ -353,6 +366,7 @@ async function ensureInboxEpic(project: string, session: string): Promise<string
   }
   const epic = await createTodo(project, {
     ownerSession: session,
+    kind: 'epic',
     title: INBOX_EPIC_TITLE,
     description:
       'Default container for work todos created without an explicit epic (every work todo needs an epic — constraint 373a2d52). Re-parent these under a real epic during planning.',
@@ -377,6 +391,10 @@ export async function addSessionTodo(
     dueDate?: string;
     dependsOn?: string[];
     parentId?: string | null;
+    /** §4d mission homing for a `kind:'epic'` create. Omitted → parented to the caller's
+     *  ACTIVE mission BY DEFAULT. `null` → force a root epic. A string → that mission.
+     *  Ignored for leaves and for BUCKET epics (Inbox / Bugfix inbox), which stay roots. */
+    missionId?: string | null;
     sessionName?: string | null;
     type?: string | null;
     /** Touched files — used to INFER the agent-profile type when `type` is absent. */
@@ -385,9 +403,14 @@ export async function addSessionTodo(
      *  path into the Inbox — without it (and without a parentId/epic title) the create
      *  is REJECTED, so a forgotten epic surfaces loudly instead of silently landing here. */
     inbox?: boolean;
+    /** The node's ROLE. Explicit, never inferred from the title (stage C / BOMB 1).
+     *  'leaf' is the default ONLY because the overwhelming majority of creates mean a leaf;
+     *  epic/mission/land callers MUST say so. */
+    kind?: TodoKind;
   },
 ): Promise<Todo> {
-  const { title: _extrasTitle, files, type, inbox, ...extrasRest } = extras ?? {};
+  const { title: _extrasTitle, files, type, inbox, kind: kindArg, ...extrasRest } = extras ?? {};
+  const kind: TodoKind = kindArg ?? 'leaf';
   const trimmed = (extras?.title ?? text).trim();
   if (!trimmed) throw new Error('text must be non-empty');
   // Explicit type wins; otherwise infer from the touched files (open-problem #8) —
@@ -400,15 +423,22 @@ export async function addSessionTodo(
   // auto-parent under the Inbox — that masked planning skills that forgot the epic.
   // createTodo now REJECTS a non-epic top-level create unless `inbox:true` is set
   // (the explicit "unplanned thought" path). An explicit Inbox flag pre-resolves the
-  // epic here so the title-based Inbox identity stays in this layer.
+  // epic here so the title-based Inbox identity stays in this layer. Epic creates
+  // (kind:'epic') fall through untouched to createTodo/resolveTodoParent's §4d
+  // mission resolver (missionId omitted → active mission, null → root, bucket
+  // titles → root) rather than being defaulted to root here.
   let parentId = extrasRest.parentId ?? null;
-  if (!parentId && inbox && !isEpicTitle(trimmed)) {
+  // Roots (epic / mission) are exempt from auto-parenting — they ARE the parents.
+  // The role comes from the explicit `kind` argument; a title is never read for a role.
+  const isRoot = kind === 'epic' || kind === 'mission';
+  if (!parentId && inbox && !isRoot) {
     parentId = await ensureInboxEpic(project, session);
   }
   return createTodo(project, {
     ownerSession: session,
     ...extrasRest,
     parentId,
+    kind,                       // explicit; never inferred at insert (BOMB 1)
     title: trimmed, // after the spread so the trimmed value always wins
     link: link ?? null,
     type: resolvedType,
@@ -454,7 +484,7 @@ export async function updateSessionTodo(
     const parent = effectiveParentId ? getTodo(project, effectiveParentId) : null;
     if (parent && isInboxEpic(parent)) {
       throw new Error(
-        'Cannot approve a todo parented under [EPIC] Inbox — re-home it to a real epic before approving.',
+        `Cannot approve a todo parented under ${labelFor('epic')} ${INBOX_EPIC_TITLE} — re-home it to a real epic before approving.`,
       );
     }
   }
@@ -505,6 +535,10 @@ export async function clearCompletedSessionTodos(
 ): Promise<ClearCompletedResult> {
   const r = await clearCompleted(project, session);
   return { removedCount: r.removed };
+}
+
+export async function collapseSplitTodo(project: string, leafId: string) {
+  return collapseSplit(project, leafId);
 }
 
 export async function reorderSessionTodos(
@@ -576,7 +610,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
     inputSchema: addSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox } = args as {
+      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, sessionName, type, files, inbox, kind } = args as {
         project: string;
         session: string;
         text?: string;
@@ -590,13 +624,15 @@ export const sessionTodoToolDefs: ToolDef[] = [
         dueDate?: string;
         dependsOn?: string[];
         parentId?: string | null;
+        missionId?: string | null;
         sessionName?: string | null;
         type?: string | null;
         files?: string[];
         inbox?: boolean;
+        kind?: TodoKind;
       };
       if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox });
+      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, sessionName, type, files, inbox, kind });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },
@@ -703,6 +739,22 @@ export const sessionTodoToolDefs: ToolDef[] = [
       };
       if (!project || !session || !blueprintId) throw new Error('Missing required: project, session, blueprintId');
       const result = await completeTodosForTask(project, session, blueprintId, taskId);
+      ctx.broadcast({ type: 'session_todos_updated', project, session });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'collapse_split',
+    description: "Undo a leaf split: drop the leaf's open children and restore the leaf itself to a claimable leaf, atomically, preserving the leaf id (and its blueprint). Idempotent — reports which children it dropped. Note: the size gate may re-split on the next claim unless the leaf's spec changes.",
+    inputSchema: collapseSplitSchema,
+    handler: async (args, ctx) => {
+      const { project, session, leafId } = args as {
+        project: string;
+        session: string;
+        leafId: string;
+      };
+      if (!project || !session || !leafId) throw new Error('Missing required: project, session, leafId');
+      const result = await collapseSplitTodo(project, leafId);
       ctx.broadcast({ type: 'session_todos_updated', project, session });
       return JSON.stringify(result, null, 2);
     },

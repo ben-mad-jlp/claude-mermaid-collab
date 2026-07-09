@@ -122,6 +122,14 @@ describe('backfillDeconflateV1', () => {
     expect(get(db, 'w').heldReason).toBeNull();
   });
 
+  test('heldAt: blocked + dangling dep id → NULL (dep is a data bug, not satisfied; re-derives as deps-pending)', () => {
+    const db = freshDb();
+    insert(db, { id: 'w', status: 'blocked', dependsOn: JSON.stringify(['ghost']) });
+    backfillDeconflateV1(db);
+    expect(get(db, 'w').heldAt).toBeNull();
+    expect(get(db, 'w').heldReason).toBeNull();
+  });
+
   test('heldAt: blocked + deps satisfied + no open deps → migrated-park hold', () => {
     const db = freshDb();
     insert(db, { id: 'dep', status: 'done', acceptanceStatus: 'accepted' });

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useFleetGraph, type WorkerSub } from './useFleetGraph';
 import type { SessionTodo } from '@/types/sessionTodo';
+import type { EpicNodeData } from './types';
 
 function sub(session: string): WorkerSub {
   return { serverId: 'local', project: 'P', session, status: 'active', lastUpdate: 0 };
@@ -26,6 +27,7 @@ function todo(p: Partial<SessionTodo>): SessionTodo {
     updatedAt: '',
     completedAt: null,
     asanaGid: null,
+    kind: 'leaf',
     ...p,
   } as SessionTodo;
 }
@@ -60,7 +62,7 @@ describe('useFleetGraph', () => {
 
   it('counts a headless-inflight child toward its epic inflight tally', () => {
     const todos = [
-      todo({ id: 'E1' }),
+      todo({ id: 'E1', kind: 'epic' }),
       todo({ id: 'A', parentId: 'E1', status: 'ready' }),
     ];
     const { result } = renderHook(() =>
@@ -71,7 +73,7 @@ describe('useFleetGraph', () => {
   });
 
   it('treats a todo with children as a collapsed epic by default', () => {
-    const todos = [todo({ id: 'E1' }), todo({ id: 'A', parentId: 'E1' })];
+    const todos = [todo({ id: 'E1', kind: 'epic' }), todo({ id: 'A', parentId: 'E1' })];
     const { result } = renderHook(() =>
       useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
     );
@@ -82,7 +84,7 @@ describe('useFleetGraph', () => {
   });
 
   it('colors an epic ownBucket = inflight when a child is headless in-flight', () => {
-    const todos = [todo({ id: 'E1' }), todo({ id: 'A', parentId: 'E1', status: 'ready' })];
+    const todos = [todo({ id: 'E1', kind: 'epic' }), todo({ id: 'A', parentId: 'E1', status: 'ready' })];
     const { result } = renderHook(() =>
       useFleetGraph({ ...base, todos, expandedEpics: new Set(), inflightLeafIds: new Set(['A']) }),
     );
@@ -93,7 +95,7 @@ describe('useFleetGraph', () => {
   it('colors an epic ownBucket = ready when the epic is approved and nothing is running/blocked', () => {
     // Epic todo status 'ready' (approved); its child is plain backlog → not inflight,
     // not blocked, not all-done → falls to the epic's own 'ready'.
-    const todos = [todo({ id: 'E1', status: 'ready' }), todo({ id: 'A', parentId: 'E1', status: 'planned' })];
+    const todos = [todo({ id: 'E1', kind: 'epic', status: 'ready' }), todo({ id: 'A', parentId: 'E1', status: 'planned' })];
     const { result } = renderHook(() =>
       useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
     );
@@ -103,9 +105,9 @@ describe('useFleetGraph', () => {
 
   it('re-routes a cross-epic child dependency to the visible epics (edges survive collapse)', () => {
     const todos = [
-      todo({ id: 'E1' }),
+      todo({ id: 'E1', kind: 'epic' }),
       todo({ id: 'A', parentId: 'E1' }),
-      todo({ id: 'E2' }),
+      todo({ id: 'E2', kind: 'epic' }),
       todo({ id: 'B', parentId: 'E2', dependsOn: ['A'] }),
     ];
     const { result } = renderHook(() =>
@@ -116,7 +118,7 @@ describe('useFleetGraph', () => {
 
   it('shows children and the intra-epic edge once the epic is expanded', () => {
     const todos = [
-      todo({ id: 'E1' }),
+      todo({ id: 'E1', kind: 'epic' }),
       todo({ id: 'A', parentId: 'E1' }),
       todo({ id: 'B', parentId: 'E1', dependsOn: ['A'] }),
     ];
@@ -131,7 +133,7 @@ describe('useFleetGraph', () => {
 
   it('frames an expanded epic as a container: children are parented + the epic is sized', () => {
     const todos = [
-      todo({ id: 'E1' }),
+      todo({ id: 'E1', kind: 'epic' }),
       todo({ id: 'A', parentId: 'E1' }),
       todo({ id: 'B', parentId: 'E1', dependsOn: ['A'] }),
     ];
@@ -172,7 +174,7 @@ describe('useFleetGraph', () => {
 
   it('G1: TB flow with the epic expanded frames a container with parented children', () => {
     const todos = [
-      todo({ id: 'E1' }),
+      todo({ id: 'E1', kind: 'epic' }),
       todo({ id: 'A', parentId: 'E1' }),
       todo({ id: 'B', parentId: 'E1', dependsOn: ['A'] }),
     ];
@@ -210,5 +212,128 @@ describe('useFleetGraph', () => {
       useFleetGraph({ ...base, todos, subs, expandedEpics: new Set(), spawnedSessions: new Set(['planner-1']) }),
     );
     expect(spawned.result.current.nodes.map((n) => n.id)).toContain('worker:planner-1');
+  });
+
+  it('omits a mission node from the fleet graph', () => {
+    const todos = [todo({ id: 'M', kind: 'mission' }), todo({ id: 'E', parentId: 'M' })];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
+    );
+    expect(result.current.nodes.map((n) => n.id)).not.toContain('M');
+  });
+
+  it('renders a mission-parented epic as a top-level epic container', () => {
+    const todos = [
+      todo({ id: 'M', kind: 'mission' }),
+      todo({ id: 'E', kind: 'epic', parentId: 'M' }),
+      todo({ id: 'A', parentId: 'E', approvedAt: '2025-01-01' }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(['E']) }),
+    );
+    const epic = result.current.nodes.find((n) => n.id === 'E')!;
+    expect(epic.type).toBe('epic');
+    expect(epic.parentId).toBeUndefined();
+    expect((epic.data as EpicNodeData).total).toBe(1);
+    const a = result.current.nodes.find((n) => n.id === 'A')!;
+    expect(a.parentId).toBe('E');
+  });
+
+  it("keeps a mission's epics visible after every epic completes", () => {
+    const todos = [
+      todo({ id: 'M', kind: 'mission', status: 'ready' }),
+      todo({ id: 'E', kind: 'epic', parentId: 'M', status: 'ready' }),
+      todo({ id: 'A', parentId: 'E', status: 'ready' }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
+    );
+    expect(result.current.nodes.map((n) => n.id)).toContain('E');
+
+    const doneTodos = [
+      todo({ id: 'M', kind: 'mission', status: 'ready' }),
+      todo({ id: 'E', kind: 'epic', parentId: 'M', status: 'done' }),
+      todo({ id: 'A', parentId: 'E', status: 'done' }),
+    ];
+    const done = renderHook(() =>
+      useFleetGraph({ ...base, todos: doneTodos, expandedEpics: new Set() }),
+    );
+    const ids = done.result.current.nodes.map((n) => n.id);
+    expect(ids).not.toContain('E');
+    expect(ids).not.toContain('M');
+  });
+
+  it('renders a split leaf (kind=leaf WITH children) as a todo node, not an epic lane', () => {
+    const todos = [
+      todo({ id: 'E1', kind: 'epic' }),
+      todo({ id: 'L', kind: 'leaf', parentId: 'E1' }),
+      todo({ id: 'S1', kind: 'leaf', parentId: 'L' }),
+      todo({ id: 'S2', kind: 'leaf', parentId: 'L' }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(['E1']) }),
+    );
+    const nodeL = result.current.nodes.find((n) => n.id === 'L')!;
+    const nodeS1 = result.current.nodes.find((n) => n.id === 'S1')!;
+    const nodeS2 = result.current.nodes.find((n) => n.id === 'S2')!;
+    // Split leaf renders as a todo, not an epic
+    expect(nodeL.type).toBe('todo');
+    // Sub-tasks are top-level todo nodes
+    expect(nodeS1.type).toBe('todo');
+    expect(nodeS2.type).toBe('todo');
+    // Sub-tasks are NOT React Flow children (no parentId)
+    expect(nodeS1.parentId).toBeUndefined();
+    expect(nodeS2.parentId).toBeUndefined();
+    // Sub-task edges exist
+    expect(result.current.edges.some((e) => e.id === 'sub:L->S1')).toBe(true);
+    expect(result.current.edges.some((e) => e.id === 'sub:L->S2')).toBe(true);
+  });
+
+  it('renders a childless epic as an epic node, not an orphan todo', () => {
+    const todos = [todo({ id: 'E0', kind: 'epic' })];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set() }),
+    );
+    const nodeE0 = result.current.nodes.find((n) => n.id === 'E0')!;
+    expect(nodeE0.type).toBe('epic');
+    const data = nodeE0.data as { total?: number; expanded?: boolean };
+    expect(data.total).toBe(0);
+    expect(data.expanded).toBeUndefined(); // collapsed, not expanded
+  });
+
+  it('keeps a childless epic visible when it is done', () => {
+    // A done childless epic with status 'done' is hidden by its own isDone check.
+    const doneTodos = [todo({ id: 'E0', kind: 'epic', status: 'done' })];
+    const done = renderHook(() =>
+      useFleetGraph({ ...base, todos: doneTodos, expandedEpics: new Set() }),
+    );
+    expect(done.result.current.nodes.map((n) => n.id)).not.toContain('E0');
+
+    // A done childless epic with status 'planned' survives because the rollup
+    // (kids.length > 0) is false, so it is never hidden.
+    const plannedTodos = [todo({ id: 'E0', kind: 'epic', status: 'planned' })];
+    const planned = renderHook(() =>
+      useFleetGraph({ ...base, todos: plannedTodos, expandedEpics: new Set() }),
+    );
+    expect(planned.result.current.nodes.map((n) => n.id)).toContain('E0');
+  });
+
+  it('hides a done sub-task of a split leaf without hiding the leaf', () => {
+    const todos = [
+      todo({ id: 'E1', kind: 'epic' }),
+      todo({ id: 'L', kind: 'leaf', parentId: 'E1' }),
+      todo({ id: 'S1', kind: 'leaf', parentId: 'L', status: 'done' }),
+      todo({ id: 'S2', kind: 'leaf', parentId: 'L', status: 'ready' }),
+    ];
+    const { result } = renderHook(() =>
+      useFleetGraph({ ...base, todos, expandedEpics: new Set(['E1']) }),
+    );
+    const ids = result.current.nodes.map((n) => n.id);
+    // Done sub-task is hidden
+    expect(ids).not.toContain('S1');
+    // Split leaf remains visible
+    expect(ids).toContain('L');
+    // Active sub-task remains visible
+    expect(ids).toContain('S2');
   });
 });
