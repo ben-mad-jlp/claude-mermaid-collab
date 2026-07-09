@@ -261,7 +261,13 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
     for (const epicId of st.epicIds) {
       if (!expanded.has(epicId)) continue;
       const kids = (st.childrenByParent.get(epicId) ?? []).filter((c) => vis.some((v) => v.id === c.id));
-      if (kids.length === 0) continue;
+      if (kids.length === 0) {
+        // A declared-but-childless epic (kind === 'epic', no visible children) is a REAL
+        // state, not an absence: it renders as an empty lane at the ordinary epic size.
+        // Invariant: every expanded epic has an epicSize entry.
+        epicSize.set(epicId, SIZES.epic);
+        continue;
+      }
       const kidIds = new Set(kids.map((k) => k.id));
       const innerNodes: LayoutNode[] = kids.map((k) => ({ id: k.id, width: SIZES.todo.width, height: SIZES.todo.height }));
       const seenInner = new Set<string>();
@@ -306,7 +312,7 @@ export function useFleetGraph(input: UseFleetGraphInput): { nodes: FleetNode[]; 
     const outerNodes: LayoutNode[] = [];
     for (const t of vis) {
       if (parentOf.has(t.id)) continue; // nested inside an expanded epic
-      const size = isExpandedEpic(t.id) ? epicSize.get(t.id)! : st.epicIds.has(t.id) ? SIZES.epic : SIZES.todo;
+      const size = isExpandedEpic(t.id) ? (epicSize.get(t.id) ?? SIZES.epic) : st.epicIds.has(t.id) ? SIZES.epic : SIZES.todo;
       outerNodes.push({ id: t.id, width: size.width, height: size.height });
     }
     const workerOf = new Map<string, SessionTodo | null>();
