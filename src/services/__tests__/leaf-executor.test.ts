@@ -123,6 +123,8 @@ function makeDeps(opts: {
   // G2: mechanical gate hooks. Absent ⇒ unwired ⇒ pre-G2 behaviour (the floor never calls them).
   runGate?: LeafExecutorDeps['runGate'];
   ensureBaseGreen?: LeafExecutorDeps['ensureBaseGreen'];
+  // G3: change-set hook for grounding. Absent ⇒ unwired ⇒ abstain (no park; today's behaviour).
+  changeSet?: string[] | null;
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -202,6 +204,7 @@ function makeDeps(opts: {
     clearInflight: () => { spies.inflightSeq.push('clear'); },
     runGate: opts.runGate,
     ensureBaseGreen: opts.ensureBaseGreen,
+    changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
   };
   return { deps, spies };
 }
@@ -449,6 +452,57 @@ describe('runLeaf state machine', () => {
     const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
     expect(implementSpecs.length).toBe(1); // no fix node spent on a phantom empty finding
     expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+  });
+
+  it('G3: vacuous PASS (no citations) ⇒ blocked review-vacuous, retryCount bumped, no fix node', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], changeSet: ['src/a.ts'] });
+    const leaf = makeLeaf();
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^review-vacuous:/);
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(1); // no fix node spawned on a vacuous PASS
+  });
+
+  it('G3: a terse but CITED PASS accepts (no token floor, no tool-call floor)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] x — src/a.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+  });
+
+  it('G3: a citation to a file outside the change-set ⇒ blocked, reason names the offending citation', async () => {
+    const { deps } = makeDeps({
+      reviewVerdicts: ['- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('src/ghost.ts:1');
+  });
+
+  it('G3: a bare VERDICT: FAIL with no criteria is NOT parked as vacuous — the FAIL exemption is real', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — broken', 'VERDICT: FAIL — broken'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).not.toMatch(/^review-vacuous/);
+    // the fix node ran with the FAIL findings (proves it wasn't parked before reaching implement)
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBeGreaterThan(1);
+  });
+
+  it('G3: deps.changeSet unwired ⇒ abstain — a bare VERDICT: PASS still accepts (no regression)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // changeSet not supplied
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
   });
 
   it('gate downgrade: PASS but gate returns pending ⇒ outcome PENDING (first-class, not rejected)', async () => {

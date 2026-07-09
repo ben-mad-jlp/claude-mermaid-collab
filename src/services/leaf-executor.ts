@@ -40,6 +40,7 @@ import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { resolveLeafGate, composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, type LeafGateResult } from './leaf-gate';
+import { validateReviewGrounding } from './review-citations';
 import { loadProjectManifest } from '../config/project-manifest';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
@@ -525,6 +526,13 @@ export function buildNodePrompt(
         'Decide if the work is complete and correct (it compiles, satisfies the blueprint, no obvious bugs).',
         COMPILE_CHECK_INSTRUCTION,
         'A file that fails ONLY under a bare-file `tsc <file>` run (not the project config) is NOT a real failure.',
+        'Emit a `## CRITERIA` section: ONE line per acceptance criterion in the blueprint/spec, in this exact shape:',
+        '`- [MET] <criterion> — <path>:<line>`  or  `- [UNMET] <criterion> — <path>:<line>`  or  `- [N/A] <criterion> — <why>`',
+        'Every MET/UNMET line MUST carry at least one `file:line` citation into a file THIS leaf changed —',
+        'the line you actually read to decide. Cite both sides when a criterion spans two files.',
+        'A citation is not a formality: a criterion you cannot cite, you did not check.',
+        'Be as TERSE as the change deserves — a one-line diff earns a one-line review. There is no',
+        'length requirement and none will be inferred; only the citations are checked.',
         'End your reply with EXACTLY one line, nothing after it:',
         '`VERDICT: PASS`  (if complete and correct)',
         '`VERDICT: FAIL — <reason>`  (otherwise)',
@@ -1710,6 +1718,19 @@ export async function runLeaf(
         if (llm === 'error') {
           try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
           return parkBlocked('review-vacuous');
+        }
+        // --- G3 GROUNDING GATE -------------------------------------------------
+        // A PASS is the ONLY path from an LLM string to an accept, so it is the only one
+        // that must prove it looked. Structure + citations are MECHANICAL; the semantics
+        // of each criterion remain the LLM's. A FAIL is deliberately exempt: it never
+        // accepts, and forcing structure on it would turn a real finding into a park.
+        if (llm === 'pass') {
+          const cs = (await deps.changeSet?.(sessionKey)) ?? null;
+          const grounding = validateReviewGrounding(review.text ?? '', cs);
+          if (grounding.status === 'vacuous') {
+            try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+            return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+          }
         }
         findings = (review.text ?? '').trim();
       }
