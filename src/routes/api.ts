@@ -32,8 +32,10 @@ import {
   clearCompleted,
   collapseSplit,
   reorder,
+  backfillEpicsUnderMission,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
+import type { TodoKind } from '../services/todo-kind';
 import { recordStatus, getStatuses, getStatus, recordContextPercent, type ClaudeStatus } from '../services/session-status-store';
 import { recordUsage, getUsage } from '../services/usage-store';
 import { refreshSummaryNow } from '../services/session-summary-loop';
@@ -73,6 +75,10 @@ async function loadSpritePipeline() {
 }
 import { tmpdir as osTmpdir } from 'os';
 import { readFile as fsReadFile, rm as fsRm, mkdtemp as fsMkdtemp, writeFile as fsWriteFile, readdir as fsReaddir, unlink as fsUnlink, mkdir as fsMkdir, stat as fsStat } from 'fs/promises';
+
+// Wire-level allowlist for POST /api/session-todos `kind` — an unknown string from
+// the request body must not reach the (NOT-NULL) column.
+const VALID_KINDS: readonly TodoKind[] = ['mission', 'epic', 'land', 'leaf'];
 
 /**
  * Uniform 500 response for a caught error. Safely extracts a message whether or
@@ -3046,6 +3052,7 @@ export async function handleAPI(
     const { listTodos } = await import('../services/todo-store');
     const { summarize } = await import('../services/worker-ledger');
     const { getGrokHarnessForInspection, getAnthropicCoreHarnessForInspection } = await import('../agent/registry');
+    const { kindOf } = await import('../services/todo-kind');
     const grok = getGrokHarnessForInspection();
     const claude = getAnthropicCoreHarnessForInspection();
     const lanes = listTodos(project, { status: 'in_progress' })
@@ -3056,9 +3063,12 @@ export async function handleAPI(
         const cost = summarize({ project, todoId: t.id });
         return {
           todoId: t.id,
+          // `t` is a leaf (filtered from listTodos above); a leaf's parent is always an epic,
+          // never a mission — do not "fix" this into reading `kind`.
           epicId: t.parentId ?? undefined,
           session,
           title: t.title,
+          kind: kindOf(t),
           alive,
           runCostUsd: cost.totalUsd,
           byPhase: cost.byPhase,
@@ -3628,9 +3638,11 @@ export async function handleAPI(
         description?: string;
         parentId?: string | null;
         inbox?: boolean;
+        kind?: TodoKind;
+        missionId?: string | null;
       };
 
-      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox } = body;
+      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, kind, missionId } = body;
       const title = body.title ?? body.text;
 
       if (!project || !session || !title) {
@@ -3639,10 +3651,21 @@ export async function handleAPI(
       if (!title.trim()) {
         return Response.json({ error: 'title must be non-empty' }, { status: 400 });
       }
+      if (kind !== undefined && !VALID_KINDS.includes(kind)) {
+        return Response.json({ error: `kind must be one of ${VALID_KINDS.join('|')}` }, { status: 400 });
+      }
+      const effectiveKind: TodoKind = kind ?? 'leaf';
+      if (missionId !== undefined && effectiveKind !== 'epic') {
+        return Response.json({ error: 'missionId is only valid for kind:"epic"' }, { status: 400 });
+      }
 
       // every-todo-needs-an-epic: createTodo REJECTS a non-epic top-level create unless
       // parentId (an epic) or inbox:true is given — the catch below returns it as a 400.
-      const todo = await createTodo(project, { ownerSession: session, title, link, status, assigneeSession, priority, dueDate, description, parentId, inbox });
+      // `kind ?? 'leaf'` defaults HERE, at the generic REST "add a todo" boundary, because
+      // todo-store.createTodo requires an explicit kind and must never infer one from title.
+      // Omitting `missionId` on an epic create is what makes mission homing the DEFAULT
+      // (createTodo homes it to the caller's active mission), not an opt-in.
+      const todo = await createTodo(project, { ownerSession: session, title, kind: effectiveKind, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, missionId });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
@@ -3653,6 +3676,39 @@ export async function handleAPI(
       });
 
       return Response.json({ todo }, { status: 201 });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/todos/backfill-mission - Parent existing epics under a mission (per-epic decision, not bulk)
+  if (path === '/api/todos/backfill-mission' && req.method === 'POST') {
+    try {
+      const { project, session, missionId, epicIds } = await req.json() as {
+        project?: string;
+        session?: string;
+        missionId?: string;
+        epicIds?: string[];
+      };
+
+      if (!project || !session || !missionId) {
+        return Response.json({ error: 'project, session, and missionId required' }, { status: 400 });
+      }
+      if (!Array.isArray(epicIds) || epicIds.length === 0 || !epicIds.every((id) => typeof id === 'string' && id.length > 0)) {
+        return Response.json({ error: 'epicIds must be a non-empty array' }, { status: 400 });
+      }
+
+      const result = await backfillEpicsUnderMission(project, missionId, epicIds);
+
+      if (result.moved.length > 0) {
+        wsHandler.broadcast({
+          type: 'session_todos_updated',
+          project,
+          session,
+        });
+      }
+
+      return Response.json(result);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }
@@ -3739,6 +3795,10 @@ export async function handleAPI(
   }
 
   // PATCH /api/session-todos/:id - Update a session todo
+  // Deliberately no `kind` field on this body: a todo's kind is set at insert and never
+  // mutated over the wire (re-kinding a node would re-parent its whole drop cascade). If a
+  // future change needs to re-kind a todo, give it its own dedicated route + guard — do not
+  // add `kind` here.
   const sessionTodosPatchMatch = path.match(/^\/api\/session-todos\/([^/]+)$/);
   if (sessionTodosPatchMatch && req.method === 'PATCH') {
     try {

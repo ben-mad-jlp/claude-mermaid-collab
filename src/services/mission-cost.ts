@@ -13,7 +13,7 @@
  */
 import { listTodos } from './todo-store.ts';
 import { getMission } from './mission-store.ts';
-import { isEpicTitle } from './claimability.ts';
+import { isEpic } from './todo-kind.ts';
 import { listLeafRuns, type LeafRunSummary } from './ledger-stats.ts';
 
 export interface MissionCost {
@@ -83,7 +83,7 @@ export function getMissionCost(project: string, todoId: string): MissionCost {
   if (!m) throw new Error(`mission not found: ${todoId}`);
 
   const epics = listTodos(project, { includeCompleted: true }).filter(
-    (t) => t.parentId === todoId && t.status !== 'dropped' && isEpicTitle(t.title),
+    (t) => t.parentId === todoId && t.status !== 'dropped' && isEpic(t),
   );
   const runs = epics.flatMap((epic) => listLeafRuns({ project, epicId: epic.id }));
   return { todoId, ...computeMissionEconomics(runs) };

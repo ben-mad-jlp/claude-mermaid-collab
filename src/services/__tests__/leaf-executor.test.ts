@@ -61,6 +61,7 @@ function makeLeaf(over: Partial<Todo> = {}): Todo {
     executedBySession: 'leaf-exec-5c58cf82',
     blueprintId: null,
     type: null,
+    kind: null,
     targetProject: null,
     acceptanceStatus: null,
     claimedBy: null,

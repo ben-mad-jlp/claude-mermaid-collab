@@ -39,6 +39,8 @@ describe('migrateProject', () => {
     expect(a.find((t) => t.title === 'second')!.status).toBe('done');
     expect(a.find((t) => t.title === 'first')!.link).toEqual({ blueprintId: 'bp' });
     expect(listTodos(project, { session: 'session-b' }).map((t) => t.title)).toEqual(['b-one']);
+    // Stage C / BOMB 1: the importer states its kind rather than letting the title decide.
+    expect(a.every((t) => t.kind === 'leaf')).toBe(true);
 
     // source renamed, sidecar written
     expect(existsSync(join(project, '.collab', 'sessions', 'session-a', 'session-todos.json'))).toBe(false);
@@ -55,5 +57,20 @@ describe('migrateProject', () => {
 
   test('no sessions dir → 0', async () => {
     expect((await migrateProject(project)).migrated).toBe(0);
+  });
+
+  test('imports legacy titles verbatim as leaves — brackets are topic tags, not roles', async () => {
+    seedSession('s', [
+      { id: 1, text: '[UI] plan list does not refresh', completed: false, order: 10 },
+      { id: 2, text: '[EPIC] not actually an epic', completed: false, order: 20 },
+    ]);
+    await migrateProject(project);
+    const rows = listTodos(project, { session: 's' });
+    expect(rows.map((t) => t.title).sort()).toEqual([
+      '[EPIC] not actually an epic',
+      '[UI] plan list does not refresh',
+    ]);
+    // Both are leaves: no insert path infers a role from a title.
+    expect(rows.every((t) => t.kind === 'leaf')).toBe(true);
   });
 });

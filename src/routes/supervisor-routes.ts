@@ -400,10 +400,11 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
   // Project-scoped by id; no session needed.
   if (url.pathname === '/api/supervisor/todos' && req.method === 'PATCH') {
     try {
-      const { project, id, status } = (await req.json()) as {
+      const { project, id, status, force } = (await req.json()) as {
         project?: string;
         id?: string;
         status?: import('../services/todo-store.ts').TodoStatus;
+        force?: boolean;
       };
       if (!project || !id) return jsonError('project and id are required', 400);
       // De-conflate S3: the Planner approves by writing the DECISION axis
@@ -428,6 +429,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         }
         patch = { approvedAt: new Date().toISOString(), approvedBy: 'planner' };
       } else if (status) patch = { status };
+      if (force === true) patch.force = true;
       const todo = await updateTodo(project, id, patch);
       return Response.json({ todo });
     } catch (err) {

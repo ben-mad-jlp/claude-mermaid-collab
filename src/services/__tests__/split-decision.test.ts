@@ -273,6 +273,7 @@ describe('splitLeafInto with items', () => {
   function makeLeaf(overrides: Partial<Todo> = {}): Todo {
     return {
       id: 'leaf-test',
+      kind: 'leaf' as const,
       ownerSession: 'coordinator',
       assigneeSession: null,
       assigneeKind: 'agent' as const,

@@ -2,6 +2,7 @@ import { frictionTrends, type FrictionTrends } from './friction-trends.ts';
 import { type FrictionLayer, isReasonActioned, markReasonActioned } from './friction-store.ts';
 import { listTodos, createTodo, type Todo } from './todo-store.ts';
 import { getConfig } from './config-service.ts';
+import { isEpic, stripLabel } from './todo-kind.ts';
 
 /**
  * DF3 friction triage — periodic, deterministic (no-LLM) pass that reads the
@@ -9,7 +10,10 @@ import { getConfig } from './config-service.ts';
  * retryReason that hasn't been actioned yet.
  *
  * Anti-spam: threshold + actioned marker (permanent per MVP) + per-tick cap.
- * Bucket routing: domain → [EPIC] Bugfix inbox; orchestration/operational → [EPIC] Collab gaps.
+ * Bucket routing: domain → the 'Bugfix inbox' todo; orchestration/operational →
+ * 'Collab gaps'. Those two strings are bare bucket IDENTITIES (looked up via
+ * `stripLabel`, tolerating pre-strip rows), not role markers — the role check
+ * goes through isEpic()/`kind` (decision e852fb0c).
  *
  * Caveats:
  * - invariant-check will flag bucket epics (Bugfix inbox, Collab gaps) as stranded-epic
@@ -21,8 +25,8 @@ import { getConfig } from './config-service.ts';
 const DEFAULT_THRESHOLD = 3;
 const DEFAULT_FILE_CAP = 5;
 
-const BUGFIX_INBOX_TITLE = '[EPIC] Bugfix inbox';
-const COLLAB_GAPS_TITLE  = '[EPIC] Collab gaps';
+const BUGFIX_INBOX_TITLE = 'Bugfix inbox';
+const COLLAB_GAPS_TITLE  = 'Collab gaps';
 
 interface LayerRoute { epicTitle: string; category: 'bug' | 'gap'; }
 const LAYER_ROUTE: Record<FrictionLayer, LayerRoute> = {
@@ -30,8 +34,6 @@ const LAYER_ROUTE: Record<FrictionLayer, LayerRoute> = {
   orchestration: { epicTitle: COLLAB_GAPS_TITLE,  category: 'gap' },
   operational:   { epicTitle: COLLAB_GAPS_TITLE,  category: 'gap' },
 };
-
-const isEpicTitle = (t: string | null | undefined) => /^\s*\[EPIC\]/i.test(t ?? '');
 
 export interface FrictionTriageDeps {
   trends?: (project: string) => FrictionTrends;
@@ -49,13 +51,15 @@ async function findOrCreateEpic(
   listTodosFn: (p: string) => Todo[],
   createTodoFn: (p: string, i: Parameters<typeof createTodo>[1]) => Promise<Todo>,
 ): Promise<Todo> {
+  const want = stripLabel(title);
   const existing = listTodosFn(project).find(
-    (t) => isEpicTitle(t.title) && (t.title ?? '').trim() === title,
+    (t) => isEpic(t) && stripLabel(t.title) === want,
   );
   if (existing) return existing;
   return createTodoFn(project, {
     ownerSession: '__steward_friction_triage__',
     title,
+    kind: 'epic',
     status: 'planned',
   });
 }

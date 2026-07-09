@@ -1,4 +1,5 @@
 import type { MissionSummary, MissionPhase } from '@/stores/supervisorStore';
+import { stripKindPrefix } from '@/lib/todoKind';
 
 /**
  * Zen mission-awareness (pure). A session that OWNS an active, non-terminal mission
@@ -30,8 +31,11 @@ export interface ConductingView {
 
 const TERMINAL_PHASES = new Set<MissionPhase>(['converged', 'stopped']);
 
+/** Display-only: tear the role label off the mission title for the card ribbon.
+ *  This never decides a role — the mission-ness of `m` is settled by `m.mission`
+ *  before this is called. Becomes a no-op once stage C strips stored prefixes. */
 function goalOf(title: string): string {
-  return title.replace(/^\s*\[MISSION\]\s*/i, '').trim() || 'mission';
+  return stripKindPrefix(title).trim() || 'mission';
 }
 
 export function conductingView(m?: MissionSummary | null): ConductingView | null {

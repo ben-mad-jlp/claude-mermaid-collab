@@ -10,45 +10,40 @@
  * Pure + zero new I/O: `byId` is already in-memory at every call site (the work-graph map).
  */
 import type { Todo } from './todo-store';
+// One-directional as of stage C: this module imports the `isEpic`/`stripLabel` values
+// from todo-kind.ts, and todo-kind.ts imports only `import type { TodoKind }` back —
+// a type-only edge, erased at compile time. The stage-B runtime cycle existed solely
+// because todo-kind.ts's `kindOf` fallback needed `kindFromTitle` from here; that
+// fallback and that function are both gone. Do not add a value import in todo-kind.ts
+// from this module — it would re-form the cycle.
+import { isEpic, isMission, stripLabel } from './todo-kind.ts';
 
-/**
- * The per-project default epic that orphan/triage todos auto-file under
- * (constraint 373a2d52 / every-todo-needs-an-epic). The Inbox is a PLANNING-ONLY
- * staging area: its children must NEVER be auto-executed — they must first be
- * re-homed to a real epic. Matched by this exact title (the epic model is
- * title-based throughout; one shared definition makes it easy to harden later).
+/** The per-project default epic that orphan/triage todos auto-file under
+ *  (constraint 373a2d52). Planning-only: its children must never be auto-executed.
  *
- * Defined HERE (the pure predicate module) so both the claim gate below and the
- * approval route can import a SINGLE source of Inbox identity without pulling in
- * the heavy session-todos / todo-store graph (no import cycle: this module only
- * imports the `Todo` type).
- */
-export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
+ *  This is the POST-STRIP stored title. Stage C's migration removed the `[EPIC] `
+ *  prefix from every stored title, this row included — the Inbox's identity is the
+ *  word, not the bracket. `isInboxEpicTitle` below still accepts the legacy
+ *  `'[EPIC] Inbox'` literal so a Todo built before the migration ran (a replayed WS
+ *  frame, an old fixture) still resolves to the same singleton. */
+export const INBOX_EPIC_TITLE = 'Inbox';
 
-/** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention. */
-export const isEpicTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[EPIC\]/i.test(title ?? '');
+/** Identity check on the named singleton — NOT a role decision (role comes from `kind`).
+ *  Tolerates the legacy prefixed literal via the render-only `stripLabel`. */
+export const isInboxEpicTitle = (title: string | null | undefined): boolean =>
+  stripLabel(title) === INBOX_EPIC_TITLE;
 
-/**
- * Convergence-loop MISSION root (Phase 2a). A `[MISSION]` node is a DURABLE
- * top-level container that — unlike an `[EPIC]` — must NEVER auto-close when its
- * descendant epics all complete: a mission outlives hundreds of build/land cycles
- * (each iteration's gaps become transient `[EPIC]` children under it). The
- * behavioral difference lives in todo-store's two rollup paths (the completeTodo
- * event-path loop + sweepEpicRollups), which exempt this prefix. Loop-control
- * state (phase/iteration/criteria) is NOT stored on the todo row — it lives in the
- * sidecar `mission` table (see mission-store.ts) to keep the work-graph aggregate
- * uncoupled. Matched by the same title convention as epics.
- */
-export const MISSION_TITLE_PREFIX = '[MISSION]';
+/** The role a work-graph node plays. This is the stored `kind` column's domain —
+ *  the type-only pivot that lets `todo-kind.ts` import `TodoKind` from this module
+ *  without forming a runtime edge (the import is erased at compile time). */
+export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf';
 
-/** True for a todo that IS a mission root — by the `[MISSION]` title convention. */
-export const isMissionTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[MISSION\]/i.test(title ?? '');
-
-/** True iff this todo IS the Inbox epic itself (a top-level root, not a child). */
+/** True iff this todo IS the Inbox epic itself (a top-level root, not a child).
+ *  ROLE comes from `kind`; the title compare is an IDENTITY check on a named
+ *  singleton, not a role decision. Tolerates the pre-migration prefixed literal
+ *  via `isInboxEpicTitle`. */
 export const isInboxEpic = (t: Todo | undefined): boolean =>
-  !!t && isEpicTitle(t.title) && t.title.trim() === INBOX_EPIC_TITLE;
+  !!t && isEpic(t) && isInboxEpicTitle(t.title);
 
 /** True iff this todo's PARENT is the Inbox epic (i.e. it is a triage child). */
 export const parentIsInbox = (t: Todo, byId: Map<string, Todo>): boolean =>
@@ -63,30 +58,70 @@ export type ClaimReason =
   | 'inbox-planning'  // parent is the [EPIC] Inbox — planning-only triage; re-home to a real epic to run
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
-  | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable)
-  | 'deps-pending';   // a dep is not yet terminal
+  | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable by reset)
+  | 'dep-dropped'     // a dep was DROPPED — permanently unsatisfiable; needs a human (re-point the edge, reset the dep, or drop this todo)
+  | 'deps-pending';   // a dep is not yet terminal — recoverable by waiting
   // 'probe-failing' is NOT decided here — the daemon layers the live probe on top at claim time.
 
 /**
- * A dependency counts as satisfied iff it is terminally DONE and was not rejected.
+ * A dependency counts as satisfied iff it is terminally complete and was not rejected.
  *
- * NOTE — genuine behavior change vs the legacy todo-store `depSatisfied` (which keyed ONLY on
- * status==='done'): adding the `acceptanceStatus !== 'rejected'` clause newly blocks dependents
- * of rejected-but-done deps. That is precisely the dep-rejected fix (see HARD PARTS #6 / the S3
- * soak in design-todo-model-refactor) — it alters live claim behavior, not just labeling.
+ * THE single definition (F3). `todo-store.ts` previously carried a private, divergent copy;
+ * it now imports this one. The two axes it disagreed on, and how they are resolved:
+ *
+ *  - DANGLING dep id (`byId.get(id)` misses): NOT satisfied. A dep id that resolves to no row
+ *    is a DATA BUG, not an external/complete dependency. The permissive reading silently made
+ *    orphaned work claimable; here the dependent surfaces as `deps-pending`, which is visible
+ *    and human-recoverable.
+ *  - `accepted` but not `done`: SATISFIED. `claimReason` already treats acceptanceStatus==='accepted'
+ *    as terminal for the todo itself (the 75f7e304 reset/reaper path, see below); a dep that is
+ *    terminal for itself must satisfy its dependents or the graph contradicts itself.
+ *
+ * NOTE — genuine behavior change vs the pre-b2c858d4 status-only rule: the `!== 'rejected'`
+ * clause blocks dependents of rejected-but-done deps (HARD PARTS #6 / the S3 soak in
+ * design-todo-model-refactor). It alters live claim behavior, not just labeling.
+ *
+ * Takes the narrowest shape it reads so non-graph callers (the deconflate migration backfill,
+ * which has only SQL columns in hand) can pass a projection rather than a full `Todo`.
  */
-export function depSatisfied(dep: Todo | undefined): boolean {
+export function depSatisfied(dep: Pick<Todo, 'status' | 'acceptanceStatus'> | undefined): boolean {
   if (!dep) return false;
   if (dep.acceptanceStatus === 'rejected') return false;
   return dep.status === 'done' || dep.acceptanceStatus === 'accepted';
 }
 
 /**
+ * A dependency is PERMANENTLY unsatisfiable iff it was dropped.
+ *
+ * Complement of `depSatisfied` on the axis that matters for triage, not its negation:
+ * a dep can be unsatisfied because it is still *running* (recoverable by waiting) or
+ * because it is *dead* (recoverable only by a human). `status === 'dropped'` is the only
+ * terminal-and-never-satisfying state — `done`/`accepted` satisfy, `rejected` is caught
+ * earlier by the `dep-rejected` gate, everything else is live work.
+ *
+ * DERIVED from the dep row, never stored: reset the dep and the dependent silently
+ * returns to `deps-pending`/`ready` with no migration and no cleanup pass.
+ */
+export function depDropped(dep: Pick<Todo, 'status'> | undefined): boolean {
+  return dep?.status === 'dropped';
+}
+
+/**
  * The ONE eligibility predicate. Order is load-bearing: terminal/in-flight first (lifecycle),
  * then the decision gates (unapproved, held) which apply to BOTH agent and human todos, then
- * the dependency gates (dep-rejected BEFORE deps-pending so the recoverable blocker surfaces
- * first), and finally the agent-vs-human split LAST (a fully-unblocked human todo is
- * actionable-by-a-human, not auto-claimed).
+ * the dependency gates, and finally the agent-vs-human split LAST (a fully-unblocked human
+ * todo is actionable-by-a-human, not auto-claimed).
+ *
+ * The dependency gates run most-severe-first, where severity = how much human intervention
+ * recovery costs:
+ *   1. dep-rejected — reset the dep; the dep row is alive and re-runnable
+ *   2. dep-dropped  — a human must re-point the edge, `reset_todo` the dep, or drop this todo
+ *   3. deps-pending — wait; no human needed
+ * `dep-rejected` stays first even though `dep-dropped` is the *harder* blocker: a rejected dep
+ * is a gate failure a human is already being asked to look at, and it is the more actionable
+ * signal. A todo blocked by both reports `dep-rejected` — fix that, and it re-reports
+ * `dep-dropped` on the next read. Both precede `deps-pending`, the only dep state that
+ * resolves without a human.
  */
 export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // An ACCEPTED leaf is terminal regardless of the stored `status` enum: completeTodo
@@ -114,6 +149,14 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {
     return 'dep-rejected';
   }
+  // A DROPPED dep never satisfies (`depSatisfied` requires done|accepted), so without this
+  // gate the dependent reads `deps-pending` forever — indistinguishable from one merely
+  // waiting on live work (F4). The drop cascade walks `parentId` only and deliberately does
+  // NOT follow `dependsOn` (68b8bb09: it is a DAG, blast radius invisible at click time), so
+  // stranding OUTSIDE dependents is the accepted cost — this reason is how the cost is paid.
+  if ((t.dependsOn ?? []).some((id) => depDropped(byId.get(id)))) {
+    return 'dep-dropped';
+  }
   if (!(t.dependsOn ?? []).every((id) => depSatisfied(byId.get(id)))) {
     return 'deps-pending';
   }
@@ -131,6 +174,8 @@ export const isClaimable = (t: Todo, byId: Map<string, Todo>): boolean =>
  * on the now-untrusted shadow enum. NOT a stored value — recomputed on read like everything else.
  */
 export function derivedStatus(t: Todo, byId: Map<string, Todo>): string {
+  // A 'dep-dropped' todo (see claimReason) falls through to 'blocked' here — no distinct
+  // legacy label. The distinct rendering is claimReason's job, surfaced in the Bridge.
   if (t.status === 'done' || t.status === 'dropped') return t.status;
   if (t.claim != null) return 'in_progress';
   if (isClaimable(t, byId)) return 'ready';
@@ -169,7 +214,11 @@ export function findBlockedSplits(todos: Todo[]): BlockedSplit[] {
   const out: BlockedSplit[] = [];
   for (const p of todos) {
     if (!isOpen(p) || p.acceptanceStatus === 'accepted') continue;
-    if (isEpicTitle(p.title) || isMissionTitle(p.title)) continue;
+    // Containers are skipped by DECLARED kind, never by a title prefix (criterion 1 /
+    // decision ea83ac9f). Merge note: this call site arrived from the splitter epic
+    // (9b32bdbc) written against isEpicTitle/isMissionTitle, which the kind migration
+    // deleted. Text-merged clean; only tsc caught it.
+    if (isEpic(p) || isMission(p)) continue;
     const open = (byParent.get(p.id) ?? []).filter(isOpen);
     if (open.length === 0) continue;
     const unapproved = open.filter((c) => c.approvedAt == null);

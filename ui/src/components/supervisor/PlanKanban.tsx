@@ -1,11 +1,12 @@
 /**
  * PlanKanban — the Plan surface, organized as EPIC SWIMLANES (G6, restored).
  *
- *  - ROWS are epics: each epic is a horizontal lane (header = epic title + a
+ *  - ROWS are epics (kind === 'epic'): each epic is a horizontal lane (header = epic title + a
  *    per-bucket rollup), and its child todos flow LEFT→RIGHT by dependency wave
- *    (computeWaveMap depth) inside the lane. Independent epics never share a
- *    column, so they can't look coupled by a shared wave depth.
- *  - Orphan todos (no epic) get their own "No epic" lane.
+ *    (computeWaveMap depth) inside the lane. A childless epic still renders as an empty lane.
+ *    A leaf with children (auto-split) is never a lane — it renders as an expandable card.
+ *    Independent epics never share a column, so they can't look coupled by a shared wave depth.
+ *  - Orphan todos (no epic parent) get their own "No epic" lane.
  *  - A PINNED "⚡ Startable" strip sits on top as a cross-cutting highlight: todos
  *    whose dependsOn are all done AND that are unclaimed — start these. (A
  *    capability concept, NOT the status-Ready funnel bucket — G4.)
@@ -22,6 +23,7 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 import { isBucketEpic } from './bucketEpic';
 import { CopyId } from '@/components/CopyId';
+import { buildTodoHierarchy } from '@/lib/todoHierarchy';
 
 export interface PlanKanbanProps {
   todos: SessionTodo[];
@@ -87,43 +89,79 @@ function PlanCard({
   onSelect,
   byId,
   inflightLeafIds,
+  subtasks,
 }: {
   todo: SessionTodo;
   unblocks: number;
   onSelect?: (t: SessionTodo) => void;
   byId?: Map<string, SessionTodo>;
   inflightLeafIds?: Set<string>;
+  subtasks?: SessionTodo[];
 }) {
+  const [open, setOpen] = useState(false);
   const bucket = liveBucketTodo(todo, byId, inflightLeafIds) ?? 'backlog';
   const depCount = todo.dependsOn?.length ?? 0;
   return (
-    <button
-      type="button"
-      data-testid="plan-card"
-      data-todo-id={todo.id}
-      onClick={onSelect ? () => onSelect(todo) : undefined}
-      className={`w-56 shrink-0 text-left rounded-md border px-3 py-2.5 space-y-1.5 transition-colors hover:brightness-95 ${BUCKET_CARD[bucket]} ${onSelect ? 'cursor-pointer' : 'cursor-default'}`}
-    >
-      <div className="text-xs leading-tight text-gray-800 dark:text-gray-100 break-words">{todo.title}</div>
-      <div className="flex items-center gap-1.5 text-3xs text-gray-500 dark:text-gray-400">
-        <CopyId id={todo.id} />
-        {depCount > 0 && <span className="font-mono" title={`${depCount} dependencies`}>⊸{depCount}</span>}
-        {unblocks > 0 && (
-          <span
-            data-testid="bottleneck-tag"
-            title={`Unblocks ${unblocks} downstream todo${unblocks === 1 ? '' : 's'}`}
-            className="font-medium px-1 rounded bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
+    <div className="w-56 shrink-0">
+      <button
+        type="button"
+        data-testid="plan-card"
+        data-todo-id={todo.id}
+        onClick={onSelect ? () => onSelect(todo) : undefined}
+        className={`w-full text-left rounded-md border px-3 py-2.5 space-y-1.5 transition-colors hover:brightness-95 ${BUCKET_CARD[bucket]} ${onSelect ? 'cursor-pointer' : 'cursor-default'}`}
+      >
+        <div className="text-xs leading-tight text-gray-800 dark:text-gray-100 break-words">{todo.title}</div>
+        <div className="flex items-center gap-1.5 text-3xs text-gray-500 dark:text-gray-400">
+          <CopyId id={todo.id} />
+          {depCount > 0 && <span className="font-mono" title={`${depCount} dependencies`}>⊸{depCount}</span>}
+          {unblocks > 0 && (
+            <span
+              data-testid="bottleneck-tag"
+              title={`Unblocks ${unblocks} downstream todo${unblocks === 1 ? '' : 's'}`}
+              className="font-medium px-1 rounded bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
+            >
+              unblocks {unblocks}
+            </span>
+          )}
+          {todo.assigneeSession && (
+            <span className="ml-auto px-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 truncate max-w-[10rem]">
+              {todo.assigneeSession}
+            </span>
+          )}
+        </div>
+      </button>
+      {subtasks && subtasks.length > 0 && (
+        <>
+          <button
+            type="button"
+            data-testid="subtask-toggle"
+            data-todo-id={todo.id}
+            aria-expanded={open}
+            onClick={() => setOpen(o => !o)}
+            className="w-full text-left px-3 py-1 text-3xs text-gray-500 dark:text-gray-400 hover:underline"
           >
-            unblocks {unblocks}
-          </span>
-        )}
-        {todo.assigneeSession && (
-          <span className="ml-auto px-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 truncate max-w-[10rem]">
-            {todo.assigneeSession}
-          </span>
-        )}
-      </div>
-    </button>
+            {open ? '▾' : '▸'} {subtasks.length} sub-task{subtasks.length === 1 ? '' : 's'}
+          </button>
+          {open && (
+            <ul data-testid="subtask-list" className="pl-4 pr-1 pb-1 space-y-0.5">
+              {subtasks.map(s => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    data-testid="subtask-item"
+                    data-todo-id={s.id}
+                    onClick={onSelect ? () => onSelect(s) : undefined}
+                    className="w-full text-left text-3xs truncate text-gray-600 dark:text-gray-300 hover:underline"
+                  >
+                    {s.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -133,6 +171,8 @@ interface Lane {
   title: string;
   epic: SessionTodo | null;
   items: SessionTodo[];
+  /** leaf id → its auto-split sub-tasks, for the expandable sub-task row. */
+  subtasks: ReadonlyMap<string, SessionTodo[]>;
   counts: Record<FunnelKey, number>;
   completed: boolean; // every child terminal (done/dropped) — a "completed epic"
   rank: number; // min child wave, for lane ordering
@@ -144,20 +184,13 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
   const unblocks = useMemo(() => unblocksCount(todos), [todos]);
   const byId = useMemo(() => new Map(todos.map((t) => [t.id, t])), [todos]);
 
-  // Build epic swimlanes: an epic is any todo that is some other todo's parent.
-  // Children go in their epic's lane; everything else (no epic parent, not an
-  // epic itself) falls into a synthetic "No epic" lane. Within a lane, todos
-  // flow left→right by wave then plan order. Lanes order by their min child wave.
+  // Build epic swimlanes: one lane per declared epic (kind === 'epic'),
+  // plus a synthetic "No epic" lane for orphans. Children go in their epic's lane.
+  // A leaf with children (auto-split) stays as an item in its parent epic's lane
+  // and is exposed separately via subtasksByParent. Within a lane, todos flow
+  // left→right by wave then plan order. Lanes order by their min child wave.
   const lanes = useMemo<Lane[]>(() => {
-    const childrenByEpic = new Map<string, SessionTodo[]>();
-    for (const t of todos) {
-      if (t.parentId != null && byId.has(t.parentId)) {
-        const arr = childrenByEpic.get(t.parentId) ?? [];
-        arr.push(t);
-        childrenByEpic.set(t.parentId, arr);
-      }
-    }
-    const epicIds = new Set(childrenByEpic.keys());
+    const h = buildTodoHierarchy(todos);
 
     const byWaveOrder = (a: SessionTodo, b: SessionTodo) => {
       const wa = waveMap.get(a.id) ?? 0;
@@ -175,31 +208,31 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
 
     const out: Lane[] = [];
 
-    // One lane per epic (sorted children).
-    for (const epicId of epicIds) {
-      const epic = byId.get(epicId)!;
-      const items = (childrenByEpic.get(epicId) ?? []).slice().sort(byWaveOrder);
+    // One lane per declared epic (sorted children).
+    for (const epicId of h.epicIds) {
+      const epic = h.byId.get(epicId)!;
+      const items = (h.childrenByEpic.get(epicId) ?? []).slice().sort(byWaveOrder);
       out.push({
         key: `epic:${epicId}`,
         title: epic.title,
         epic,
         items,
+        subtasks: h.subtasksByParent,
         counts: tally(items),
         completed: items.length > 0 && items.every((t) => TERMINAL.has(t.status)),
         rank: minWave(items),
       });
     }
 
-    // "No epic" lane: todos that are neither an epic nor a child of one.
-    const orphans = todos
-      .filter((t) => !epicIds.has(t.id) && !(t.parentId != null && byId.has(t.parentId)))
-      .sort(byWaveOrder);
+    // "No epic" lane: orphans.
+    const orphans = h.orphans.slice().sort(byWaveOrder);
     if (orphans.length > 0) {
       out.push({
         key: 'orphans',
         title: 'No epic',
         epic: null,
         items: orphans,
+        subtasks: h.subtasksByParent,
         counts: tally(orphans),
         completed: orphans.every((t) => TERMINAL.has(t.status)),
         rank: minWave(orphans),
@@ -207,7 +240,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     }
 
     return out.sort((a, b) => a.rank - b.rank);
-  }, [todos, waveMap, inflightLeafIds]);
+  }, [todos, waveMap, inflightLeafIds, byId]);
 
   const visibleLanes = useMemo(
     () =>
@@ -223,7 +256,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
           if (showCompleted) return l;
           return { ...l, items: l.items.filter((t) => !TERMINAL.has(t.status)) };
         })
-        .filter((l) => l.items.length > 0),
+        .filter((l) => l.items.length > 0 || l.epic !== null),
     [lanes, showCompleted],
   );
 
@@ -309,7 +342,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
             <div className="overflow-x-auto p-1.5">
               <div className="flex gap-2 items-start">
                 {lane.items.map((t) => (
-                  <PlanCard key={t.id} todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} />
+                  <PlanCard key={t.id} todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} subtasks={lane.subtasks.get(t.id)} />
                 ))}
               </div>
             </div>

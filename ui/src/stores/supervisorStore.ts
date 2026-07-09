@@ -273,10 +273,17 @@ export interface SupervisorConfig {
   supervisorSession: string;
 }
 
-/** Convergence-loop MISSION summary (GET /api/supervisor/missions). A [MISSION]
+/** Convergence-loop mission summary (GET /api/supervisor/missions). A `kind:'mission'`
  *  work-graph node plus its live convergence rollup + acceptance criteria. The
- *  capability gauge (criteria met/total) is the real convergence gauge; the
- *  mechanical gauge is this iteration's [EPIC] children done/total. */
+ *  capability gauge (criteria met/total) is the real convergence gauge; the mechanical
+ *  gauge is this iteration's `kind:'epic'` children done/total.
+ *
+ *  Role is NOT read from a title here: the endpoint only ever returns mission nodes,
+ *  and `epics` only ever epic children. Anything that must classify an arbitrary node
+ *  uses `kindOf` from `ui/src/lib/todoKind.ts` (decision e852fb0c, stage B) — never a
+ *  title prefix. Titles still carry their prefixes in stage B; they are simply no
+ *  longer read. Render a label with `labelFor(kind)` / strip one with
+ *  `stripKindPrefix(title)`. */
 export type MissionPhase =
   | 'discover' | 'plan' | 'execute' | 'verify' | 'converged' | 'stopped';
 
@@ -307,6 +314,7 @@ export interface MissionSummary {
     stopReason?: string | null;
   };
   criteria: Array<{ id: string; text: string; met: boolean; order: number }>;
+  /** This mission's `kind:'epic'` children, as classified server-side — no client predicate needed. */
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
 }
 

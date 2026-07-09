@@ -80,14 +80,15 @@ export const FUNNEL_SEGMENTS: FunnelSegment[] = [
     tint: 'text-warning-600 dark:text-warning-400',
     bg: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
     loud: true,
-    // Derived "blocked" = held, dep-rejected, deps-pending, or self-rejected (the
-    // needs-a-human states), read VERBATIM from claimReason. Legacy fallback (no
-    // byId) reads the old enum so unmigrated callers are unchanged.
+    // Derived "blocked" = held, dep-dropped, dep-rejected, deps-pending, or
+    // self-rejected (the needs-a-human states), read VERBATIM from claimReason.
+    // Legacy fallback (no byId) reads the old enum so unmigrated callers are
+    // unchanged.
     match: (t, byId) => {
       if (t.heldAt != null) return true;
       if (byId == null) return t.status === 'blocked';
       const r = claimReason(t, byId);
-      return r === 'held' || r === 'dep-rejected' || r === 'deps-pending' || r === 'rejected';
+      return r === 'dep-dropped' || r === 'held' || r === 'dep-rejected' || r === 'deps-pending' || r === 'rejected';
     },
   },
   {
@@ -167,6 +168,18 @@ export const STATUS_STYLE: Record<FunnelKey, StatusStyle> = {
 };
 
 /**
+ * Decoration for a STRANDED todo (`isStranded`). It stays amber — one-red: danger is reserved
+ * for open escalations — and is distinguished by FORM, not hue: a dashed ring plus a hollow dot,
+ * reading as "this bucket, permanently". Applied ON TOP of STATUS_STYLE.blocked, never instead of it.
+ */
+export const STRANDED_STYLE: StatusStyle = {
+  dot:  'bg-transparent border-2 border-warning-600 dark:border-warning-400',
+  pill: 'bg-warning-100 text-warning-800 ring-1 ring-dashed ring-warning-500 dark:bg-warning-900/40 dark:text-warning-200',
+  tint: 'text-warning-700 dark:text-warning-300',
+  bg:   'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 ring-1 ring-dashed ring-warning-500',
+};
+
+/**
  * First matching segment wins, so each todo lands in exactly one bucket. Pass
  * `byId` (the work-graph map) so the ready/blocked/in-flight buckets resolve via
  * `claimReason`; omit it only at legacy single-todo call sites (then those
@@ -177,6 +190,18 @@ export function bucketTodo(t: SessionTodo, byId?: Map<string, SessionTodo>): Fun
     if (seg.match(t, byId)) return seg.key;
   }
   return null;
+}
+
+/**
+ * DERIVED (never stored): this todo sits in `blocked`, but unlike its bucket-mates it will
+ * NEVER unblock on its own — a dep was dropped (DECISION 68b8bb09). `deps-pending` clears by
+ * waiting; `dep-rejected` clears by `reset_todo`; this clears only when a human re-points the
+ * edge, resets the dep, or drops this todo. Self-heals: reset the dep and this goes false.
+ * Orthogonal to FunnelKey on purpose — it is a SEVERITY overlay on `blocked`, not a sixth bucket.
+ */
+export function isStranded(t: SessionTodo, byId?: Map<string, SessionTodo>): boolean {
+  if (byId == null) return false; // legacy single-todo callers cannot resolve deps
+  return claimReason(t, byId) === 'dep-dropped';
 }
 
 /**
@@ -203,6 +228,7 @@ export function liveStatusStyle(
   inflightLeafIds?: ReadonlySet<string>,
 ): StatusStyle | null {
   const k = liveBucketTodo(t, byId, inflightLeafIds);
+  if (k === 'blocked' && isStranded(t, byId)) return STRANDED_STYLE;
   return k ? STATUS_STYLE[k] : null;
 }
 
@@ -229,6 +255,7 @@ export function epicBucket(counts: Record<FunnelKey, number>, ownStatus: string)
 /** Resolve a todo straight to its canonical status style (null if unbucketed). */
 export function statusStyle(t: SessionTodo, byId?: Map<string, SessionTodo>): StatusStyle | null {
   const k = bucketTodo(t, byId);
+  if (k === 'blocked' && isStranded(t, byId)) return STRANDED_STYLE;
   return k ? STATUS_STYLE[k] : null;
 }
 
