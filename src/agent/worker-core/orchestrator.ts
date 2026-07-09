@@ -78,7 +78,7 @@ const researchPrompt = (s: TodoSpec) =>
 const authorTestsPrompt = (s: TodoSpec, plan: string) =>
   `TASK (todo ${s.todoId}): ${s.title}\n${s.description ?? ''}\nPLAN: ${plan}\n\n` +
   `You author the EXECUTABLE SPEC: write FAILING test(s) that encode the REQUIRED behavior of this change (the contract the implementer must satisfy). Use the project's existing test framework/conventions (look at a sibling test for the imports + naming pattern, but do NOT append to it). Create a NEW, DEDICATED test file for THIS leaf (name it after the unit under test, e.g. the sibling convention applied to this change) — do NOT add your tests to an existing/shared test file. Write ONLY test files — do NOT implement the feature. ` +
-  `Run the tests to confirm they FAIL for the right reason (the behavior doesn't exist yet), then \`git add -A && git commit -m "test: spec for ${s.todoId}"\` and STOP. ` +
+  `Run the tests to confirm they FAIL for the right reason (the behavior doesn't exist yet), then STOP. The executor commits your work for you — do NOT run \`git add\` or \`git commit\`. ` +
   `Then call submit_verdict with { "wroteTests": boolean, "testFiles": string[], "testCommand"?: string } — testFiles = the exact paths you authored. If the leaf genuinely can't be expressed as a test, return wroteTests:false with empty testFiles.`;
 
 const implementPrompt = (s: TodoSpec, plan: string, files: string[], specTestFiles: string[]) =>
@@ -88,7 +88,7 @@ const implementPrompt = (s: TodoSpec, plan: string, files: string[], specTestFil
     : '') +
   `CRITICAL — you have a LIMITED step budget; spend it EDITING, not surveying the repo. The research plan above is authoritative: do NOT explore the wider codebase for "patterns". Read ONLY the exact files you are about to edit (those listed above + the spec tests), then WRITE the edits with write_file/edit immediately. ` +
   `Work file-by-file and write INCREMENTALLY: as soon as you understand one file, edit it (make your FIRST write_file/edit call within your first few steps) — do NOT read everything before writing anything, or you will run out of budget with nothing written. ` +
-  `You MUST produce file writes — a run that only reads and never edits is a FAILURE. After editing, run the test(s) if any, then \`git add -A && git commit -m "<summary>"\` and STOP. Do not report completion.`;
+  `You MUST produce file writes — a run that only reads and never edits is a FAILURE. After editing, run the test(s) if any, then STOP. The executor commits your work for you — do NOT run \`git add\` or \`git commit\`. Do not report completion.`;
 
 const verifyPrompt = (s: TodoSpec, plan: string, specDiagramId?: string) =>
   `SPEC: ${s.title}\nPLAN: ${plan}\n` +

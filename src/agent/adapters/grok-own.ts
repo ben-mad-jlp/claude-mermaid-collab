@@ -515,7 +515,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       `STEP 1: call get_todo({project:"${project}", todoId:"${todoId}"}) to read the spec.`,
       'STEP 2: implement it HERE (relative paths) using write_file.',
       'STEP 3: run_bash your tests and iterate until they pass.',
-      'STEP 4: run_bash `git add -A && git commit -m "feat: <summary>"`.',
+      'STEP 4: run_bash `git add -- <the exact files you created or edited>` then `git commit -m "feat: <summary>"`. NEVER `git add -A`, `git add .`, or `git add -u` — the worktree contains build artifacts.',
       `STEP 5: call complete_todo({project:"${project}", todoId:"${todoId}", acceptance:"accepted"}).`,
       'Then stop. Do not ask questions.',
     ].join('\n');
