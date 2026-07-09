@@ -504,7 +504,13 @@ export function workerIsolationEnabled(): boolean {
  *  the executor (those go the legacy path). `project` is the tracking project. */
 export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   if (todo.assigneeKind === 'human') return false;
-  if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return false;
+  // [LAND] is excluded for SAFETY, not tidiness: a land leaf's deliverable is an
+  // irreversible merge to master, not code. Once the conductor can own a land leaf
+  // (assigneeKind 'agent'), the human check above stops shielding it, and the
+  // executor would run blueprint -> implement -> review against a git merge.
+  // MIGRATION: when the `kind` column lands (epic 45e2fb60) this exclusion moves off
+  // the title regex onto `kind`, together with the EPIC/GATE cases beside it.
+  if (/^\s*\[(EPIC|GATE|LAND)\]/i.test(todo.title ?? '')) return false;
   // NOTE: 'reviewer' leaves USED to be excluded here (a review's deliverable is a judgment,
   // not a commit, so the code path's work-committed re-verify wrongly reversed accept→ready —
   // the L7 case). That exclusion stranded every epic that ends with a completeness-review leaf
@@ -524,7 +530,7 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
  *  reviewer/parent) and never a genuine work leaf that would strand. Pure/read-only. */
 export function headlessExclusionReason(todo: Todo, project: string): string | null {
   if (todo.assigneeKind === 'human') return 'human';
-  if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return 'epic-or-gate';
+  if (/^\s*\[(EPIC|GATE|LAND)\]/i.test(todo.title ?? '')) return 'epic-or-gate-or-land';
   // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
   if (listTodos(project, {}).some((t) => t.parentId === todo.id)) return 'has-children';
   return null;
