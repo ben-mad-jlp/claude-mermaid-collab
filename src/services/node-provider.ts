@@ -24,6 +24,7 @@
 import { getConfig } from './config-file';
 import { kindDefaultGrokModel, type GrokNodeKind, GROK_NODE_KINDS } from '../agent/grok-model';
 import { getProjectNodeProvider, listNodeProfileOverrides } from './orchestrator-config';
+import { isModelForProvider, GROK_BUILD_MODELS } from './provider-model';
 
 export type NodeProvider = 'claude' | 'grok-build' | 'grok-api';
 
@@ -115,8 +116,49 @@ export function grokLedgerModel(kind: string): string {
   return kindDefaultGrokModel((GROK_NODE_KINDS as readonly string[]).includes(kind) ? (kind as GrokNodeKind) : undefined);
 }
 
-/** Valid grok CLI model ids selectable per-kind (the UI matrix model column for grok rows). */
-const GROK_CLI_MODELS = new Set(['grok-build', 'grok-build-0.1', 'grok-composer-2.5-fast']);
+/** Dedup set for provider/model mismatch warnings to avoid spam in hot loops. */
+const warnedMismatches = new Set<string>();
+
+/** The model to run for (kind, provider), honoring the per-kind DB override ONLY when it
+ *  belongs to the provider's family. A stale/bad row must never brick the daemon: warn
+ *  loudly, naming both sides, and fall back to the provider's default for the kind. */
+export function resolveNodeModel(
+  project: string | undefined,
+  kind: string,
+  provider: NodeProvider,
+  claudeDefault: string,
+): string {
+  // Default per provider.
+  const getDefault = (): string => {
+    if (provider === 'grok-build') return grokLedgerModel(kind);
+    if (provider === 'grok-api') return xaiApiLedgerModel(kind);
+    return claudeDefault;
+  };
+
+  // Read override defensively.
+  let override: string | null = null;
+  if (project) {
+    try {
+      override = listNodeProfileOverrides(project)[kind]?.model ?? null;
+    } catch {
+      return getDefault();
+    }
+  }
+
+  const v = override?.trim();
+  if (!v) return getDefault();
+
+  // Check if override belongs to provider's family.
+  if (isModelForProvider(provider, v)) return v;
+
+  // Mismatch: warn once per (project, kind, provider, model) and fall back to default.
+  const warnKey = `${project}/${kind}/${provider}/${v}`;
+  if (!warnedMismatches.has(warnKey)) {
+    warnedMismatches.add(warnKey);
+    console.warn(`[node-provider] provider/model mismatch: kind=${kind} provider=${provider} model=${v} — ignoring the override and running ${getDefault()}. Fix the node_profile_override row.`);
+  }
+  return getDefault();
+}
 
 /** Resolve the grok CLI model for a node, HONORING the per-kind DB model override (UI matrix)
  *  when it names a real grok model, else the kind default. Without this, every grok node was
@@ -125,10 +167,5 @@ const GROK_CLI_MODELS = new Set(['grok-build', 'grok-build-0.1', 'grok-composer-
  *  model). A claude alias (opus/sonnet) set on a grok row is ignored → kind default. Defensive
  *  on DB access. */
 export function grokModelForKind(project: string | undefined, kind: string): string {
-  const override = project
-    ? (() => { try { return listNodeProfileOverrides(project)[kind]?.model ?? null; } catch { return null; } })()
-    : null;
-  const v = override?.trim();
-  if (v && GROK_CLI_MODELS.has(v)) return v;
-  return grokLedgerModel(kind);
+  return resolveNodeModel(project, kind, 'grok-build', grokLedgerModel(kind));
 }

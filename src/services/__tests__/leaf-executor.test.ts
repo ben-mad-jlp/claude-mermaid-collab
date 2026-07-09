@@ -24,6 +24,7 @@ import {
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
+  isNodeStartFailure,
   type LeafExecutorDeps,
   type LeafSizeManifest,
 } from '../leaf-executor';
@@ -1700,5 +1701,244 @@ describe('runLeaf resume consumption (slice 2)', () => {
     expect(res.outcome).toBe('accepted');
     // NOT called on reattach (synthetic result).
     expect(baseSnapshots).toEqual([]);
+  });
+});
+
+describe('isNodeStartFailure', () => {
+  it('returns false for ok results', () => {
+    const res: NodeResult = {
+      ok: true,
+      exitCode: 0,
+      stdout: 'result',
+      durationMs: 1000,
+      usage: { inputTokens: 100, outputTokens: 50 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for rate-limited results', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 500,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: true,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns true for zero-token sub-5s node death (100ms-5s range)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'There\'s an issue with the selected model (grok-4.3)...',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+
+  it('returns false for very fast mock failures (< 100ms)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 1,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: '',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for slow failing node (non-zero tokens)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 60000,
+      usage: { inputTokens: 100, outputTokens: 50 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'Some error',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for slow failing node (5s+ duration)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 5001,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'Some error',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns true for node death with zero tokens in valid range', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: -1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'Config error',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+
+  it('returns false when any token count is non-zero', () => {
+    const res1: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 1, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res1)).toBe(false);
+
+    const res2: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 1 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res2)).toBe(false);
+
+    const res3: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 1 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res3)).toBe(false);
+  });
+
+  it('handles missing usage object as zero tokens', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+});
+
+describe('parkNodeStartFailure integration (node start-failure through runLeaf)', () => {
+  it('blueprint node start-failure (zero tokens, <5s) → outcome blocked, reason names pair, escalate blocker, complete never called', async () => {
+    const startFailureResult: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: "There's an issue with the selected model (grok-4.3) — it's not available",
+      parseError: "There's an issue with the selected model (grok-4.3) — it's not available",
+    };
+
+    const { deps, spies } = makeDeps({});
+    // Spy on invoker to return start failure for blueprint node only
+    const originalInvoke = deps.invoker.invoke;
+    let invocationCount = 0;
+    deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+      invocationCount += 1;
+      // First invocation is blueprint (has Write in allowedTools)
+      const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+      if (isBlueprint && invocationCount === 1) {
+        return startFailureResult;
+      }
+      return originalInvoke(spec);
+    };
+
+    const res = await runLeaf('proj', makeLeaf(), deps);
+
+    expect(res.outcome).toBe('blocked');
+    expect(res.nodesSpent).toBe(1);
+    expect(res.reason).toContain('node-could-not-start:');
+    expect(res.reason).toContain("provider='claude'");
+    expect(res.reason).toContain('grok-4.3');
+
+    // Should escalate exactly once as a blocker due to start failure
+    const blockerEscalations = spies.escalations.filter((e) => e.kind === 'blocker');
+    expect(blockerEscalations.length).toBe(1);
+    expect(blockerEscalations[0].questionText).toContain('node-could-not-start:');
+    expect(blockerEscalations[0].questionText).toContain('blueprint');
+    expect(blockerEscalations[0].questionText).toContain('provider');
+    expect(blockerEscalations[0].questionText).toContain('model');
+
+    // Verify deps.complete was NEVER called (start failure parks before acceptance)
+    expect(spies.completeCalls).toEqual([]);
+  });
+
+  it('slow review failure (non-zero tokens or >5s) is NOT a start failure → follows existing verdict path', async () => {
+    // A node that takes a long time and consumes tokens is NOT a start failure,
+    // even if it returns ok:false. It should follow the normal verdict parsing path.
+    const slowFailureResult: NodeResult = {
+      ok: true,
+      exitCode: 0,
+      stdout: 'VERDICT: FAIL — issue found after processing',
+      durationMs: 60000,
+      usage: { inputTokens: 100, outputTokens: 50 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: 'VERDICT: FAIL — issue found after processing',
+    };
+
+    const { deps, spies } = makeDeps({});
+    // Spy on invoker to return slow result for review node only
+    const originalInvoke = deps.invoker.invoke;
+    let reviewCount = 0;
+    deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+      const isReview = spec.allowedTools === 'Read Grep Glob Bash';
+      if (isReview) {
+        reviewCount += 1;
+        // Return slow failure only on first review; subsequent ones pass to avoid attempt loop
+        if (reviewCount === 1) {
+          return slowFailureResult;
+        }
+        return okResult('VERDICT: PASS');
+      }
+      return originalInvoke(spec);
+    };
+
+    const res = await runLeaf('proj', makeLeaf(), deps);
+
+    // Slow result should follow existing path, NOT park as start failure.
+    // Since the first review is 'fail', it will retry. The second review passes, so accepted.
+    expect(res.outcome).toBe('accepted');
+    expect(res.nodesSpent).toBeGreaterThan(3); // blueprint + implement + review (fail) + implement + review (pass)
+
+    // Should NOT escalate as a blocker (start failure)
+    expect(spies.escalations.filter((e) => e.kind === 'blocker').length).toBe(0);
+
+    // complete() was called with 'accepted' (the normal verdict path)
+    expect(spies.completeCalls.some((c) => c.acceptance === 'accepted')).toBe(true);
   });
 });

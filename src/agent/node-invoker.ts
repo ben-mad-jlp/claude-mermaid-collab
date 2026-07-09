@@ -137,6 +137,8 @@ export interface NodeResult {
   text?: string;
   /** Set when --output-format json failed to parse, or on timeout/auth halt. */
   parseError?: string;
+  /** Set by runNode when the node process died before doing any work (a config/infra fault). */
+  startFailure?: { provider: string; model: string; detail: string };
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000;
