@@ -1,6 +1,7 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable, claimReason, derivedStatus, depSatisfied, isEpicTitle, isMissionTitle, INBOX_EPIC_TITLE, kindFromTitle, type ClaimReason, type TodoKind } from './claimability';
+import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, kindFromTitle, type ClaimReason, type TodoKind } from './claimability';
+import { isEpic, isMission } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -145,6 +146,9 @@ export interface CreateTodoInput {
   executedBySession?: string | null;
   blueprintId?: string | null;
   type?: string | null;
+  /** Role, if the caller already knows it. Stage B: falls back to the title prefix
+   *  (`kindFromTitle`) when absent, so today this is purely forward-compat for stage C. */
+  kind?: TodoKind | null;
   targetProject?: string | null;
   objectRef?: string | null;
   decisionRef?: string | null;
@@ -730,8 +734,8 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
  *  top-level create unless `inbox`/`allowOrphan` is set. */
 async function resolveTodoParent(project: string, input: CreateTodoInput): Promise<string | null> {
   if (input.parentId) return input.parentId;        // caller attached a parent
-  if (isEpicTitle(input.title)) return null;         // an epic is a legitimate root
-  if (isMissionTitle(input.title)) return null;      // a [MISSION] is a durable root (Phase 2a)
+  if (isEpic(input)) return null;                    // an epic is a legitimate root
+  if (isMission(input)) return null;                 // a [MISSION] is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
   // inbox:true → home under [EPIC] Inbox (find-or-create). The ONLY auto-home, and explicit.
@@ -775,7 +779,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindFromTitle(input.title), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.kind ?? kindFromTitle(input.title), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
       approvedAt, approvedBy, heldAt, heldReason
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
@@ -911,14 +915,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
       // CASCADE-CLOSE: closing an EPIC abandons its still-open work — DROP every non-terminal
       // transitive descendant so the plan's epic lane goes fully terminal (and hides), instead
-      // of a closed epic lingering on the board because of orphaned undone children. No-op on
-      // the normal auto-complete path (an epic that completes has no open descendants). Inline
-      // [EPIC] check — importing isEpicTodo would cycle (invariant-check imports todo-store).
+      // of a closed epic lingering on the board because of orphaned undone children. Reads
+      // `kind` via ./todo-kind (no cycle: the claimability hop is type-only).
       // NOTE: deliberately bypasses the ClaimedTodoDropError guard above (raw SQL, not
       // updateTodo) — refusing an epic close because some deep leaf is claimed is its own
       // footgun. Killing the running build + cleaning its worktree is the explicitly
       // out-of-scope follow-up (design §5 step 5); a test pins this current behaviour.
-      if (/^\s*\[EPIC\]/i.test(next.title ?? '')) {
+      if (isEpic({ kind: existing.kind, title: next.title })) {
         try {
           db.prepare(
             `WITH RECURSIVE descendants(did) AS (
@@ -1474,9 +1477,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       if (!parent || parent.status === 'done' || parent.status === 'dropped' || parent.heldAt != null) break;
       // Convergence-loop MISSION root (Phase 2a): a `[MISSION]` container is DURABLE and
       // must never auto-close when its iteration's epics all complete — the mission
-      // outlives them. Inline [MISSION] check mirrors the [EPIC] cascade guard below
-      // (importing isMissionTitle would cycle: claimability imports the Todo type here).
-      if (/^\s*\[MISSION\]/i.test(parent.title ?? '')) break;
+      // outlives them.
+      if (isMission(parent)) break;
       const children = listTodos(project, { includeCompleted: true }).filter((t) => t.parentId === parentId && t.status !== 'dropped');
       if (children.length === 0) break;
       const allChildrenDone = children.every((c) => c.status === 'done' && c.acceptanceStatus !== 'rejected');
@@ -1681,7 +1683,7 @@ export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
         if (epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) continue;
         // Phase 2a: a `[MISSION]` root is durable — never rolled up even when all its
         // iteration epics settle (mirrors the event-path guard in completeTodo).
-        if (/^\s*\[MISSION\]/i.test(epic.title ?? '')) continue;
+        if (isMission(epic)) continue;
         const children = childrenByParent.get(epic.id);
         if (!children || children.length === 0) continue; // not an epic / no live children
         if (!children.every((c) => c.status === 'done')) continue; // a child still open
