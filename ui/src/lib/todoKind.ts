@@ -42,13 +42,18 @@ export const kindFromTitle = (title: string | null | undefined): TodoKind => {
   return 'leaf';
 };
 
+const KINDS = ['mission', 'epic', 'land', 'leaf'] as const;
+const isTodoKind = (v: unknown): v is TodoKind =>
+  typeof v === 'string' && (KINDS as readonly string[]).includes(v);
+
 /** Resolve the role of a node. Reads the `kind` column; falls back to the legacy
  *  title prefix ONLY for pre-column payloads (WebSocket frames replayed from an old
- *  snapshot, test fixtures, optimistic client-side todos). STAGE C: drop the
- *  fallback — kind is then guaranteed on every payload. */
+ *  snapshot, test fixtures, optimistic client-side todos) OR an invalid/garbage
+ *  `kind` value. STAGE C: drop the fallback — kind is then guaranteed on every
+ *  payload. */
 export const kindOf = (t: TodoLike | null | undefined): TodoKind => {
   if (!t) return 'leaf';
-  if (t.kind != null) return t.kind;
+  if (isTodoKind(t.kind)) return t.kind;
   return kindFromTitle(t.title); // STAGE C: delete this fallback
 };
 
