@@ -77,6 +77,11 @@ describe('isHeadlessLeaf — non-code leaf exclusion', () => {
   it('admits an ordinary agent code leaf', () => {
     expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), TEST_ROOT)).toBe(true);
   });
+  it('EXCLUDES [LAND] leaves even when agent-assigned (an agent must never build a merge)', () => {
+    expect(isHeadlessLeaf(base({ title: '[LAND] merge epic to master', assigneeKind: 'agent' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ title: '[land] lowercase' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ title: '  [LAND] leading space' }), TEST_ROOT)).toBe(false);
+  });
 });
 
 describe('makeCoordinatorDeps', () => {
