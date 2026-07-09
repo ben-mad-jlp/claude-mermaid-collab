@@ -1,12 +1,36 @@
 import { describe, it, expect } from 'bun:test';
 import {
-  consultChatGPT,
-  DEFAULT_CONSULT_CHATGPT_MODEL,
+  calculateCost,
+  consultCodex,
+  DEFAULT_CONSULT_CODEX_MODEL,
   OPENAI_KEY_NAME,
-  type ConsultChatGPTResult,
+  type ConsultCodexResult,
 } from '../consult-openai.js';
 
-describe('consultChatGPT', () => {
+describe('consult_codex defaults', () => {
+  // The rename this file guards: a rename that leaves the old default in place
+  // silently keeps calling the old model. Pin the value, not just the name.
+  it('defaults to gpt-5-codex, not gpt-5', () => {
+    expect(DEFAULT_CONSULT_CODEX_MODEL).toBe('gpt-5-codex');
+  });
+
+  // A default model missing from OPENAI_PRICE reports costUsd: null on every call.
+  // That reads as "free" in any ledger that coerces null to 0.
+  it('the default model resolves in the price table', () => {
+    const cost = calculateCost(DEFAULT_CONSULT_CODEX_MODEL, {
+      prompt_tokens: 1_000_000,
+      completion_tokens: 0,
+    });
+    expect(cost).not.toBeNull();
+    expect(cost).toBeGreaterThan(0);
+  });
+
+  it('an unpriced model yields null, never zero', () => {
+    expect(calculateCost('gpt-5-nonexistent', { prompt_tokens: 1000 })).toBeNull();
+  });
+});
+
+describe('consultCodex', () => {
   it('happy path: resolves with model, response, and cost', async () => {
     const mockFetch = (async () =>
       new Response(
@@ -19,13 +43,13 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test prompt' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
 
     expect(result.response).toBe('hello from gpt-5');
-    expect(result.model).toBe(DEFAULT_CONSULT_CHATGPT_MODEL);
+    expect(result.model).toBe(DEFAULT_CONSULT_CODEX_MODEL);
     expect(result.usage.prompt_tokens).toBe(10);
     expect(result.usage.completion_tokens).toBe(5);
     expect(result.usage.total_tokens).toBe(15);
@@ -45,7 +69,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test', model: 'gpt-4' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -65,7 +89,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test', model: 'gpt-unknown' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -77,7 +101,7 @@ describe('consultChatGPT', () => {
     const mockGetSecret = () => 'sk-TEST-KEY';
 
     try {
-      await consultChatGPT(
+      await consultCodex(
         { prompt: '' },
         { getSecretImpl: mockGetSecret },
       );
@@ -97,7 +121,7 @@ describe('consultChatGPT', () => {
     const mockGetSecret = () => undefined;
 
     try {
-      await consultChatGPT(
+      await consultCodex(
         { prompt: 'test' },
         { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
       );
@@ -124,7 +148,7 @@ describe('consultChatGPT', () => {
     const mockGetSecret = () => 'sk-TEST-KEY';
 
     try {
-      await consultChatGPT(
+      await consultCodex(
         { prompt: 'test' },
         { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
       );
@@ -146,7 +170,7 @@ describe('consultChatGPT', () => {
     const mockGetSecret = () => 'sk-TEST-KEY';
 
     try {
-      await consultChatGPT(
+      await consultCodex(
         { prompt: 'test' },
         { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
       );
@@ -182,7 +206,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -214,7 +238,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -238,7 +262,7 @@ describe('consultChatGPT', () => {
     const mockGetSecret = () => 'sk-TEST-KEY';
 
     try {
-      await consultChatGPT(
+      await consultCodex(
         { prompt: 'test' },
         { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
       );
@@ -260,7 +284,7 @@ describe('consultChatGPT', () => {
     const mockGetSecret = () => 'sk-TEST-KEY';
 
     try {
-      await consultChatGPT(
+      await consultCodex(
         { prompt: 'test' },
         { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
       );
@@ -290,7 +314,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -308,7 +332,7 @@ describe('consultChatGPT', () => {
     const mockGetSecret = () => testKey;
 
     try {
-      await consultChatGPT(
+      await consultCodex(
         { prompt: 'test' },
         { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
       );
@@ -333,7 +357,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => testKey;
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -358,7 +382,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    await consultChatGPT(
+    await consultCodex(
       { prompt: 'user prompt', system: 'system context' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -385,7 +409,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    await consultChatGPT(
+    await consultCodex(
       { prompt: 'test' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -409,7 +433,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    await consultChatGPT(
+    await consultCodex(
       { prompt: 'test' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -436,7 +460,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );
@@ -462,7 +486,7 @@ describe('consultChatGPT', () => {
 
     const mockGetSecret = () => 'sk-TEST-KEY';
 
-    const result = await consultChatGPT(
+    const result = await consultCodex(
       { prompt: 'test', model: 'gpt-5' },
       { fetchImpl: mockFetch, getSecretImpl: mockGetSecret },
     );

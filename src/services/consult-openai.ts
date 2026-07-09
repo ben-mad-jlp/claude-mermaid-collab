@@ -1,10 +1,12 @@
 /**
- * Consult OpenAI service — hand-rolled fetch client for ChatGPT.
+ * Consult OpenAI service — hand-rolled fetch client for Codex.
  *
  * A second, independent opinion at design time — the OpenAI-backed twin of
  * consult_grok. Uses a separate service module so it can be unit-tested without
  * touching the 4000-line setup.ts dispatch. Injected deps allow tests to mock
  * fetch and getSecret without network calls or key leaks.
+ *
+ * The file is named for the PROVIDER (openai), the tool for the MODEL (codex).
  *
  * Design goals:
  * - Config.json-first key resolution (same as consult_grok / judgment-llm).
@@ -16,18 +18,18 @@
 
 import { getSecret } from './config-service.js';
 
-export const DEFAULT_CONSULT_CHATGPT_MODEL = 'gpt-5';
+export const DEFAULT_CONSULT_CODEX_MODEL = 'gpt-5-codex';
 export const OPENAI_KEY_NAME = 'OPENAI_API_KEY';
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const CONSULT_TIMEOUT_MS = 120_000;
 
-export interface ConsultChatGPTArgs {
+export interface ConsultCodexArgs {
   prompt: string;
   system?: string;
   model?: string;
 }
 
-export interface ConsultChatGPTResult {
+export interface ConsultCodexResult {
   model: string;
   response: string;
   usage: {
@@ -42,18 +44,27 @@ export interface ConsultChatGPTResult {
 /**
  * OpenAI pricing per million tokens. Extended model-by-model when new models become available.
  * Prices are USD per 1e6 input (non-cached), cached input, and output tokens.
+ *
+ * A model absent from this table yields costUsd: null and a warning — never a
+ * fabricated or zero cost. A silently-zero cost row is the same failure class as
+ * a silently-passing gate: an unknown value read as a benign one.
  */
 const OPENAI_PRICE: Record<string, { in: number; cachedIn: number; out: number }> = {
   'gpt-5': { in: 1.25, cachedIn: 0.125, out: 10 },
+  'gpt-5-codex': { in: 1.25, cachedIn: 0.125, out: 10 },
+  'gpt-5.3-codex': { in: 1.75, cachedIn: 0.175, out: 14 },
 };
 
-export interface ConsultChatGPTDeps {
+/** Models already warned about, so the warning fires once per model, not once per call. */
+const warnedUnpricedModels = new Set<string>();
+
+export interface ConsultCodexDeps {
   fetchImpl?: typeof fetch;
   getSecretImpl?: typeof getSecret;
 }
 
 /**
- * Consult ChatGPT with a question or prompt. Handles key resolution, retries,
+ * Consult Codex with a question or prompt. Handles key resolution, retries,
  * cost calculation, and strict key hygiene.
  *
  * @throws Error with 'Missing required: prompt' if prompt is missing.
@@ -62,10 +73,10 @@ export interface ConsultChatGPTDeps {
  * @throws Error with 'OpenAI returned an empty completion...' if the reply is empty.
  * @throws Error with 'OpenAI API request failed (network): ...' on transient failure after retries.
  */
-export async function consultChatGPT(
-  args: ConsultChatGPTArgs,
-  deps?: ConsultChatGPTDeps,
-): Promise<ConsultChatGPTResult> {
+export async function consultCodex(
+  args: ConsultCodexArgs,
+  deps?: ConsultCodexDeps,
+): Promise<ConsultCodexResult> {
   // Use injected implementations for testing; fall back to real ones
   const fetchFn = deps?.fetchImpl ?? fetch;
   const getSecretFn = deps?.getSecretImpl ?? getSecret;
@@ -74,7 +85,7 @@ export async function consultChatGPT(
     throw new Error('Missing required: prompt');
   }
 
-  const model = args.model ?? DEFAULT_CONSULT_CHATGPT_MODEL;
+  const model = args.model ?? DEFAULT_CONSULT_CODEX_MODEL;
   const apiKey = getSecretFn(OPENAI_KEY_NAME);
 
   if (!apiKey) {
@@ -173,16 +184,26 @@ export async function consultChatGPT(
 
 /**
  * Calculate cost from usage stats + price table. Mirrors xai-api-invoker pattern.
- * If the model has no price entry, returns null (not a fabricated number).
+ * If the model has no price entry, returns null (not a fabricated number) and says so.
  */
-function calculateCost(
+export function calculateCost(
   model: string,
   usage: Record<string, unknown> | undefined,
 ): number | null {
   if (!usage) return null;
 
   const priceEntry = OPENAI_PRICE[model];
-  if (!priceEntry) return null; // unknown model → no cost
+  if (!priceEntry) {
+    // Unknown model → no cost. Loud, not silent: an uncosted call must be visible.
+    if (!warnedUnpricedModels.has(model)) {
+      warnedUnpricedModels.add(model);
+      console.warn(
+        `[consult-openai] No price entry for model "${model}" — costUsd will be null. ` +
+          `Add it to OPENAI_PRICE with the real published rates.`,
+      );
+    }
+    return null;
+  }
 
   const promptTokens = (usage.prompt_tokens ?? 0) as number;
   const promptDetails = (usage.prompt_tokens_details ?? {}) as Record<string, unknown>;
