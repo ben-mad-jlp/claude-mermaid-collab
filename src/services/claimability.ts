@@ -137,3 +137,51 @@ export function derivedStatus(t: Todo, byId: Map<string, Todo>): string {
   if (t.approvedAt == null) return 'planned';
   return 'blocked';
 }
+
+/** One split parent whose open children cannot be claimed because they are unapproved. */
+export interface BlockedSplit {
+  parentId: string;
+  parentTitle: string;
+  /** count of OPEN (non-done, non-dropped) children */
+  children: number;
+  /** count of those open children with approvedAt == null */
+  unapproved: number;
+  unapprovedChildIds: string[];
+}
+
+/**
+ * A project is BLOCKED-ON-A-DECISION (not idle) when a non-terminal, non-epic todo has open
+ * children of which at least one is unapproved: nothing under that parent can ever be claimed
+ * without a human/planner approval, and the parent itself is held out by `not-headless:
+ * has-children`. Pure; caller passes the full todo list (includeCompleted: true).
+ *
+ * Epics/missions are EXCLUDED: an `[EPIC]` with planned children is ordinary planning, not a
+ * wedge. Only a *leaf that became a container* (splitLeafInto) matches.
+ */
+export function findBlockedSplits(todos: Todo[]): BlockedSplit[] {
+  const isOpen = (t: Todo) => t.status !== 'done' && t.status !== 'dropped';
+  const byParent = new Map<string, Todo[]>();
+  for (const t of todos) {
+    if (t.parentId == null) continue;
+    const arr = byParent.get(t.parentId);
+    if (arr) arr.push(t); else byParent.set(t.parentId, [t]);
+  }
+  const out: BlockedSplit[] = [];
+  for (const p of todos) {
+    if (!isOpen(p) || p.acceptanceStatus === 'accepted') continue;
+    if (isEpicTitle(p.title) || isMissionTitle(p.title)) continue;
+    const open = (byParent.get(p.id) ?? []).filter(isOpen);
+    if (open.length === 0) continue;
+    const unapproved = open.filter((c) => c.approvedAt == null);
+    if (unapproved.length === 0) continue;
+    out.push({
+      parentId: p.id,
+      parentTitle: p.title ?? p.id,
+      children: open.length,
+      unapproved: unapproved.length,
+      unapprovedChildIds: unapproved.map((c) => c.id),
+    });
+  }
+  // deterministic order for snapshot-ish assertions
+  return out.sort((a, b) => (b.unapproved - a.unapproved) || a.parentId.localeCompare(b.parentId));
+}
