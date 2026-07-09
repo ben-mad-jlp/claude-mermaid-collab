@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "note": "Shared server+UI fixture for the title-prefix -> `kind` column migration (decision e852fb0c, stage B). Predicates read `kind`; `title` is retained ONLY to prove stage-A backfill parity via kindFromTitle(title) === kind. Do not add cases whose title and kind disagree - no such row can exist in the DB.",
+  "kinds": ["mission", "epic", "land", "leaf"],
+  "labels": {
+    "mission": "[MISSION]",
+    "epic": "[EPIC]",
+    "land": "[LAND]",
+    "leaf": ""
+  },
+  "cases": [
+    {
+      "name": "canonical mission",
+      "title": "[MISSION] Converge the build loop",
+      "kind": "mission",
+      "isMission": true,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[MISSION]"
+    },
+    {
+      "name": "canonical epic",
+      "title": "[EPIC] Escalation briefing",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]"
+    },
+    {
+      "name": "canonical land leaf",
+      "title": "[LAND] merge epic 45e2fb60 to master",
+      "kind": "land",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": true,
+      "isLeaf": false,
+      "label": "[LAND]"
+    },
+    {
+      "name": "plain leaf, no prefix",
+      "title": "Wire resolveEpicId to kind",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "the Inbox epic is an epic by kind, not by the word inbox",
+      "title": "[EPIC] Inbox",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]"
+    },
+    {
+      "name": "leaf whose title merely CONTAINS the word inbox (bucketEpic topic-vs-role trap)",
+      "title": "Fix inbox planning-only guard",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "leaf whose title MENTIONS a role prefix mid-string - never a role",
+      "title": "Stop reading [EPIC] out of titles",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "leading whitespace is tolerated (regex ^\\s*, SQL TRIM)",
+      "title": "   [EPIC] leading spaces",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]"
+    },
+    {
+      "name": "prefix match is case-insensitive (regex /i, SQLite LIKE)",
+      "title": "[epic] lowercase prefix",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]"
+    },
+    {
+      "name": "mission wins over epic when checked in order (kindFromTitle checks mission first)",
+      "title": "[MISSION] [EPIC] ambiguous double prefix",
+      "kind": "mission",
+      "isMission": true,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[MISSION]"
+    },
+    {
+      "name": "empty title is a leaf (kindFromTitle is TOTAL - never null)",
+      "title": "",
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "null title is a leaf (predicates accept string | null | undefined)",
+      "title": null,
+      "kind": "leaf",
+      "isMission": false,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": true,
+      "label": ""
+    },
+    {
+      "name": "stage C preview: a mission with its prefix already stripped is STILL a mission by kind",
+      "title": "Converge the build loop",
+      "kind": "mission",
+      "isMission": true,
+      "isEpic": false,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[MISSION]",
+      "backfillParity": false
+    },
+    {
+      "name": "stage C preview: a stripped epic is STILL an epic by kind",
+      "title": "Escalation briefing",
+      "kind": "epic",
+      "isMission": false,
+      "isEpic": true,
+      "isLand": false,
+      "isLeaf": false,
+      "label": "[EPIC]",
+      "backfillParity": false
+    }
+  ]
+}
