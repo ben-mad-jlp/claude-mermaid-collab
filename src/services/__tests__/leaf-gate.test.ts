@@ -11,11 +11,13 @@ import {
   runLeafGate,
   runBaseGate,
   gateFindingsText,
+  resolveGateDeclaration,
+  gateResultForDeclaration,
   type GateSpawn,
   type LeafGateConfig,
 } from '../leaf-gate';
 import type { LeafReviewVerdict } from '../leaf-executor';
-import type { ProjectManifest } from '../../config/project-manifest';
+import type { ProjectManifest, ManifestSource } from '../../config/project-manifest';
 
 const STATES: LeafReviewVerdict[] = ['pass', 'fail', 'error'];
 
@@ -245,5 +247,77 @@ describe('no repo-specific commands baked into the executor (commands must come 
     // "pytest" appear inside unrelated comment sentences elsewhere in this file (e.g. the
     // verify-gate docs), so the guard checks for the full literal invocations only.
     expect(/npx tsc --noEmit|bun test |bunx vitest/.test(src)).toBe(false);
+  });
+});
+
+describe('resolveGateDeclaration / gateResultForDeclaration (G4)', () => {
+  const MANIFEST_PATH = '/tmp/some-project/.collab/project.json';
+
+  it('absent source ⇒ kind:absent, and the leaf still runs (no gate result)', () => {
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'absent', manifest: null };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('absent');
+    expect(decl.manifestPath).toBe(MANIFEST_PATH);
+    expect(gateResultForDeclaration(decl)).toBeNull();
+  });
+
+  it('ACCEPTANCE: malformed source ⇒ kind:misconfigured, status is error — NEVER pass', () => {
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'malformed', manifest: null };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+    const r = gateResultForDeclaration(decl);
+    expect(r).not.toBeNull();
+    expect(r!.status).not.toBe('pass');
+    expect(r!.status).toBe('error');
+  });
+
+  it('ok source, no gate key ⇒ absent', () => {
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'ok', manifest: { version: 1 } };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('absent');
+  });
+
+  it('ok source, empty gate block ⇒ misconfigured (empty gate is not an abstention)', () => {
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'ok', manifest: { version: 1, gate: {} } };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+  });
+
+  it('ok source, all-blank-string gate fields ⇒ misconfigured', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: { version: 1, gate: { typecheck: '  ', test: '' } },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('misconfigured');
+  });
+
+  it('ok source, a usable gate command ⇒ declared, trimmed cfg', () => {
+    const src: ManifestSource = {
+      path: MANIFEST_PATH,
+      state: 'ok',
+      manifest: { version: 1, gate: { typecheck: '  npx tsc --noEmit  ' } },
+    };
+    const decl = resolveGateDeclaration(src);
+    expect(decl.kind).toBe('declared');
+    if (decl.kind === 'declared') {
+      expect(decl.cfg.typecheck).toBe('npx tsc --noEmit');
+    }
+  });
+
+  it('no command is ever defaulted, and the reason cites the manifest path', () => {
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'malformed', manifest: null };
+    const decl = resolveGateDeclaration(src);
+    const r = gateResultForDeclaration(decl)!;
+    expect(r.command).toBeUndefined();
+    expect(r.reasons[0]).toContain(MANIFEST_PATH);
+  });
+
+  it('an LLM PASS cannot ratify a config error', () => {
+    const src: ManifestSource = { path: MANIFEST_PATH, state: 'malformed', manifest: null };
+    const decl = resolveGateDeclaration(src);
+    const r = gateResultForDeclaration(decl)!;
+    expect(composeVerdict(r.status, 'pass')).toBe('error');
   });
 });

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  loadProjectManifest, manifestProfile, inferTypeFromManifest, _clearManifestCache,
+  loadProjectManifest, manifestProfile, inferTypeFromManifest, _clearManifestCache, loadManifestSource,
 } from '../project-manifest';
 import { resolveProfile, AGENT_PROFILES, DEFAULT_PROFILE_TYPE } from '../agent-profiles';
 
@@ -100,5 +100,45 @@ describe('resolveProfile manifest merge (SEAM·collab)', () => {
     const p = resolveProfile('backend', project);
     expect(p.contextPrompt).toBe('backend domain notes');
     expect(p.allowedTools).toBe(AGENT_PROFILES.backend.allowedTools); // untouched global
+  });
+});
+
+describe('loadManifestSource', () => {
+  it('no file → state:absent, manifest:null, path ends with .collab/project.json', () => {
+    const src = loadManifestSource(project);
+    expect(src.state).toBe('absent');
+    expect(src.manifest).toBeNull();
+    expect(src.path.endsWith(join('.collab', 'project.json'))).toBe(true);
+  });
+
+  it('unparseable JSON → state:malformed, manifest:null (and loadProjectManifest still null)', () => {
+    mkdirSync(join(project, '.collab'), { recursive: true });
+    writeFileSync(join(project, '.collab', 'project.json'), '{ oops', 'utf8');
+    _clearManifestCache(project);
+    const src = loadManifestSource(project);
+    expect(src.state).toBe('malformed');
+    expect(src.manifest).toBeNull();
+    expect(loadProjectManifest(project)).toBeNull();
+  });
+
+  it('a valid manifest → state:ok, manifest.gate.typecheck round-trips', () => {
+    writeManifest({ version: 1, gate: { typecheck: 'x' } });
+    const src = loadManifestSource(project);
+    expect(src.state).toBe('ok');
+    expect(src.manifest?.gate?.typecheck).toBe('x');
+  });
+
+  it('a JSON array → state:malformed (matches loadProjectManifest\'s array rejection)', () => {
+    mkdirSync(join(project, '.collab'), { recursive: true });
+    writeFileSync(join(project, '.collab', 'project.json'), '[]', 'utf8');
+    _clearManifestCache(project);
+    const src = loadManifestSource(project);
+    expect(src.state).toBe('malformed');
+  });
+
+  it('_clearManifestCache invalidates the source cache: absent → write → ok without a fresh process', () => {
+    expect(loadManifestSource(project).state).toBe('absent');
+    writeManifest({ version: 1 });
+    expect(loadManifestSource(project).state).toBe('ok');
   });
 });
