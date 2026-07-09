@@ -195,6 +195,9 @@ describe('isBucketEpic', () => {
     missions.clear();
   });
 
+  const LIVE_BUGFIX_INBOX_TITLE =
+    '[EPIC] Bugfix inbox — ad-hoc bugs found while dogfooding; default bucket for stray bugfixes';
+
   it('[EPIC] Inbox → true', () => {
     expect(isBucketEpic(todo({ title: '[EPIC] Inbox' }))).toBe(true);
   });
@@ -217,6 +220,18 @@ describe('isBucketEpic', () => {
 
   it('non-epic titled Inbox → false (guards isEpicTodo precondition)', () => {
     expect(isBucketEpic(todo({ title: 'Inbox' }))).toBe(false);
+  });
+
+  it('a41c8051: the VERBATIM live Bugfix-inbox title (with suffix) → true', () => {
+    expect(isBucketEpic(todo({ title: LIVE_BUGFIX_INBOX_TITLE }))).toBe(true);
+  });
+
+  it('[EPIC] Inbox rendering bugs → true (accepted false positive: refuse-by-default)', () => {
+    expect(isBucketEpic(todo({ title: '[EPIC] Inbox rendering bugs' }))).toBe(true);
+  });
+
+  it('positive control: an ordinary deliverable epic → false', () => {
+    expect(isBucketEpic(todo({ title: '[EPIC] The verdict must be evidence, not prose' }))).toBe(false);
   });
 });
 
@@ -356,6 +371,17 @@ describe('checkOwnership — the ownership rule', () => {
     expect(result.ok).toBe(false);
     expect(result.ownership).toBe('bucket');
     expect(result.blocker?.message).toMatch(/re-home/i);
+  });
+
+  it('conductor cannot land the live Bugfix inbox (a41c8051 title) → bucket-epic', () => {
+    const LIVE_BUGFIX_INBOX_TITLE =
+      '[EPIC] Bugfix inbox — ad-hoc bugs found while dogfooding; default bucket for stray bugfixes';
+    const e1 = todo({ id: 'e1', title: LIVE_BUGFIX_INBOX_TITLE });
+    const actor: LandActor = { kind: 'conductor', session: SESSION };
+    const result = checkOwnership(PROJECT, 'e1', actor, [e1]);
+    expect(result.ok).toBe(false);
+    expect(result.ownership).toBe('bucket');
+    expect(result.blocker?.code).toBe('bucket-epic');
   });
 
   it('conductor, foreign mission: names the owner and the caller', () => {
