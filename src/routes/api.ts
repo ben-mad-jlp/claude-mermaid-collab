@@ -1,5 +1,6 @@
 import { DiagramManager } from '../services/diagram-manager';
 import { watchSession } from '../services/session-artifact-watcher';
+import { resolveSessionRole } from '../services/session-role';
 import { DocumentManager } from '../services/document-manager';
 import { SpreadsheetManager } from '../services/spreadsheet-manager';
 import { SnippetManager } from '../services/snippet-manager';
@@ -2848,7 +2849,12 @@ export async function handleAPI(
 
     void watchSession(params.project, params.session);
 
-    return Response.json({ success: true, claudeSessionId });
+    // Resume-time ROLE resolution: a session owning an active mission comes back as
+    // the conductor. Returned as DATA so the resuming skill loads the role itself —
+    // never a second tmux injection (see context-recycle.ts `recover`).
+    const sessionRole = resolveSessionRole(params.project, params.session);
+
+    return Response.json({ success: true, claudeSessionId, sessionRole });
   }
 
   // POST /api/session-notify

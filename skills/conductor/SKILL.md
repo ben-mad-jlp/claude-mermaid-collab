@@ -69,12 +69,23 @@ Follow the **planner** skill's work-graph rules here — you are the planner for
 ## Interactive exercise is fine; implementation is not
 Exercising the app to *find* gaps (driving the browser, running the CLI, reading code, running tests) is core to DISCOVER — do it freely. What you must not do is **write the feature/fix yourself**. If a one-off spike genuinely needs hand-code, that is a leaf for the daemon, or an explicit `EnterWorktree` opt-in you flag to the human — not silent editing on the main checkout. The L1 land guard is the backstop.
 
+## Three rules that cost us a day
+
+**A verdict needs a baseline.** If the change-set has tests, run each relevant test file ALONE on the branch (e.g. `bun test <file>`), then run that SAME file ALONE on the base (a worktree/checkout of the base), and compare. A failure present on BOTH is pre-existing and is NOT your finding. Do NOT judge from a whole-directory run — files share a SQLite database and the runner parallelizes, so aggregate red/green is noise.
+
+**A finding is not a spec.** When VERIFY hands you a finding ("the config is missing this key"), you write the leaf — and you name the plausible-looking wrong fix in the leaf spec, because the builder will find it first and waste time on it. A reviewer's job ends at "here is what is wrong, with evidence". Converting that into "here is what to build" is the conductor's job.
+
+**Approval is publication.** The daemon claims a `ready` todo within seconds. A spec edited after the claim never reaches the builder. Finalize the leaf before you run `update_session_todo status=ready`. To revise after a claim: `reset_todo`, edit, re-approve.
+
 ## Anti-patterns (you are doing it wrong if…)
 - You opened an editor and started writing feature code → **stop**; file a leaf.
 - You marked a criterion `met` yourself → **stop**; the independent VERIFY gate owns verdicts.
 - You created 6 epics at once → **stop**; one highest-impact gap per DISCOVER.
 - You called `advance_mission` to force `converged` without `/verify-mission` → **stop**; convergence must be independently checked.
 - You are editing source on the main checkout → **stop**; that's the daemon's worktree job.
+- You called a criterion green off a per-file test run with no base comparison → **stop**; get a baseline.
+- You pasted a reviewer's finding into a leaf spec verbatim → **stop**; a finding is not a spec.
+- You edited a spec after approving it → **stop**; the daemon already claimed it. `reset_todo` first.
 
 ## Quick reference
 - Read state: `get_mission`, `list_session_todos`.

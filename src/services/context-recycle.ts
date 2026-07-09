@@ -28,6 +28,11 @@ import { nudgeSession } from './claude-launch';
  *   detect high context  →  /vibe-checkpoint  →  (session writes ## Checkpoint,
  *   calls checkpoint_ready)  →  /clear  →  settle  →  /collab <session>  (RESUME)
  *
+ * The resume is ONE prompt by design. Role restoration rides the `register_claude_session`
+ * round-trip that /collab already makes (server returns `sessionRole`, the skill loads it) —
+ * NOT a second injection, which would race the TUI's stdin. The `recover` case body still
+ * contains exactly one `nudge(...)` call (the acceptance criterion is preserved).
+ *
  * Gated by the per-project `contextRecycleMode` (off | notify | force). A Claude
  * session cannot `/clear` itself (slash commands are client-side user input), so the
  * server must inject the clear + reload — that is the gap this closes. The `/collab`

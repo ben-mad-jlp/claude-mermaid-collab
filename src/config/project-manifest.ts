@@ -72,6 +72,9 @@ export interface ProjectManifest {
   /** Which declared pack is the project's primary domain pack (usually one of
    *  `packs`). A primary not listed in `packs` is still honoured if it resolves. */
   primaryPack?: string;
+  /** Declared project areas that must never share a commit (e.g. ["bsync-viewer/", "bsync-tools/"]).
+   *  The executor emits one commit per area a leaf touched. */
+  commitBoundaries?: string[];
   /** The project's mechanical acceptance gate command (e.g. a pytest invocation
    *  for a Python repo where `npx tsc` does not apply). Advisory metadata the
    *  Coordinator-side gate can consult. */
@@ -117,28 +120,87 @@ export interface ProjectManifest {
    *  mirrors plugin-registry's PluginTypeOverlay (kept structural to avoid a
    *  config→service import cycle). */
   plugins?: Array<{ id: string; allowedChildTypes?: string[]; requiredArtifacts?: string[] }>;
+  /** The MECHANICAL leaf gate (G2). Unlike `gateCommand` (the completion-gate plugin, which
+   *  runs AFTER the review node already accepted and change-set-narrows its failures), these
+   *  commands run in the EXECUTOR, at the leaf worktree HEAD, BEFORE the review node is spent.
+   *  A non-zero exit is 'fail' and is final: no LLM output can overturn it. A command that
+   *  cannot RUN is 'error' → park blocked + escalate, never 'fail'.
+   *  Absent ⇒ no mechanical gate (the LLM verdict alone decides — pre-G2 behaviour). */
+  gate?: {
+    /** Static check, run at leaf HEAD and once at the epic base. e.g. `npx tsc --noEmit`. */
+    typecheck?: string;
+    /** LEGACY single-runner form. Mutually exclusive with `tests`. Run ONCE PER change-set
+     *  spec file; `{file}` ← one shell-quoted path. e.g. `bun test {file}`. */
+    test?: string;
+    /** cwd for `test` (relative to the worktree root) + prefix stripped from spec paths. */
+    testCwd?: string;
+    /** Multi-lane form for a repo whose specs need DIFFERENT runners (e.g. `bun test` for src/,
+     *  `bunx vitest --run` for ui/). Each change-set spec is routed to the FIRST lane whose
+     *  `match` (a RegExp source, tested against the repo-root-relative path) accepts it. A spec
+     *  matching NO lane is a config gap → 'error' (park + escalate), never a silent pass. */
+    tests?: Array<{
+      /** RegExp source, e.g. `^ui/`. Tested against the root-relative spec path. */
+      match: string;
+      /** `{file}` ⇒ run once per spec; `{files}` ⇒ run once with all lane specs.
+       *  Exactly one of the two placeholders. */
+      command: string;
+      /** cwd for `command`, relative to the worktree root; also the prefix stripped
+       *  from the spec paths before substitution. Omitted ⇒ worktree root. */
+      cwd?: string;
+    }>;
+    /** Full-suite command run ONLY at the epic base, once per epic. */
+    baseTest?: string;
+  };
 }
 
 const MANIFEST_REL = join('.collab', 'project.json');
 const cache = new Map<string, ProjectManifest | null>();
+
+/** Where the manifest was looked for, and what was found there. `'malformed'` means the
+ *  file EXISTS but is not a JSON object — a config error, never a silent default. */
+export interface ManifestSource {
+  /** Absolute path consulted — `<project>/.collab/project.json`. Always set, even when absent. */
+  path: string;
+  state: 'absent' | 'ok' | 'malformed';
+  manifest: ProjectManifest | null; // non-null iff state === 'ok'
+}
+
+const sourceCache = new Map<string, ManifestSource>();
+
+/** Load + classify `<project>/.collab/project.json`, distinguishing an ABSENT manifest
+ *  (no file, or no `gate`-relevant content) from a MALFORMED one (file exists but is not
+ *  valid JSON / not an object) — the two read identically through {@link loadProjectManifest}
+ *  but must never be conflated by a caller that needs to tell "no gate declared" apart from
+ *  "gate declaration is broken". */
+export function loadManifestSource(project: string): ManifestSource {
+  const cached = sourceCache.get(project);
+  if (cached !== undefined) return cached;
+  const path = join(project, MANIFEST_REL);
+  let src: ManifestSource;
+  if (!existsSync(path)) {
+    src = { path, state: 'absent', manifest: null };
+  } else {
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        src = { path, state: 'ok', manifest: parsed as ProjectManifest };
+      } else {
+        src = { path, state: 'malformed', manifest: null };
+      }
+    } catch {
+      src = { path, state: 'malformed', manifest: null };
+    }
+  }
+  sourceCache.set(project, src);
+  return src;
+}
 
 /** Load + cache `<project>/.collab/project.json`. Returns null when the file is
  *  absent or unparseable — a bad manifest must never take down the defaults. */
 export function loadProjectManifest(project: string): ProjectManifest | null {
   const cached = cache.get(project);
   if (cached !== undefined) return cached;
-  let manifest: ProjectManifest | null = null;
-  try {
-    const path = join(project, MANIFEST_REL);
-    if (existsSync(path)) {
-      const parsed = JSON.parse(readFileSync(path, 'utf8'));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        manifest = parsed as ProjectManifest;
-      }
-    }
-  } catch {
-    manifest = null;
-  }
+  const manifest = loadManifestSource(project).manifest;
   cache.set(project, manifest);
   return manifest;
 }
@@ -197,11 +259,17 @@ export function addManifestPack(project: string, packId: string): string[] {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(manifest, null, 2), 'utf8');
   cache.set(project, manifest);
+  sourceCache.delete(project); // force a fresh loadManifestSource read on next call
   return packs;
 }
 
 /** Test seam: drop the cached manifest for a project (or all projects). */
 export function _clearManifestCache(project?: string): void {
-  if (project) cache.delete(project);
-  else cache.clear();
+  if (project) {
+    cache.delete(project);
+    sourceCache.delete(project);
+  } else {
+    cache.clear();
+    sourceCache.clear();
+  }
 }

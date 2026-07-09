@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, type LedgerEntry } from '../worker-ledger';
 import Database from 'bun:sqlite';
 
 let dir: string;
@@ -189,5 +189,108 @@ describe('isLeafInflightLive', () => {
     expect(isLeafInflightLive('L2')).toBe(false);
     clearLeafInflight('L1');
     expect(isLeafInflightLive('L1')).toBe(false);
+  });
+});
+
+describe('epic_base_gate cache key (baseSha validation)', () => {
+  test('hit: same baseSha ⇒ the cached verdict is returned', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: null, output: null });
+    const r = getEpicBaseGate('e1', 'aaa');
+    expect(r).not.toBeNull();
+    expect(r?.status).toBe('pass');
+  });
+
+  test("stale 'fail' does not block: baseSha moved ⇒ MISS", () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'npx tsc --noEmit', output: 'error' });
+    const r = getEpicBaseGate('e1', 'bbb');
+    expect(r).toBeNull();
+  });
+
+  test("stale 'pass' does not greenlight: baseSha moved ⇒ MISS", () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: null, output: null });
+    const r = getEpicBaseGate('e1', 'bbb');
+    expect(r).toBeNull();
+  });
+
+  test('unknown current sha ⇒ MISS', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'pass', command: null, output: null });
+    expect(getEpicBaseGate('e1', null)).toBeNull();
+    expect(getEpicBaseGate('e1', undefined)).toBeNull();
+  });
+
+  test('re-record under the new sha overwrites the row and hits', () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'fail', command: 'gate', output: 'red' });
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'bbb', status: 'pass', command: null, output: null });
+    expect(getEpicBaseGate('e1', 'bbb')?.status).toBe('pass');
+    expect(getEpicBaseGate('e1', 'aaa')).toBeNull();
+  });
+
+  test("an 'error' is never cached (G7, unchanged)", () => {
+    recordEpicBaseGate({ epicId: 'e1', project: '/p', baseSha: 'aaa', status: 'error', command: 'gate', output: 'OOM' });
+    expect(getEpicBaseGate('e1', 'aaa')).toBeNull();
+  });
+
+  // G8 durable blueprint base SHA (leaf_blueprint table).
+  test('recordLeafBlueprint → getLeafBlueprint round-trip', () => {
+    recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', epicBaseSha: 'sha-abc123' }, 1000);
+    const r = getLeafBlueprint('leaf-1');
+    expect(r?.leafId).toBe('leaf-1');
+    expect(r?.project).toBe('/p');
+    expect(r?.epicBaseSha).toBe('sha-abc123');
+    expect(r?.recordedAt).toBe(1000);
+  });
+
+  test('recordLeafBlueprint upsert overwrites epicBaseSha on second call', () => {
+    recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', epicBaseSha: 'old-sha' }, 1000);
+    recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', epicBaseSha: 'new-sha' }, 2000);
+    const r = getLeafBlueprint('leaf-1');
+    expect(r?.epicBaseSha).toBe('new-sha');
+    expect(r?.recordedAt).toBe(2000); // timestamps updated too
+  });
+
+  test('clearLeafBlueprint removes the row', () => {
+    recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', epicBaseSha: 'sha' }, 1000);
+    expect(getLeafBlueprint('leaf-1')).not.toBeNull();
+    clearLeafBlueprint('leaf-1');
+    expect(getLeafBlueprint('leaf-1')).toBeNull();
+  });
+
+  test('clearLeafResume does NOT delete the leaf_blueprint row', () => {
+    recordLeafBlueprint({ leafId: 'leaf-1', project: '/p', epicBaseSha: 'sha' }, 1000);
+    recordLeafResume({ leafId: 'leaf-1', project: '/p', nodesSpent: 5 }, 1000);
+    clearLeafResume('leaf-1');
+    // leaf_blueprint survives the run-checkpoint clear
+    expect(getLeafBlueprint('leaf-1')?.epicBaseSha).toBe('sha');
+  });
+
+  // G8 resume decision audit trail (leaf_resume_decision table).
+  test('recordLeafResumeDecision appends, getLeafResumeDecisions returns ASC by decidedAt', () => {
+    recordLeafResumeDecision({
+      leafId: 'leaf-1', project: '/p', mode: 'fresh', reason: 'no-resume-state',
+      hadResumeRow: false, hasBlueprintOutput: false, resumeBaseSha: null, currentEpicSha: 'sha1', anomaly: false,
+    }, 1000);
+    recordLeafResumeDecision({
+      leafId: 'leaf-1', project: '/p', mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row',
+      hadResumeRow: false, hasBlueprintOutput: true, resumeBaseSha: null, currentEpicSha: 'sha2', anomaly: false,
+    }, 2000);
+    const decisions = getLeafResumeDecisions('leaf-1');
+    expect(decisions.length).toBe(2);
+    expect(decisions[0].decidedAt).toBe(1000);
+    expect(decisions[1].decidedAt).toBe(2000);
+    expect(decisions[0].mode).toBe('fresh');
+    expect(decisions[1].mode).toBe('reattach-blueprint');
+  });
+
+  test('resume decision anomaly detection: fresh mode + hasBlueprintOutput + no-resume-state reason', () => {
+    recordLeafResumeDecision({
+      leafId: 'leaf-1', project: '/p', mode: 'fresh', reason: 'no-resume-state',
+      hadResumeRow: false, hasBlueprintOutput: true, resumeBaseSha: null, currentEpicSha: 'sha1', anomaly: true,
+    }, 1000);
+    const decisions = getLeafResumeDecisions('leaf-1');
+    expect(decisions[0].anomaly).toBe(true);
+  });
+
+  test('resume decisions for non-existent leaf return empty array', () => {
+    expect(getLeafResumeDecisions('nonexistent')).toEqual([]);
   });
 });

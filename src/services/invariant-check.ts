@@ -102,13 +102,15 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
   for (const t of todos) {
     if (isTerminal(t.status)) continue;
 
-    // 1. orphan — a non-epic active todo with no [EPIC] ancestor.
-    if (!isEpicTodo(t) && !hasEpicAncestor(t)) {
+    // 1. orphan — a non-epic active todo with no epic ancestor. A mission is EXEMPT: it is a
+    //    work-graph root by design (epics hang beneath it), so it can have no epic ancestor.
+    //    Without this exemption the health check calls every mission broken.
+    if (!isEpicTodo(t) && !isMission(t) && !hasEpicAncestor(t)) {
       violations.push({
         kind: 'orphan',
         todoId: t.id,
         title: t.title,
-        reason: 'non-epic todo with no [EPIC] ancestor (must belong to an epic)',
+        reason: "non-epic todo with no epic (kind='epic') ancestor (must belong to an epic)",
       });
     }
 

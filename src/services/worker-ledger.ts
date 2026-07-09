@@ -182,6 +182,57 @@ function openDb(): Database {
     merged INTEGER NOT NULL DEFAULT 0,
     updatedAt INTEGER NOT NULL
   )`);
+  // G2 once-per-epic base gate cache. Keyed on epicId ALONE (not the moving epic tip) —
+  // the acceptance criterion "one base-gate execution total, not one per leaf" forbids
+  // keying on the tip, which would re-run after every leaf merge.
+  db.exec(`CREATE TABLE IF NOT EXISTS epic_base_gate (
+    epicId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    baseSha TEXT,
+    status TEXT NOT NULL,
+    command TEXT,
+    output TEXT,
+    checkedAt INTEGER NOT NULL
+  )`);
+  // G10 land gate cache. Keyed on epicId + both shas (tip and base) — both must match
+  // for a cache hit. Tip changes after every leaf merge, base changes after every master
+  // merge. A stale pass would silently greenlight an unexamined tree (G10 failure).
+  // Unlike epic_base_gate, status='error' is NEVER cached — an incident is not a fact.
+  db.exec(`CREATE TABLE IF NOT EXISTS epic_land_gate (
+    epicId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    epicTipSha TEXT,
+    baseSha TEXT,
+    status TEXT NOT NULL,
+    result TEXT,
+    checkedAt INTEGER NOT NULL
+  )`);
+  // G8 durable blueprint base SHA — survives terminal outcomes, independent of leaf_resume.
+  // The blueprint's reusability is a leaf fact that must outlive run checkpoints.
+  // Cleared only when the leaf is genuinely done (accepted/merged).
+  db.exec(`CREATE TABLE IF NOT EXISTS leaf_blueprint (
+    leafId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    epicBaseSha TEXT,
+    recordedAt INTEGER NOT NULL
+  )`);
+  // G8 resume decision audit trail — records the per-claim resume verdict (mode/reason),
+  // anomaly detection (blueprint discarded), and inputs used in the decision.
+  // Append-only; never cleared except for database reset.
+  db.exec(`CREATE TABLE IF NOT EXISTS leaf_resume_decision (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    leafId TEXT NOT NULL,
+    project TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    hadResumeRow INTEGER NOT NULL,
+    hasBlueprintOutput INTEGER NOT NULL,
+    resumeBaseSha TEXT,
+    currentEpicSha TEXT,
+    anomaly INTEGER NOT NULL DEFAULT 0,
+    decidedAt INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_lrd_leaf ON leaf_resume_decision(leafId, decidedAt)`);
   return db;
 }
 
@@ -439,6 +490,107 @@ export function clearLeafResume(leafId: string): void {
   try { openDb().prepare('DELETE FROM leaf_resume WHERE leafId=?').run(leafId); } catch { /* best-effort */ }
 }
 
+// --- G8 durable blueprint base SHA (leaf_blueprint) ---
+/** Durable blueprint base SHA — survives terminal outcomes. Keyed by leafId.
+ *  Written once per successful blueprint and cleared only when the leaf is genuinely done
+ *  (accepted/merged). Used to reattach a blueprint when the run checkpoint was cleared
+ *  by a terminal outcome but the blueprint itself is still valid. */
+export interface LeafBlueprintRow {
+  leafId: string;
+  project: string;
+  epicBaseSha: string | null;
+  recordedAt: number;
+}
+
+/** Record or update the durable blueprint base SHA for a leaf. Upserts so a genuinely
+ *  fresh re-blueprint against a new base overwrites the old base, never COALESCE.
+ *  Best-effort. */
+export function recordLeafBlueprint(
+  e: { leafId: string; project: string; epicBaseSha?: string | null },
+  now: number = Date.now(),
+): void {
+  try {
+    openDb().prepare(
+      `INSERT INTO leaf_blueprint (leafId, project, epicBaseSha, recordedAt)
+       VALUES (?,?,?,?)
+       ON CONFLICT(leafId) DO UPDATE SET
+         epicBaseSha=excluded.epicBaseSha, recordedAt=excluded.recordedAt`,
+    ).run(e.leafId, e.project, e.epicBaseSha ?? null, now);
+  } catch { /* best-effort */ }
+}
+
+/** Read a leaf's durable blueprint base SHA (null if none). */
+export function getLeafBlueprint(leafId: string): LeafBlueprintRow | null {
+  try {
+    const r = openDb().prepare('SELECT * FROM leaf_blueprint WHERE leafId=?').get(leafId) as LeafBlueprintRow | undefined;
+    return r ?? null;
+  } catch { return null; }
+}
+
+/** Clear a leaf's durable blueprint row — call when the leaf is genuinely done
+ *  (accepted/merged). Best-effort. */
+export function clearLeafBlueprint(leafId: string): void {
+  try { openDb().prepare('DELETE FROM leaf_blueprint WHERE leafId=?').run(leafId); } catch { /* best-effort */ }
+}
+
+// --- G8 resume decision audit trail (leaf_resume_decision) ---
+/** Resume decision record: mode/reason for the claim, anomaly detection, and inputs used. */
+export interface LeafResumeDecisionRow {
+  id?: number;
+  leafId: string;
+  project: string;
+  mode: string;
+  reason: string;
+  hadResumeRow: boolean;
+  hasBlueprintOutput: boolean;
+  resumeBaseSha: string | null;
+  currentEpicSha: string | null;
+  anomaly: boolean;
+  decidedAt: number;
+}
+
+/** Record a resume decision (mode/reason/anomaly). Append-only; one row per claim.
+ *  Best-effort. */
+export function recordLeafResumeDecision(
+  d: Omit<LeafResumeDecisionRow, 'id' | 'decidedAt'>,
+  now: number = Date.now(),
+): void {
+  try {
+    openDb().prepare(
+      `INSERT INTO leaf_resume_decision
+        (leafId, project, mode, reason, hadResumeRow, hasBlueprintOutput, resumeBaseSha, currentEpicSha, anomaly, decidedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      d.leafId, d.project, d.mode, d.reason,
+      d.hadResumeRow ? 1 : 0, d.hasBlueprintOutput ? 1 : 0,
+      d.resumeBaseSha ?? null, d.currentEpicSha ?? null,
+      d.anomaly ? 1 : 0,
+      now,
+    );
+  } catch { /* best-effort */ }
+}
+
+/** Fetch all resume decisions for a leaf, ASC by decidedAt (oldest first). */
+export function getLeafResumeDecisions(leafId: string): LeafResumeDecisionRow[] {
+  try {
+    const rows = openDb()
+      .prepare('SELECT * FROM leaf_resume_decision WHERE leafId=? ORDER BY decidedAt ASC')
+      .all(leafId) as Array<
+      Omit<LeafResumeDecisionRow, 'hadResumeRow' | 'hasBlueprintOutput' | 'anomaly'> & {
+        hadResumeRow: number;
+        hasBlueprintOutput: number;
+        anomaly: number;
+      }
+    >;
+    return rows.map((r) => ({
+      ...r,
+      hadResumeRow: Boolean(r.hadResumeRow),
+      hasBlueprintOutput: Boolean(r.hasBlueprintOutput),
+      anomaly: Boolean(r.anomaly),
+    }));
+  } catch { return []; }
+}
+
 /** Most recent persisted output text for a leaf's node of the given kind (newest
  *  first). Unlike getLeafRun this ignores run-gap scoping — the kill→re-claim gap
  *  (~lease) far exceeds the 2-min run gap, so reattach must fetch the blueprint
@@ -449,6 +601,105 @@ export function getLatestNodeOutput(leafId: string, nodeKind: string): string | 
       'SELECT outputText FROM worker_ledger WHERE leafId=? AND nodeKind=? AND outputText IS NOT NULL ORDER BY ts DESC, id DESC LIMIT 1',
     ).get(leafId, nodeKind) as { outputText?: string } | undefined;
     return r?.outputText ?? null;
+  } catch { return null; }
+}
+
+// --- G2 once-per-epic base gate cache (epic_base_gate) ------------------------
+export interface EpicBaseGateRow {
+  epicId: string;
+  project: string;
+  baseSha: string | null;
+  status: 'pass' | 'fail' | 'error';
+  command: string | null;
+  output: string | null;
+  checkedAt: number;
+}
+
+/** Upsert an epic's cached base-gate verdict. `output` is truncated to
+ *  MAX_OUTPUT_CHARS on write. Best-effort: if the write throws, the next leaf simply
+ *  re-runs the base gate — extra work, never a skipped gate. */
+export function recordEpicBaseGate(e: Omit<EpicBaseGateRow, 'checkedAt'>, now: number = Date.now()): void {
+  if (e.status === 'error') return; // an incident is not a base fact — never cached (see leaf-executor ensureBaseGreen)
+  try {
+    openDb().prepare(
+      `INSERT INTO epic_base_gate (epicId, project, baseSha, status, command, output, checkedAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(epicId) DO UPDATE SET
+         project=excluded.project, baseSha=excluded.baseSha, status=excluded.status,
+         command=excluded.command, output=excluded.output, checkedAt=excluded.checkedAt`,
+    ).run(
+      e.epicId, e.project, e.baseSha ?? null, e.status, e.command ?? null,
+      e.output == null ? null : e.output.slice(0, MAX_OUTPUT_CHARS),
+      now,
+    );
+  } catch { /* best-effort */ }
+}
+
+/** Read an epic's cached base-gate verdict, valid ONLY for `currentBaseSha`.
+ *
+ *  The row is keyed on epicId alone (one execution per epic, not per leaf — see the DDL
+ *  comment), but the verdict it holds is a fact about ONE base commit. When the epic's
+ *  base moves (forward-integration, a master merge), the cached row describes a tree that
+ *  no longer exists: a stale 'fail' would block every leaf on a base that may now be green,
+ *  and — worse — a stale 'pass' would silently greenlight an UNEXAMINED base, which is the
+ *  exact failure the G2 base gate exists to prevent.
+ *
+ *  So a baseSha mismatch is a cache MISS (null ⇒ caller re-runs the gate), not a verdict.
+ *  A null/absent sha on either side is also a MISS: we cannot prove the row describes the
+ *  base in hand, and re-running is the safe direction (extra work, never a skipped gate). */
+export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | undefined): EpicBaseGateRow | null {
+  if (!currentBaseSha) return null;
+  try {
+    const r = openDb().prepare('SELECT * FROM epic_base_gate WHERE epicId=?').get(epicId) as EpicBaseGateRow | undefined;
+    if (!r) return null;
+    if (!r.baseSha || r.baseSha !== currentBaseSha) return null; // stale row ⇒ MISS, re-check
+    return r;
+  } catch { return null; }
+}
+
+// --- G10 land gate cache (epic_land_gate) --------------------------------
+export interface EpicLandGateRow {
+  epicId: string;
+  project: string;
+  epicTipSha: string | null;
+  baseSha: string | null;
+  status: 'pass' | 'fail' | 'abstain'; // error is NEVER cached
+  result: string | null; // JSON EpicLandGateResult (output tails truncated)
+  checkedAt: number;
+}
+
+/** Upsert an epic's cached land-gate verdict. `result` (JSON) is truncated to
+ *  MAX_OUTPUT_CHARS on write. Never caches status='error' (incidents are not facts).
+ *  Best-effort: cache write failure means an extra gate run. */
+export function recordEpicLandGate(e: Omit<EpicLandGateRow, 'checkedAt'>, now: number = Date.now()): void {
+  // Defensive: error status is never passed by runEpicLandGate (it short-circuits return)
+  if ((e.status as any) === 'error') return;
+  try {
+    openDb().prepare(
+      `INSERT INTO epic_land_gate (epicId, project, epicTipSha, baseSha, status, result, checkedAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(epicId) DO UPDATE SET
+         project=excluded.project, epicTipSha=excluded.epicTipSha, baseSha=excluded.baseSha,
+         status=excluded.status, result=excluded.result, checkedAt=excluded.checkedAt`,
+    ).run(
+      e.epicId, e.project, e.epicTipSha ?? null, e.baseSha ?? null, e.status,
+      e.result == null ? null : e.result.slice(0, MAX_OUTPUT_CHARS),
+      now,
+    );
+  } catch { /* best-effort */ }
+}
+
+/** Read an epic's cached land-gate verdict. Both shas must match for a hit.
+ *  A null/absent sha on either side is a MISS (cannot prove the row describes
+ *  the tree in hand; re-running is the safe direction). */
+export function getEpicLandGate(epicId: string, epicTipSha: string | null | undefined, baseSha: string | null | undefined): EpicLandGateRow | null {
+  if (!epicTipSha || !baseSha) return null;
+  try {
+    const r = openDb().prepare('SELECT * FROM epic_land_gate WHERE epicId=?').get(epicId) as EpicLandGateRow | undefined;
+    if (!r) return null;
+    if (!r.epicTipSha || r.epicTipSha !== epicTipSha) return null; // tip changed ⇒ MISS
+    if (!r.baseSha || r.baseSha !== baseSha) return null; // base changed ⇒ MISS
+    return r;
   } catch { return null; }
 }
 

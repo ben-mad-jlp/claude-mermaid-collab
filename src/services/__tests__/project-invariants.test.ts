@@ -407,16 +407,6 @@ describe('project standing invariants', () => {
         owner: 'a42343ec (G12)',
         match: 'git add -A',
       },
-      {
-        file: 'src/agent/worker-core/orchestrator.ts',
-        owner: 'a42343ec (G12)',
-        match: 'git add -A',
-      },
-      {
-        file: 'src/agent/worker-core/orchestrator.ts',
-        owner: 'a42343ec (G12)',
-        match: 'git add -A',
-      },
     ];
 
     const nonExemptHits = allHits.filter(

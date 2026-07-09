@@ -23,7 +23,7 @@
  *     carrying `leafOutcome` + the deciding `verdict`. It is EXCLUDED from the
  *     node-list / attempts / budget math, and only its verdict/outcome are read.
  */
-import { queryLedger } from './worker-ledger';
+import { queryLedger, getLeafResumeDecisions } from './worker-ledger';
 import { NODE_BUDGET } from './leaf-executor';
 
 export interface LeafNodeStat {
@@ -67,6 +67,8 @@ export interface LeafRunStats {
   authModes: Record<string, number>; // count by authMode (the per-leaf audit)
   finalOutcome: 'accepted' | 'rejected' | 'pending' | 'blocked' | 'paused' | null;
   reviewVerdict: 'pass' | 'fail' | null;
+  /** G8: per-claim resume decisions (mode/reason/anomaly). ASC by decidedAt. */
+  resumeDecisions: Array<{ mode: string; reason: string; hadResumeRow: boolean; hasBlueprintOutput: boolean; anomaly: boolean; decidedAt: number }>;
   /** The atomic terminal record (parsed from the outcome marker's `outcomeDetail` JSON):
    *  the single-source acceptance decision. Null when the run has no terminal marker yet
    *  (in-flight) or predates the field. */
@@ -193,6 +195,16 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     try { terminal = JSON.parse(lastMarker.outcomeDetail); } catch { terminal = null; }
   }
 
+  // G8: fetch resume decisions for this leaf (audit trail of claim-time decisions).
+  const resumeDecisions = getLeafResumeDecisions(leafId).map((d) => ({
+    mode: d.mode,
+    reason: d.reason,
+    hadResumeRow: d.hadResumeRow,
+    hasBlueprintOutput: d.hasBlueprintOutput,
+    anomaly: d.anomaly,
+    decidedAt: d.decidedAt,
+  }));
+
   return {
     leafId,
     epicId: rows[0].epicId ?? null,
@@ -209,6 +221,7 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     authModes,
     finalOutcome,
     reviewVerdict,
+    resumeDecisions,
     terminal,
   };
 }

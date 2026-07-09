@@ -19,14 +19,17 @@ import {
 import type { EffortLevel } from '../agent/contracts.ts';
 import { NODE_PROFILE, LEAF_NODE_KINDS, NODE_KIND_DESCRIPTIONS, LEAF_NODE_GROUPS } from '../services/leaf-executor.ts';
 import { projectRegistry } from '../services/project-registry.ts';
+import { CLAUDE_MODELS, GROK_BUILD_MODELS, GROK_API_MODELS, providerModelMismatch } from '../services/provider-model.ts';
+import type { NodeProvider } from '../services/node-provider.ts';
 
 /** Node kinds shown in the daemon BUILD-nodes matrix. Excludes 'summary', which is the
  *  Zen interpret-model knob (never run via runNode), not a build node. */
 const MATRIX_NODE_KINDS = LEAF_NODE_KINDS.filter((k) => k !== 'summary');
 
 /** Model aliases offered in the daemon-nodes matrix dropdown, per provider. */
-const CLAUDE_MODEL_CHOICES = ['opus', 'sonnet', 'haiku'];
-const GROK_MODEL_CHOICES = ['grok-build', 'grok-composer-2.5-fast'];
+const CLAUDE_MODEL_CHOICES = [...CLAUDE_MODELS];
+const GROK_MODEL_CHOICES = [...GROK_BUILD_MODELS];
+const GROK_API_MODEL_CHOICES = [...GROK_API_MODELS];
 const MODEL_CHOICES = CLAUDE_MODEL_CHOICES; // legacy alias (claude) for back-compat callers
 /** A node kind is MCP-forced to claude when its allowlist carries an mcp__ tool. */
 function kindRequiresMcp(kind: keyof typeof NODE_PROFILE): boolean {
@@ -151,6 +154,7 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       models: MODEL_CHOICES,
       claudeModels: CLAUDE_MODEL_CHOICES,
       grokModels: GROK_MODEL_CHOICES,
+      grokApiModels: GROK_API_MODEL_CHOICES,
       providers: NODE_PROVIDERS,
       projectProvider,
       levels: EFFORT_LEVELS,
@@ -175,9 +179,13 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
         return jsonError(`provider must be null or one of: ${NODE_PROVIDERS.join(', ')}`, 400);
       }
       // Guard the MCP-forced kinds: they can never run on grok.
-      if (provider === 'grok-build' && kindRequiresMcp(kind as keyof typeof NODE_PROFILE)) {
+      if ((provider === 'grok-build' || provider === 'grok-api') && kindRequiresMcp(kind as keyof typeof NODE_PROFILE)) {
         return jsonError(`node kind '${kind}' uses MCP tools and must run on claude`, 400);
       }
+      // Validate the provider/model pair against the effective provider.
+      const effProvider = (provider ?? getProjectNodeProvider(project) ?? 'claude') as NodeProvider;
+      const mismatch = providerModelMismatch(effProvider, model ?? null);
+      if (mismatch) return jsonError(mismatch, 400);
       setNodeProfileOverride(
         project, kind, model ?? null, (effort ?? null) as EffortLevel | null, (provider ?? null) as NodeProviderId | null,
       );

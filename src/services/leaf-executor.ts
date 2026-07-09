@@ -32,16 +32,22 @@ import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-confi
 import type { WorktreeManager } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel } from './node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation } from './supervisor-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-proposal';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
-import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
+import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
+import { stageUntrackedIntentToAdd } from './stage-untracked';
+import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
+import { validateReviewGrounding } from './review-citations';
+import { loadManifestSource } from '../config/project-manifest';
+import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
+import { ScopeIncidentError } from '../agent/worktree-manager';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -126,6 +132,7 @@ export interface LeafExecutorDeps {
     epicId: string,
     message: string,
     todoId: string,
+    scope?: { declaredFiles: string[]; untrackedAtStart: string[] },
   ) => Promise<unknown>;
   /** Raise an escalation card (blocker). */
   escalate: (input: {
@@ -167,6 +174,9 @@ export interface LeafExecutorDeps {
    *  so a hard kill recovers it on re-claim instead of resetting the budget. Best-effort;
    *  unwired in tests. */
   persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
+  /** G8: persist the durable blueprint base SHA so a reusable blueprint survives when
+   *  the run checkpoint is cleared by a terminal outcome. Best-effort; unwired in tests. */
+  persistBlueprintBase?: (e: { project: string; leafId: string; epicBaseSha?: string | null }) => void;
   /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
   markMerged?: (leafId: string) => void;
   /** FM1 Phase-B hardening: durably stamp the REJECT intent (acceptanceStatus='rejected')
@@ -179,6 +189,11 @@ export interface LeafExecutorDeps {
    *  stamped 'rejected'), FALSE if a concurrent run already took it terminal → caller
    *  discards the blocked outcome. (void/undefined = legacy: treat as owned.) */
   markRejecting?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
+  /** Bump the leaf's retryCount so an INFRA incident (vacuous review) is visible on the
+   *  graph. Ownership-gated; best-effort — never breaks the run. */
+  bumpRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
+  /** Release a claimed leaf (infra park seam). Best-effort; unwired in tests. */
+  releaseClaim?: (project: string, todoId: string) => Promise<boolean | void>;
   /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
   resumePlan?: ResumePlan;
   /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
@@ -233,6 +248,15 @@ export interface LeafExecutorDeps {
   /** L3: resolve the verify gate config (verb + optional command) for a leaf. Default
    *  {@link resolveVerifyGate}; injected in tests to exercise command-gate composition. */
   resolveVerifyGate?: (leaf: Todo) => VerifyGateConfig;
+  /** G2 mechanical gate at leaf HEAD. Runs the PROJECT-DECLARED gate in the leaf worktree.
+   *  'fail' ⇒ the leaf's work is bad (a FINDING). 'error' ⇒ the gate could not run (an
+   *  INCIDENT → park blocked + escalate; NEVER reported as the leaf failing). Unwired ⇒
+   *  undefined ⇒ no mechanical signal (pre-G2 behaviour). */
+  runGate?: (cwd: string) => Promise<LeafGateResult>;
+  /** G2 once-per-epic base gate. Resolves the CACHED verdict for this epic, computing it on
+   *  first call. `fresh` is true only on the call that actually executed the commands (so the
+   *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
+  ensureBaseGreen?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
   /** Persist the just-written blueprint as a durable collab document and link it to
    *  the leaf todo (per ATTEMPT, so failed attempts survive). Best-effort: a throw
    *  must NEVER break the run. Returns the created doc id (telemetry only). Optional
@@ -574,6 +598,13 @@ export function buildNodePrompt(
         'Decide if the work is complete and correct (it compiles, satisfies the blueprint, no obvious bugs).',
         COMPILE_CHECK_INSTRUCTION,
         'A file that fails ONLY under a bare-file `tsc <file>` run (not the project config) is NOT a real failure.',
+        'Emit a `## CRITERIA` section: ONE line per acceptance criterion in the blueprint/spec, in this exact shape:',
+        '`- [MET] <criterion> — <path>:<line>`  or  `- [UNMET] <criterion> — <path>:<line>`  or  `- [N/A] <criterion> — <why>`',
+        'Every MET/UNMET line MUST carry at least one `file:line` citation into a file THIS leaf changed —',
+        'the line you actually read to decide. Cite both sides when a criterion spans two files.',
+        'A citation is not a formality: a criterion you cannot cite, you did not check.',
+        'Be as TERSE as the change deserves — a one-line diff earns a one-line review. There is no',
+        'length requirement and none will be inferred; only the citations are checked.',
         'End your reply with EXACTLY one line, nothing after it:',
         '`VERDICT: PASS`  (if complete and correct)',
         '`VERDICT: FAIL — <reason>`  (otherwise)',
@@ -719,7 +750,8 @@ export function buildVerifyPrompt(
  *  node-written report never reaches mergeToEpic → accept reverses; same L5 gotcha as
  *  verify's report node). The trailing `VERDICT:` line is the content gate that re-arms the
  *  hallucination guard at the content layer (a vacuous report has no parseable verdict →
- *  the executor parks it blocked). Self-contained (references nothing in skills/). */
+ *  the executor parks it blocked). Teaches the three-dot diff caveat (lesson 5) and verify
+ *  discipline (lesson 1). Self-contained (references nothing in skills/). */
 export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
   const title = leaf.title ?? leaf.id;
   const spec = leaf.description ?? '(no spec provided)';
@@ -739,9 +771,21 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
     `  • the file list:  \`git diff --stat ${baseRef}...HEAD\``,
     `  • the full diff:  \`git diff ${baseRef}...HEAD\``,
     `  • per-commit log: \`git log --oneline ${baseRef}..HEAD\``,
+    'CAVEAT — three-dot diff shows COMMITS ONLY. `git diff <base>...HEAD` can never show',
+    'uncommitted or unstaged work, and no staging trick makes it. If a sibling leaf left work',
+    'in the working tree, only `git status --porcelain` (which collapses a new directory to',
+    '`?? dir/`) and `git diff HEAD` will see it. Check the working tree before concluding a',
+    'file is absent.',
     `(If \`${baseRef}\` is not resolvable, fall back to \`git merge-base HEAD @{u} 2>/dev/null\` or`,
     'review the working tree directly — do the best honest review you can and SAY which base you used.)',
     'Read the actual changed source to confirm behavior — do not review from the diff alone.',
+    '',
+    'VERIFY DISCIPLINE — a verdict needs a BASELINE. If the change-set has tests:',
+    `  1. Run each relevant test file ALONE on this branch, using this project's own test runner.`,
+    `  2. Run that SAME file ALONE on \`${baseRef}\` (a worktree/checkout of the base).`,
+    '  3. Compare. A failure present on BOTH is pre-existing and is NOT your finding.',
+    'Do NOT judge from a whole-directory run: files share a SQLite database and the runner',
+    'parallelizes, so aggregate red/green is noise. One file, in isolation, on both sides.',
     '',
     'Judge COMPLETENESS and CORRECTNESS against the spec: flag every gap, contradiction, or',
     'unmet LOCKED DECISION. Do NOT propose new behavior or scope; this is a review, not a redesign.',
@@ -868,9 +912,34 @@ function stripSentinelFmt(text: string): string {
   return text.replace(/[`*_"']/g, '');
 }
 
-export function parseVerdict(text: string | undefined): 'pass' | 'fail' {
-  if (!text) return 'fail';
-  return /^\s*VERDICT:\s*PASS\b/im.test(stripSentinelFmt(text)) ? 'pass' : 'fail';
+/** The floor pipeline's review verdict. TRI-STATE, mirroring {@link VerifyGateVerdict}:
+ *  - 'pass'  — a parseable `VERDICT: PASS` line.
+ *  - 'fail'  — a parseable `VERDICT: FAIL` line: a real FINDING, feed it back to implement.
+ *  - 'error' — empty/whitespace, or NO parseable VERDICT line at all: the reviewer said
+ *              NOTHING. An INFRA failure, NOT a finding → park blocked (bug 80bacbc4: an
+ *              empty provider response read as 'fail', so the executor re-ran implement
+ *              against phantom findings and livelocked to node-budget exhaustion).
+ *  Fail-closed is preserved: an 'error' is never an accept. Anything that is neither an
+ *  explicit PASS nor an explicit FAIL is 'error' — a terse-but-real verdict is a PASS/FAIL
+ *  line and is handled here; judging a review's DEPTH is out of scope (G2/G3). */
+export type LeafReviewVerdict = 'pass' | 'fail' | 'error';
+
+export function parseVerdict(text: string | undefined): LeafReviewVerdict {
+  if (!text || !text.trim()) return 'error';
+  const m = stripSentinelFmt(text).match(/^\s*VERDICT:\s*(PASS|FAIL)\b/im);
+  if (!m) return 'error';
+  return m[1].toUpperCase() === 'PASS' ? 'pass' : 'fail';
+}
+
+/** A base-gate verdict is a durable BASE FACT only when the gate actually RAN.
+ *  status==='error' means the gate could not run (missing npx, OOM, signal kill) — an
+ *  INCIDENT, not a fact about the base. Caching it under the tip-less epicId key would
+ *  silently block every later leaf on the epic (they read fresh:false ⇒ no escalation).
+ *  Re-check on the next leaf instead. */
+export function isCacheableBaseGateStatus(
+  status: 'pass' | 'fail' | 'error',
+): status is 'pass' | 'fail' {
+  return status !== 'error';
 }
 
 /** The verify pipeline's domain-gate verdict (epic f5c7fc46), derived purely from the
@@ -968,6 +1037,34 @@ export function leafSessionKey(leaf: Todo): string {
   return `leaf-exec-${leaf.id.slice(0, 8)}`;
 }
 
+/** One warning per (project, epic): an undeclared gate is a legitimate config, but its absence must
+ *  never be invisible — a 1.00 accept rate looks identical with and without a mechanical gate. */
+const warnedGateAbstention = new Set<string>();
+function warnGateAbstention(project: string, epicId: string, gateProject: string, d: { manifestPath: string; reason: string }): void {
+  const key = `${project}::${epicId}`;
+  if (warnedGateAbstention.has(key)) return;
+  warnedGateAbstention.add(key);
+  console.warn(
+    `[leaf-gate] NO MECHANICAL GATE for project ${gateProject} (epic ${epicId.slice(0, 8)}): ${d.reason}. ` +
+    `Consulted ${d.manifestPath}. Leaves will be accepted on the reviewer's verdict ALONE.`,
+  );
+}
+
+/** The `runGate` dep is UNWIRED (no G2 mechanical layer at all — not even a manifest
+ *  consult). Distinct from an ABSENT declaration: there, the project said "no gate";
+ *  here, the executor was constructed without the seam. Both end at "the LLM verdict
+ *  alone decides", and neither may be invisible. */
+const warnedGateUnwired = new Set<string>();
+function warnGateUnwired(project: string, epicId: string): void {
+  const key = `${project}::${epicId}`;
+  if (warnedGateUnwired.has(key)) return;
+  warnedGateUnwired.add(key);
+  console.warn(
+    `[leaf-gate] runGate DEP UNWIRED for project ${project} (epic ${epicId.slice(0, 8)}): the executor ` +
+    `has no mechanical gate seam. Leaves will be accepted on the reviewer's verdict ALONE.`,
+  );
+}
+
 /**
  * Drive ONE leaf todo through the deterministic blueprint→implement→review loop.
  *
@@ -985,6 +1082,10 @@ export interface ResumePlan { mode: ResumeMode; reason: string }
  * git/db. Conservatism is deliberate: any doubt resolves to a clean FRESH run.
  *
  * - no resume row                  → fresh (first dispatch)
+ *                                     (EXCEPT: when hasBlueprintOutput=true AND
+ *                                     blueprintBaseSha matches currentEpicSha, a durable
+ *                                     blueprint authored against the CURRENT tip is still
+ *                                     reusable — reattach-blueprint instead)
  * - merged                         → skip-to-gate (work is committed; the gate
  *                                     re-verifies it — safe regardless of further
  *                                     epic advance; redoing the leaf is pure waste)
@@ -1004,8 +1105,24 @@ export function planResume(
   resume: { phase?: string | null; merged: boolean; epicBaseSha?: string | null } | null,
   currentEpicSha: string | null,
   hasBlueprintOutput = false,
+  /** Durable base SHA the reusable blueprint was authored against (leaf_blueprint).
+   *  Used when the run checkpoint was cleared by a terminal outcome but the blueprint
+   *  itself is still valid. */
+  blueprintBaseSha: string | null = null,
 ): ResumePlan {
-  if (!resume) return { mode: 'fresh', reason: 'no-resume-state' };
+  if (!resume) {
+    // D1: a terminal outcome cleared the run checkpoint, but a durably-recorded
+    // blueprint authored against the CURRENT tip is still reusable. The base guard
+    // below is identical to the resume-row path — never weaker.
+    if (hasBlueprintOutput && blueprintBaseSha && currentEpicSha) {
+      if (blueprintBaseSha === currentEpicSha)
+        return { mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' };
+      return { mode: 'fresh', reason: 'epic-base-moved' };
+    }
+    // D3: null currentEpicSha is silently fatal — we can't verify the world state.
+    if (!currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+    return { mode: 'fresh', reason: 'no-resume-state' };
+  }
   if (resume.merged) return { mode: 'skip-to-gate', reason: 'work-merged' };
   // Paused/killed at-or-before the blueprint node. If a COMPLETED blueprint was
   // durably recorded (the leaf rate-paused after authoring it), reuse it instead of
@@ -1013,9 +1130,23 @@ export function planResume(
   // genuinely fresh when no usable blueprint output exists.
   if ((!resume.phase || resume.phase === 'blueprint') && !hasBlueprintOutput)
     return { mode: 'fresh', reason: 'killed-before-blueprint' };
-  if (!resume.epicBaseSha || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
-  if (resume.epicBaseSha !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
+  // Fall back to the durable blueprint base when the row lost its sha (COALESCE gap).
+  const base = resume.epicBaseSha ?? blueprintBaseSha;
+  if (!base || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+  if (base !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+}
+
+/** A node that never STARTED: non-zero/negative exit, ZERO tokens in and out, and it
+ *  died fast. Not a work failure — the model never ran. Rate-limited results are
+ *  excluded (they have their own pause path). Require minimum ~100ms duration so we
+ *  don't match test mocks; real CLI failures take at least that long to fork+exit. */
+export function isNodeStartFailure(res: NodeResult): boolean {
+  if (res.rateLimited || res.ok) return false;
+  const u = res.usage;
+  const zeroTokens = ((u?.inputTokens ?? 0) + (u?.outputTokens ?? 0) + (u?.cacheReadTokens ?? 0)) === 0;
+  const dur = res.durationMs ?? 0;
+  return zeroTokens && dur >= 100 && dur < 5_000;
 }
 
 /** SR-7: inheritance from a parent's durable blueprint plan, scoped to a child's file slice.
@@ -1094,13 +1225,30 @@ export async function runLeaf(
   // run's shape (and which path a failure came from) is legible without re-deriving.
   let pathTaken: 'floor' | 'waves' | 'review' | null = null;
 
+  // G12: Snapshot untracked files BEFORE the first writing node so we can later
+  // distinguish files the leaf created (new) from pre-existing junk. Declared here so
+  // it's available to all nested functions. Will be populated before the ATTEMPT loop.
+  let untrackedAtStart: string[] = [];
+
+  // G12: Declared scope for commit scope computation. Populated after the blueprint is loaded.
+  let declaredFiles: string[] = [];
+
+  // Whether a PROJECT-DECLARED mechanical gate actually ran for the deciding review.
+  // null = the gate was never evaluated (parked before the loop). false = pass without a
+  // command running (undeclared, misconfigured-early, or an unwired seam) — the LLM alone
+  // decided. See LeafGateResult.declared.
+  let gateDeclared: boolean | null = null;
+
   // Per-(project, node-kind) model + effort overrides, resolved once per run.
   // model  : per-kind override → NODE_PROFILE default.
   // effort : per-kind override → per-project blanket (getProjectEffort) →
   //          MERMAID_NODE_EFFORT env → per-kind NODE_PROFILE default.
   const nodeOverrides = listNodeProfileOverrides(project);
   const projectEffort = getProjectEffort(project);
-  const nodeModel = (kind: LeafNodeKind): string => nodeOverrides[kind]?.model ?? NODE_PROFILE[kind].model;
+  const nodeModel = (kind: LeafNodeKind, allowedTools = NODE_PROFILE[kind].allowedTools): string => {
+    const provider = resolveNodeProvider(project, kind, allowedTools);
+    return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
+  };
   const nodeEffort = (kind: LeafNodeKind): EffortLevel =>
     nodeOverrides[kind]?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? NODE_PROFILE[kind].effort;
 
@@ -1173,8 +1321,12 @@ export async function runLeaf(
     // Cooperative abort — after the spawn returns. A `killLeafSubtree` SIGTERM (E1)
     // makes the node return non-zero; without this check the revise/WAVES loop reads
     // that as a plain node failure and spawns the NEXT node instead of stopping.
+    // Checked BEFORE the start-failure probe so a killed node is never misread as one.
     const postAbort = deps.shouldAbort?.(project, leaf.id);
     if (postAbort) throw new LeafAborted(postAbort);
+    if (isNodeStartFailure(res)) {
+      res.startFailure = { provider, model: recordedModel, detail: (res.text ?? res.parseError ?? '').slice(0, 300) };
+    }
     try {
       deps.recordNode({
         project,
@@ -1196,7 +1348,7 @@ export async function runLeaf(
         cacheCreationTokens: res.usage?.cacheCreationTokens,
         costUsd: res.usage?.costUsd,
         steps: res.usage?.numTurns,
-        parseError: res.parseError ?? null,
+        parseError: res.startFailure ? `node-start-failure (provider=${provider}, model=${recordedModel}): ${res.parseError ?? ''}` : (res.parseError ?? null),
         verdict: extra?.verdict ?? null,
         leafOutcome: extra?.leafOutcome ?? null,
         // Persist the node's final message so a stuck/rejected leaf is diagnosable
@@ -1251,6 +1403,7 @@ export async function runLeaf(
           pathTaken,
           attempts: state.attempt,
           nodesSpent: state.nodesSpent,
+          ...(gateDeclared !== null ? { gateDeclared } : {}),
           ...(detail?.reason ? { reason: detail.reason } : {}),
           ...(detail?.pendingReason ? { pendingReason: detail.pendingReason } : {}),
           ...(detail?.gateReasons?.length ? { gateReasons: detail.gateReasons } : {}),
@@ -1295,6 +1448,19 @@ export async function runLeaf(
         `Leaf-executor parked "${leaf.title ?? leaf.id}" — ${reason} ` +
         `(attempts=${state.attempt}, nodesSpent=${state.nodesSpent}).`,
     });
+    return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
+  };
+
+  /** A node that could not START is an INCIDENT, not a finding. Park 'error', escalate
+   *  naming the (provider, model) pair, spawn NO fix node, and NEVER stamp the todo
+   *  'rejected' — the work was never judged. */
+  const parkNodeStartFailure = async (kind: LeafNodeKind, res: NodeResult): Promise<LeafRunResult> => {
+    const sf = res.startFailure!;
+    const reason = `node-could-not-start: ${kind} node failed in ${res.durationMs}ms with zero tokens — provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
+    recordOutcome('blocked', null, { reason });
+    try { await deps.releaseClaim?.(project, leaf.id); } catch { /* best-effort */ }
+    deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id,
+      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${reason} Check the node-profile row for this project/kind: the model does not belong to the provider.` });
     return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   };
 
@@ -1403,7 +1569,10 @@ export async function runLeaf(
     commitMessage: string,
   ): Promise<LeafRunResult> => {
     try {
-      await deps.mergeToEpic(sessionKey, epicId, commitMessage, leaf.id);
+      await deps.mergeToEpic(sessionKey, epicId, commitMessage, leaf.id, {
+        declaredFiles: [],
+        untrackedAtStart,
+      });
     } catch (e) {
       return parkBlocked(
         `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -1451,11 +1620,12 @@ export async function runLeaf(
     const baseRef = 'master';
     // The review node needs add_session_todo (file gap todos) on top of the read-only set;
     // NO Write (the executor commits the report — a node Write resolves to the project root).
+    const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`;
     const buildReviewSpec = (): NodeSpec => ({
       prompt: buildReviewPrompt(leaf, baseRef),
-      model: nodeModel('review'),
+      model: nodeModel('review', reviewTools),
       effort: nodeEffort('review'),
-      allowedTools: `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`,
+      allowedTools: reviewTools,
       cwd,
       leafId: leaf.id,
       epicId,
@@ -1465,6 +1635,7 @@ export async function runLeaf(
     });
 
     let rev = await runNode('review', buildReviewSpec());
+    if (rev.startFailure) return parkNodeStartFailure('review', rev);
     if (rev.rateLimited) return pausedResult('review', rev);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     if (!rev.ok) {
@@ -1479,10 +1650,9 @@ export async function runLeaf(
     // end with a parseable VERDICT line, else the reviewer did no real work → park blocked.
     const reportMd = (rev.text ?? '').trim();
     if (!reportMd) return parkBlocked('review-report-empty');
-    if (!/^\s*VERDICT:\s*(PASS|FAIL)\b/im.test(stripSentinelFmt(reportMd))) {
-      return parkBlocked('review-report-no-verdict');
-    }
-    const verdict = parseVerdict(reportMd); // pass|fail — informational; BOTH accept.
+    const parsedVerdict = parseVerdict(reportMd);
+    if (parsedVerdict === 'error') return parkBlocked('review-report-no-verdict'); // no parseable VERDICT line
+    const verdict = parsedVerdict; // pass|fail — informational; BOTH accept.
 
     // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
     // node's new-file Write resolves to the project root, not the worktree, so it would never
@@ -1584,6 +1754,39 @@ export async function runLeaf(
     return finalizeReportLeaf(gateVerdict, `verify: ${leaf.title ?? leaf.id}`);
   };
 
+  // --- G2 EPIC BASE GATE ---------------------------------------------------------
+  // A red base is the most important fact on a branch: EVERY leaf built on it inherits
+  // its brokenness. Check it BEFORE the execution-mode dispatch so a red base starts
+  // ZERO leaves of any shape and spends ZERO nodes (nodesSpent stays 0 in the terminal
+  // record). Cached once per epic (deps.ensureBaseGreen) — this call is cheap on every
+  // leaf after the first.
+  const base = await deps.ensureBaseGreen?.();
+  if (base && base.status !== 'pass') {
+    const head = base.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
+    const cmd = base.command ?? 'gate';
+    // Finding 3: a leaf parking on a CACHED verdict (fresh:false) escalates nothing — it
+    // must still say WHY. The reason is the leaf's only durable trace, so it carries the
+    // failing command and a short output tail, not a bare "epic-base-red".
+    const tail = lastLines(base.output, 10);
+    const reason = tail ? `${head}: ${cmd}\n--- output (tail) ---\n${tail}` : `${head}: ${cmd}`;
+    if (base.fresh) {
+      deps.escalate({
+        project,
+        session: sessionKey,
+        kind: 'blocker',
+        todoId: leaf.id,
+        questionText:
+          `Epic base is RED — no leaf on ${epicBranch} can be trusted, so NONE will start.\n` +
+          `failing command: ${cmd}\n` +
+          `--- output (tail) ---\n${lastLines(base.output, 40)}\n---\n` +
+          `Fix the base and commit the fix to ${epicBranch}. The cached verdict is keyed to the ` +
+          `base commit it examined, so moving the base invalidates it: the next leaf re-runs the ` +
+          `gate automatically. No manual cache-clearing step exists or is needed.`,
+      });
+    }
+    return parkBlocked(reason);
+  }
+
   // Cooperative abort: everything past this point can spawn nodes via `runNode`, which
   // throws LeafAborted at either node boundary once the daemon has stopped the run
   // (ancestor drop / hold / claim loss). Catch it here — a SINGLE funnel for every
@@ -1660,6 +1863,7 @@ export async function runLeaf(
       // must not interpret its empty/error output as a FAIL nor advance the attempt).
       const bpSpec = inherited ? buildRefreshSpec(cwd, inherited) : buildSpec('blueprint', cwd);
       bp = await runNode('blueprint', bpSpec);
+      if (bp.startFailure) return parkNodeStartFailure('blueprint', bp);
       if (bp.rateLimited) return pausedResult('blueprint', bp);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
@@ -1679,6 +1883,13 @@ export async function runLeaf(
     if (!bp.ok) {
       if (isLastAttempt) return parkBlocked('blueprint-node-failed');
       continue; // fresh attempt — never implement against a missing blueprint
+    }
+
+    // G8: Record the blueprint base SHA so a reusable blueprint survives when the run
+    // checkpoint is cleared by a terminal outcome. Guarded to NOT rewrite on synthetic
+    // reattach/in-run-carry results (those have durationMs === 0).
+    if (!reattach && !inRunCarry) {
+      deps.persistBlueprintBase?.({ project, leafId: leaf.id, epicBaseSha: deps.epicBaseSha });
     }
 
     // --- P5 SIZE GATE ---
@@ -1784,6 +1995,16 @@ export async function runLeaf(
     let rootSnap: RootSnapshot | null = null;
     try { rootSnap = snapshotMainCheckout(cwd); } catch { /* best-effort */ }
 
+    // G12: Snapshot untracked files BEFORE the first writing node so we can later
+    // distinguish files the leaf created (new) from pre-existing junk.
+    try { untrackedAtStart = listUntrackedPaths(cwd); } catch { /* best-effort */ }
+
+    // G12: Derive the declared scope from the manifest + the split-child description.
+    const declaredFiles = [...new Set([
+      ...(manifest ? [...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)] : []),
+      ...parseDeclaredScope(leaf.description),
+    ])];
+
     // WAVES RETIRED (2026-07-08): every claimed leaf runs LINEAR (FLOOR). A leaf too big
     // for one linear run (> SPLIT_CEILING = FILE_THRESHOLD enumerated files) was already
     // auto-split PRE-FLIGHT above, so anything reaching here is within the linear band —
@@ -1794,6 +2015,7 @@ export async function runLeaf(
     pathTaken = 'floor';
     // IMPLEMENT (byte-identical to the prior FLOOR path):
     const impl = await runNode('implement', buildSpec('implement', cwd, blueprintBody));
+    if (impl.startFailure) return parkNodeStartFailure('implement', impl);
     if (impl.rateLimited) return pausedResult('implement', impl);
     if (!checkBudget()) return parkBlocked('node-budget-exhausted');
 
@@ -1817,10 +2039,96 @@ export async function runLeaf(
           if (swept.length) console.warn(`[leaf-executor] worktree write-leak: relocated ${swept.length} leaked file(s) from the main checkout into the worktree (${swept.slice(0, 5).join(', ')}${swept.length > 5 ? ', …' : ''})`);
         } catch { /* never break the run on the mitigation */ }
       }
-      const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
-      if (review.rateLimited) return pausedResult('review', review);
-      reviewVerdict = parseVerdict(review.text);
-      const findings = (review.text ?? '').trim();
+      // NEW-FILE VISIBILITY: a file the implement/fix node CREATED is untracked, and `git diff`
+      // never shows untracked files — the review node then truthfully reports it "absent" and the
+      // leaf thrashes implement→review to node-budget exhaustion (f0f0bd49). Record the path in
+      // the index (content NOT staged) so every git view the reviewer uses sees it. Explicit,
+      // .gitignore-respecting path list — never `git add -A`; worktrees carry 20+ untracked junk
+      // paths (db snapshots, deploy logs). Best-effort.
+      try {
+        const staged = stageUntrackedIntentToAdd(cwd);
+        if (staged.length) console.warn(`[leaf-executor] intent-to-add: made ${staged.length} new file(s) visible to review (${staged.slice(0, 5).join(', ')}${staged.length > 5 ? ', …' : ''})`);
+      } catch { /* never break the run on the mitigation */ }
+      // --- MECHANICAL GATE (G2) ---------------------------------------------------
+      // The executor runs the PROJECT's own gate at this leaf's HEAD. The base was
+      // proven green once per epic, so any failure here is BY CONSTRUCTION this leaf's
+      // own — no baseline diff, no per-file test selection heuristics.
+      let mech: LeafGateResult;
+      const gateRun = await deps.runGate?.(cwd);
+      if (gateRun) {
+        mech = gateRun;
+      } else {
+        // UNWIRED SEAM — not a pass anybody computed. Say so, and leave a ledger row, exactly
+        // as the `absent` DECLARATION path does (see makeLeafExecutorDeps.runGate). Silence
+        // here restores LLM-ratifies-itself, which is the failure G4 exists to make loud.
+        warnGateUnwired(project, epicId);
+        try {
+          deps.recordNode({
+            project,
+            todoId: leaf.id,
+            session: sessionKey,
+            epicId,
+            leafId: leaf.id,
+            nodeKind: 'gate-abstain',
+            nodesSpent: 0,
+            verdict: 'pass',
+            outcomeDetail: 'gate-unwired',
+            outputText: 'deps.runGate is not wired — no mechanical gate ran for this leaf',
+          });
+        } catch { /* best-effort telemetry */ }
+        mech = { status: 'pass', output: '', reasons: ['gate: runGate dep unwired'], declared: false };
+      }
+      gateDeclared = mech.declared;
+
+      // A GATE THAT COULD NOT RUN IS NOT A FAILING GATE. An INCIDENT, not a finding:
+      // park blocked, escalate, spawn NO fix node (80bacbc4, one layer down).
+      if (mech.status === 'error') {
+        try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+        return parkBlocked(`gate-could-not-run: ${mech.command ?? 'gate'} — ${lastLines(mech.output, 5)}`);
+      }
+
+      // A mechanically-red tree NEVER spends a review node. The LLM's opinion on broken
+      // code is worth exactly nothing, and it costs an opus call to obtain.
+      let llm: LeafReviewVerdict | null = null;
+      let findings: string;
+      if (mech.status === 'fail') {
+        findings = gateFindingsText(mech);
+      } else {
+        const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
+        if (review.startFailure) return parkNodeStartFailure('review', review);
+        if (review.rateLimited) return pausedResult('review', review);
+        llm = parseVerdict(review.text);
+        // INFRA, not a finding (80bacbc4): the reviewer emitted nothing parseable. Feeding ''
+        // back to implement is a livelock (empty findings also defeat the isRepeat stuck-
+        // detector below, so it runs to node-budget exhaustion). Park, and RECORD it —
+        // retryCount stayed 0 before, so the graph showed no incident at all.
+        if (llm === 'error') {
+          try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+          return parkBlocked('review-vacuous');
+        }
+        // --- G3 GROUNDING GATE -------------------------------------------------
+        // A PASS is the ONLY path from an LLM string to an accept, so it is the only one
+        // that must prove it looked. Structure + citations are MECHANICAL; the semantics
+        // of each criterion remain the LLM's. A FAIL is deliberately exempt: it never
+        // accepts, and forcing structure on it would turn a real finding into a park.
+        if (llm === 'pass') {
+          const cs = (await deps.changeSet?.(sessionKey)) ?? null;
+          const grounding = validateReviewGrounding(review.text ?? '', cs);
+          if (grounding.status === 'vacuous') {
+            try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+            return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+          }
+        }
+        findings = (review.text ?? '').trim();
+      }
+
+      // final = mechanical AND llm. Never "whichever spoke last": a review's bare
+      // `VERDICT: PASS` composes as composeVerdict('fail','pass') === 'fail' against a
+      // red gate — there is no code path from an LLM string to an accept when the
+      // gate is red (the 84048309 shape).
+      // mech.status/llm are statically 'error'-typed but both 'error' arms above already
+      // returned, so at runtime composeVerdict can only yield 'pass' | 'fail' here.
+      reviewVerdict = composeVerdict(mech.status, llm) as 'pass' | 'fail';
       // A PASS means the work is COMPLETE — accept it regardless of budget. The budget is a
       // runaway guard on doing MORE work, not a reason to DISCARD a finished, passing leaf.
       // (L6: a PASS landed on the node that tripped the budget and was wrongly thrown away
@@ -1848,8 +2156,22 @@ export async function runLeaf(
           epicId,
           `feat: ${leaf.title ?? leaf.id}`,
           leaf.id,
+          { declaredFiles, untrackedAtStart },
         );
       } catch (e) {
+        if (e instanceof ScopeIncidentError) {
+          deps.escalate({
+            project,
+            session: sessionKey,
+            kind: 'blocker',
+            todoId: leaf.id,
+            questionText:
+              `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
+              `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. The blueprint's scope is wrong, or a node edited ` +
+              `the wrong files. Nothing was committed.`,
+          });
+          return parkBlocked('scope-incident', reviewVerdict);
+        }
         // Merge-back failed (e.g. conflict) → can't safely accept. Park blocked.
         return parkBlocked(
           `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -1990,12 +2312,29 @@ export async function makeLeafExecutorDeps(
   // A durable blueprint output (recorded by a prior dispatch's blueprint node) means a
   // blueprint-phase pause is REUSABLE, not fresh — avoid re-running the blueprint node.
   const hasBlueprintOutput = !!getLatestNodeOutput(leaf.id, 'blueprint')?.trim();
-  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput);
+  const bpRow = getLeafBlueprint(leaf.id);
+  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null);
+  const anomaly = resumePlan.mode === 'fresh' && hasBlueprintOutput
+    && (resumePlan.reason === 'no-resume-state' || resumePlan.reason === 'no-epic-base' || resumePlan.reason === 'killed-before-blueprint');
+  recordLeafResumeDecision({ leafId: leaf.id, project, mode: resumePlan.mode, reason: resumePlan.reason,
+    hadResumeRow: !!existingResume, hasBlueprintOutput, resumeBaseSha: existingResume?.epicBaseSha ?? bpRow?.epicBaseSha ?? null,
+    currentEpicSha: epicBaseSha, anomaly });
+  if (anomaly) console.warn('[leaf-resume] discarded a reusable blueprint', { leafId: leaf.id, reason: resumePlan.reason, currentEpicSha: epicBaseSha });
   let effectiveStart = startNodesSpent;
   if (resumePlan.mode === 'fresh' && existingResume) {
     clearLeafResume(leaf.id);
     effectiveStart = 0;
   }
+  if (resumePlan.mode === 'fresh' && resumePlan.reason === 'epic-base-moved') clearLeafBlueprint(leaf.id);
+  // G2 mechanical gate, G4 abstention: classify ONCE per deps construction. `declared` runs the
+  // gate; `absent` abstains LOUDLY; `misconfigured` is INFRA — never a silent pass.
+  const manifestSource = loadManifestSource(targetProject);
+  const gateDecl = resolveGateDeclaration(manifestSource);
+  const gateCfg = gateDecl.kind === 'declared' ? gateDecl.cfg : null;
+  // The FLOOR review loop calls runGate once per pass (implement→review→fix→review), but the
+  // abstention is a property of the LEAF, not of the pass. Latch it so the ledger carries one
+  // 'gate-abstain' row per leaf run — matching warnGateAbstention's own once-per-epic dedupe.
+  let recordedGateAbstain = false;
   return {
     invoker: ClaudeNodeInvoker,
     grokInvoker: GrokNodeInvoker,
@@ -2015,8 +2354,13 @@ export async function makeLeafExecutorDeps(
       const r = await handleWorkerComplete(makeCoordinatorDeps(), p, t, a, runClaimToken);
       return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons };
     },
-    mergeToEpic: (sessionKey, eId, message, todoId) =>
-      wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
+    mergeToEpic: (sessionKey, eId, message, todoId, scope) =>
+      wm.commitAndMergeToEpic(sessionKey, eId, {
+        message,
+        todoId,
+        scope,
+        commitBoundaries: manifestSource.manifest?.commitBoundaries,
+      }),
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,
@@ -2027,6 +2371,7 @@ export async function makeLeafExecutorDeps(
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,
     persistResume: recordLeafResume,
+    persistBlueprintBase: recordLeafBlueprint,
     markMerged: markLeafMerged,
     // FM1 Phase-B hardening: durably land the reject intent before the slow gate so a
     // mid-gate restart can't reclaim+re-run it (reclaimNow refuses acceptanceStatus
@@ -2039,6 +2384,12 @@ export async function makeLeafExecutorDeps(
         const { markRejectingIfOwned } = await import('./todo-store');
         return await markRejectingIfOwned(p, leafId, runClaimToken);
       } catch { return true; /* best-effort: don't change legacy behaviour on error */ }
+    },
+    bumpRetry: async (p, leafId) => {
+      try {
+        const { bumpRetryCountIfOwned } = await import('./todo-store');
+        return await bumpRetryCountIfOwned(p, leafId, runClaimToken);
+      } catch { return false; }
     },
     restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
@@ -2085,6 +2436,71 @@ export async function makeLeafExecutorDeps(
       }
     },
     resolveVerifyGate,
+    // G2 mechanical gate at leaf HEAD. Scoped to this leaf's own change-set (against the
+    // epic branch base) so the per-file test command only runs specs this leaf touched.
+    runGate: async (cwd) => {
+      const early = gateResultForDeclaration(gateDecl);
+      if (early) return early; // misconfigured → mech.status==='error' → parkBlocked+escalate
+      if (gateDecl.kind === 'absent') {
+        warnGateAbstention(project, epicId, targetProject, gateDecl);
+        if (!recordedGateAbstain) {
+          recordedGateAbstain = true;
+          try {
+            recordNode({
+              project,
+              todoId: leaf.id,
+              session: leafSessionKey(leaf),
+              epicId,
+              leafId: leaf.id,
+              nodeKind: 'gate-abstain',
+              nodesSpent: 0,
+              verdict: 'pass',
+              outcomeDetail: 'gate-undeclared',
+              outputText: `${gateDecl.reason} (consulted ${gateDecl.manifestPath})`,
+            });
+          } catch { /* best-effort telemetry */ }
+        }
+      }
+      const changeSet = await wm.changeSet(leafSessionKey(leaf), epicBranch);
+      return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn);
+    },
+    // G2 once-per-epic base gate, cached in the epic_base_gate ledger table keyed by
+    // epicId ALONE (never the moving tip) so it runs exactly once per epic, not once
+    // per leaf. `fresh:true` only on the call that actually executed the commands.
+    ensureBaseGreen: async () => {
+      const early = gateResultForDeclaration(gateDecl);
+      if (early) return { ...early, fresh: true }; // escalate once; never cache a config error as a base fact
+      if (!gateCfg) return null; // absent → abstain (unchanged)
+      const cached = getEpicBaseGate(epicId, epicBaseSha);
+      if (cached) {
+        return {
+          status: cached.status,
+          command: cached.command ?? undefined,
+          output: cached.output ?? '',
+          reasons: [],
+          declared: true,
+          fresh: false,
+        };
+      }
+      // ensureEpic was already called above in this same factory — idempotent, no new
+      // worktree churn. Run at the epic worktree (inside the repo ⇒ node_modules
+      // resolves upward), AFTER forwardIntegrateEpic so we gate the base a leaf will
+      // actually fork from.
+      const wt = await wm.ensureEpic(epicId, targetProject);
+      if (!wt) return null; // non-git fallback ⇒ no base gate
+      const r = await runBaseGate(wt.path, gateCfg, defaultGateSpawn);
+      if (isCacheableBaseGateStatus(r.status)) {
+        recordEpicBaseGate({
+          epicId,
+          project,
+          baseSha: epicBaseSha,
+          status: r.status,
+          command: r.command ?? null,
+          output: r.output || null,
+        });
+      }
+      return { ...r, fresh: true };
+    },
     // Durable per-attempt blueprint persistence (best-effort; throws are swallowed at
     // the call site). Writes a collab document scoped to a fixed `leaf-blueprints`
     // session under the TRACKING `project`, then points the leaf todo's

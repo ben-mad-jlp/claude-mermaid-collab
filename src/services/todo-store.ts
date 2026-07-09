@@ -1670,6 +1670,22 @@ export function markRejectingIfOwned(project: string, id: string, claimToken?: s
   });
 }
 
+/** Bump a todo's retryCount by one, so an INFRA incident (e.g. a vacuous review) is
+ *  RECORDED on the graph instead of self-healing invisibly at retryCount 0. Ownership-
+ *  gated exactly like {@link markRejectingIfOwned}: only the run that still owns the
+ *  in_progress row may bump. Returns whether the bump landed. Never throws on a missing row. */
+export function bumpRetryCountIfOwned(project: string, id: string, claimToken?: string): Promise<boolean> {
+  return withLock(project, () => {
+    assertProjectLocal(project);
+    const db = openDb(project);
+    const existing = getTodo(project, id);
+    if (!existing || existing.status !== 'in_progress') return false;
+    if (claimToken != null && (existing.claim?.token ?? existing.claimToken ?? null) !== claimToken) return false;
+    db.prepare(`UPDATE todos SET retryCount=retryCount+1, updatedAt=? WHERE id=?`).run(nowIso(), id);
+    return true;
+  });
+}
+
 /** An epic the sweep left in_progress because every child is `done` but at least
  *  one is not explicitly `accepted` (policy (b): never silently close ungated
  *  work — surface it as a flag instead). */

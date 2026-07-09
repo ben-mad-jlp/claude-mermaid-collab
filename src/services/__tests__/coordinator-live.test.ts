@@ -85,6 +85,15 @@ describe('isHeadlessLeaf — non-code leaf exclusion', () => {
   it('admits an ordinary agent code leaf', () => {
     expect(isHeadlessLeaf(base({ id: 'no-children-in-empty-project' }), TEST_ROOT)).toBe(true);
   });
+  it('EXCLUDES land leaves even when agent-assigned (an agent must never build a merge)', () => {
+    expect(isHeadlessLeaf(base({ kind: 'land', title: 'merge epic to master', assigneeKind: 'agent' }), TEST_ROOT)).toBe(
+      false,
+    );
+    // The exclusion keys off `kind`: a bare-titled land node is still excluded, and a
+    // plain leaf whose title merely mentions landing is still admitted.
+    expect(isHeadlessLeaf(base({ kind: 'land', title: 'no bracket in sight' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'leaf', title: 'fix the landing page copy' }), TEST_ROOT)).toBe(true);
+  });
 });
 
 describe('displayTitle', () => {

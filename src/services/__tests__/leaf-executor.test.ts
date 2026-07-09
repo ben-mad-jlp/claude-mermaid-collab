@@ -9,7 +9,9 @@ import { describe, it, expect } from 'bun:test';
 import {
   runLeaf,
   parseVerdict,
+  isCacheableBaseGateStatus,
   buildNodePrompt,
+  buildReviewPrompt,
   buildBlueprintRefreshPrompt,
   parseSizeManifest,
   leafExecutionMode,
@@ -24,6 +26,7 @@ import {
   deprecatePriorAttempts,
   blueprintAttemptName,
   planResume,
+  isNodeStartFailure,
   resolveInheritedSlice,
   type LeafExecutorDeps,
   type LeafSizeManifest,
@@ -110,12 +113,15 @@ interface Spies {
   escalations: Array<{ kind: string; questionText: string }>;
   removeCalls: string[];
   markRejectingCalls: string[];
+  bumpRetryCalls: Array<{ project: string; leafId: string }>;
   /** Ordered log of 'mark' (markRejecting) vs 'complete:<acceptance>' to assert the
    *  reject pre-stamp lands BEFORE the slow gate. */
   seq: string[];
   /** Ordered log of 'set:<kind>' (setInflight) and 'clear' (clearInflight) — bug
    *  0f1df3d2: the row must span the whole run (set per-node, cleared ONCE at the end). */
   inflightSeq: string[];
+  /** Captured recordNode calls. */
+  nodeRows: Array<any>;
 }
 
 /** Build a deps object whose invoker returns the supplied scripted REVIEW verdicts
@@ -127,6 +133,11 @@ function makeDeps(opts: {
   mergeThrows?: boolean;
   blueprintFails?: number; // first N blueprint-node invocations return ok:false (non-rate-limited)
   markRejectingOwned?: boolean; // bug aadd927b: markRejecting returns this (false ⇒ run lost the todo)
+  // G2: mechanical gate hooks. Absent ⇒ unwired ⇒ pre-G2 behaviour (the floor never calls them).
+  runGate?: LeafExecutorDeps['runGate'];
+  ensureBaseGreen?: LeafExecutorDeps['ensureBaseGreen'];
+  // G3: change-set hook for grounding. Absent ⇒ unwired ⇒ abstain (no park; today's behaviour).
+  changeSet?: string[] | null;
 }): { deps: LeafExecutorDeps; spies: Spies } {
   const spies: Spies = {
     ensureCalls: [],
@@ -136,8 +147,10 @@ function makeDeps(opts: {
     escalations: [],
     removeCalls: [],
     markRejectingCalls: [],
+    bumpRetryCalls: [],
     seq: [],
     inflightSeq: [],
+    nodeRows: [],
   };
   let reviewIdx = 0;
   let bpFailsLeft = opts.blueprintFails ?? 0;
@@ -188,6 +201,10 @@ function makeDeps(opts: {
       spies.seq.push('mark');
       return opts.markRejectingOwned ?? true; // default owned (legacy behaviour)
     },
+    async bumpRetry(p, leafId) {
+      spies.bumpRetryCalls.push({ project: p, leafId });
+      return true;
+    },
     async mergeToEpic() {
       spies.mergeCalls += 1;
       if (opts.mergeThrows) throw new Error('conflict');
@@ -196,9 +213,12 @@ function makeDeps(opts: {
     escalate(input) {
       spies.escalations.push({ kind: input.kind, questionText: input.questionText });
     },
-    recordNode: () => null,
+    recordNode: (e) => { spies.nodeRows.push(e); return null as any; },
     setInflight: (e) => { spies.inflightSeq.push(`set:${e.nodeKind ?? '?'}`); },
     clearInflight: () => { spies.inflightSeq.push('clear'); },
+    runGate: opts.runGate,
+    ensureBaseGreen: opts.ensureBaseGreen,
+    changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
   };
   return { deps, spies };
 }
@@ -239,6 +259,34 @@ describe('planResume (resume decision — conservative, fresh on any doubt)', ()
     expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: SHA }, SHA, false).reason)
       .toBe('killed-before-blueprint');
   });
+  // G8: blueprintBaseSha (durable base) path — when the run checkpoint is cleared but
+  // the blueprint is still reusable. D1 regression: no-resume-row case.
+  it('no resume row + hasBlueprintOutput + blueprintBaseSha === currentEpicSha → reattach (D1 regression)', () => {
+    expect(planResume(null, SHA, true, SHA))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' });
+  });
+  it('no resume row + hasBlueprintOutput + blueprintBaseSha !== currentEpicSha → fresh base-moved', () => {
+    expect(planResume(null, SHA, true, 'old'))
+      .toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
+  });
+  it('no resume row + hasBlueprintOutput + currentEpicSha null → fresh no-epic-base', () => {
+    expect(planResume(null, null, true, SHA))
+      .toEqual({ mode: 'fresh', reason: 'no-epic-base' });
+  });
+  it('resume row with epicBaseSha null + blueprintBaseSha matching → reattach (COALESCE fallback)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: null }, SHA, false, SHA))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+  });
+  it('resume row base moved → fresh (epic-base-moved guard is NOT weakened)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA, false, SHA).reason)
+      .toBe('epic-base-moved');
+  });
+  it('resetBreaker() call then re-plan with durable blueprint → reattach survives reset', () => {
+    // resetBreakerStreak() does NOT touch leaf_blueprint, so a durable blueprint base
+    // survives an operator reset. This proves the durable path is independent.
+    expect(planResume(null, SHA, true, SHA))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' });
+  });
 });
 
 describe('parseVerdict (fail-closed)', () => {
@@ -246,15 +294,24 @@ describe('parseVerdict (fail-closed)', () => {
     expect(parseVerdict('blah\nVERDICT: PASS')).toBe('pass');
     expect(parseVerdict('VERDICT: PASS — looks good')).toBe('pass');
     expect(parseVerdict('VERDICT: FAIL — nope')).toBe('fail');
-    expect(parseVerdict('no verdict line at all')).toBe('fail');
-    expect(parseVerdict(undefined)).toBe('fail');
-    expect(parseVerdict('')).toBe('fail');
   });
   it('tolerates markdown wrapping the model echoes from the prompt (backticks/bold)', () => {
     // The L4 false-stuck class: the prompt SHOWS `VERDICT: PASS` in backticks, so the
     // model echoes them — a line-anchored regex must not be defeated by the wrapper.
     expect(parseVerdict('`VERDICT: PASS`')).toBe('pass');
     expect(parseVerdict('**VERDICT: PASS**')).toBe('pass');
+  });
+  it('is an INFRA "error", not a fail, when the reviewer said nothing parseable (bug 80bacbc4)', () => {
+    expect(parseVerdict('no verdict line at all')).toBe('error');
+    expect(parseVerdict(undefined)).toBe('error');
+    expect(parseVerdict('')).toBe('error');
+    expect(parseVerdict('   \n  ')).toBe('error');
+    expect(parseVerdict('I looked at it, seems fine.')).toBe('error');
+  });
+  it('a terse-but-real verdict is still PASS/FAIL, not error — terseness is not emptiness', () => {
+    expect(parseVerdict('VERDICT: FAIL')).toBe('fail');
+    expect(parseVerdict('`VERDICT: FAIL`')).toBe('fail');
+    expect(parseVerdict('VERDICT: PASS')).toBe('pass');
   });
 });
 
@@ -421,11 +478,73 @@ describe('runLeaf state machine', () => {
     expect(spies.ensureCalls.length).toBe(0);
   });
 
-  it('unparseable verdict ⇒ treated as FAIL (fail-closed) → blocked after cap', async () => {
+  it('unparseable verdict ⇒ INFRA error, not fail → blocked immediately as review-vacuous', async () => {
     const { deps } = makeDeps({ reviewVerdicts: ['(no verdict)', '(still none)'] });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
-    expect(res.reason).toBe('attempt-cap-exhausted');
+    expect(res.reason).toBe('review-vacuous');
+  });
+
+  it('EMPTY review (bug 80bacbc4): blocked review-vacuous, implement runs once, no fix node, retryCount bumped', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: [''] });
+    const leaf = makeLeaf();
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toBe('review-vacuous');
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(1); // no fix node spent on a phantom empty finding
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+  });
+
+  it('G3: vacuous PASS (no citations) ⇒ blocked review-vacuous, retryCount bumped, no fix node', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], changeSet: ['src/a.ts'] });
+    const leaf = makeLeaf();
+    const res = await runLeaf('proj', leaf, deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^review-vacuous:/);
+    expect(spies.bumpRetryCalls).toEqual([{ project: 'proj', leafId: leaf.id }]);
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(1); // no fix node spawned on a vacuous PASS
+  });
+
+  it('G3: a terse but CITED PASS accepts (no token floor, no tool-call floor)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['- [MET] x — src/a.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+  });
+
+  it('G3: a citation to a file outside the change-set ⇒ blocked, reason names the offending citation', async () => {
+    const { deps } = makeDeps({
+      reviewVerdicts: ['- [MET] x — src/ghost.ts:1\n\nVERDICT: PASS'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('src/ghost.ts:1');
+  });
+
+  it('G3: a bare VERDICT: FAIL with no criteria is NOT parked as vacuous — the FAIL exemption is real', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — broken', 'VERDICT: FAIL — broken'],
+      changeSet: ['src/a.ts'],
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).not.toMatch(/^review-vacuous/);
+    // the fix node ran with the FAIL findings (proves it wasn't parked before reaching implement)
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBeGreaterThan(1);
+  });
+
+  it('G3: deps.changeSet unwired ⇒ abstain — a bare VERDICT: PASS still accepts (no regression)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // changeSet not supplied
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
   });
 
   it('gate downgrade: PASS but gate returns pending ⇒ outcome PENDING (first-class, not rejected)', async () => {
@@ -499,6 +618,183 @@ describe('runLeaf state machine', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('blocked');
     expect(spies.ensureCalls.length).toBeGreaterThan(1); // bailed to a fresh attempt
+  });
+});
+
+// ── G2: `final = mechanical AND llm` — the mechanical gate the executor runs ─────
+describe('runLeaf G2 mechanical gate', () => {
+  it('the 84048309 shape: a bare "VERDICT: PASS" cannot accept a red gate, and the review node is never spent', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'fail', command: 'npx tsc --noEmit', output: '1 fail', reasons: ['x'], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).not.toBe('accepted');
+    expect(spies.completeCalls.some((c) => c.acceptance === 'accepted')).toBe(false);
+    const reviewSpecs = spies.invokeSpecs.filter((s) => s.allowedTools === 'Read Grep Glob Bash');
+    expect(reviewSpecs.length).toBe(0); // a mechanically-red tree never spends a review node
+  });
+
+  it('gate "error" ⇒ park blocked (INFRA), not a fail; no fix node spawned', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'error', command: 'no-such-binary --x', output: 'ENOENT', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toMatch(/^gate-could-not-run:/);
+    expect(spies.escalations.some((e) => e.kind === 'blocker')).toBe(true);
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBe(1); // only the initial implement — no fix node on an INFRA gate
+  });
+
+  it('veto path: a green gate lets a FAILing review reject as usual (the revise loop is intact)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: FAIL — missing test', 'VERDICT: FAIL — missing test'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    const implementSpecs = spies.invokeSpecs.filter((s) => (s.allowedTools ?? '').includes('Edit'));
+    expect(implementSpecs.length).toBeGreaterThan(1); // the fix node ran
+  });
+
+  it('green gate + green review ⇒ accepted (happy path unchanged)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(spies.mergeCalls).toBe(1);
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('red base ⇒ zero leaves, zero nodes, escalation carries the command and output', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'npx tsc --noEmit', output: 'src/x.ts(3,1): error TS2304', reasons: [], declared: true, fresh: true,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.nodesSpent).toBe(0);
+    expect(spies.invokeSpecs.length).toBe(0);
+    const esc = spies.escalations.find((e) => e.kind === 'blocker');
+    expect(esc?.questionText).toContain('npx tsc --noEmit');
+    expect(esc?.questionText).toContain('TS2304');
+    // Finding 1: escalation does NOT contain clearEpicBaseGate (reachable recovery is to fix base + commit)
+    expect(esc?.questionText).not.toContain('clearEpicBaseGate');
+    expect(esc?.questionText).toContain('commit the fix');
+  });
+
+  it('base gate is escalated only on the fresh computation, not on cached reads', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'npx tsc --noEmit', output: 'still red', reasons: [], declared: true, fresh: false,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // fresh:false ⇒ no base-specific escalation naming the failing command (parkBlocked's
+    // own generic blocker escalation still fires — that's unrelated to the base check).
+    expect(spies.escalations.some((e) => e.questionText.includes('Epic base is RED'))).toBe(false);
+  });
+
+  it('a leaf parking on a cached fail reports the failing command and output tail', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'fail', command: 'npx tsc --noEmit', output: 'src/x.ts(3,1): error TS2304', reasons: [], declared: true, fresh: false,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    // Finding 3: a cached fail (fresh:false) still reports command + output tail in the reason
+    expect(res.reason).toContain('epic-base-red');
+    expect(res.reason).toContain('npx tsc --noEmit');
+    expect(res.reason).toContain('TS2304');
+    // No base-specific escalation fired (fresh:false)
+    expect(spies.escalations.some((e) => e.questionText.includes('Epic base is RED'))).toBe(false);
+  });
+
+  it('unwired runGate/ensureBaseGreen ⇒ unchanged floor: the LLM verdict alone still decides', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no G2 hooks supplied
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    expect(res.nodesSpent).toBe(3);
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
+  it('unwired runGate emits a gate-abstain ledger row and warns', async () => {
+    let warnCalled = false;
+    const originalWarn = console.warn;
+    console.warn = (...args: any[]) => {
+      if (args[0]?.includes('runGate DEP UNWIRED')) warnCalled = true;
+    };
+    try {
+      const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no G2 hooks supplied
+      const res = await runLeaf('unwired-test-proj-1', makeLeaf(), deps);
+      expect(res.outcome).toBe('accepted');
+      expect(warnCalled).toBe(true);
+      const gateAbstainRow = spies.nodeRows.find((r) => r.nodeKind === 'gate-abstain');
+      expect(gateAbstainRow).toBeDefined();
+      expect(gateAbstainRow?.outcomeDetail).toBe('gate-unwired');
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it('the terminal outcome record carries gateDeclared:false when no gate ran', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] }); // no G2 hooks supplied
+    const res = await runLeaf('unwired-test-proj-2', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow).toBeDefined();
+    const parsed = JSON.parse(outcomeRow?.outcomeDetail ?? '{}');
+    expect(parsed.gateDeclared).toBe(false);
+  });
+
+  it('gateDeclared:true when a declared gate passed', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      runGate: async () => ({ status: 'pass', output: '', reasons: [], declared: true }),
+    });
+    const res = await runLeaf('unwired-test-proj-3', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    const outcomeRow = spies.nodeRows.find((r) => r.nodeKind === 'outcome');
+    expect(outcomeRow).toBeDefined();
+    const parsed = JSON.parse(outcomeRow?.outcomeDetail ?? '{}');
+    expect(parsed.gateDeclared).toBe(true);
+    // Verify no gate-abstain row was written
+    const gateAbstainRow = spies.nodeRows.find((r) => r.nodeKind === 'gate-abstain');
+    expect(gateAbstainRow).toBeUndefined();
+  });
+
+  it('isCacheableBaseGateStatus: pass/fail are cacheable, error is not', () => {
+    expect(isCacheableBaseGateStatus('pass')).toBe(true);
+    expect(isCacheableBaseGateStatus('fail')).toBe(true);
+    expect(isCacheableBaseGateStatus('error')).toBe(false);
+  });
+
+  it('error base gate ⇒ zero leaves, zero nodes, escalation on every leaf (not cached)', async () => {
+    const { deps, spies } = makeDeps({
+      reviewVerdicts: ['VERDICT: PASS'],
+      ensureBaseGreen: async () => ({
+        status: 'error', command: 'npx tsc --noEmit', output: 'OOM killed', reasons: [], declared: true, fresh: true,
+      }),
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('blocked');
+    expect(res.nodesSpent).toBe(0);
+    expect(spies.invokeSpecs.length).toBe(0);
+    const esc = spies.escalations.find((e) => e.kind === 'blocker');
+    // escalation carries the command and output just like a red base, but fresh:true
+    // ensures it's escalated on every leaf (not cached)
+    expect(esc?.questionText).toContain('npx tsc --noEmit');
+    expect(esc?.questionText).toContain('OOM killed');
   });
 });
 
@@ -1296,6 +1592,19 @@ describe('buildVerifyPrompt per-node specs', () => {
   });
 });
 
+describe('buildReviewPrompt ships the verify discipline (G13)', () => {
+  const p = () => buildReviewPrompt(makeLeaf(), 'origin/master');
+  it('states the three-dot caveat', () => {
+    expect(p()).toContain('three-dot diff shows COMMITS ONLY');
+    expect(p()).toContain('git status --porcelain');
+  });
+  it('instructs branch-vs-base comparison of the same file in isolation', () => {
+    expect(p()).toContain('VERIFY DISCIPLINE');
+    expect(p()).toContain('origin/master');
+    expect(p()).toContain('present on BOTH is pre-existing');
+  });
+});
+
 /** Deps for the verify pipeline: scripts driveplan/driveexec/report by allowedTools, and
  *  serves the plan/result artifacts via readArtifact (keyed by relPath suffix). */
 function makeVerifyDeps(opts: {
@@ -1315,8 +1624,10 @@ function makeVerifyDeps(opts: {
     escalations: [] as Spies['escalations'],
     removeCalls: [] as Spies['removeCalls'],
     markRejectingCalls: [] as Spies['markRejectingCalls'],
+    bumpRetryCalls: [] as Spies['bumpRetryCalls'],
     seq: [] as Spies['seq'],
     inflightSeq: [] as Spies['inflightSeq'],
+    nodeRows: [] as Spies['nodeRows'],
     reportFindings: [] as string[],
     writes: [] as Array<{ relPath: string; content: string }>,
   };
@@ -1684,6 +1995,268 @@ describe('runLeaf resume consumption (slice 2)', () => {
     // nodesSpent reflects only implement+review (2), not 3.
     expect(res.nodesSpent).toBe(2);
     expect(spies.invokeSpecs.length).toBe(2);
+  });
+  // G8: durable blueprint base persistence — reusable blueprint survives terminal outcomes.
+  it('G8: persistBlueprintBase is called when blueprint succeeds (not on reattach/in-run-carry)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const baseSnapshots: string[] = [];
+    deps.persistBlueprintBase = ({ epicBaseSha }) => { baseSnapshots.push(epicBaseSha ?? 'null'); };
+    deps.epicBaseSha = 'sha-from-epic-tip';
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // persistBlueprintBase called exactly once (blueprint node succeeded, not reattach).
+    expect(baseSnapshots).toEqual(['sha-from-epic-tip']);
+  });
+  it('G8: persistBlueprintBase NOT called on reattach (synthetic result, no new blueprint)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const baseSnapshots: string[] = [];
+    deps.persistBlueprintBase = ({ epicBaseSha }) => { baseSnapshots.push(epicBaseSha ?? 'null'); };
+    deps.epicBaseSha = 'sha-from-epic-tip';
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => '# prior blueprint\n\n```json\n{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["x.ts"],"tasks":[{"id":"t1","files":["x.ts"],"description":"x"}]}\n```';
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // NOT called on reattach (synthetic result).
+    expect(baseSnapshots).toEqual([]);
+  });
+});
+
+describe('isNodeStartFailure', () => {
+  it('returns false for ok results', () => {
+    const res: NodeResult = {
+      ok: true,
+      exitCode: 0,
+      stdout: 'result',
+      durationMs: 1000,
+      usage: { inputTokens: 100, outputTokens: 50 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for rate-limited results', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 500,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: true,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns true for zero-token sub-5s node death (100ms-5s range)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'There\'s an issue with the selected model (grok-4.3)...',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+
+  it('returns false for very fast mock failures (< 100ms)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 1,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: '',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for slow failing node (non-zero tokens)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 60000,
+      usage: { inputTokens: 100, outputTokens: 50 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'Some error',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns false for slow failing node (5s+ duration)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 5001,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'Some error',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
+
+  it('returns true for node death with zero tokens in valid range', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: -1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      parseError: 'Config error',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+
+  it('returns false when any token count is non-zero', () => {
+    const res1: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 1, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res1)).toBe(false);
+
+    const res2: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 1 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res2)).toBe(false);
+
+    const res3: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 1 },
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res3)).toBe(false);
+  });
+
+  it('handles missing usage object as zero tokens', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      rateLimited: false,
+      authMode: 'subscription',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+});
+
+describe('parkNodeStartFailure integration (node start-failure through runLeaf)', () => {
+  it('blueprint node start-failure (zero tokens, <5s) → outcome blocked, reason names pair, escalate blocker, complete never called', async () => {
+    const startFailureResult: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: "There's an issue with the selected model (grok-4.3) — it's not available",
+      parseError: "There's an issue with the selected model (grok-4.3) — it's not available",
+    };
+
+    const { deps, spies } = makeDeps({});
+    // Spy on invoker to return start failure for blueprint node only
+    const originalInvoke = deps.invoker.invoke;
+    let invocationCount = 0;
+    deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+      invocationCount += 1;
+      // First invocation is blueprint (has Write in allowedTools)
+      const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+      if (isBlueprint && invocationCount === 1) {
+        return startFailureResult;
+      }
+      return originalInvoke(spec);
+    };
+
+    const res = await runLeaf('proj', makeLeaf(), deps);
+
+    expect(res.outcome).toBe('blocked');
+    expect(res.nodesSpent).toBe(1);
+    expect(res.reason).toContain('node-could-not-start:');
+    expect(res.reason).toContain("provider='claude'");
+    expect(res.reason).toContain('grok-4.3');
+
+    // Should escalate exactly once as a blocker due to start failure
+    const blockerEscalations = spies.escalations.filter((e) => e.kind === 'blocker');
+    expect(blockerEscalations.length).toBe(1);
+    expect(blockerEscalations[0].questionText).toContain('node-could-not-start:');
+    expect(blockerEscalations[0].questionText).toContain('blueprint');
+    expect(blockerEscalations[0].questionText).toContain('provider');
+    expect(blockerEscalations[0].questionText).toContain('model');
+
+    // Verify deps.complete was NEVER called (start failure parks before acceptance)
+    expect(spies.completeCalls).toEqual([]);
+  });
+
+  it('slow review failure (non-zero tokens or >5s) is NOT a start failure → follows existing verdict path', async () => {
+    // A node that takes a long time and consumes tokens is NOT a start failure,
+    // even if it returns ok:false. It should follow the normal verdict parsing path.
+    const slowFailureResult: NodeResult = {
+      ok: true,
+      exitCode: 0,
+      stdout: 'VERDICT: FAIL — issue found after processing',
+      durationMs: 60000,
+      usage: { inputTokens: 100, outputTokens: 50 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: 'VERDICT: FAIL — issue found after processing',
+    };
+
+    const { deps, spies } = makeDeps({});
+    // Spy on invoker to return slow result for review node only
+    const originalInvoke = deps.invoker.invoke;
+    let reviewCount = 0;
+    deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+      const isReview = spec.allowedTools === 'Read Grep Glob Bash';
+      if (isReview) {
+        reviewCount += 1;
+        // Return slow failure only on first review; subsequent ones pass to avoid attempt loop
+        if (reviewCount === 1) {
+          return slowFailureResult;
+        }
+        return okResult('VERDICT: PASS');
+      }
+      return originalInvoke(spec);
+    };
+
+    const res = await runLeaf('proj', makeLeaf(), deps);
+
+    // Slow result should follow existing path, NOT park as start failure.
+    // Since the first review is 'fail', it will retry. The second review passes, so accepted.
+    expect(res.outcome).toBe('accepted');
+    expect(res.nodesSpent).toBeGreaterThan(3); // blueprint + implement + review (fail) + implement + review (pass)
+
+    // Should NOT escalate as a blocker (start failure)
+    expect(spies.escalations.filter((e) => e.kind === 'blocker').length).toBe(0);
+
+    // complete() was called with 'accepted' (the normal verdict path)
+    expect(spies.completeCalls.some((c) => c.acceptance === 'accepted')).toBe(true);
   });
 });
 

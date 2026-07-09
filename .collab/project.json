@@ -2,5 +2,12 @@
   "version": 1,
   "gateCommand": "npx tsc --noEmit",
   "changeSetTestCommand": "bunx vitest --run {files}",
-  "changeSetTestCwd": "ui"
+  "changeSetTestCwd": "ui",
+  "gate": {
+    "typecheck": "npx tsc --noEmit -p tsconfig.json",
+    "tests": [
+      { "match": "^src/", "command": "bun test {file}" },
+      { "match": "^ui/", "command": "bunx vitest --run {files}", "cwd": "ui" }
+    ]
+  }
 }
