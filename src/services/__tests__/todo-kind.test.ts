@@ -1,7 +1,7 @@
 /**
- * Unit tests for todo-kind.ts (stage B split of epic ab9b32ca) — the predicate
- * module that reads the `kind` column first and falls back to title-prefix
- * regexes only when the column is absent/invalid. Pure; no DB.
+ * Unit tests for todo-kind.ts (stage C of epic ab9b32ca) — the predicate module
+ * that reads the `kind` column only. A missing/invalid `kind` throws
+ * `MissingKindError`; no predicate here ever reads a title. Pure; no DB.
  */
 import { describe, it, expect } from 'bun:test';
 import {
@@ -14,25 +14,27 @@ import {
   stripLabel,
   KIND_LABEL,
   KIND_FIXTURE,
+  KIND_THROW_FIXTURE,
+  MissingKindError,
   type TodoKind,
   type KindBearing,
 } from '../todo-kind.ts';
-import { kindFromTitle } from '../claimability.ts';
+import * as serverKind from '../todo-kind.ts';
 import * as uiKind from '../../../ui/src/lib/todoKind.ts';
 
-describe('kindOf', () => {
+describe('kindOf — column only', () => {
   for (const { input, expect: want } of KIND_FIXTURE) {
     it(`${JSON.stringify(input)} -> ${want}`, () => {
       expect(kindOf(input)).toBe(want);
     });
   }
 
-  it('null -> leaf', () => {
-    expect(kindOf(null)).toBe('leaf');
+  it('column wins over a contradicting stale prefix', () => {
+    expect(kindOf({ kind: 'epic', title: '[MISSION] stale prefix' })).toBe('epic');
   });
 
-  it('undefined -> leaf', () => {
-    expect(kindOf(undefined)).toBe('leaf');
+  it('a topic tag in the title is not a role', () => {
+    expect(kindOf({ kind: 'leaf', title: "[UI] Plan list doesn't refresh" })).toBe('leaf');
   });
 });
 
@@ -53,22 +55,36 @@ describe('predicates', () => {
   }
 });
 
-describe('kindOf parity with kindFromTitle', () => {
-  const titles = [
-    '[MISSION] Converge',
-    '[EPIC] Foo',
-    '[LAND] → master',
-    'plain leaf',
-    '  [epic] lower',
-    null,
-    undefined,
-  ];
-
-  for (const title of titles) {
-    it(`title=${JSON.stringify(title)}`, () => {
-      expect(kindOf({ title })).toBe(kindFromTitle(title));
+describe('BOMB 2 — a missing kind throws, never defaults to leaf', () => {
+  for (const { input } of KIND_THROW_FIXTURE) {
+    it(`${JSON.stringify(input)} throws MissingKindError`, () => {
+      expect(() => kindOf(input)).toThrow(MissingKindError);
+      expect(() => uiKind.kindOf(input as uiKind.TodoLike)).toThrow(uiKind.MissingKindError);
     });
   }
+
+  it('negative control: a bare title with no kind throws, not "leaf"', () => {
+    expect(() => kindOf({ title: 'Bugfix inbox' })).toThrow();
+  });
+
+  it('negative control: an undefined kind with a [LAND] title throws, not "land"', () => {
+    expect(() => kindOf({ kind: undefined, title: 'Land X → master' })).toThrow();
+  });
+
+  it('negative control: null throws, not "leaf"', () => {
+    expect(() => kindOf(null)).toThrow();
+  });
+
+  it('negative control: undefined throws, not "leaf"', () => {
+    expect(() => kindOf(undefined)).toThrow();
+  });
+
+  it('predicates surface it too', () => {
+    expect(() => isMission({})).toThrow();
+    expect(() => isEpic({})).toThrow();
+    expect(() => isLand({})).toThrow();
+    expect(() => isLeaf({})).toThrow();
+  });
 });
 
 describe('labelFor', () => {
@@ -84,7 +100,7 @@ describe('labelFor', () => {
   });
 });
 
-describe('stripLabel', () => {
+describe('stripLabel — render-only', () => {
   it('strips [EPIC] prefix', () => {
     expect(stripLabel('[EPIC] Foo')).toBe('Foo');
   });
@@ -116,13 +132,29 @@ describe('stripLabel', () => {
   it('round-trips with labelFor', () => {
     expect(stripLabel(`${labelFor('epic')} Foo`)).toBe('Foo');
   });
+
+  it('does not touch a topic tag', () => {
+    expect(stripLabel('[UI] Plan list doesn’t refresh')).toBe('[UI] Plan list doesn’t refresh');
+    expect(stripLabel('[kind C] STRIP')).toBe('[kind C] STRIP');
+  });
+
+  it('does not decide a role', () => {
+    expect(kindOf({ kind: 'epic', title: stripLabel('[EPIC] Foo') })).toBe('epic');
+  });
 });
 
-describe('server/UI parity (KIND_FIXTURE)', () => {
+describe('server/UI parity', () => {
   for (const { input, expect: want } of KIND_FIXTURE) {
     it(`kindOf(${JSON.stringify(input)}) agrees: server=UI=${want}`, () => {
       expect(kindOf(input)).toBe(want);
       expect(uiKind.kindOf(input)).toBe(want);
+    });
+
+    it(`predicates for ${JSON.stringify(input)} agree between server and UI`, () => {
+      expect(isMission(input)).toBe(uiKind.isMission(input));
+      expect(isEpic(input)).toBe(uiKind.isEpic(input));
+      expect(isLand(input)).toBe(uiKind.isLand(input));
+      expect(isLeaf(input)).toBe(uiKind.isLeaf(input));
     });
   }
 
@@ -130,5 +162,15 @@ describe('server/UI parity (KIND_FIXTURE)', () => {
     for (const kind of Object.keys(KIND_LABEL) as TodoKind[]) {
       expect(labelFor(kind)).toBe(uiKind.labelFor(kind));
     }
+  });
+});
+
+describe('no title reader is reachable from this module', () => {
+  it('todo-kind.ts does not export kindFromTitle', () => {
+    expect((serverKind as Record<string, unknown>).kindFromTitle).toBeUndefined();
+  });
+
+  it('the UI mirror does not export kindFromTitle', () => {
+    expect((uiKind as Record<string, unknown>).kindFromTitle).toBeUndefined();
   });
 });
