@@ -39,17 +39,43 @@ export type ClaimReason =
   | 'inbox-planning'  // parent is the [EPIC] Inbox — planning-only triage; re-home to a real epic to run
   | 'unapproved'      // approvedAt == null
   | 'held'            // heldAt != null
-  | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable)
-  | 'deps-pending';   // a dep is not yet terminal
+  | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable by reset)
+  | 'dep-dropped'     // a dep was DROPPED — permanently unsatisfiable; needs a human (re-point the edge, reset the dep, or drop this todo)
+  | 'deps-pending';   // a dep is not yet terminal — recoverable by waiting
 
-/** A dependency counts as satisfied iff it is terminally DONE and was not rejected. */
-export function depSatisfied(dep: SessionTodo | undefined): boolean {
-  return !!dep && dep.status === 'done' && dep.acceptanceStatus !== 'rejected';
+/** A dependency counts as satisfied iff it is terminally complete and was not rejected. */
+export function depSatisfied(dep: Pick<SessionTodo, 'status' | 'acceptanceStatus'> | undefined): boolean {
+  if (!dep) return false;
+  if (dep.acceptanceStatus === 'rejected') return false;
+  return dep.status === 'done' || dep.acceptanceStatus === 'accepted';
 }
 
-/** The ONE eligibility predicate. Order is load-bearing (see backend doc). */
+/**
+ * A dependency is PERMANENTLY unsatisfiable iff it was dropped.
+ *
+ * Complement of `depSatisfied` on the axis that matters for triage, not its negation:
+ * a dep can be unsatisfied because it is still *running* (recoverable by waiting) or
+ * because it is *dead* (recoverable only by a human). `status === 'dropped'` is the only
+ * terminal-and-never-satisfying state.
+ *
+ * DERIVED from the dep row, never stored: reset the dep and the dependent silently
+ * returns to `deps-pending`/`ready` with no migration and no cleanup pass.
+ */
+export function depDropped(dep: Pick<SessionTodo, 'status'> | undefined): boolean {
+  return dep?.status === 'dropped';
+}
+
+/**
+ * The ONE eligibility predicate. Order is load-bearing (see backend doc): terminal/in-flight
+ * first (lifecycle), then the decision gates (unapproved, held), then the dependency gates
+ * most-severe-first — severity = cost of human recovery:
+ *   1. dep-dropped  — a human must re-point the edge, `reset_todo` the dep, or drop this todo
+ *   2. dep-rejected — reset the dep; the dep row is alive and re-runnable
+ *   3. deps-pending — wait; no human needed
+ * — and finally the agent-vs-human split last.
+ */
 export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): ClaimReason {
-  if (t.status === 'done' || t.status === 'dropped') return 'terminal';
+  if (t.status === 'done' || t.status === 'dropped' || t.acceptanceStatus === 'accepted') return 'terminal';
   if (t.claim != null) return 'in-flight';
   // Self-rejected (gate failed) — held for a human, never auto-reclaimed (80f85190).
   if (t.acceptanceStatus === 'rejected') return 'rejected';
@@ -59,6 +85,7 @@ export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): Cla
   if (parentIsInbox(t, byId)) return 'inbox-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
+  if ((t.dependsOn ?? []).some((id) => depDropped(byId.get(id)))) return 'dep-dropped';
   if ((t.dependsOn ?? []).some((id) => byId.get(id)?.acceptanceStatus === 'rejected')) {
     return 'dep-rejected';
   }
@@ -73,7 +100,9 @@ export function claimReason(t: SessionTodo, byId: Map<string, SessionTodo>): Cla
 export const isClaimable = (t: SessionTodo, byId: Map<string, SessionTodo>): boolean =>
   claimReason(t, byId) === 'claimable';
 
-/** Legacy-shaped DERIVED label for UI chips. NOT a stored value — recomputed on read. */
+/** Legacy-shaped DERIVED label for UI chips. NOT a stored value — recomputed on read.
+ *  A 'dep-dropped' todo falls through to 'blocked' here — no distinct legacy label.
+ *  The distinct rendering is claimReason's job, surfaced by the Bridge. */
 export function derivedStatus(t: SessionTodo, byId: Map<string, SessionTodo>): string {
   if (t.status === 'done' || t.status === 'dropped') return t.status;
   if (t.claim != null) return 'in_progress';
