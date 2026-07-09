@@ -17,6 +17,13 @@ import { trackingProjectRoot } from './project-registry';
  * query/write (no cross-store merge). Source of truth is local disk.
  */
 
+/** Bucket epics (Inbox, Bugfix inbox) are NOT convergence work — they are durable
+ *  intake containers and stay work-graph ROOTS even when a mission is active.
+ *  Identity is the title (same convention as `isInboxEpicTitle`), never `kind`. */
+export const BUCKET_EPIC_TITLES: readonly string[] = [INBOX_EPIC_TITLE, 'Bugfix inbox'];
+export const isBucketEpicTitle = (title: string | null | undefined): boolean =>
+  BUCKET_EPIC_TITLES.some((b) => stripLabel(title ?? '').toLowerCase() === b.toLowerCase());
+
 export type TodoStatus = 'backlog' | 'planned' | 'todo' | 'ready' | 'in_progress' | 'blocked' | 'done' | 'dropped';
 
 export interface TodoLink {
@@ -158,11 +165,20 @@ export interface CreateTodoInput {
    *  parentId, kind not 'epic'/'mission') is an ORPHAN and is REJECTED — so a
    *  planning skill that forgets to attach an epic fails LOUDLY instead of silently
    *  dumping into the Inbox. To deliberately file an unplanned high-level thought,
-   *  set `inbox:true` (the ONLY path that homes to the Inbox epic — never assumed). */
+   *  set `inbox:true` (the ONLY path that homes to the Inbox epic — never assumed).
+   *  Note: a stored `parentId === null` no longer implies "this row is an epic" —
+   *  a deliverable epic is now parented under the active mission by default (§4d);
+   *  only bucket epics (Inbox/Bugfix inbox), root epics, and missions stay roots.
+   *  Check `kind`, not nullness of `parentId`. */
   inbox?: boolean;
   /** Internal escape hatch for the few legit top-level non-epic creates (data
    *  migration, the readiness-gate dependency primitive). Skips the orphan guard. */
   allowOrphan?: boolean;
+  /** Mission homing for a `kind:'epic'` create (§4d). Omitted → the epic is parented
+   *  to the caller's ACTIVE mission BY DEFAULT. `null` → force a root epic (opt-out).
+   *  A string → parent to that mission explicitly. Ignored for non-epic creates and
+   *  for bucket epics, which are always roots. */
+  missionId?: string | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -762,6 +778,30 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
   return rows.map(rowToTodo);
 }
 
+/** The one mission a create should home under: `active`, non-terminal, live node.
+ *  Prefers a mission owned by the creating session; with no session match and more
+ *  than one candidate the answer is AMBIGUOUS → null (the epic stays a root rather
+ *  than being silently mis-homed). Lazy import: mission-store imports todo-store, so a
+ *  static edge would close a cycle. Any failure (no mission.db yet) → null, never throw. */
+async function resolveActiveMissionId(project: string, ownerSession?: string | null): Promise<string | null> {
+  try {
+    const { listMissions, isTerminalPhase } = await import('./mission-store.ts');
+    const live = listMissions(project).filter(
+      (m) => m.mission.active && !isTerminalPhase(m.mission.phase) &&
+             m.node.status !== 'done' && m.node.status !== 'dropped',
+    );
+    if (live.length === 0) return null;
+    if (ownerSession) {
+      const mine = live.filter((m) => (m.ownerSession ?? m.assigneeSession) === ownerSession);
+      if (mine.length === 1) return mine[0]!.node.id;
+      if (mine.length > 1) return null;               // ambiguous within the session
+    }
+    return live.length === 1 ? live[0]!.node.id : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve the parent for a create, enforcing every-todo-needs-an-epic. Runs BEFORE
  *  the insert lock (it may itself create the Inbox epic — a recursive createTodo whose
  *  epic title exempts it, so no re-entrant lock). Throws OrphanTodoError for a non-epic
@@ -771,7 +811,13 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
   // isEpic/isMission read input.kind ONLY (post-strip): an epic/mission create
   // MUST pass kind:'epic'/'mission' explicitly, or it is treated as a leaf and
   // hits the orphan guard below.
-  if (isEpic(input)) return null;                    // an epic is a legitimate root
+  if (isEpic(input)) {
+    // §4d: DELIVERABLE epics are mission children by DEFAULT; BUCKET epics stay roots.
+    if (input.missionId === null) return null;              // explicit opt-out
+    if (input.missionId) return input.missionId;            // explicit homing
+    if (isBucketEpicTitle(input.title)) return null;        // Inbox / Bugfix inbox
+    return await resolveActiveMissionId(project, input.ownerSession);
+  }
   if (isMission(input)) return null;                 // a mission is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
@@ -1891,6 +1937,49 @@ export interface ImportTodoInput {
   sessionName?: string | null;
   blueprintId?: string | null;
   type?: string | null;
+}
+
+export interface EpicBackfillResult {
+  moved: string[];
+  skipped: Array<{ id: string; reason: string }>;
+}
+
+/** Re-home the NAMED deliverable epics under `missionId`. Caller decides per-epic
+ *  (design doc §4d: "do NOT bulk-move" — this is not a scan-and-move sweep). Refuses:
+ *  unknown id, non-epic kind, bucket epic, already-parented epic, non-mission target.
+ *  Idempotent: re-running with the same ids/mission is a no-op skip, not an error. */
+export async function backfillEpicsUnderMission(
+  project: string,
+  missionId: string,
+  epicIds: string[],
+): Promise<EpicBackfillResult> {
+  const mission = getTodo(project, missionId);
+  if (!mission || !isMission(mission)) {
+    throw new Error(`backfillEpicsUnderMission: ${missionId.slice(0, 8)} is not a mission`);
+  }
+  const result: EpicBackfillResult = { moved: [], skipped: [] };
+  for (const id of epicIds) {
+    const epic = getTodo(project, id);
+    if (!epic) {
+      result.skipped.push({ id, reason: 'not-found' });
+      continue;
+    }
+    if (!isEpic(epic)) {
+      result.skipped.push({ id, reason: 'not-an-epic' });
+      continue;
+    }
+    if (isBucketEpicTitle(epic.title)) {
+      result.skipped.push({ id, reason: 'bucket-epic' });
+      continue;
+    }
+    if (epic.parentId != null) {
+      result.skipped.push({ id, reason: 'already-parented' });
+      continue;
+    }
+    await updateTodo(project, id, { parentId: missionId });
+    result.moved.push(id);
+  }
+  return result;
 }
 
 export function importTodo(project: string, input: ImportTodoInput): void {
