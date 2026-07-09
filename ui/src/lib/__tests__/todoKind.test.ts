@@ -104,8 +104,49 @@ describe('todoKind (UI mirror) — stripKindPrefix is render-only', () => {
   });
 });
 
+describe('todoKind (UI mirror) — strip helper agrees with the server', () => {
+  // No trailing whitespace in this corpus: server.stripLabel() additionally
+  // .trim()s (a deliberate display-trim divergence, pinned separately below).
+  const corpus = [
+    '[EPIC] Foo',
+    '[MISSION]  Bar',
+    '[LAND] Land X → master',
+    '[epic] lowercase',
+    '[UI] Plan list doesn’t refresh',
+    '[EPIC] [LAND] weird',
+    'Stop reading [EPIC] out of titles',
+    'Bugfix inbox',
+    '',
+    null,
+    undefined,
+  ];
+
+  for (const t of corpus) {
+    it(JSON.stringify(t), () => {
+      expect(ui.stripKindPrefix(t)).toBe(server.stripLabel(t));
+    });
+  }
+
+  it('pins the intentional server-side .trim() divergence on trailing whitespace', () => {
+    // server.stripLabel() additionally trims trailing whitespace (a display
+    // canonicalisation); ui.stripKindPrefix() does not. This is deliberate —
+    // not a bug to "fix" — hence the corpus above excludes trailing whitespace.
+    expect(ui.stripKindPrefix('[EPIC] Foo ')).toBe('Foo ');
+    expect(server.stripLabel('[EPIC] Foo ')).toBe('Foo');
+  });
+});
+
 describe('todoKind (UI mirror) — no title reader remains', () => {
   it('kindFromTitle no longer exists', () => {
     expect((ui as Record<string, unknown>).kindFromTitle).toBeUndefined();
+  });
+
+  it('kindFromTitle no longer exists on the server module either', () => {
+    expect((server as Record<string, unknown>).kindFromTitle).toBeUndefined();
+  });
+
+  it('stripKindPrefix is a function that does not return a TodoKind', () => {
+    expect(typeof ui.stripKindPrefix).toBe('function');
+    expect(ui.kindOf({ kind: 'epic', title: ui.stripKindPrefix('[EPIC] Foo') })).toBe('epic');
   });
 });
