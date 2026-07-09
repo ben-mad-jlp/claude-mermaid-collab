@@ -2,6 +2,7 @@ import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
 import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, type ClaimReason, type TodoKind } from './claimability';
 import { isEpic, isMission, stripLabel } from './todo-kind';
+import type { KindBearing } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -190,6 +191,19 @@ export class ClaimedTodoDropError extends Error {
       `Release the claim first (releaseClaim / reset_todo), or pass force:true to drop and abandon the running build.`,
     );
     this.name = 'ClaimedTodoDropError';
+  }
+}
+
+/** A container (mission/epic) cannot be explicitly marked `done` while it still has
+ *  non-terminal descendants — silent abandonment is worse than a loud failure. Drop it
+ *  (`status:'dropped'`, which cascades) or settle the children first. The AUTO-rollup path
+ *  (sweepEpicRollups / completeTodo) never hits this: it writes raw SQL and only fires when
+ *  every child is already done. */
+export class ContainerHasOpenChildrenError extends Error {
+  constructor(public readonly id: string, public readonly openCount: number) {
+    super(`todo ${id.slice(0, 8)} is a container with ${openCount} open descendant(s): ` +
+      `refusing an explicit 'done'. Drop it (cascades) or settle its children first.`);
+    this.name = 'ContainerHasOpenChildrenError';
   }
 }
 
@@ -662,6 +676,17 @@ export function writeClaim(db: Database, id: string, claim: ClaimStruct | null):
  *  (behavior-identical to a separate writeClaim(db,id,null), one fewer write). */
 const CLAIM_CLEAR_SQL = 'claimedBy=NULL, claimToken=NULL, claimedAt=NULL, claimLeaseMs=NULL, claim=NULL';
 
+/** The EXPLICIT container set (decision 3021daa6). Deliberately NOT "has descendants":
+ *  any node that acquires a child would become a drop-bomb, and blast radius stops being
+ *  legible from the node's label. */
+const isContainerKind = (t: KindBearing) => isMission(t) || isEpic(t);
+
+const DESCENDANTS_CTE = `WITH RECURSIVE descendants(did) AS (
+    SELECT id FROM todos WHERE parentId = ?1
+    UNION
+    SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
+  )`;
+
 function rowToTodo(row: TodoRow): Todo {
   let dependsOn: string[] = [];
   try { dependsOn = JSON.parse(row.dependsOn); } catch { /* default [] */ }
@@ -856,6 +881,18 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       if (live) throw new ClaimedTodoDropError(id, live.by, live.token);
     }
 
+    // F2: `done` MUST NOT cascade. An explicit human `done` on a container that still has
+    // open descendants would silently abandon them; refuse instead. Auto-rollup is unaffected
+    // (sweepEpicRollups/completeTodo close containers via raw SQL, and only once every child
+    // has settled — there is nothing to cascade).
+    if (status === 'done' && existing.status !== 'done' && isContainerKind({ kind: existing.kind })) {
+      const openCount = (openDb(project).prepare(
+        `${DESCENDANTS_CTE} SELECT COUNT(*) AS n FROM todos
+           WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+      ).get(id) as { n: number }).n;
+      if (openCount > 0) throw new ContainerHasOpenChildrenError(id, openCount);
+    }
+
     const completedAt = status === 'done' ? (existing.completedAt ?? nowIso()) : null;
 
     const assigneeKind: AssigneeKind = patch.assigneeKind ?? existing.assigneeKind;
@@ -900,18 +937,57 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     // write that moves the todo to a non-in_progress status clears the claim
     // (matches reclaimClaim / releaseExpiredClaims).
     const clearClaim = status !== 'in_progress';
-    db.prepare(
-      `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-        dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
-        approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
-        completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
-    ).run(
-      next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
-      JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-      next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
-      approvedAt, approvedBy, heldAt, heldReason,
-      completedAt, completedBy, nowIso(), id
-    );
+    // Auto-cleanup: a todo transitioning INTO a terminal status (done/dropped)
+    // expires any todo/epic subscriptions pointing at it, so a subscriber that
+    // was watching it doesn't accumulate a dead subscription. (completeTodo does
+    // the same for its path incl. rolled-up epics; the notification tick is the
+    // backstop for out-of-band terminal transitions.)
+    const wasTerminal = existing.status === 'done' || existing.status === 'dropped';
+    const nowTerminal = status === 'done' || status === 'dropped';
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
+          approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
+          completedAt=?, completedBy=?, updatedAt=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
+      ).run(
+        next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
+        JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
+        approvedAt, approvedBy, heldAt, heldReason,
+        completedAt, completedBy, nowIso(), id
+      );
+
+      // CASCADE-DROP: dropping a container (mission or epic) abandons its still-open work —
+      // drop every non-terminal transitive descendant so the lane goes fully terminal instead
+      // of leaving orphaned, still-CLAIMABLE children behind (the daemon would keep building
+      // epics belonging to a mission the human killed).
+      //
+      // `done` is NOT here: see the ContainerHasOpenChildrenError guard above (F2).
+      //
+      // Claim interaction (F5): this RELEASES descendant claims rather than refusing the drop —
+      // refusing a container close because some deep leaf is claimed is its own footgun. But a
+      // released claim does NOT stop the executor already running: leaf 241e72fc ("kill the
+      // running build + clean its worktree") is what makes the release actually stop the work.
+      // Until 241e72fc lands, the release is deliberately incomplete: an orphaned worker can
+      // keep burning tokens on a stranded worktree.
+      //
+      // Also clears heldAt/heldReason/acceptanceStatus (F6) — a dropped descendant that keeps
+      // its hold or its rejected verdict can be resurrected by a later re-parent or re-approve.
+      //
+      // Not best-effort: a cascade that exists to prevent orphaned claimable work must fail
+      // LOUDLY. A throw here rolls back the status write above.
+      if (status === 'dropped' && !wasTerminal && isContainerKind({ kind: existing.kind })) {
+        db.prepare(
+          `${DESCENDANTS_CTE}
+           UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL},
+             heldAt=NULL, heldReason=NULL, acceptanceStatus=NULL
+           WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
+        ).run(id, nowIso());
+      }
+    })();
+
     // EVENT-DRIVEN (S3) — retargeted to the INPUT edges that can newly make some
     // todo claimable. Approval going null→non-null is the 'approved' input kick;
     // clearing a hold (heldAt non-null→null) is the 'unheld' input kick.
@@ -920,36 +996,8 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     } else if (existing.heldAt != null && heldAt == null) {
       fireOrchestratorKick(`unheld:${id.slice(0, 8)}`);
     }
-    // Auto-cleanup: a todo transitioning INTO a terminal status (done/dropped)
-    // expires any todo/epic subscriptions pointing at it, so a subscriber that
-    // was watching it doesn't accumulate a dead subscription. (completeTodo does
-    // the same for its path incl. rolled-up epics; the notification tick is the
-    // backstop for out-of-band terminal transitions.)
-    const wasTerminal = existing.status === 'done' || existing.status === 'dropped';
-    const nowTerminal = status === 'done' || status === 'dropped';
     if (nowTerminal && !wasTerminal) {
       try { expireSubscriptionsForTarget(project, id); } catch { /* best-effort cleanup */ }
-      // CASCADE-CLOSE: closing an EPIC abandons its still-open work — DROP every non-terminal
-      // transitive descendant so the plan's epic lane goes fully terminal (and hides), instead
-      // of a closed epic lingering on the board because of orphaned undone children. Reads
-      // `kind` via ./todo-kind (no cycle: the claimability hop is type-only).
-      // NOTE: deliberately bypasses the ClaimedTodoDropError guard above (raw SQL, not
-      // updateTodo) — refusing an epic close because some deep leaf is claimed is its own
-      // footgun. Killing the running build + cleaning its worktree is the explicitly
-      // out-of-scope follow-up (design §5 step 5); a test pins this current behaviour.
-      if (isEpic({ kind: existing.kind })) {
-        try {
-          db.prepare(
-            `WITH RECURSIVE descendants(did) AS (
-               SELECT id FROM todos WHERE parentId = ?1
-               UNION
-               SELECT t.id FROM todos t JOIN descendants ON t.parentId = descendants.did
-             )
-             UPDATE todos SET status='dropped', updatedAt=?2, ${CLAIM_CLEAR_SQL}, claim=NULL
-             WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`,
-          ).run(id, nowIso());
-        } catch { /* best-effort — never block the epic close on the cascade */ }
-      }
     }
     return getTodo(project, id)!;
   });
