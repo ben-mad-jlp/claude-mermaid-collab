@@ -124,4 +124,25 @@ describe('findViolations', () => {
     const droppedOrphan = todo({ id: 'o2', title: 'scrapped', status: 'dropped' });
     expect(findViolations([doneOrphan, droppedOrphan])).toEqual([]);
   });
+
+  test('kind column wins without a title prefix (proves the switch happened)', () => {
+    const epic = todo({ id: 'e1', title: 'Ship it', kind: 'epic', status: 'todo' });
+    const child = todo({ id: 'c1', title: 'child work', parentId: 'e1' });
+    const land = todo({ id: 'l1', title: 'to master', kind: 'land', parentId: 'e1' });
+
+    const withKind = findViolations([epic, child, land]);
+    expect(withKind.find((x) => x.kind === 'stranded-epic')).toBeUndefined();
+    expect(withKind.find((x) => x.kind === 'orphan')).toBeUndefined();
+
+    // Same graph with `kind` omitted from both epic and land, and no title prefix
+    // either: nothing is recognized as an epic anymore, so every node (the would-be
+    // epic, its child, and its land leaf) surfaces as an orphan — proving `kind` is
+    // what made the first graph clean, not the title text.
+    const epicNoKind = todo({ id: 'e2', title: 'Ship it', parentId: null, status: 'todo' });
+    const childNoKind = todo({ id: 'c2', title: 'child work', parentId: 'e2' });
+    const landNoKind = todo({ id: 'l2', title: 'to master', parentId: 'e2' });
+    const withoutKind = findViolations([epicNoKind, childNoKind, landNoKind]);
+    expect(withoutKind.filter((x) => x.kind === 'orphan')).toHaveLength(3);
+    expect(withoutKind.find((x) => x.kind === 'stranded-epic')).toBeUndefined();
+  });
 });
