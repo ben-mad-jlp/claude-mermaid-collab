@@ -30,6 +30,7 @@ import {
   updateTodo,
   removeTodo,
   clearCompleted,
+  collapseSplit,
   reorder,
   type TodoLink as SessionTodoLink,
 } from '../services/todo-store';
@@ -3669,6 +3670,33 @@ export async function handleAPI(
 
       // Return both keys: `removedCount` is the historical contract the UI/MCP read.
       return Response.json({ removed: result.removed, removedCount: result.removed });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/session-todos/collapse-split - Undo a leaf split (drop open children, restore leaf)
+  if (path === '/api/session-todos/collapse-split' && req.method === 'POST') {
+    try {
+      const { project, session, leafId } = await req.json() as {
+        project?: string;
+        session?: string;
+        leafId?: string;
+      };
+
+      if (!project || !session || !leafId) {
+        return Response.json({ error: 'project, session, and leafId required' }, { status: 400 });
+      }
+
+      const result = await collapseSplit(project, leafId);
+
+      wsHandler.broadcast({
+        type: 'session_todos_updated',
+        project,
+        session,
+      });
+
+      return Response.json(result);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }

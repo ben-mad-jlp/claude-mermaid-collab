@@ -498,6 +498,26 @@ export function workerIsolationEnabled(): boolean {
 }
 
 
+/** Containerhood is about OPEN work: a child that is `done` or `dropped` no longer makes its
+ *  parent a container. Without the `dropped` clause, the documented way to DECLINE a split
+ *  (drop the children) bricked the parent forever — `not-headless: has-children`, unclaimable,
+ *  with no path back to being a leaf (observed 2026-07-08).
+ *
+ *  Mirrors planCoordinatorTick's `openChildParents` guard (coordinator-core.ts) — same rule,
+ *  same two terminal statuses. Uses includeCompleted:true + an explicit filter rather than
+ *  leaning on listTodos' implicit `status != 'done'`, so the rule is readable in one place.
+ *
+ *  NOTE (second-order, do NOT overstate this fix): dropping the children does not make a
+ *  decline *durable*. The deterministic size gate re-splits the leaf on the next claim.
+ *  A decline only sticks once the leaf's SPEC changes (a conductor re-cut) or SR-3 lands
+ *  (split becomes a proposal with a safe default). This change only restores the *ability*
+ *  to decline; it does not make the decline survive the next tick.
+ */
+function hasOpenChildren(project: string, todoId: string): boolean {
+  return listTodos(project, { includeCompleted: true })
+    .some((t) => t.parentId === todoId && t.status !== 'dropped' && t.status !== 'done');
+}
+
 /** A leaf the headless executor may drive: a work todo with NO children (a leaf in
  *  the work-graph) that is not human-owned. Keeps gates/epics/human todos out of
  *  the executor (those go the legacy path). `project` is the tracking project. */
@@ -510,9 +530,8 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   // before review→[LAND]. FIXED (epic d8ac1a18): the leaf-executor now has a 'review' execution
   // shape (leafExecutionMode → runReviewPipeline) whose deliverable IS a committed report, so
   // it survives the re-verify exactly like the 'verify' shape. Reviewer leaves are now headless.
-  // Leaf = no child todos parented to it in the tracking work-graph.
-  const hasChildren = listTodos(project, {}).some((t) => t.parentId === todo.id);
-  return !hasChildren;
+  // Leaf = no OPEN child todos parented to it in the tracking work-graph.
+  return !hasOpenChildren(project, todo.id);
 }
 
 /** P7 Phase-2 coverage probe: WHY is `todo` not a headless leaf? Returns the
@@ -525,7 +544,7 @@ export function headlessExclusionReason(todo: Todo, project: string): string | n
   if (todo.assigneeKind === 'human') return 'human';
   if (/^\s*\[(EPIC|GATE)\]/i.test(todo.title ?? '')) return 'epic-or-gate';
   // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
-  if (listTodos(project, {}).some((t) => t.parentId === todo.id)) return 'has-children';
+  if (hasOpenChildren(project, todo.id)) return 'has-children';
   return null;
 }
 
