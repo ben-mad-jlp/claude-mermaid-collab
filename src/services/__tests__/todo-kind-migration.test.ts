@@ -1,13 +1,13 @@
-// Runs via `bun test` (uses bun:sqlite). Stage-B migration regressions for epic ab9b32ca:
-// each of the four silent-catastrophe readers is exercised TWICE — once with the legacy
-// bracket-prefixed title, once with the prefix REMOVED and only the `kind` column set
-// (the stage-C shape). The second variant is the whole point: it fails if a reader still
-// regexes the title.
+// Stage-C reader regressions for epic ab9b32ca. Each of the four silent-catastrophe readers
+// (`resolveEpicId`, `sweepEpicRollups`, `buildEpicBranchStatus`, `session-notification-router`) is
+// exercised TWICE over the same graph: once with a legacy/stale bracket-prefixed title, once with the
+// prefix removed. The `kind` column is stated identically in both. A reader that still regexes a title
+// fails the first variant; a reader that fell back to inferring from a title fails the second.
+// No production symbol here may reach `kindFromTitle` — it is backfill-only (`todo-kind-backfill.ts`).
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'bun:sqlite';
 import { createTodo, getTodo, completeTodo, sweepEpicRollups, _closeProject } from '../todo-store';
 import type { Todo, TodoStatus } from '../todo-store';
 import { addSubscription, __resetForTest as __resetSubs } from '../session-subscriptions';
@@ -29,17 +29,11 @@ mock.module('../claude-launch', () => ({
 import { resolveEpicId } from '../coordinator-live';
 import { INBOX_EPIC_ID } from '../../agent/worktree-manager';
 
-/** Force `kind` on a row whose title carries NO role prefix — the stage-C shape. */
-function setKind(proj: string, id: string, kind: 'mission' | 'epic' | 'land' | 'leaf') {
-  const db = new Database(join(proj, '.collab', 'todos.db'));
-  db.prepare(`UPDATE todos SET kind=? WHERE id=?`).run(kind, id);
-  db.close();
-  _closeProject(proj); // next store call re-opens fresh
-}
-
 let seq = 0;
 /** Hand literal `Todo` factory for the pure (no-DB) suites — mirrors
- *  epic-branch-status.test.ts's `todo()` shape, incl. `kind: null` default. */
+ *  epic-branch-status.test.ts's `todo()` shape. `kind` defaults to 'leaf': the column
+ *  is NOT NULL post-stage-C, so a literal with `kind:null` would model a row that
+ *  cannot exist. Callers override via `...partial` for other roles. */
 function todo(partial: Partial<Todo> & { id?: string; title: string; status?: TodoStatus }): Todo {
   const status = partial.status ?? 'ready';
   return {
@@ -61,7 +55,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     executedBySession: null,
     blueprintId: null,
     type: null,
-    kind: null,
+    kind: 'leaf',
     targetProject: null,
     acceptanceStatus: null,
     claimedBy: null,
@@ -96,53 +90,39 @@ afterEach(() => {
 });
 
 describe('resolveEpicId (coordinator-live) — kind-driven', () => {
-  test('prefixed: leaf under a mission-parented epic resolves to the epic', async () => {
+  test('stale prefix in title, kind column wins: leaf under a mission-parented epic resolves to the epic', async () => {
     const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] Converge', kind: 'mission' });
     const epic = await createTodo(project, { ownerSession: 's1', title: '[EPIC] Foo', kind: 'epic', parentId: mission.id });
-    const leaf = await createTodo(project, { ownerSession: 's1', title: 'build a thing', parentId: epic.id });
+    const leaf = await createTodo(project, { ownerSession: 's1', title: 'build a thing', kind: 'leaf', parentId: epic.id });
     expect(resolveEpicId(leaf, project)).toBe(epic.id);
   });
 
   test('kind-only: leaf under a mission-parented epic resolves to the epic, never INBOX_EPIC_ID', async () => {
-    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'Converge' });
-    const epic = await createTodo(project, { ownerSession: 's1', title: 'Foo', parentId: mission.id });
-    const leaf = await createTodo(project, { ownerSession: 's1', title: 'build a thing', parentId: epic.id });
-    setKind(project, mission.id, 'mission');
-    setKind(project, epic.id, 'epic');
-    const freshLeaf = getTodo(project, leaf.id)!;
-    expect(resolveEpicId(freshLeaf, project)).toBe(epic.id);
-    expect(resolveEpicId(freshLeaf, project)).not.toBe(INBOX_EPIC_ID);
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'Converge', kind: 'mission' });
+    const epic = await createTodo(project, { ownerSession: 's1', title: 'Foo', kind: 'epic', parentId: mission.id });
+    const leaf = await createTodo(project, { ownerSession: 's1', title: 'build a thing', kind: 'leaf', parentId: epic.id });
+    expect(resolveEpicId(leaf, project)).toBe(epic.id);
+    expect(resolveEpicId(leaf, project)).not.toBe(INBOX_EPIC_ID);
   });
 
   test('no epic ancestor: orphan leaf falls back to INBOX_EPIC_ID', async () => {
-    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'lonely leaf' });
+    const leaf = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'lonely leaf', kind: 'leaf' });
     expect(resolveEpicId(leaf, project)).toBe(INBOX_EPIC_ID);
   });
 });
 
 describe('mission is never rolled up / never epic-ready-to-land', () => {
-  // Stage C (decision e852fb0c) removed the insert-path kindFromTitle fallback, so
-  // the "prefixed" variant below must now pass kind explicitly too — inferred here
-  // from the bracket so the two buildGraph callers stay declarative. The "kind-only"
-  // variant passes bare titles (inferredKind returns undefined → defaults to 'leaf')
-  // and sets kind via the raw setKind helper afterward, same as before.
-  function inferredKind(title: string): 'mission' | 'epic' | undefined {
-    const t = title.trim();
-    if (t.startsWith('[MISSION]')) return 'mission';
-    if (t.startsWith('[EPIC]')) return 'epic';
-    return undefined;
-  }
-  async function buildGraph(missionTitle: string, epicATitle: string, epicBTitle: string) {
-    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: missionTitle, kind: inferredKind(missionTitle) });
-    const epicA = await createTodo(project, { ownerSession: 's1', title: epicATitle, parentId: mission.id, kind: inferredKind(epicATitle) });
-    const epicB = await createTodo(project, { ownerSession: 's1', title: epicBTitle, parentId: mission.id, kind: inferredKind(epicBTitle) });
-    const leafA = await createTodo(project, { ownerSession: 's1', title: 'leaf a', parentId: epicA.id });
-    const leafB = await createTodo(project, { ownerSession: 's1', title: 'leaf b', parentId: epicB.id });
+  async function buildGraph(t: { mission: string; epicA: string; epicB: string }) {
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: t.mission, kind: 'mission' });
+    const epicA = await createTodo(project, { ownerSession: 's1', title: t.epicA, kind: 'epic', parentId: mission.id });
+    const epicB = await createTodo(project, { ownerSession: 's1', title: t.epicB, kind: 'epic', parentId: mission.id });
+    const leafA = await createTodo(project, { ownerSession: 's1', title: 'leaf a', kind: 'leaf', parentId: epicA.id });
+    const leafB = await createTodo(project, { ownerSession: 's1', title: 'leaf b', kind: 'leaf', parentId: epicB.id });
     return { mission, epicA, epicB, leafA, leafB };
   }
 
-  test('prefixed: epics roll up but the [MISSION] never does', async () => {
-    const { mission, epicA, epicB, leafA, leafB } = await buildGraph('[MISSION] M', '[EPIC] A', '[EPIC] B');
+  test('stale prefix in title, kind column wins: epics roll up but the mission never does', async () => {
+    const { mission, epicA, epicB, leafA, leafB } = await buildGraph({ mission: '[MISSION] M', epicA: '[EPIC] A', epicB: '[EPIC] B' });
     await completeTodo(project, leafA.id, 'accepted');
     await completeTodo(project, leafB.id, 'accepted');
     const result = await sweepEpicRollups(project);
@@ -156,10 +136,7 @@ describe('mission is never rolled up / never epic-ready-to-land', () => {
   });
 
   test('kind-only: epics roll up but the mission-kind row never does, never flags epic-ready-to-land', async () => {
-    const { mission, epicA, epicB, leafA, leafB } = await buildGraph('M', 'A', 'B');
-    setKind(project, mission.id, 'mission');
-    setKind(project, epicA.id, 'epic');
-    setKind(project, epicB.id, 'epic');
+    const { mission, epicA, epicB, leafA, leafB } = await buildGraph({ mission: 'M', epicA: 'A', epicB: 'B' });
     await completeTodo(project, leafA.id, 'accepted');
     await completeTodo(project, leafB.id, 'accepted');
     const result = await sweepEpicRollups(project);
@@ -176,9 +153,9 @@ describe('mission is never rolled up / never epic-ready-to-land', () => {
 describe('buildEpicBranchStatus lists a mission-parented epic', () => {
   const probe: GitProbe = () => ({ exists: true, ahead: 5, behind: 0, mergeable: true } as BranchProbe);
 
-  test('prefixed: mission-parented epic is listed, stranded, mission itself is not an epic', () => {
+  test('stale prefix in title, kind column wins: mission-parented epic is listed, stranded, mission itself is not an epic', () => {
     const mission = todo({ id: 'm1', title: '[MISSION] M', kind: 'mission', status: 'todo' });
-    const epic = todo({ id: 'e1', title: '[EPIC] E', kind: 'epic', parentId: 'm1', status: 'todo' });
+    const epic = todo({ id: 'e1', title: '[MISSION] E', kind: 'epic', parentId: 'm1', status: 'todo' });
     const land = todo({ id: 'l1', title: '[LAND] E → master', kind: 'land', parentId: 'e1', status: 'ready' });
     const report = buildEpicBranchStatus([mission, epic, land], probe);
 
@@ -211,13 +188,11 @@ describe('epic-scoped subscription fires for a grandchild leaf', () => {
     __resetSubs();
   });
 
-  function run(missionTitle: string, epicTitle: string, midTitle: string, leafTitle: string, kinds?: {
-    mission: 'mission'; epic: 'epic';
-  }) {
-    const mission = todo({ id: 'sub-m', title: missionTitle, kind: kinds ? 'mission' : null, status: 'todo' });
-    const epic = todo({ id: 'sub-e', title: epicTitle, kind: kinds ? 'epic' : null, parentId: 'sub-m', status: 'todo' });
-    const mid = todo({ id: 'sub-mid', title: midTitle, parentId: 'sub-e', status: 'todo' });
-    const leaf = todo({ id: 'sub-leaf', title: leafTitle, parentId: 'sub-mid', status: 'ready' });
+  function run(missionTitle: string, epicTitle: string, midTitle: string, leafTitle: string) {
+    const mission = todo({ id: 'sub-m', title: missionTitle, kind: 'mission', status: 'todo' });
+    const epic = todo({ id: 'sub-e', title: epicTitle, kind: 'epic', parentId: 'sub-m', status: 'todo' });
+    const mid = todo({ id: 'sub-mid', title: midTitle, kind: 'leaf', parentId: 'sub-e', status: 'todo' });
+    const leaf = todo({ id: 'sub-leaf', title: leafTitle, kind: 'leaf', parentId: 'sub-mid', status: 'ready' });
 
     const prev = snapshotTodos([mission, epic, mid, leaf]);
     const doneLeaf = { ...leaf, status: 'done' as TodoStatus, completed: true };
@@ -230,14 +205,14 @@ describe('epic-scoped subscription fires for a grandchild leaf', () => {
     return notifications;
   }
 
-  test('prefixed: epic-scoped subscription fires for a leaf two levels below the epic', () => {
+  test('stale prefix in title, kind column wins: epic-scoped subscription fires for a leaf two levels below the epic', () => {
     const notifications = run('[MISSION] M', '[EPIC] E', 'mid area', 'do the thing');
     expect(notifications).toHaveLength(1);
     expect(notifications[0]).toMatchObject({ session: 'sess-1', scope: 'epic', targetId: 'sub-e', event: 'todo_done' });
   });
 
   test('kind-only: subscription still fires with NO bracket titles, kind set on the literals', () => {
-    const notifications = run('M', 'E', 'mid area', 'do the thing', { mission: 'mission', epic: 'epic' });
+    const notifications = run('M', 'E', 'mid area', 'do the thing');
     expect(notifications).toHaveLength(1);
     expect(notifications[0]).toMatchObject({ session: 'sess-1', scope: 'epic', targetId: 'sub-e', event: 'todo_done' });
   });
