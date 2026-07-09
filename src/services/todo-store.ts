@@ -1596,6 +1596,48 @@ export async function splitLeafInto(
   return { parentId: leaf.id, childIds };
 }
 
+export interface CollapseSplitResult {
+  leafId: string;
+  /** ids of children this call dropped (empty on a re-run → idempotent). */
+  droppedChildIds: string[];
+  /** true when there was nothing to drop (already collapsed / never split). */
+  alreadyCollapsed: boolean;
+}
+
+/**
+ * The inverse of {@link splitLeafInto}: undo a leaf split by dropping its open children and
+ * restoring the leaf itself to a claimable leaf, atomically, preserving the leaf's id (and
+ * therefore its blueprint). Idempotent — a second call finds no live children and reports
+ * `alreadyCollapsed: true`.
+ *
+ * Collapsing does NOT make a decline durable — the size gate re-splits on the next claim
+ * until the spec changes (SR-3).
+ */
+export async function collapseSplit(project: string, leafId: string): Promise<CollapseSplitResult> {
+  assertProjectLocal(project);
+  const leaf = getTodo(project, leafId);
+  if (!leaf) throw new Error(`No such todo: ${leafId}`);
+  if (isEpicTitle(leaf.title) || isMissionTitle(leaf.title)) {
+    throw new Error('collapseSplit refuses an [EPIC]/[MISSION] container — it is not a split leaf');
+  }
+  const liveChildren = listTodos(project, { includeCompleted: true })
+    .filter((t) => t.parentId === leafId && t.status !== 'dropped' && t.status !== 'done');
+  const droppedChildIds = liveChildren.map((t) => t.id);
+  await withLock(project, () => {
+    const db = openDb(project);
+    const ts = nowIso();
+    for (const childId of droppedChildIds) {
+      db.prepare(
+        `UPDATE todos SET status='dropped', ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`,
+      ).run(ts, childId);
+    }
+    db.prepare(
+      `UPDATE todos SET status='planned', acceptanceStatus=NULL, ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`,
+    ).run(ts, leafId);
+  });
+  return { leafId, droppedChildIds, alreadyCollapsed: droppedChildIds.length === 0 };
+}
+
 export function sweepEpicRollups(project: string): Promise<EpicSweepResult> {
   return withLock(project, () => {
     assertProjectLocal(project);
