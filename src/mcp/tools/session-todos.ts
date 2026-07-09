@@ -24,6 +24,7 @@ import {
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
 import { INBOX_EPIC_TITLE, isInboxEpic } from '../../services/claimability.js';
+import { isEpic } from '../../services/todo-kind.js';
 import type { ToolDef } from './registry.js';
 
 // ============= Type Re-exports =============
@@ -330,12 +331,6 @@ export async function listSessionTodos(
  *  with the claim gate + approval block) and re-exported for back-compat. */
 export { INBOX_EPIC_TITLE };
 
-/** True for a todo that IS an epic (a root) — by the `[EPIC]` title convention.
- *  Epics are exempt from auto-parenting (they ARE the parents). */
-function isEpicTitle(title: string): boolean {
-  return /^\s*\[EPIC\]/i.test(title);
-}
-
 /** Find (or create once) the project's default Inbox epic and return its id. The
  *  epic is created as a root (no parent), so it never recurses through the
  *  auto-parent path. */
@@ -402,7 +397,9 @@ export async function addSessionTodo(
   // (the explicit "unplanned thought" path). An explicit Inbox flag pre-resolves the
   // epic here so the title-based Inbox identity stays in this layer.
   let parentId = extrasRest.parentId ?? null;
-  if (!parentId && inbox && !isEpicTitle(trimmed)) {
+  // Epics are exempt from auto-parenting (they ARE the parents). `trimmed` is a
+  // proposed title with no row yet, so `isEpic` resolves via its title fallback.
+  if (!parentId && inbox && !isEpic({ title: trimmed })) {
     parentId = await ensureInboxEpic(project, session);
   }
   return createTodo(project, {
