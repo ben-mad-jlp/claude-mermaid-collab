@@ -1,12 +1,18 @@
 // MITIGATION for the leaf-executor implement→review new-file blind spot.
 //
 // The review node inspects the change-set with git. A file the implement node CREATED is
-// untracked, and `git diff` never shows untracked files — the review node then truthfully
-// reports it "absent" and the leaf thrashes implement→review to node-budget exhaustion.
-// `git add --intent-to-add` records a zero-content path in the index, which every
-// working-tree/index-aware git view (`git diff`, `git diff <base>`, `git status`) picks up,
-// without staging the file's content. We deliberately never use `git add -A`/`-u`/`.`: those
-// would also stage .gitignore'd junk (db snapshots, deploy logs) that worktrees accumulate.
+// untracked: `git status` shows it as `??`, but `git diff HEAD` OMITS it entirely. A review node
+// reaching for a diff of the working tree therefore goes blind, truthfully reports the file
+// "absent", and the leaf thrashes implement→review to node-budget exhaustion.
+//
+// `git add --intent-to-add` records a zero-content path in the index. After the sweep,
+// `git diff`, `git diff HEAD` and `git diff <base>` (two-dot) all show the file's content, and
+// `git status` reports it as ` A`. `git diff <base>...HEAD` (THREE-dot) does NOT and cannot:
+// three-dot diffs two COMMITS, so it never sees uncommitted work, intent-to-add or otherwise.
+// The content stays out of the index — `git diff --cached` prints nothing for the entry.
+//
+// We deliberately never use `git add -A`/`-u`/`.`: those would also stage .gitignore'd junk
+// (db snapshots, deploy logs) that worktrees accumulate.
 
 import { execFileSync } from 'node:child_process';
 
