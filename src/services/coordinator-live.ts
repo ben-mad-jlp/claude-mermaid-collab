@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
+import { isEpic } from './todo-kind.ts';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
@@ -556,11 +557,6 @@ export function getWorktreeManager(projectRoot: string): WorktreeManager {
 // single Inbox epic (INBOX_EPIC_ID) so every todo still maps to exactly one branch.
 // Cycle- and depth-guarded against a malformed parent chain.
 
-/** True when a todo's title marks it an [EPIC] root. */
-function isEpicTodo(t: Todo): boolean {
-  return /^\s*\[EPIC\]/i.test(t.title ?? '');
-}
-
 /** Resolve the [EPIC] root id for `todo` by walking parentId via getTodo in
  *  `project` (the tracking store). Returns INBOX_EPIC_ID when no [EPIC] ancestor
  *  exists. Exported for unit testing. */
@@ -569,7 +565,7 @@ export function resolveEpicId(todo: Todo, project: string): string {
   const seen = new Set<string>();
   let depth = 0;
   while (cur && depth < 50) {
-    if (isEpicTodo(cur)) return cur.id;
+    if (isEpic(cur)) return cur.id;
     if (seen.has(cur.id)) break;
     seen.add(cur.id);
     const parentId = cur.parentId;
