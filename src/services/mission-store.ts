@@ -6,7 +6,7 @@
  * repeating DOGFOOD → FIND GAP → PLAN → STEWARD → LAND → ASSESS, iteration after
  * iteration, until the app does the thing. Each iteration's gaps become transient
  * `[EPIC]` children under a `[MISSION]` graph node; the mission node itself is a
- * durable non-closing root (see claimability.isMissionTitle + the two rollup
+ * durable non-closing root (see todo-kind.isMission + the two rollup
  * exemptions in todo-store).
  *
  * DESIGN (locked via Grok consult, doc phase2-grok-consult-synthesis): the mission
@@ -23,7 +23,7 @@ import Database from 'bun:sqlite';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { listTodos } from './todo-store.ts';
-import { isEpicTitle, isMissionTitle } from './claimability.ts';
+import { isEpic, isMission } from './todo-kind.ts';
 
 /**
  * The convergence-loop phases — the canonical agentic loop
@@ -518,8 +518,8 @@ export interface MissionSummary {
 
 /**
  * List missions in a project: each `[MISSION]` work-graph root that HAS loop-control
- * state (upsertMission was called). Joins the graph node (by the `[MISSION]` title
- * convention) with the sidecar mission row + rollup + criteria + its epic children.
+ * state (upsertMission was called). Joins the graph node (by `kind === 'mission'`)
+ * with the sidecar mission row + rollup + criteria + its epic children.
  * Missions with a node but no control row are skipped. For the Plan-board Missions
  * surface. Pass `opts.session` to return ONLY missions owned by / assigned to that
  * session (the mission↔session tie) — omit for all project missions.
@@ -527,7 +527,7 @@ export interface MissionSummary {
 export function listMissions(project: string, opts: { session?: string } = {}): MissionSummary[] {
   const all = listTodos(project, { includeCompleted: true });
   const roots = all.filter(
-    (t) => t.parentId == null && t.status !== 'dropped' && isMissionTitle(t.title),
+    (t) => t.parentId == null && t.status !== 'dropped' && isMission(t),
   );
   // Self-heal: prune mission control rows whose graph node is gone/dropped (e.g. a
   // mission removed via a node-drop rather than delete_mission). Keeps mission.db
@@ -536,12 +536,12 @@ export function listMissions(project: string, opts: { session?: string } = {}): 
   const out: MissionSummary[] = [];
   for (const node of roots) {
     const mission = getMission(project, node.id);
-    if (!mission) continue; // a [MISSION]-titled node without control state — not a real mission
+    if (!mission) continue; // a mission-kind node without control state — not a real mission
     if (opts.session && node.ownerSession !== opts.session && node.assigneeSession !== opts.session) {
       continue; // session-scoped filter (mission↔session tie)
     }
     const epics = all
-      .filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpicTitle(t.title))
+      .filter((t) => t.parentId === node.id && t.status !== 'dropped' && isEpic(t))
       .map((e) => ({ id: e.id, title: e.title, status: e.status, acceptanceStatus: e.acceptanceStatus ?? null }));
     out.push({
       node: { id: node.id, title: node.title, status: node.status },
@@ -560,7 +560,7 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const epics = listTodos(project, { includeCompleted: true }).filter(
-    (t) => t.parentId === todoId && t.status !== 'dropped' && isEpicTitle(t.title),
+    (t) => t.parentId === todoId && t.status !== 'dropped' && isEpic(t),
   );
   const mechDone = epics.filter((e) => e.status === 'done').length;
   const criteria = listCriteria(project, todoId);
