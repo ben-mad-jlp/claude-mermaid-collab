@@ -246,6 +246,34 @@ describe('planResume (resume decision — conservative, fresh on any doubt)', ()
     expect(planResume({ merged: false, phase: 'blueprint', epicBaseSha: SHA }, SHA, false).reason)
       .toBe('killed-before-blueprint');
   });
+  // G8: blueprintBaseSha (durable base) path — when the run checkpoint is cleared but
+  // the blueprint is still reusable. D1 regression: no-resume-row case.
+  it('no resume row + hasBlueprintOutput + blueprintBaseSha === currentEpicSha → reattach (D1 regression)', () => {
+    expect(planResume(null, SHA, true, SHA))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' });
+  });
+  it('no resume row + hasBlueprintOutput + blueprintBaseSha !== currentEpicSha → fresh base-moved', () => {
+    expect(planResume(null, SHA, true, 'old'))
+      .toEqual({ mode: 'fresh', reason: 'epic-base-moved' });
+  });
+  it('no resume row + hasBlueprintOutput + currentEpicSha null → fresh no-epic-base', () => {
+    expect(planResume(null, null, true, SHA))
+      .toEqual({ mode: 'fresh', reason: 'no-epic-base' });
+  });
+  it('resume row with epicBaseSha null + blueprintBaseSha matching → reattach (COALESCE fallback)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: null }, SHA, false, SHA))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable' });
+  });
+  it('resume row base moved → fresh (epic-base-moved guard is NOT weakened)', () => {
+    expect(planResume({ merged: false, phase: 'implement', epicBaseSha: 'old' }, SHA, false, SHA).reason)
+      .toBe('epic-base-moved');
+  });
+  it('resetBreaker() call then re-plan with durable blueprint → reattach survives reset', () => {
+    // resetBreakerStreak() does NOT touch leaf_blueprint, so a durable blueprint base
+    // survives an operator reset. This proves the durable path is independent.
+    expect(planResume(null, SHA, true, SHA))
+      .toEqual({ mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' });
+  });
 });
 
 describe('parseVerdict (fail-closed)', () => {
@@ -1600,5 +1628,28 @@ describe('runLeaf resume consumption (slice 2)', () => {
     // nodesSpent reflects only implement+review (2), not 3.
     expect(res.nodesSpent).toBe(2);
     expect(spies.invokeSpecs.length).toBe(2);
+  });
+  // G8: durable blueprint base persistence — reusable blueprint survives terminal outcomes.
+  it('G8: persistBlueprintBase is called when blueprint succeeds (not on reattach/in-run-carry)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const baseSnapshots: string[] = [];
+    deps.persistBlueprintBase = ({ epicBaseSha }) => { baseSnapshots.push(epicBaseSha ?? 'null'); };
+    deps.epicBaseSha = 'sha-from-epic-tip';
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // persistBlueprintBase called exactly once (blueprint node succeeded, not reattach).
+    expect(baseSnapshots).toEqual(['sha-from-epic-tip']);
+  });
+  it('G8: persistBlueprintBase NOT called on reattach (synthetic result, no new blueprint)', async () => {
+    const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'] });
+    const baseSnapshots: string[] = [];
+    deps.persistBlueprintBase = ({ epicBaseSha }) => { baseSnapshots.push(epicBaseSha ?? 'null'); };
+    deps.epicBaseSha = 'sha-from-epic-tip';
+    deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+    deps.restoreBlueprint = () => '# prior blueprint\n\n```json\n{"schemaVersion":1,"estimatedFiles":1,"estimatedTasks":1,"nonEnumerableFanout":false,"filesToCreate":[],"filesToEdit":["x.ts"],"tasks":[{"id":"t1","files":["x.ts"],"description":"x"}]}\n```';
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    expect(res.outcome).toBe('accepted');
+    // NOT called on reattach (synthetic result).
+    expect(baseSnapshots).toEqual([]);
   });
 });

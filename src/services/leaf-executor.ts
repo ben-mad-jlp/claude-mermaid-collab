@@ -34,7 +34,7 @@ import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, gr
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation } from './supervisor-store';
-import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate } from './worker-ledger';
+import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet, lastLines } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
@@ -138,6 +138,9 @@ export interface LeafExecutorDeps {
    *  so a hard kill recovers it on re-claim instead of resetting the budget. Best-effort;
    *  unwired in tests. */
   persistResume?: (e: { project: string; leafId: string; nodesSpent: number; phase?: string | null; attempt?: number | null; epicBaseSha?: string | null }) => void;
+  /** G8: persist the durable blueprint base SHA so a reusable blueprint survives when
+   *  the run checkpoint is cleared by a terminal outcome. Best-effort; unwired in tests. */
+  persistBlueprintBase?: (e: { project: string; leafId: string; epicBaseSha?: string | null }) => void;
   /** Flag the leaf merged-to-epic (slice-2 reattach consumes this; recorded now). */
   markMerged?: (leafId: string) => void;
   /** FM1 Phase-B hardening: durably stamp the REJECT intent (acceptanceStatus='rejected')
@@ -927,6 +930,10 @@ export interface ResumePlan { mode: ResumeMode; reason: string }
  * git/db. Conservatism is deliberate: any doubt resolves to a clean FRESH run.
  *
  * - no resume row                  → fresh (first dispatch)
+ *                                     (EXCEPT: when hasBlueprintOutput=true AND
+ *                                     blueprintBaseSha matches currentEpicSha, a durable
+ *                                     blueprint authored against the CURRENT tip is still
+ *                                     reusable — reattach-blueprint instead)
  * - merged                         → skip-to-gate (work is committed; the gate
  *                                     re-verifies it — safe regardless of further
  *                                     epic advance; redoing the leaf is pure waste)
@@ -946,8 +953,24 @@ export function planResume(
   resume: { phase?: string | null; merged: boolean; epicBaseSha?: string | null } | null,
   currentEpicSha: string | null,
   hasBlueprintOutput = false,
+  /** Durable base SHA the reusable blueprint was authored against (leaf_blueprint).
+   *  Used when the run checkpoint was cleared by a terminal outcome but the blueprint
+   *  itself is still valid. */
+  blueprintBaseSha: string | null = null,
 ): ResumePlan {
-  if (!resume) return { mode: 'fresh', reason: 'no-resume-state' };
+  if (!resume) {
+    // D1: a terminal outcome cleared the run checkpoint, but a durably-recorded
+    // blueprint authored against the CURRENT tip is still reusable. The base guard
+    // below is identical to the resume-row path — never weaker.
+    if (hasBlueprintOutput && blueprintBaseSha && currentEpicSha) {
+      if (blueprintBaseSha === currentEpicSha)
+        return { mode: 'reattach-blueprint', reason: 'blueprint-reusable-no-resume-row' };
+      return { mode: 'fresh', reason: 'epic-base-moved' };
+    }
+    // D3: null currentEpicSha is silently fatal — we can't verify the world state.
+    if (!currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+    return { mode: 'fresh', reason: 'no-resume-state' };
+  }
   if (resume.merged) return { mode: 'skip-to-gate', reason: 'work-merged' };
   // Paused/killed at-or-before the blueprint node. If a COMPLETED blueprint was
   // durably recorded (the leaf rate-paused after authoring it), reuse it instead of
@@ -955,8 +978,10 @@ export function planResume(
   // genuinely fresh when no usable blueprint output exists.
   if ((!resume.phase || resume.phase === 'blueprint') && !hasBlueprintOutput)
     return { mode: 'fresh', reason: 'killed-before-blueprint' };
-  if (!resume.epicBaseSha || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
-  if (resume.epicBaseSha !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
+  // Fall back to the durable blueprint base when the row lost its sha (COALESCE gap).
+  const base = resume.epicBaseSha ?? blueprintBaseSha;
+  if (!base || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
+  if (base !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
 }
 
@@ -1598,6 +1623,13 @@ export async function runLeaf(
       continue; // fresh attempt — never implement against a missing blueprint
     }
 
+    // G8: Record the blueprint base SHA so a reusable blueprint survives when the run
+    // checkpoint is cleared by a terminal outcome. Guarded to NOT rewrite on synthetic
+    // reattach/in-run-carry results (those have durationMs === 0).
+    if (!reattach && !inRunCarry) {
+      deps.persistBlueprintBase?.({ project, leafId: leaf.id, epicBaseSha: deps.epicBaseSha });
+    }
+
     // --- P5 SIZE GATE ---
     // Read the blueprint artifact (its trailing ```json size block) and derive the
     // manifest. Unparseable ⇒ null ⇒ the proven FLOOR (linear) fail-safe path.
@@ -1936,12 +1968,20 @@ export async function makeLeafExecutorDeps(
   // A durable blueprint output (recorded by a prior dispatch's blueprint node) means a
   // blueprint-phase pause is REUSABLE, not fresh — avoid re-running the blueprint node.
   const hasBlueprintOutput = !!getLatestNodeOutput(leaf.id, 'blueprint')?.trim();
-  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput);
+  const bpRow = getLeafBlueprint(leaf.id);
+  const resumePlan = planResume(existingResume, epicBaseSha, hasBlueprintOutput, bpRow?.epicBaseSha ?? null);
+  const anomaly = resumePlan.mode === 'fresh' && hasBlueprintOutput
+    && (resumePlan.reason === 'no-resume-state' || resumePlan.reason === 'no-epic-base' || resumePlan.reason === 'killed-before-blueprint');
+  recordLeafResumeDecision({ leafId: leaf.id, project, mode: resumePlan.mode, reason: resumePlan.reason,
+    hadResumeRow: !!existingResume, hasBlueprintOutput, resumeBaseSha: existingResume?.epicBaseSha ?? bpRow?.epicBaseSha ?? null,
+    currentEpicSha: epicBaseSha, anomaly });
+  if (anomaly) console.warn('[leaf-resume] discarded a reusable blueprint', { leafId: leaf.id, reason: resumePlan.reason, currentEpicSha: epicBaseSha });
   let effectiveStart = startNodesSpent;
   if (resumePlan.mode === 'fresh' && existingResume) {
     clearLeafResume(leaf.id);
     effectiveStart = 0;
   }
+  if (resumePlan.mode === 'fresh' && resumePlan.reason === 'epic-base-moved') clearLeafBlueprint(leaf.id);
   // G2 mechanical gate, G4 abstention: classify ONCE per deps construction. `declared` runs the
   // gate; `absent` abstains LOUDLY; `misconfigured` is INFRA — never a silent pass.
   const gateDecl = resolveGateDeclaration(loadManifestSource(targetProject));
@@ -1974,6 +2014,7 @@ export async function makeLeafExecutorDeps(
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,
     persistResume: recordLeafResume,
+    persistBlueprintBase: recordLeafBlueprint,
     markMerged: markLeafMerged,
     // FM1 Phase-B hardening: durably land the reject intent before the slow gate so a
     // mid-gate restart can't reclaim+re-run it (reclaimNow refuses acceptanceStatus
