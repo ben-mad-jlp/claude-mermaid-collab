@@ -13,8 +13,7 @@ import {
   activateMission, sessionHasActiveMission, setMissionActive, deleteMission,
   MISSION_PHASES, type MissionPhase,
 } from '../services/mission-store.js';
-import { MISSION_TITLE_PREFIX, isMissionTitle } from '../services/claimability.js';
-import { isMission } from '../services/todo-kind.js';
+import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
 import { addSessionTodo } from './tools/session-todos.js';
 
@@ -23,14 +22,14 @@ import { addSessionTodo } from './tools/session-todos.js';
  * array in setup.ts via `...MISSION_TOOL_DEFS`.
  */
 export const MISSION_TOOL_DEFS = [
-      { name: 'create_mission', description: "Create a durable MISSION — a convergence LOOP toward a goal. It is a top-level [MISSION] work-graph node (a non-closing root: unlike an epic it never auto-closes) plus loop-control state running the canonical agentic loop DISCOVER→PLAN→EXECUTE→VERIFY→(ITERATE: loop back, iteration++). VERIFY checks the acceptance criteria: all met → converged; else if the maxIterations STOP-WHEN cap is hit → stopped; else loop back to DISCOVER. Each iteration's gaps become transient [EPIC] children (the EXECUTE work). Title auto-prefixed [MISSION]. Set `criteria` (the VERIFY gate — the real 'done' signal), `maxIterations` (the STOP-WHEN guard so a loop can't run forever), and `procedure` (the EACH-ITERATION recipe). Returns node + state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal. Auto-prefixed [MISSION].' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, maxIterations: { type: 'number', description: 'STOP-WHEN cap: stop after this many un-converged iterations (omit = unbounded).' }, procedure: { type: 'string', description: 'The EACH-ITERATION recipe (what to do each lap).' } }, required: ['project', 'session', 'title'] } },
+      { name: 'create_mission', description: "Create a durable MISSION — a convergence LOOP toward a goal. It is a top-level MISSION work-graph node (kind='mission') (a non-closing root: unlike an epic it never auto-closes) plus loop-control state running the canonical agentic loop DISCOVER→PLAN→EXECUTE→VERIFY→(ITERATE: loop back, iteration++). VERIFY checks the acceptance criteria: all met → converged; else if the maxIterations STOP-WHEN cap is hit → stopped; else loop back to DISCOVER. Each iteration's gaps become transient [EPIC] children (the EXECUTE work). Set `criteria` (the VERIFY gate — the real 'done' signal), `maxIterations` (the STOP-WHEN guard so a loop can't run forever), and `procedure` (the EACH-ITERATION recipe). Returns node + state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal, stated bare — do not prefix it. The role lives in the `kind` column and is rendered by the UI.' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, maxIterations: { type: 'number', description: 'STOP-WHEN cap: stop after this many un-converged iterations (omit = unbounded).' }, procedure: { type: 'string', description: 'The EACH-ITERATION recipe (what to do each lap).' } }, required: ['project', 'session', 'title'] } },
       { name: 'set_active_mission', description: "Make ONE mission the ACTIVE mission for its owning session and deactivate every OTHER mission owned by that session — a steward drives one mission at a time, and the mission-loop pass only drives the active one. Missions of other sessions are untouched. Returns the deactivated ids.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
-      { name: 'update_mission', description: "Edit a mission's node — its title (goal) and/or description. The [MISSION] prefix is preserved. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text ([MISSION] prefix auto-kept).' }, description: { type: 'string' } }, required: ['project', 'todoId'] } },
-      { name: 'delete_mission', description: "Permanently delete a mission — drops the [MISSION] work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
+      { name: 'update_mission', description: "Edit a mission's node — its title (goal) and/or description. The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' } }, required: ['project', 'todoId'] } },
+      { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission_criterion', description: "Edit an acceptance criterion's TEXT (the assertion). Does not change its met/verdict — use set_mission_criterion for that.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'criterionId', 'text'] } },
-      { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (phase, iteration, criteria, verdicts). todoId must be a [MISSION] node.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The [MISSION] node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
+      { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (phase, iteration, criteria, verdicts). todoId must be a mission node (kind='mission').", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
       { name: 'set_mission_config', description: "Update a mission's loop-spec config — the maxIterations STOP-WHEN cap and/or the EACH-ITERATION procedure. Pass a field to change it; omit to leave unchanged (pass maxIterations:null to clear the cap).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, maxIterations: { type: ['number', 'null'] }, procedure: { type: ['string', 'null'] } }, required: ['project', 'todoId'] } },
-      { name: 'get_mission', description: 'Read a mission\'s full state: loop-control row (phase, iteration, timestamps), acceptance criteria, and the convergence rollup — mechanical (this iteration\'s [EPIC] children done/total) + capability (criteria met/total) + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The [MISSION] node id.' } }, required: ['project', 'todoId'] } },
+      { name: 'get_mission', description: 'Read a mission\'s full state: loop-control row (phase, iteration, timestamps), acceptance criteria, and the convergence rollup — mechanical (this iteration\'s [EPIC] children done/total) + capability (criteria met/total) + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' } }, required: ['project', 'todoId'] } },
       { name: 'advance_mission', description: "Advance a mission ONE step through the loop DISCOVER→PLAN→EXECUTE→VERIFY. At VERIFY it makes the ITERATE decision: all criteria met → converged; else maxIterations reached → stopped; else loop back to DISCOVER (iteration++). Pass toPhase to jump to a specific phase (e.g. 'converged'/'stopped' to end, or back to 'discover'). Phase 2a is steward-hand-driven. Returns the new state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, toPhase: { type: 'string', enum: MISSION_PHASES, description: 'Optional: jump to this phase instead of advancing one step.' } }, required: ['project', 'todoId'] } },
       { name: 'stamp_mission', description: "Record a phase activity signal on a mission: event='discover' stamps that a DISCOVER pass ran this iteration; event='verify' stamps that a VERIFY check ran. Timestamps only — does not advance the phase (use advance_mission for that).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, event: { type: 'string', enum: ['discover', 'verify'] } }, required: ['project', 'todoId', 'event'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
@@ -50,10 +49,15 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         maxIterations?: number | null; procedure?: string | null;
       };
       if (!project || !session || !title) throw new Error('Missing required: project, session, title');
-      const missionTitle = isMissionTitle(title) ? title : `${MISSION_TITLE_PREFIX} ${title.trim()}`;
-      // The [MISSION] node is a legitimate top-level root (resolveTodoParent exempts it),
-      // so allowOrphan isn't needed — addSessionTodo creates it parentless.
+      // Store the BARE goal. `kind` is the only role signal (stage C, decision e852fb0c);
+      // stripLabel drops a role bracket an operator may have typed, never a topic tag.
+      const missionTitle = stripLabel(title);
+      if (!missionTitle) throw new Error('title must be non-empty after stripping the role prefix');
+      // A mission node is a legitimate top-level root (resolveTodoParent exempts it by
+      // `kind`, not by title), so allowOrphan isn't needed — addSessionTodo creates it
+      // parentless.
       const node = await addSessionTodo(project, session, missionTitle, undefined, {
+        kind: 'mission',
         assigneeSession: session, description,
       });
       upsertMission(project, node.id, { maxIterations: maxIterations ?? null, procedure: procedure ?? null });
@@ -84,7 +88,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId || !session) throw new Error('Missing required: project, todoId, session');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
-      if (!isMission(node)) throw new Error(`not a [MISSION] node: ${todoId}`);
+      if (!isMission(node)) throw new Error(`not a mission node (kind='mission'): ${todoId}`);
       const updated = await reassignOwnerSession(project, todoId, session);
       return JSON.stringify({ todoId, ownerSession: updated.ownerSession, assigneeSession: updated.assigneeSession }, null, 2);
     }
@@ -100,9 +104,13 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
-      if (!isMission(node)) throw new Error(`not a [MISSION] node: ${todoId}`);
+      if (!isMission(node)) throw new Error(`not a mission node (kind='mission'): ${todoId}`);
       const patch: { title?: string; description?: string } = {};
-      if (title !== undefined) patch.title = isMissionTitle(title) ? title : `${MISSION_TITLE_PREFIX} ${title.trim()}`;
+      if (title !== undefined) {
+        const next = stripLabel(title);
+        if (!next) throw new Error('title must be non-empty after stripping the role prefix');
+        patch.title = next;
+      }
       if (description !== undefined) patch.description = description;
       const updated = await updateTodoStore(project, todoId, patch);
       return JSON.stringify({ todoId, title: updated.title, description: updated.description }, null, 2);
@@ -112,7 +120,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
-      if (!isMission(node)) throw new Error(`not a [MISSION] node: ${todoId}`);
+      if (!isMission(node)) throw new Error(`not a mission node (kind='mission'): ${todoId}`);
       deleteMission(project, todoId);            // control state + criteria
       await updateTodoStore(project, todoId, { status: 'dropped' }); // drop the graph node
       return JSON.stringify({ deleted: todoId }, null, 2);
