@@ -72,6 +72,9 @@ export interface ProjectManifest {
   /** Which declared pack is the project's primary domain pack (usually one of
    *  `packs`). A primary not listed in `packs` is still honoured if it resolves. */
   primaryPack?: string;
+  /** Declared project areas that must never share a commit (e.g. ["bsync-viewer/", "bsync-tools/"]).
+   *  The executor emits one commit per area a leaf touched. */
+  commitBoundaries?: string[];
   /** The project's mechanical acceptance gate command (e.g. a pytest invocation
    *  for a Python repo where `npx tsc` does not apply). Advisory metadata the
    *  Coordinator-side gate can consult. */

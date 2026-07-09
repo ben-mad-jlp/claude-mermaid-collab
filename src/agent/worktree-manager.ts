@@ -2,6 +2,11 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import type { WorktreeInfo, NonGitFallback, SessionWorktree } from './contracts';
+import {
+  computeCommitScope,
+  stageAndCommitScoped,
+  type ScopeInput,
+} from '../services/leaf-commit-scope';
 
 export interface WorktreeManagerOpts {
   projectRoot: string; // absolute path to the project (git) root
@@ -68,14 +73,30 @@ export interface MergeBackResult {
    *  clean merge, preserving legacy callers). Gating acceptance on this is what
    *  guarantees `accepted` ⇒ work-on-epic-branch. */
   integrated: boolean;
+  /** G12: dirty paths that were out-of-scope (declared scope present but path outside it). */
+  outOfScope?: string[];
 }
 
 export interface CommitMergeOpts {
   message: string;
   /** Optional todo id → emitted as a `Collab-Todo` trailer on the epic merge commit. */
   todoId?: string;
+  /** Leaf commit scope (G12). Absent ⇒ tracked-dirty ∪ run-created, never blanket `-A`. */
+  scope?: { declaredFiles: string[]; untrackedAtStart: string[] };
+  /** Project commitBoundaries for per-boundary commits. */
+  commitBoundaries?: string[];
   onProgress?: (channel: 'stdout' | 'stderr', chunk: string) => void;
   timeoutMs?: number;
+}
+
+export class ScopeIncidentError extends Error {
+  constructor(
+    public readonly outOfScope: string[],
+    msg: string,
+  ) {
+    super(msg);
+    this.name = 'ScopeIncidentError';
+  }
 }
 
 export interface LandOpts {
@@ -653,32 +674,17 @@ export class WorktreeManager {
     let commitSha: string | undefined;
 
     if (dirtyBefore) {
-      const addRes = await this.runGit(
-        rec.path,
-        ['add', '-A'],
-        timeoutMs,
-        onProgress,
+      const decision = computeCommitScope(rec.path, { declaredFiles: [], untrackedAtStart: [] });
+      const res = await stageAndCommitScoped(
+        (args) => this.runGit(rec.path, args, timeoutMs, onProgress),
+        {
+          stage: decision.stage,
+          outOfScope: [],
+          message: opts.body ? `${opts.title}\n\n${opts.body}` : opts.title,
+        },
       );
-      if (addRes.code !== 0) {
-        throw new Error(`git add failed: ${addRes.stderr.trim()}`);
-      }
-      const message = opts.body ? `${opts.title}\n\n${opts.body}` : opts.title;
-      const commitRes = await this.runGit(
-        rec.path,
-        ['commit', '-m', message],
-        timeoutMs,
-        onProgress,
-      );
-      if (commitRes.code !== 0) {
-        throw new Error(`git commit failed: ${commitRes.stderr.trim() || commitRes.stdout.trim()}`);
-      }
-      const shaRes = await this.runGit(
-        rec.path,
-        ['rev-parse', 'HEAD'],
-        QUICK_TIMEOUT_MS,
-        onProgress,
-      );
-      if (shaRes.code === 0) commitSha = shaRes.stdout.trim() || undefined;
+      if (!res.commits.length) throw new Error('git commit failed: nothing in scope to stage');
+      commitSha = res.commits.at(-1)?.sha;
     }
 
     const pushRes = await this.runGit(
@@ -1266,6 +1272,7 @@ export class WorktreeManager {
     //    otherwise not be visible to the merge.
     let committed = false;
     let commitSha: string | undefined;
+    let outOfScopePaths: string[] = [];
     const dirty = await this.runGit(
       rec.path,
       ['status', '--porcelain'],
@@ -1273,32 +1280,36 @@ export class WorktreeManager {
       onProgress,
     );
     if (dirty.code === 0 && dirty.stdout.trim().length > 0) {
-      const addRes = await this.runGit(rec.path, ['add', '-A'], timeoutMs, onProgress);
-      if (addRes.code !== 0) throw new Error(`git add failed: ${addRes.stderr.trim()}`);
-      // Stamp the WORKER commit itself with a `Collab-Todo: <id>` trailer (not just
-      // the epic merge commit). This is what makes per-todo integration verifiable
-      // even when a single keep-warm lane carried several todos' commits: an earlier
-      // todo's merge may have already pulled a later todo's worker commit onto the
-      // epic branch ("Already up to date" on the later merge), so a HEAD-advance
-      // check would FALSE-strand it. A reachable trailer on the todo's own commit
-      // does not. (BP0 stranding fix.)
-      const commitMessage = opts.todoId
-        ? `${opts.message}\n\nCollab-Todo: ${opts.todoId}`
-        : opts.message;
-      const commitRes = await this.runGit(
-        rec.path,
-        ['commit', '-m', commitMessage],
-        timeoutMs,
-        onProgress,
-      );
-      if (commitRes.code !== 0) {
-        throw new Error(
-          `git commit failed: ${commitRes.stderr.trim() || commitRes.stdout.trim()}`,
+      const decision = computeCommitScope(rec.path, {
+        declaredFiles: opts.scope?.declaredFiles ?? [],
+        untrackedAtStart: opts.scope?.untrackedAtStart ?? [],
+      });
+      if (decision.incident) {
+        throw new ScopeIncidentError(
+          decision.outOfScope,
+          `leaf ${opts.todoId}: every dirty path is outside the declared scope`,
         );
       }
-      committed = true;
-      const shaRes = await this.runGit(rec.path, ['rev-parse', 'HEAD'], QUICK_TIMEOUT_MS);
-      if (shaRes.code === 0) commitSha = shaRes.stdout.trim() || undefined;
+      if (decision.outOfScope.length) {
+        console.warn(
+          `[worktree] out-of-scope dirty paths NOT committed (${decision.outOfScope.length}): ${decision.outOfScope.slice(0, 10).join(', ')}${decision.outOfScope.length > 10 ? ', …' : ''}`,
+        );
+      }
+      const res = await stageAndCommitScoped(
+        (args) => this.runGit(rec.path, args, timeoutMs, onProgress),
+        {
+          stage: decision.stage,
+          outOfScope: decision.outOfScope,
+          message: opts.message,
+          trailer: opts.todoId ? `Collab-Todo: ${opts.todoId}` : undefined,
+          boundaries: opts.commitBoundaries,
+        },
+      );
+      if (res.commits.length > 0) {
+        committed = true;
+        commitSha = res.commits.at(-1)?.sha;
+      }
+      outOfScopePaths = res.outOfScope;
     }
 
     // 2. Merge the worker branch into the epic branch (in the epic worktree).
@@ -1354,6 +1365,7 @@ export class WorktreeManager {
       workerBranch: rec.branch,
       mergeSha,
       integrated,
+      ...(outOfScopePaths.length > 0 ? { outOfScope: outOfScopePaths } : {}),
     };
   }
 

@@ -42,6 +42,8 @@ import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding } from './review-citations';
 import { loadManifestSource } from '../config/project-manifest';
+import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
+import { ScopeIncidentError } from '../agent/worktree-manager';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -118,6 +120,7 @@ export interface LeafExecutorDeps {
     epicId: string,
     message: string,
     todoId: string,
+    scope?: { declaredFiles: string[]; untrackedAtStart: string[] },
   ) => Promise<unknown>;
   /** Raise an escalation card (blocker). */
   escalate: (input: {
@@ -1064,6 +1067,14 @@ export async function runLeaf(
   // run's shape (and which path a failure came from) is legible without re-deriving.
   let pathTaken: 'floor' | 'waves' | 'review' | null = null;
 
+  // G12: Snapshot untracked files BEFORE the first writing node so we can later
+  // distinguish files the leaf created (new) from pre-existing junk. Declared here so
+  // it's available to all nested functions. Will be populated before the ATTEMPT loop.
+  let untrackedAtStart: string[] = [];
+
+  // G12: Declared scope for commit scope computation. Populated after the blueprint is loaded.
+  let declaredFiles: string[] = [];
+
   // Whether a PROJECT-DECLARED mechanical gate actually ran for the deciding review.
   // null = the gate was never evaluated (parked before the loop). false = pass without a
   // command running (undeclared, misconfigured-early, or an unwired seam) — the LLM alone
@@ -1380,7 +1391,10 @@ export async function runLeaf(
     commitMessage: string,
   ): Promise<LeafRunResult> => {
     try {
-      await deps.mergeToEpic(sessionKey, epicId, commitMessage, leaf.id);
+      await deps.mergeToEpic(sessionKey, epicId, commitMessage, leaf.id, {
+        declaredFiles: [],
+        untrackedAtStart,
+      });
     } catch (e) {
       return parkBlocked(
         `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -1766,6 +1780,16 @@ export async function runLeaf(
     let rootSnap: RootSnapshot | null = null;
     try { rootSnap = snapshotMainCheckout(cwd); } catch { /* best-effort */ }
 
+    // G12: Snapshot untracked files BEFORE the first writing node so we can later
+    // distinguish files the leaf created (new) from pre-existing junk.
+    try { untrackedAtStart = listUntrackedPaths(cwd); } catch { /* best-effort */ }
+
+    // G12: Derive the declared scope from the manifest + the split-child description.
+    const declaredFiles = [...new Set([
+      ...(manifest ? [...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)] : []),
+      ...parseDeclaredScope(leaf.description),
+    ])];
+
     // WAVES RETIRED (2026-07-08): every claimed leaf runs LINEAR (FLOOR). A leaf too big
     // for one linear run (> SPLIT_CEILING = FILE_THRESHOLD enumerated files) was already
     // auto-split PRE-FLIGHT above, so anything reaching here is within the linear band —
@@ -1917,8 +1941,22 @@ export async function runLeaf(
           epicId,
           `feat: ${leaf.title ?? leaf.id}`,
           leaf.id,
+          { declaredFiles, untrackedAtStart },
         );
       } catch (e) {
+        if (e instanceof ScopeIncidentError) {
+          deps.escalate({
+            project,
+            session: sessionKey,
+            kind: 'blocker',
+            todoId: leaf.id,
+            questionText:
+              `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
+              `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. The blueprint's scope is wrong, or a node edited ` +
+              `the wrong files. Nothing was committed.`,
+          });
+          return parkBlocked('scope-incident', reviewVerdict);
+        }
         // Merge-back failed (e.g. conflict) → can't safely accept. Park blocked.
         return parkBlocked(
           `merge-to-epic-failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -2068,7 +2106,8 @@ export async function makeLeafExecutorDeps(
   if (resumePlan.mode === 'fresh' && resumePlan.reason === 'epic-base-moved') clearLeafBlueprint(leaf.id);
   // G2 mechanical gate, G4 abstention: classify ONCE per deps construction. `declared` runs the
   // gate; `absent` abstains LOUDLY; `misconfigured` is INFRA — never a silent pass.
-  const gateDecl = resolveGateDeclaration(loadManifestSource(targetProject));
+  const manifestSource = loadManifestSource(targetProject);
+  const gateDecl = resolveGateDeclaration(manifestSource);
   const gateCfg = gateDecl.kind === 'declared' ? gateDecl.cfg : null;
   // The FLOOR review loop calls runGate once per pass (implement→review→fix→review), but the
   // abstention is a property of the LEAF, not of the pass. Latch it so the ledger carries one
@@ -2093,8 +2132,13 @@ export async function makeLeafExecutorDeps(
       const r = await handleWorkerComplete(makeCoordinatorDeps(), p, t, a, runClaimToken);
       return { effective: r.effective, pendingReason: r.pendingReason, gateReasons: r.gateOverride?.reasons };
     },
-    mergeToEpic: (sessionKey, eId, message, todoId) =>
-      wm.commitAndMergeToEpic(sessionKey, eId, { message, todoId }),
+    mergeToEpic: (sessionKey, eId, message, todoId, scope) =>
+      wm.commitAndMergeToEpic(sessionKey, eId, {
+        message,
+        todoId,
+        scope,
+        commitBoundaries: manifestSource.manifest?.commitBoundaries,
+      }),
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,
