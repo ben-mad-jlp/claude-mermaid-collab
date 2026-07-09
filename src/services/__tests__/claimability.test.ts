@@ -13,9 +13,19 @@ import {
   parentIsInbox,
   INBOX_EPIC_TITLE,
 } from '../claimability';
+import type { ClaimReason } from '../claimability';
 import type { Todo } from '../todo-store';
 import { kindOf, MissingKindError } from '../todo-kind';
-import cases from './fixtures/claimability-cases.json';
+import rawCases from './fixtures/claimability-cases.json';
+
+interface ParityCase {
+  name: string;
+  why: string;
+  subject: string;
+  todos: Partial<Todo>[];
+  expect: { claimReason: ClaimReason; derivedStatus: string; isClaimable: boolean };
+}
+const cases = rawCases as unknown as { cases: ParityCase[] };
 
 function mk(over: Partial<Todo> = {}): Todo {
   return {
