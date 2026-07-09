@@ -16,9 +16,13 @@ import {
   KIND_LABEL,
   KIND_FIXTURE,
   KIND_THROW_FIXTURE,
+  STRUCTURE_FIXTURE,
+  epicIdSet,
+  parentEpicIdOf,
   MissingKindError,
   type TodoKind,
   type KindBearing,
+  type IdentifiedKindBearing,
 } from '../todo-kind.ts';
 import * as serverKind from '../todo-kind.ts';
 import * as uiKind from '../../../ui/src/lib/todoKind.ts';
@@ -196,6 +200,49 @@ describe('server/UI parity', () => {
     for (const kind of Object.keys(KIND_LABEL) as TodoKind[]) {
       expect(labelFor(kind)).toBe(uiKind.labelFor(kind));
     }
+  });
+});
+
+describe('STRUCTURE_FIXTURE — the structure trap (9acb7cb2)', () => {
+  it('kindOf respects the kind column regardless of childCount', () => {
+    for (const { input, expect: want } of STRUCTURE_FIXTURE) {
+      expect(kindOf(input)).toBe(want);
+    }
+  });
+
+  it('server kindOf agrees with UI mirror for every structure case', () => {
+    for (const { input, expect: want } of STRUCTURE_FIXTURE) {
+      expect(kindOf(input)).toBe(want);
+      expect(uiKind.kindOf(input)).toBe(want);
+    }
+  });
+
+  it('epicIdSet selects epics by kind, not by children', () => {
+    const all = STRUCTURE_FIXTURE.map(c => c.input);
+    const epicIds = epicIdSet(all);
+    expect(epicIds).toEqual(new Set(['e-new', 'e1']));
+    expect(epicIds.has('9acb7cb2')).toBe(false);
+    expect(epicIds.has('c1')).toBe(false);
+    expect(epicIds.has('l1')).toBe(false);
+  });
+
+  it('parentEpicIdOf returns null for a child of a split leaf', () => {
+    const all = STRUCTURE_FIXTURE.map(c => c.input);
+    const epicIds = epicIdSet(all);
+    const c1 = all.find(t => t.id === 'c1')!;
+    expect(parentEpicIdOf(c1, epicIds)).toBe(null);
+  });
+
+  it('parentEpicIdOf returns the parentId for a child of an epic', () => {
+    const all = STRUCTURE_FIXTURE.map(c => c.input);
+    const epicIds = epicIdSet(all);
+    const l1 = all.find(t => t.id === 'l1')!;
+    expect(parentEpicIdOf(l1, epicIds)).toBe('e1');
+  });
+
+  it('a structure case with missing kind throws', () => {
+    const missing: IdentifiedKindBearing = { id: 'no-kind', title: 'Has children', parentId: 'e1' };
+    expect(() => kindOf(missing)).toThrow(MissingKindError);
   });
 });
 
