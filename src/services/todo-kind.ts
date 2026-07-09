@@ -96,3 +96,16 @@ export const KIND_THROW_FIXTURE: ReadonlyArray<{ input: KindBearing | null | und
   { input: null },
   { input: undefined },
 ];
+
+/** CREATE-TIME resolution. `CreateTodoInput.kind` is optional and an absent kind on a
+ *  create means 'leaf' — the only safe default (you cannot accidentally mint an epic or
+ *  a mission). This is NOT `kindOf`: reading a STORED row with a missing kind stays a
+ *  hard MissingKindError (decision ea83ac9f). A garbage non-empty kind still throws —
+ *  only *absence* defaults. The title is never consulted. */
+export function kindOfInput(input: KindBearing | null | undefined): TodoKind {
+  if (input?.kind == null) return 'leaf';
+  return kindOf(input);            // garbage kind ('bogus') still throws
+}
+
+export const isEpicInput   = (i: KindBearing | null | undefined) => kindOfInput(i) === 'epic';
+export const isMissionInput = (i: KindBearing | null | undefined) => kindOfInput(i) === 'mission';

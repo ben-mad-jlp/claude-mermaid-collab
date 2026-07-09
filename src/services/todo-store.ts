@@ -1,7 +1,7 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
 import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, type ClaimReason, type TodoKind } from './claimability';
-import { isEpic, isMission, stripLabel } from './todo-kind';
+import { isEpic, isMission, isEpicInput, isMissionInput, kindOfInput, stripLabel } from './todo-kind';
 import type { KindBearing } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
@@ -808,17 +808,17 @@ async function resolveActiveMissionId(project: string, ownerSession?: string | n
  *  top-level create unless `inbox`/`allowOrphan` is set. */
 async function resolveTodoParent(project: string, input: CreateTodoInput): Promise<string | null> {
   if (input.parentId) return input.parentId;        // caller attached a parent
-  // isEpic/isMission read input.kind ONLY (post-strip): an epic/mission create
-  // MUST pass kind:'epic'/'mission' explicitly, or it is treated as a leaf and
-  // hits the orphan guard below.
-  if (isEpic(input)) {
+  // isEpicInput/isMissionInput handle CREATE-TIME defaults: an epic/mission create
+  // MUST pass kind:'epic'/'mission' explicitly, or it is treated as a leaf (kindOfInput)
+  // and hits the orphan guard below.
+  if (isEpicInput(input)) {
     // §4d: DELIVERABLE epics are mission children by DEFAULT; BUCKET epics stay roots.
     if (input.missionId === null) return null;              // explicit opt-out
     if (input.missionId) return input.missionId;            // explicit homing
     if (isBucketEpicTitle(input.title)) return null;        // Inbox / Bugfix inbox
     return await resolveActiveMissionId(project, input.ownerSession);
   }
-  if (isMission(input)) return null;                 // a mission is a durable root (Phase 2a)
+  if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
   // inbox:true → home under the Inbox epic (find-or-create). The ONLY auto-home, and explicit.
@@ -866,7 +866,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.kind ?? 'leaf', input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
       approvedAt, approvedBy, heldAt, heldReason
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
@@ -1400,6 +1400,7 @@ export async function createGate(project: string, input: CreateGateInput): Promi
     title,
     description: input.description ?? null,
     decisionRef: input.decisionRef ?? null,
+    kind: 'leaf',  // a gate is a human leaf, never a container
     // A [GATE] is a dependency PRIMITIVE, not a work todo: when the caller leaves it
     // unparented it attaches to the work-todo via dependsOn, so don't orphan-reject it.
     allowOrphan: input.parentId == null,

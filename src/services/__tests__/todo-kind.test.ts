@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'bun:test';
 import {
   kindOf,
+  kindOfInput,
   isMission,
   isEpic,
   isLand,
@@ -84,6 +85,39 @@ describe('BOMB 2 — a missing kind throws, never defaults to leaf', () => {
     expect(() => isEpic({})).toThrow();
     expect(() => isLand({})).toThrow();
     expect(() => isLeaf({})).toThrow();
+  });
+});
+
+describe('kindOfInput — CREATE-TIME resolution (absent kind defaults to leaf)', () => {
+  it('absent kind (null) defaults to leaf', () => {
+    expect(kindOfInput({ kind: null, title: '[EPIC] looks like one' })).toBe('leaf');
+  });
+
+  it('absent kind (undefined) defaults to leaf', () => {
+    expect(kindOfInput({ kind: undefined, title: '[MISSION] looks like one' })).toBe('leaf');
+  });
+
+  it('missing kind property (bare object) defaults to leaf', () => {
+    expect(kindOfInput({ title: 'plain' })).toBe('leaf');
+  });
+
+  it('null input defaults to leaf', () => {
+    expect(kindOfInput(null)).toBe('leaf');
+  });
+
+  it('undefined input defaults to leaf', () => {
+    expect(kindOfInput(undefined)).toBe('leaf');
+  });
+
+  it('garbage kind (bogus) still throws, not leaf', () => {
+    expect(() => kindOfInput({ kind: 'bogus' as TodoKind, title: '[EPIC] x' })).toThrow(MissingKindError);
+  });
+
+  it('explicit kind is returned as-is', () => {
+    expect(kindOfInput({ kind: 'epic', title: 'Foo' })).toBe('epic');
+    expect(kindOfInput({ kind: 'mission', title: 'Bar' })).toBe('mission');
+    expect(kindOfInput({ kind: 'land', title: 'Baz' })).toBe('land');
+    expect(kindOfInput({ kind: 'leaf', title: 'Qux' })).toBe('leaf');
   });
 });
 

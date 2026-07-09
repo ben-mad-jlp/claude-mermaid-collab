@@ -960,6 +960,25 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
     await completeTodo(project, depA.id, 'accepted');
     expect(listReadyTodos(project).map((t) => t.id)).toContain(dependent.id);
   });
+
+  test('createGate with no parentId defaults to leaf kind, passes MCP arg shape (umbrella test)', async () => {
+    // This is the MCP path — src/mcp/setup.ts:2324-2330 destructures the args and calls
+    // createGate(project, {...}) with parentId undefined when omitted. Exercise it with
+    // exactly that payload shape so the test covers the tool's real call.
+    const work = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'work-todo' });
+    const { gate, workTodo } = await createGate(project, {
+      workTodoId: work.id,
+      title: 'gate-title',
+      description: undefined,
+      gateKind: undefined,
+      parentId: undefined,
+      decisionRef: undefined,
+    });
+    expect(gate.parentId).toBeNull();
+    expect(gate.kind).toBe('leaf');
+    expect(gate.assigneeKind).toBe('human');
+    expect(workTodo.dependsOn).toContain(gate.id);
+  });
 });
 
 describe('steward verbs', () => {
@@ -1282,12 +1301,14 @@ describe('createTodo — every-todo-needs-an-epic guard (orphan reject + explici
     expect(listTodos(project, { includeCompleted: true }).length).toBe(0); // nothing created
   });
 
-  test('inbox:true homes under a find-or-create [EPIC] Inbox', async () => {
+  test('inbox:true homes under a find-or-create Inbox epic (post-stage-C strip)', async () => {
     const a = await createTodo(project, { ownerSession: 's', title: 'thought one', inbox: true });
     const b = await createTodo(project, { ownerSession: 's', title: 'thought two', inbox: true });
     expect(a.parentId).toBeTruthy();
     expect(a.parentId).toBe(b.parentId); // same Inbox epic reused
-    expect(getTodo(project, a.parentId!)?.title).toBe('[EPIC] Inbox');
+    const inbox = getTodo(project, a.parentId!)!;
+    expect(inbox.title).toBe('Inbox');
+    expect(inbox.kind).toBe('epic');
   });
 
   test('an [EPIC] title is a legitimate root — never rejected, no parent', async () => {
