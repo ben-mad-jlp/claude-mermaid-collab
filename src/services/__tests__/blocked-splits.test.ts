@@ -8,6 +8,8 @@ import {
 } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { findBlockedSplits } from '../claimability';
+import { diagnoseClaimSuppression } from '../coordinator-live';
+import { proposeSplit } from '../split-proposal';
 import type { Todo } from '../todo-store';
 
 let project: string;
@@ -216,3 +218,27 @@ function completeTodo(project: string, todoId: string, acceptance: 'accepted' | 
   const { updateTodo } = require('../todo-store');
   updateTodo(project, todoId, { status: 'done', acceptanceStatus: acceptance, completed: true });
 }
+
+describe('diagnoseClaimSuppression — SR-3 pending split proposals', () => {
+  test('open split proposal with zero children → blocked=true, pendingSplitProposals non-empty', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E' });
+    const leaf = await createTodo(project, {
+      allowOrphan: true, ownerSession: 's1', title: 'test leaf', status: 'ready',
+      parentId: epic.id,
+    });
+
+    proposeSplit({
+      project,
+      session: 'worker-123',
+      leaf: { id: leaf.id, title: leaf.title },
+      itemCount: 3,
+      reason: 'testing',
+    });
+
+    const report = await diagnoseClaimSuppression(project);
+
+    expect(report.blocked).toBe(true);
+    expect(report.pendingSplitProposals.length).toBeGreaterThan(0);
+    expect(report.pendingSplitProposals[0].todoId).toBe(leaf.id);
+  });
+});
