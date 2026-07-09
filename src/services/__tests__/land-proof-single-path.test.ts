@@ -1,0 +1,421 @@
+/**
+ * Topology test for land authority: ALL THREE ACTORS call ONE proof, NO BYPASS.
+ *
+ * The acceptance clause: *All three actors call the identical `landReadiness()`;
+ * a test proves no path bypasses it.* This file verifies the topology of the land
+ * system — that human/conductor/daemon converge on a single safety proof that is
+ * never bypassed, and that ownership gates authority (not safety).
+ */
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolate the global supervisor.db BEFORE any store module is imported.
+const supervisorDir = mkdtempSync(join(tmpdir(), 'land-single-path-'));
+process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
+
+import { landReadiness, landAuthority, landedByTrailer, type LandActor, type LandProbes } from '../land-authority';
+import { createTodo, getTodo, listTodos, _closeProject, type Todo } from '../todo-store';
+import { upsertMission, setMissionPhase } from '../mission-store';
+import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import type { EpicLandGateResult, EpicLandGateOpts } from '../epic-land-gate';
+
+beforeAll(() => { _closeSupervisorDb(); });
+afterAll(() => {
+  _closeSupervisorDb();
+  rmSync(supervisorDir, { recursive: true, force: true });
+  delete process.env.MERMAID_SUPERVISOR_DIR;
+});
+
+describe('land-proof-single-path — topology verification', () => {
+  let project: string;
+  let m1: Todo;
+  let epic: Todo;
+  let codeLeaf: Todo;
+  let landLeaf: Todo;
+  let inboxEpic: Todo;
+
+  const GREEN_GATE: EpicLandGateResult = {
+    status: 'pass',
+    declared: true,
+    manifestPath: '',
+    typecheck: { command: 'tsc', status: 'pass', output: '' },
+    units: [],
+    regressions: [],
+    inherited: [],
+    incidents: [],
+    reasons: [],
+    specFiles: [],
+    epicTipSha: 'abc123',
+    baseSha: 'def456',
+  };
+
+  function countingProbes(over?: Partial<LandProbes>): { probes: LandProbes; calls: { presence: number; gate: number; merge: number } } {
+    const calls = { presence: 0, gate: 0, merge: 0 };
+    const probes: LandProbes = {
+      presence: (p, e) => {
+        calls.presence++;
+        return {
+          project: p,
+          epicId: e,
+          epicBranch: `feature/${e.slice(0, 8)}`,
+          blocking: false,
+          findings: [],
+          exemptions: [],
+          duplicateCommits: [],
+          checked: 1,
+        };
+      },
+      gate: async (opts: EpicLandGateOpts) => {
+        calls.gate++;
+        return GREEN_GATE;
+      },
+      merge: (p, b, w) => {
+        calls.merge++;
+        return { tscClean: true, mergeClean: true };
+      },
+      ...(over ?? {}),
+    };
+    return { probes, calls };
+  }
+
+  const HUMAN: LandActor = { kind: 'human' };
+  const CONDUCTOR: LandActor = { kind: 'conductor', session: 'sess-A' };
+  const DAEMON: LandActor = { kind: 'daemon', level: 'auto' };
+
+  beforeEach(async () => {
+    project = mkdtempSync(join(tmpdir(), 'land-proof-repo-'));
+    _closeProject(project);
+
+    // Mission m1 owned by conductor sess-A
+    m1 = (await createTodo(project, {
+      allowOrphan: true,
+      title: '[MISSION] m1',
+      ownerSession: 'sess-A',
+    })) as Todo;
+
+    // Epic under m1
+    epic = (await createTodo(project, {
+      title: '[EPIC] deliverable',
+      parentId: m1.id,
+      ownerSession: 'sess-A',
+    })) as Todo;
+
+    // Code leaf (done)
+    codeLeaf = (await createTodo(project, {
+      title: 'code',
+      parentId: epic.id,
+      status: 'done',
+      ownerSession: 'sess-A',
+    })) as Todo;
+
+    // [LAND] leaf depending on code
+    landLeaf = (await createTodo(project, {
+      title: '[LAND] merge deliverable',
+      parentId: epic.id,
+      dependsOn: [codeLeaf.id],
+      ownerSession: 'sess-A',
+    })) as Todo;
+
+    // Inbox bucket (never landable)
+    inboxEpic = (await createTodo(project, {
+      allowOrphan: true,
+      title: '[EPIC] Inbox',
+      ownerSession: 'sess-A',
+    })) as Todo;
+
+    // Activate the mission
+    upsertMission(project, m1.id);
+    setMissionPhase(project, m1.id, 'discover');
+  });
+
+  afterEach(() => {
+    _closeProject(project);
+    try { rmSync(project, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('test 1 — proof is byte-identical across all three actors (green)', async () => {
+    const { probes: probes1, calls: calls1 } = countingProbes();
+    const { probes: probes2, calls: calls2 } = countingProbes();
+    const { probes: probes3, calls: calls3 } = countingProbes();
+    const { probes: probes4, calls: calls4 } = countingProbes();
+
+    const allTodos = listTodos(project, { includeCompleted: true });
+
+    // Call landAuthority once per actor
+    const humanVerdict = await landAuthority(project, epic.id, HUMAN, { probes: probes1, todos: allTodos });
+    const conductorVerdict = await landAuthority(project, epic.id, CONDUCTOR, { probes: probes2, todos: allTodos });
+    const daemonVerdict = await landAuthority(project, epic.id, DAEMON, { probes: probes3, todos: allTodos });
+
+    // Call bare landReadiness
+    const readinessVerdict = await landReadiness(project, epic.id, { probes: probes4, todos: allTodos });
+
+    // Extract the core (readiness fields, unaffected by actor)
+    const core = (v: any) => ({
+      green: v.green,
+      epicBranch: v.epicBranch,
+      inheritedRed: v.inheritedRed,
+      summary: v.summary,
+      blockers: v.blockers.map((b: any) => b.code),
+    });
+
+    const humanCore = core(humanVerdict);
+    const conductorCore = core(conductorVerdict);
+    const daemonCore = core(daemonVerdict);
+    const readinessCore = core(readinessVerdict);
+
+    // All four verdicts have identical readiness cores
+    expect(humanCore).toEqual(readinessCore);
+    expect(conductorCore).toEqual(readinessCore);
+    expect(daemonCore).toEqual(readinessCore);
+  });
+
+  it('test 2 — no actor skips a check (probe invocation counting)', async () => {
+    const { probes: probes1, calls: calls1 } = countingProbes();
+    const { probes: probes2, calls: calls2 } = countingProbes();
+    const { probes: probes3, calls: calls3 } = countingProbes();
+    const { probes: probes4, calls: calls4 } = countingProbes();
+
+    const allTodos = listTodos(project, { includeCompleted: true });
+
+    // Call all three actors
+    await landAuthority(project, epic.id, HUMAN, { probes: probes1, todos: allTodos });
+    await landAuthority(project, epic.id, CONDUCTOR, { probes: probes2, todos: allTodos });
+    await landAuthority(project, epic.id, DAEMON, { probes: probes3, todos: allTodos });
+
+    // Call bare landReadiness
+    await landReadiness(project, epic.id, { probes: probes4, todos: allTodos });
+
+    // Each must invoke all three probes exactly once
+    expect(calls1).toEqual({ presence: 1, gate: 1, merge: 1 });
+    expect(calls2).toEqual({ presence: 1, gate: 1, merge: 1 });
+    expect(calls3).toEqual({ presence: 1, gate: 1, merge: 1 });
+    expect(calls4).toEqual({ presence: 1, gate: 1, merge: 1 });
+  });
+
+  it('test 3 — a red proof refuses EVERY actor (ownership never weakens safety)', async () => {
+    // Override merge probe to fail
+    const { probes: probes1 } = countingProbes({ merge: () => ({ tscClean: true, mergeClean: false }) });
+    const { probes: probes2 } = countingProbes({ merge: () => ({ tscClean: true, mergeClean: false }) });
+    const { probes: probes3 } = countingProbes({ merge: () => ({ tscClean: true, mergeClean: false }) });
+
+    const allTodos = listTodos(project, { includeCompleted: true });
+
+    const humanVerdict = await landAuthority(project, epic.id, HUMAN, { probes: probes1, todos: allTodos });
+    const conductorVerdict = await landAuthority(project, epic.id, CONDUCTOR, { probes: probes2, todos: allTodos });
+    const daemonVerdict = await landAuthority(project, epic.id, DAEMON, { probes: probes3, todos: allTodos });
+
+    // All three must refuse, and all must have merge-conflict blocker
+    expect(humanVerdict.green).toBe(false);
+    expect(humanVerdict.authorized).toBe(false);
+    expect(humanVerdict.blockers.map((b) => b.code)).toContain('merge-conflict');
+
+    expect(conductorVerdict.green).toBe(false);
+    expect(conductorVerdict.authorized).toBe(false);
+    expect(conductorVerdict.blockers.map((b) => b.code)).toContain('merge-conflict');
+
+    expect(daemonVerdict.green).toBe(false);
+    expect(daemonVerdict.authorized).toBe(false);
+    expect(daemonVerdict.blockers.map((b) => b.code)).toContain('merge-conflict');
+  });
+
+  it('test 4 — ownership gates only authority, never the proof (conductor:foreign)', async () => {
+    const foreignConductor: LandActor = { kind: 'conductor', session: 'sess-B' };
+    const { probes } = countingProbes();
+    const allTodos = listTodos(project, { includeCompleted: true });
+
+    const verdict = await landAuthority(project, epic.id, foreignConductor, { probes, todos: allTodos });
+
+    // Green proof but unauthorized (foreign mission)
+    expect(verdict.green).toBe(true);
+    expect(verdict.authorized).toBe(false);
+    expect(verdict.ownership).toBe('foreign');
+    expect(verdict.blockers[0].code).toBe('foreign-mission');
+    expect(verdict.blockers[0].message).toContain('sess-A');
+
+    // Probes were still invoked (readiness computed regardless of ownership)
+    const allTodos2 = listTodos(project, { includeCompleted: true });
+    const { probes: probes2, calls: calls2 } = countingProbes();
+    await landAuthority(project, epic.id, foreignConductor, { probes: probes2, todos: allTodos2 });
+    expect(calls2).toEqual({ presence: 1, gate: 1, merge: 1 });
+  });
+
+  it('test 4b — ownership gates only authority (bucket epic)', async () => {
+    const { probes } = countingProbes();
+    const allTodos = listTodos(project, { includeCompleted: true });
+
+    const verdict = await landAuthority(project, inboxEpic.id, CONDUCTOR, { probes, todos: allTodos });
+
+    // Bucket epic is refused at ownership level
+    expect(verdict.authorized).toBe(false);
+    expect(verdict.ownership).toBe('bucket');
+    expect(verdict.blockers[0].code).toBe('bucket-epic');
+
+    // landReadiness on same epic is unaffected by actor
+    const readinessBucket = await landReadiness(project, inboxEpic.id, { probes, todos: allTodos });
+    // Inbox epic should fail the [LAND] leaf dep check
+    expect(readinessBucket.blockers.map((b) => b.code)).toContain('land-deps-unsatisfied');
+  });
+
+  it('test 5 — trailer parity (actor is recorded, proof is unaffected)', async () => {
+    const { probes: probes1 } = countingProbes();
+    const { probes: probes2 } = countingProbes();
+    const { probes: probes3 } = countingProbes();
+
+    const allTodos = listTodos(project, { includeCompleted: true });
+
+    const humanVerdict = await landAuthority(project, epic.id, HUMAN, { probes: probes1, todos: allTodos });
+    const conductorVerdict = await landAuthority(project, epic.id, CONDUCTOR, { probes: probes2, todos: allTodos });
+    const daemonVerdict = await landAuthority(project, epic.id, DAEMON, { probes: probes3, todos: allTodos });
+
+    // Trailers are distinct
+    expect(humanVerdict.trailer).toBe('Landed-By: human');
+    expect(conductorVerdict.trailer).toBe('Landed-By: conductor:sess-A');
+    expect(daemonVerdict.trailer).toBe('Landed-By: daemon:auto');
+
+    // But readiness core is identical
+    const core = (v: any) => ({
+      green: v.green,
+      epicBranch: v.epicBranch,
+      inheritedRed: v.inheritedRed,
+      blockers: v.blockers.map((b: any) => b.code),
+    });
+
+    expect(core(humanVerdict)).toEqual(core(conductorVerdict));
+    expect(core(humanVerdict)).toEqual(core(daemonVerdict));
+
+    // Also verify trailer helpers
+    expect(landedByTrailer(HUMAN)).toBe('Landed-By: human');
+    expect(landedByTrailer(CONDUCTOR)).toBe('Landed-By: conductor:sess-A');
+    expect(landedByTrailer(DAEMON)).toBe('Landed-By: daemon:auto');
+  });
+
+  it('test 6a — one trunk merge primitive (landEpicToMaster in coordinator-live only)', () => {
+    // Read coordinator-live.ts and verify landEpicToMaster call sites
+    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
+    const content = readFileSync(coordinatorPath, 'utf8');
+    const landEpicToMasterMatches = content.match(/wm\.landEpicToMaster\(/g);
+
+    // Should appear exactly 2 times: OI-1 integration land + trunk land inside landEpic
+    expect(landEpicToMasterMatches?.length).toBe(2);
+
+    // Verify no other file in src/ has landEpicToMaster (excluding tests and worktree-manager def)
+    const srcDir = join(import.meta.dir, '../../');
+    const files = walkSync(srcDir, (f) => !f.includes('__tests__') && !f.includes('worktree-manager.ts'));
+    const filesWithMerge = files.filter((f) => {
+      try {
+        const content = readFileSync(f, 'utf8');
+        return content.includes('landEpicToMaster(');
+      } catch {
+        return false;
+      }
+    });
+
+    expect(filesWithMerge).toEqual([coordinatorPath]);
+  });
+
+  it('test 6b — proof precedes merge inside landEpic', () => {
+    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
+    const content = readFileSync(coordinatorPath, 'utf8');
+
+    // Find the landEpic function body
+    const landEpicStart = content.indexOf('export async function landEpic(');
+    expect(landEpicStart).toBeGreaterThan(-1);
+
+    const nextExport = content.indexOf('\nexport ', landEpicStart + 1);
+    const landEpicBody = content.slice(landEpicStart, nextExport === -1 ? undefined : nextExport);
+
+    // Proof derivation must come before merge
+    const proofIdx = landEpicBody.indexOf('deriveEpicLandProof(');
+    const mergeIdx = landEpicBody.indexOf('landEpicToMaster(');
+    const refusalIdx = landEpicBody.indexOf('if (!proof.ok)');
+
+    expect(proofIdx).toBeGreaterThan(-1);
+    expect(mergeIdx).toBeGreaterThan(-1);
+    expect(refusalIdx).toBeGreaterThan(-1);
+    expect(proofIdx).toBeLessThan(refusalIdx);
+    expect(refusalIdx).toBeLessThan(mergeIdx);
+  });
+
+  it('test 6c — entrypoint allowlist is exactly 3 files', () => {
+    const srcDir = join(import.meta.dir, '../../');
+    const files = walkSync(srcDir, (f) => !f.includes('__tests__'));
+
+    const filesWithLandEpic = files.filter((f) => {
+      try {
+        const content = readFileSync(f, 'utf8');
+        return content.includes('landEpic(');
+      } catch {
+        return false;
+      }
+    }).sort();
+
+    const expected = [
+      join(srcDir, 'services/coordinator-live.ts'),
+      join(srcDir, 'routes/supervisor-routes.ts'),
+      join(srcDir, 'mcp/setup.ts'),
+    ].sort();
+
+    expect(filesWithLandEpic).toEqual(expected);
+  });
+
+  it('test 6d — each entrypoint is on the proof', () => {
+    const supervisorPath = join(import.meta.dir, '../../routes/supervisor-routes.ts');
+    const mcpPath = join(import.meta.dir, '../../mcp/setup.ts');
+    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
+
+    const supervisorContent = readFileSync(supervisorPath, 'utf8');
+    const mcpContent = readFileSync(mcpPath, 'utf8');
+    const coordinatorContent = readFileSync(coordinatorPath, 'utf8');
+
+    // supervisor-routes calls landAuthority
+    expect(supervisorContent).toContain('landAuthority(');
+    // mcp/setup calls checkOwnership
+    expect(mcpContent).toContain('checkOwnership(');
+    // coordinator-live calls autoLandReadiness
+    expect(coordinatorContent).toContain('autoLandReadiness(');
+  });
+
+  it('test 6e — autoLandReadiness is a pure delegation to landReadiness', () => {
+    const coordinatorPath = join(import.meta.dir, '../../services/coordinator-live.ts');
+    const content = readFileSync(coordinatorPath, 'utf8');
+
+    // Find autoLandReadiness function
+    const funcStart = content.indexOf('export async function autoLandReadiness(');
+    expect(funcStart).toBeGreaterThan(-1);
+
+    const funcEnd = content.indexOf('\n}', funcStart);
+    const funcBody = content.slice(funcStart, funcEnd);
+
+    // Must contain exact delegation pattern (loose whitespace matching)
+    const pattern = /return\s+landReadiness\(\s*repo\s*,\s*epicId\s*,\s*\{\s*todos\s*\}\s*\)/;
+    expect(funcBody).toMatch(pattern);
+  });
+});
+
+/** Walk src/ recursively, returning file paths, skipping __tests__ and matching filterFn */
+function walkSync(dir: string, filterFn: (path: string) => boolean): string[] {
+  const results: string[] = [];
+
+  function walk(d: string) {
+    try {
+      const entries = readdirSync(d, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = join(d, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+        } else {
+          if (filterFn(fullPath)) {
+            results.push(fullPath);
+          }
+        }
+      }
+    } catch {
+      /* skip unreadable dirs */
+    }
+  }
+
+  walk(dir);
+  return results;
+}
