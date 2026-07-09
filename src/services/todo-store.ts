@@ -170,6 +170,20 @@ export class OrphanTodoError extends Error {
   }
 }
 
+/** Thrown by updateTodo when a status:'dropped' patch targets a todo that still
+ *  holds a LIVE claim — dropping it would silently clear the claim out from under
+ *  the run that owns it while it keeps building. Release the claim first
+ *  (releaseClaim / reset_todo), or pass force:true to drop anyway. */
+export class ClaimedTodoDropError extends Error {
+  constructor(public readonly todoId: string, public readonly claimedBy: string, public readonly claimToken: string) {
+    super(
+      `todo ${todoId.slice(0, 8)} is claimed by "${claimedBy}" (token ${claimToken.slice(0, 8)}) and cannot be dropped. ` +
+      `Release the claim first (releaseClaim / reset_todo), or pass force:true to drop and abandon the running build.`,
+    );
+    this.name = 'ClaimedTodoDropError';
+  }
+}
+
 export type UpdateTodoPatch = Partial<{
   title: string;
   description: string | null;
@@ -203,6 +217,9 @@ export type UpdateTodoPatch = Partial<{
   approvedBy: string | null;
   heldAt: string | null;
   heldReason: string | null;
+  /** Escape hatch for a STALE claim: drop a claimed todo anyway (claim is cleared).
+   *  Without it, dropping a live-claimed todo throws ClaimedTodoDropError. */
+  force: boolean;
 }>;
 
 interface TodoRow {
@@ -787,6 +804,17 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     } else {
       status = existing.status;
     }
+
+    // F5: a node holding a LIVE claim must not go terminal-dropped out from under the run
+    // that owns it — the daemon's worker keeps building work the human abandoned. Refuse;
+    // the claim must be released first (releaseClaim / reset_todo), which gives the daemon
+    // a tick to observe the transition. `force:true` is the documented stale-claim escape.
+    if (status === 'dropped' && existing.status !== 'dropped' && !patch.force) {
+      const live = existing.claim ?? (existing.claimedBy && existing.claimToken
+        ? { by: existing.claimedBy, token: existing.claimToken } : null);
+      if (live) throw new ClaimedTodoDropError(id, live.by, live.token);
+    }
+
     const completedAt = status === 'done' ? (existing.completedAt ?? nowIso()) : null;
 
     const assigneeKind: AssigneeKind = patch.assigneeKind ?? existing.assigneeKind;
@@ -865,6 +893,10 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       // of a closed epic lingering on the board because of orphaned undone children. No-op on
       // the normal auto-complete path (an epic that completes has no open descendants). Inline
       // [EPIC] check — importing isEpicTodo would cycle (invariant-check imports todo-store).
+      // NOTE: deliberately bypasses the ClaimedTodoDropError guard above (raw SQL, not
+      // updateTodo) — refusing an epic close because some deep leaf is claimed is its own
+      // footgun. Killing the running build + cleaning its worktree is the explicitly
+      // out-of-scope follow-up (design §5 step 5); a test pins this current behaviour.
       if (/^\s*\[EPIC\]/i.test(next.title ?? '')) {
         try {
           db.prepare(

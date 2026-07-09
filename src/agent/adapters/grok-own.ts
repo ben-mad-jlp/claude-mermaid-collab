@@ -448,6 +448,11 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       return abs;
     };
 
+    const todoId = invokeSkillTodoId(spec.invokeSkill);
+    // Capture the lane's claim token at LANE START, not at completion — a token read
+    // at completion time would always match the current row and defeat the CAS.
+    const laneClaimToken = getTodo(spec.project, todoId)?.claim?.token ?? undefined;
+
     const tools = {
       get_todo: tool({
         description: 'Read the work-graph todo you are assigned (the task spec).',
@@ -468,7 +473,7 @@ class GrokOwnHarnessImpl implements WorkerAgent {
         execute: async ({ project, todoId, acceptance }) => {
           const { makeCoordinatorDeps } = await import('../../services/coordinator-live');
           const { handleWorkerComplete } = await import('../../services/coordinator-daemon');
-          const result = await handleWorkerComplete(makeCoordinatorDeps(), project, todoId, acceptance);
+          const result = await handleWorkerComplete(makeCoordinatorDeps(), project, todoId, acceptance, laneClaimToken);
           return JSON.stringify(result);
         },
       }),
@@ -507,7 +512,6 @@ class GrokOwnHarnessImpl implements WorkerAgent {
       }),
     };
 
-    const todoId = invokeSkillTodoId(spec.invokeSkill);
     const project = spec.project;
     const prompt = [
       `You are an autonomous coding worker. Your assigned todo id is "${todoId}" in project "${project}".`,
