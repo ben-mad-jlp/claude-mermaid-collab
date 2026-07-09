@@ -197,7 +197,10 @@ describe('mission-store: listMissions', () => {
     // a [MISSION]-titled node WITHOUT upsertMission → skipped (not a real mission)
     await makeMissionNode('[MISSION] two (no control state)');
     // a plain epic root → not a mission (explicit kind, decision e852fb0c stage C)
-    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] not a mission', kind: 'epic' });
+    // missionId:null = the explicit opt-out (todo-store.ts:816). Without it, §4d homes a
+    // deliverable epic under the owner session's active mission — so this "root" epic became
+    // a CHILD of m1 and showed up in missions[0].epics.
+    await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] not a mission', kind: 'epic', missionId: null });
 
     const missions = listMissions(project);
     expect(missions).toHaveLength(1);

@@ -226,7 +226,7 @@ describe('completeTodo merge-back conflict (DEFECT 2+3)', () => {
     expect(listPool().some((s) => s.project === repo && s.sessionName === SESSION)).toBe(true);
 
     completeSessionName = SESSION;
-    completeResultExtra = { targetProject: repo, title: 'conflicty todo', acceptanceStatus: 'accepted' };
+    completeResultExtra = { targetProject: repo, title: 'conflicty todo', acceptanceStatus: 'accepted', kind: 'leaf', parentId: null };
 
     const deps = makeCoordinatorDeps();
     await deps.completeTodo(repo, TODO_ID, 'accepted');
