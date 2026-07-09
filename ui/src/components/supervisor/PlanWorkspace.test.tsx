@@ -42,6 +42,7 @@ function todo(p: Partial<SessionTodo> & { id: string }): SessionTodo {
     approvedAt: '2026-06-16T00:00:00Z',
     heldAt: null,
     claim: null,
+    kind: 'leaf',
     ...p,
   } as SessionTodo;
 }

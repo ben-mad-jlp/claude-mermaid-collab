@@ -10,6 +10,8 @@ import { FleetGraph } from './bridge/fleet/FleetGraph';
 import { liveBucketTodo, STATUS_STYLE } from './bridge/funnel';
 import { useInflightLeafIds } from './bridge/useInflightLeafIds';
 import { derivedStatus, buildById } from '@/lib/claimability';
+import { isEpic } from '@/lib/todoKind';
+import { buildTodoHierarchy, descendantsOf } from '@/lib/todoHierarchy';
 
 /**
  * PCS Phase 5 / Bridge P6 — the project Plan, backed by the UNIFIED work-graph
@@ -149,6 +151,10 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
 
   const waveMap = useMemo(() => computeWaveMap(todos as PlanItem[]), [todos]);
 
+  // The ONLY structural derivation in this file. Lanes come from `kind === 'epic'`
+  // (a childless epic has a lane; a split leaf never does) — never from has-children.
+  const hierarchy = useMemo(() => buildTodoHierarchy(todos), [todos]);
+
   // Derived via the single predicate (epic b2c858d4), not the shadow enum.
   const byIdAll = useMemo(() => buildById(todos), [todos]);
   const inProgress = todos.filter((t) => derivedStatus(t, byIdAll) === 'in_progress').length;
@@ -158,83 +164,54 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
   // sorted by the plan order, each followed by its children (also sorted).
   const tree = useMemo(() => {
     const sort = planSort(waveMap);
-    const byId = new Map(todos.map((t) => [t.id, t]));
-    const childrenByParent = new Map<string, SessionTodo[]>();
-    const topLevel: SessionTodo[] = [];
-    for (const t of todos) {
-      if (t.parentId && byId.has(t.parentId)) {
-        const arr = childrenByParent.get(t.parentId) ?? [];
-        arr.push(t);
-        childrenByParent.set(t.parentId, arr);
-      } else {
-        topLevel.push(t);
-      }
-    }
     const TERMINAL = new Set(['done', 'dropped']);
     const keep = (t: SessionTodo) => showCompleted || !TERMINAL.has(t.status);
     const rows: { todo: SessionTodo; depth: number }[] = [];
-    for (const top of [...topLevel].sort(sort)) {
-      const allKids = childrenByParent.get(top.id) ?? [];
-      if (allKids.length > 0) {
-        // An epic: a fully-completed one (every child terminal) is gated by Show
-        // completed; a cohesive ACTIVE epic always shows ALL its children, completed
-        // ones included (progress). A catch-all BUCKET epic (Inbox) instead trims its
-        // completed children unless Show completed is on (history, not an arc).
-        const epicCompleted = allKids.every((k) => TERMINAL.has(k.status));
-        if (epicCompleted && !showCompleted) continue;
-        const bucket = isBucketEpic(top.title);
-        const kids = bucket && !showCompleted ? allKids.filter(keep) : allKids;
-        rows.push({ todo: top, depth: 0 });
-        for (const k of [...kids].sort(sort)) rows.push({ todo: k, depth: 1 });
-      } else if (keep(top)) {
-        // An orphan top-level leaf — gated by Show completed.
-        rows.push({ todo: top, depth: 0 });
+
+    const epics = todos.filter(isEpic).sort(sort);
+    for (const epic of epics) {
+      const allKids = hierarchy.childrenByEpic.get(epic.id) ?? [];
+      // A CHILDLESS epic is never "fully completed" — it must still show its (empty)
+      // lane. Only an epic whose every child is terminal is gated by Show completed.
+      const epicCompleted = allKids.length > 0 && allKids.every((k) => TERMINAL.has(k.status));
+      if (epicCompleted && !showCompleted) continue;
+      const kids = isBucketEpic(epic.title) && !showCompleted ? allKids.filter(keep) : allKids;
+      rows.push({ todo: epic, depth: 0 });
+      for (const k of [...kids].sort(sort)) {
+        rows.push({ todo: k, depth: 1 });
+        // A leaf the auto-splitter gave children stays a LEAF row; its children are
+        // sub-tasks nested under it, not lane members.
+        const subs = hierarchy.subtasksByParent.get(k.id) ?? [];
+        for (const s of [...subs].sort(sort)) if (keep(s)) rows.push({ todo: s, depth: 2 });
       }
     }
+    for (const o of [...hierarchy.orphans].sort(sort)) {
+      if (!keep(o)) continue;
+      rows.push({ todo: o, depth: 0 });
+      const subs = hierarchy.subtasksByParent.get(o.id) ?? [];
+      for (const s of [...subs].sort(sort)) if (keep(s)) rows.push({ todo: s, depth: 1 });
+    }
     return rows;
-  }, [todos, waveMap, showCompleted]);
+  }, [todos, waveMap, showCompleted, hierarchy]);
 
   // Graph mode: one graph PER EPIC (top-level item + its full descendant subtree),
   // stacked in rows — instead of a single combined fleet graph. Only top-level
   // items that actually have descendants are graphed (a lone leaf has nothing to show).
   const epicGraphs = useMemo(() => {
-    const byId = new Map(todos.map((t) => [t.id, t]));
-    const childrenByParent = new Map<string, SessionTodo[]>();
-    const topLevel: SessionTodo[] = [];
-    for (const t of todos) {
-      if (t.parentId && byId.has(t.parentId)) {
-        const arr = childrenByParent.get(t.parentId) ?? [];
-        arr.push(t);
-        childrenByParent.set(t.parentId, arr);
-      } else {
-        topLevel.push(t);
-      }
-    }
-    const descendants = (rootId: string): SessionTodo[] => {
-      const out: SessionTodo[] = [];
-      const stack = [rootId];
-      while (stack.length) {
-        const id = stack.pop()!;
-        for (const k of childrenByParent.get(id) ?? []) { out.push(k); stack.push(k.id); }
-      }
-      return out;
-    };
     const sort = planSort(waveMap);
     const TERMINAL = new Set(['done', 'dropped']);
-    return [...topLevel]
+    return todos
+      .filter(isEpic)
       .sort(sort)
       .map((epic) => {
-        const desc = descendants(epic.id);
-        // Cohesive epic: graph the FULL subtree (completed children stay = progress).
-        // Catch-all BUCKET epic (Inbox): trim completed descendants unless Show
-        // completed is on (history, not an arc).
-        const visibleDesc = isBucketEpic(epic.title) && !showCompleted ? desc.filter((t) => !TERMINAL.has(t.status)) : desc;
+        const desc = descendantsOf(epic.id, hierarchy);
+        const visibleDesc =
+          isBucketEpic(epic.title) && !showCompleted ? desc.filter((t) => !TERMINAL.has(t.status)) : desc;
         const completed = desc.length > 0 && desc.every((t) => TERMINAL.has(t.status));
         return { epic, todos: [epic, ...visibleDesc], completed };
       })
-      .filter((g) => g.todos.length > 1)
       .filter((g) => showCompleted || !g.completed);
-  }, [todos, waveMap, showCompleted]);
+  }, [todos, waveMap, showCompleted, hierarchy]);
 
   // Housekeeping: hard-delete completed children from a bucket epic (epicId is a string)
   // or the synthetic orphan lane (epicId === null). Confirmed; batch-delete then reload.
@@ -243,16 +220,8 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
     let done: SessionTodo[];
     let label: string;
     if (epicId === null) {
-      const byId = new Map(todos.map((t) => [t.id, t]));
-      const epicIds = new Set(
-        todos.filter((t) => t.parentId != null && byId.has(t.parentId)).map((t) => t.parentId!),
-      );
-      done = todos.filter(
-        (t) =>
-          TERM.has(t.status) &&
-          !epicIds.has(t.id) &&
-          !(t.parentId != null && byId.has(t.parentId)),
-      );
+      const orphanIds = new Set(hierarchy.orphans.map((t) => t.id));
+      done = todos.filter((t) => TERM.has(t.status) && orphanIds.has(t.id));
       label = 'the No-epic lane';
     } else {
       done = todos.filter((t) => t.parentId === epicId && TERM.has(t.status));
@@ -351,7 +320,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
         ) : mode === 'graph' ? (
           epicGraphs.length === 0 ? (
             <div className="flex items-center justify-center h-full">
-              <p className="text-xs text-gray-400 dark:text-gray-500">No epics with sub-tasks to graph.</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">No epics to graph.</p>
             </div>
           ) : (() => {
             const active = epicGraphs.find((g) => g.epic.id === graphEpicId) ?? epicGraphs[0];
