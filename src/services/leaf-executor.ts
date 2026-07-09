@@ -24,6 +24,8 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
+import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
+import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
@@ -33,8 +35,9 @@ import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
 import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokModelForKind, xaiApiLedgerModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
-import { createEscalation } from './supervisor-store';
+import { createEscalation, resolveEscalation } from './supervisor-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
+import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-proposal';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume } from './worker-ledger';
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
@@ -64,7 +67,15 @@ export interface LeafSizeManifest {
   filesToCreate: string[];
   filesToEdit: string[];
   tasks: Array<{ id: string; files: string[]; description: string }>;
+  /** SR-6: present iff the blueprint emitted a well-formed `splitDecision`. */
+  splitDecision?: LeafSplitDecision;
+  /** SR-6: true iff a `splitDecision` KEY was present but failed validation. The gate
+   *  then takes the FLOOR — a malformed decision must never read as "split into N". */
+  splitDecisionMalformed?: boolean;
 }
+
+// Re-export types so they're available to users of leaf-executor.ts
+export type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 
 /** Dependency seam — defaults wire the real implementations; tests inject mocks. */
 export interface LeafExecutorDeps {
@@ -124,6 +135,27 @@ export interface LeafExecutorDeps {
     todoId?: string | null;
     questionText: string;
   }) => void;
+  /** SR-3: raise/find the ONE open split proposal for this leaf. Never materializes children.
+   *  Default → `proposeSplit`. Unwired (`?.`) ⇒ the caller skips straight to the FLOOR. */
+  proposeSplit?: (input: {
+    project: string;
+    session: string;
+    leaf: { id: string; title?: string | null };
+    itemCount: number;
+    reason: string;
+  }) => { escalationId: string; createdAt: number; isNew: boolean };
+  /** SR-3: bounded wait for the proposal's answer. Default → `awaitSplitDecision`. */
+  awaitSplitDecision?: (input: {
+    escalationId: string;
+    createdAt: number;
+    timeoutMs?: number;
+    pollMs?: number;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+    readDecision?: (id: string) => { optionId: string | null } | null;
+  }) => Promise<'split' | 'linear' | 'timeout'>;
+  /** SR-3: close the proposal card once the run has acted on it. Default → `resolveEscalation`. */
+  resolveProposal?: (escalationId: string, status: string, resolvedBy?: 'ai' | 'human') => void;
   /** Append a best-effort node-ledger row. */
   recordNode: typeof recordNode;
   /** LIVE in-flight signal (optional): mark/clear the leaf as running a node so separate
@@ -166,12 +198,13 @@ export interface LeafExecutorDeps {
    *  Optional `?.`: when unwired (tests / non-git) it returns null and BOTH behaviours
    *  fall back to the prior conservative path (gate fails on any error; no skip). */
   changeSet?: (sessionKey: string) => Promise<string[] | null>;
-  /** Auto-split seam (worker-decomposition): decompose a too-big leaf into one child
-   *  leaf per file UNDER it — the leaf becomes a non-executable dependency-grouping
-   *  container (sweepEpicRollups closes it when its children settle; it owns no branch
-   *  and triggers no merge). Default → `splitLeafInto` in todo-store (createTodo per file
-   *  + release this leaf's claim). Optional `?.`: unwired (tests / floor) ⇒ never splits. */
-  splitInto?: (leaf: Todo, files: string[]) => Promise<void>;
+  /** Auto-split seam. SR-6: takes structured ITEMS (each = one child leaf, >= 1 file, with
+   *  sibling `dependsOn` edges), not a flat file list. A plain `string[]` is still accepted
+   *  and normalised to one edgeless item per file (legacy file-count path + old tests).
+   *  The leaf becomes a non-executable dependency-grouping container (sweepEpicRollups closes
+   *  it when its children settle; it owns no branch and triggers no merge). Default →
+   *  `splitLeafInto` in todo-store. Optional `?.`: unwired (tests / floor) ⇒ never splits. */
+  splitInto?: (leaf: Todo, items: LeafSplitItem[] | string[]) => Promise<void>;
   /** P5 size-gate seam: read back the blueprint artifact (the .md the blueprint
    *  node wrote, including its trailing ```json size block) so the executor can
    *  derive the {@link LeafSizeManifest}. Default reads
@@ -230,12 +263,12 @@ export interface LeafRunResult {
   // 'pending' is a FIRST-CLASS outcome (no longer collapsed into 'rejected'): the
   // review PASSed and the work merged, but the completion gate's work-committed
   // re-verify deferred. Distinct from 'rejected' (gate/review actually failed).
-  // 'split' (worker-decomposition): the leaf was too big to build in one run, so it was
-  // decomposed PRE-FLIGHT into one child leaf per file and became a non-executable
-  // dependency-grouping container. No completion, no merge — sweepEpicRollups closes it
-  // when its children settle; the enclosing epic's LAND leaf stays the merge authority.
-  // The coordinator treats it as "this dispatch produced no acceptance" (returns false);
-  // the container claim-guard then keeps the parent from being re-claimed.
+  // 'split' (SR-3): an explicit 'split' answer was given to a proposal, and children
+  // were materialized. The leaf became a non-executable dependency-grouping container.
+  // No completion, no merge — sweepEpicRollups closes it when its children settle;
+  // the enclosing epic's LAND leaf stays the merge authority. The coordinator treats it
+  // as "this dispatch produced no acceptance" (returns false); the container claim-guard
+  // then keeps the parent from being re-claimed.
   // 'aborted': the daemon stopped the run at a node boundary (ancestor drop, hold, or
   // claim loss) — the todo's terminal state was already set by whoever aborted it; the
   // executor does NO completion, merge, or escalation of its own on this outcome.
@@ -416,6 +449,12 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
 };
 
+/** SR-7: a split child inherits its parent's plan slice, so its blueprint node RECONCILES
+ *  instead of re-deriving. Cheap model, low effort. It is NOT skipped: the parent plan
+ *  encodes cross-file contracts + test strategy that later siblings can invalidate, and
+ *  SR-6's dependsOn bounds — but does not eliminate — that staleness. */
+export const BLUEPRINT_REFRESH_PROFILE = { model: 'sonnet', effort: 'low' as EffortLevel };
+
 /** Process-wide effort override: MERMAID_NODE_EFFORT forces every spawned node to a
  *  single level (blunt instrument; the per-project knob is preferred). */
 const ENV_NODE_EFFORT: EffortLevel | undefined = (() => {
@@ -490,11 +529,24 @@ export function buildNodePrompt(
         '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
         '  "nonEnumerableFanout": <bool>,',
         '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
-        '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ] }',
+        '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
+        '  "splitDecision": { "split": <bool>, "reason": "<why>",',
+        '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
         '```',
         'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
         'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
         'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+        '',
+        'YOU decide whether this leaf is decomposable — a file count cannot see coupling, you can.',
+        '`splitDecision.split: false` ⇒ the leaf runs WHOLE in one worker, even at 12 files. Choose',
+        'this whenever the change is COUPLED: a shared primitive that call sites must be written',
+        'against, a lock protocol, a two-sided predicate. State that invariant in `reason`.',
+        '`splitDecision.split: true` ⇒ EVERY item becomes ONE child leaf, and `dependsOn` becomes a',
+        'REAL dependency edge between them (a child whose dep is unmet cannot be claimed). An item MAY',
+        'hold several files — group them by INDEPENDENT UNIT, not one-per-file. A module and the tests',
+        'that import it are NOT independent: the test item dependsOn the module item. `dependsOn` ids',
+        'must reference sibling item ids, and the graph must be acyclic. Omit `items` when split:false.',
+        'Prefer `split: false` when in doubt — an unsound split races; a whole leaf merely runs longer.',
         '',
         `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your`,
         `FINAL reply message — verbatim — so the executor has the blueprint even if the file`,
@@ -532,6 +584,56 @@ export function buildNodePrompt(
       // reaches here — this switch is exhaustive over the FLOOR kinds it owns.
       throw new Error(`buildNodePrompt: unsupported floor kind "${kind}"`);
   }
+}
+
+/** SR-7: Build the refresh prompt for a split child's BLUEPRINT node. The child reconciles
+ *  the inherited parent plan against the current tree (reading only its file slice) rather
+ *  than re-deriving from zero. The prompt inlines the parent's durable plan and the child's
+ *  file slice, and instructs the node to RECONCILE (tree wins on disagreements, don't re-derive). */
+export function buildBlueprintRefreshPrompt(leaf: Todo, inheritedText: string, files: string[]): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+  const bp = blueprintPath(leaf);
+  return [
+    'You are the BLUEPRINT REFRESH node for ONE split child leaf. Do NOT write implementation code.',
+    `Title: ${title}`,
+    `Description: ${description}`,
+    `You own EXACTLY these files: ${files.join(', ')}.`,
+    '',
+    'The parent plan you inherited (below) was authored BEFORE your sibling leaves landed. RECONCILE',
+    'it against the CURRENT tree: read the files you own and the interfaces your dependencies actually',
+    'shipped. Where the inherited prose disagrees with the tree, the TREE wins. Do not re-derive the',
+    'design from zero.',
+    '',
+    `=== INHERITED PARENT PLAN (${leaf.inheritedBlueprintFrom}) START ===`,
+    inheritedText,
+    '=== INHERITED PARENT PLAN END ===',
+    '',
+    `Produce your reconciliation and WRITE it to \`${bp}\`.`,
+    'The blueprint must cite the real files/symbols to touch and the exact change shape.',
+    '',
+    'FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable',
+    'size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file',
+    'and parse as:',
+    '```json',
+    '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
+    '  "nonEnumerableFanout": <bool>,',
+    '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
+    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
+    '  "splitDecision": { "split": <bool>, "reason": "<why>",',
+    '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
+    '```',
+    'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
+    'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
+    'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+    '',
+    'Emit `splitDecision.split: false` unless your slice genuinely decomposes further — you are',
+    'already a split child.',
+    '',
+    `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your`,
+    `FINAL reply message — verbatim — so the executor has the blueprint even if the file`,
+    `read fails. (Write the file AND emit the full text as your final message.)`,
+  ].join('\n');
 }
 
 /** Build the inline prompt for a VERIFY-pipeline node (epic f5c7fc46). Three kinds:
@@ -694,6 +796,9 @@ export function parseSizeManifest(
           files: toStrArr(t.files),
           description: typeof t.description === 'string' ? t.description : '',
         }));
+      // SR-6: parse the optional splitDecision. A key present but malformed → tri-state.
+      const hasKey = Object.prototype.hasOwnProperty.call(raw, 'splitDecision');
+      const decision = hasKey ? parseSplitDecision(raw.splitDecision) : null;
       return {
         schemaVersion: typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 1,
         estimatedFiles,
@@ -702,6 +807,8 @@ export function parseSizeManifest(
         filesToCreate: toStrArr(raw.filesToCreate),
         filesToEdit: toStrArr(raw.filesToEdit),
         tasks,
+        ...(decision ? { splitDecision: decision } : {}),
+        ...(hasKey && !decision ? { splitDecisionMalformed: true } : {}),
       };
     } catch {
       /* not parseable — try the next source, else fall through to null */
@@ -909,6 +1016,28 @@ export function planResume(
   if (!resume.epicBaseSha || !currentEpicSha) return { mode: 'fresh', reason: 'no-epic-base' };
   if (resume.epicBaseSha !== currentEpicSha) return { mode: 'fresh', reason: 'epic-base-moved' };
   return { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
+}
+
+/** SR-7: inheritance from a parent's durable blueprint plan, scoped to a child's file slice.
+ *  A split child's blueprint node RECONCILES instead of deriving from zero. */
+export interface InheritedSlice {
+  from: string;
+  files: string[];
+  text: string;
+}
+
+/** SR-7: null ⇒ run the ordinary FULL blueprint (not a split child, plan gone, or the
+ *  inherited slice never mentions a file the child owns — an under-specified parent). */
+export function resolveInheritedSlice(
+  leaf: Todo,
+  restore: ((leafId: string) => string | null) | undefined,
+): InheritedSlice | null {
+  const from = leaf.inheritedBlueprintFrom;
+  const files = leaf.inheritedFiles ?? [];
+  if (!from || files.length === 0 || !restore) return null;
+  const text = restore(from);
+  if (!sliceCoversFiles(text, files)) return null;
+  return { from, files, text: text as string };
 }
 
 export async function runLeaf(
@@ -1212,6 +1341,15 @@ export async function runLeaf(
     transcriptLabel: kind,
   });
 
+  /** SR-7: blueprint refresh spec for split children. Honors per-project overrides exactly
+   *  like buildSpec, just uses a different (cheaper) model/effort default and the refresh prompt. */
+  const buildRefreshSpec = (cwd: string, slice: InheritedSlice): NodeSpec => ({
+    ...buildSpec('blueprint', cwd),
+    prompt: buildBlueprintRefreshPrompt(leaf, slice.text, slice.files),
+    model: nodeOverrides.blueprint?.model ?? BLUEPRINT_REFRESH_PROFILE.model,
+    effort: nodeOverrides.blueprint?.effort ?? projectEffort ?? ENV_NODE_EFFORT ?? BLUEPRINT_REFRESH_PROFILE.effort,
+  });
+
   /** Verify-pipeline NodeSpec (epic f5c7fc46) — mirrors buildSpec but uses buildVerifyPrompt
    *  and threads the resolved gate `verb` into both the prompt and (for driveexec) the per-leaf
    *  allowlist, so a non-default verb is referenced AND tool-allowlisted correctly (L3). */
@@ -1480,6 +1618,10 @@ export async function runLeaf(
     return finishWith({ outcome: effective, attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   }
 
+  // SR-7: a split child reuses its parent's durable plan; its blueprint node is a cheap
+  // sonnet REFRESH. Missing/under-specified plan ⇒ null ⇒ the full opus blueprint.
+  const inherited = resolveInheritedSlice(leaf, deps.restoreBlueprint);
+
   // ATTEMPT loop — n in [0, ATTEMPT_CAP). A FRESH worktree off the epic tip every
   // iteration (no surgical reuse of the prior attempt's edits — that's P6).
   // IN-RUN blueprint carry (token-burn lever bfc915dc): a SUCCESSFUL blueprint from a prior
@@ -1516,7 +1658,8 @@ export async function runLeaf(
     } else {
       // BLUEPRINT — rate-limit check FIRST (a capped node produced no usable work; we
       // must not interpret its empty/error output as a FAIL nor advance the attempt).
-      bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      const bpSpec = inherited ? buildRefreshSpec(cwd, inherited) : buildSpec('blueprint', cwd);
+      bp = await runNode('blueprint', bpSpec);
       if (bp.rateLimited) return pausedResult('blueprint', bp);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
@@ -1528,7 +1671,8 @@ export async function runLeaf(
     // retry (still counted against the node budget); if it still fails, short-circuit
     // to a fresh attempt rather than running the rest of the pipeline blind.
     if (!bp.ok) {
-      bp = await runNode('blueprint', buildSpec('blueprint', cwd));
+      const bpSpec = inherited ? buildRefreshSpec(cwd, inherited) : buildSpec('blueprint', cwd);
+      bp = await runNode('blueprint', bpSpec);
       if (bp.rateLimited) return pausedResult('blueprint', bp);
       if (!checkBudget()) return parkBlocked('node-budget-exhausted');
     }
@@ -1573,39 +1717,64 @@ export async function runLeaf(
     }
 
     // --- AUTO-SPLIT (worker-decomposition) ---
-    // A leaf whose blueprint ENUMERATES more files than one run should carry is split
-    // PRE-FLIGHT into one child leaf per file under THIS leaf (which becomes a
-    // non-executable dependency-grouping container). Children commit to the SAME enclosing
-    // epic branch (resolveEpicId walks past this node) and complete as ordinary leaves;
-    // sweepEpicRollups closes this container when they all settle — NO new branch, NO land
-    // gate (the epic's LAND leaf stays the sole merge-to-master authority). Only when the
-    // fanout is ENUMERABLE — a non-enumerable manifest can't be partitioned, so it falls
-    // through to WAVES. Guarded by deps.splitInto (unwired ⇒ never splits).
-    if (deps.splitInto && manifest && !manifest.nonEnumerableFanout) {
-      const splitFiles = [...new Set([
-        ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
-      ])];
-      if (splitFiles.length > SPLIT_CEILING) {
-        await deps.splitInto(leaf, splitFiles);
-        // 5dffee35: the split children are created PLANNED (proposed), not auto-claimed.
-        // Surface the proposal so the planner can review + promote (or reset the leaf to
-        // build linear) — otherwise the planned children sit invisibly un-runnable. This
-        // restores the planner-promotes-ready gate the autonomous auto-split bypassed.
+    // SR-3: propose → bounded wait → act. Children are only created if an explicit
+    // 'split' answer arrives; otherwise the leaf runs LINEAR with raised budget.
+    // SR-6: the BLUEPRINT decides. A file count has no model of coupling. A blueprint-emitted
+    // decision directs the split (if any) and its dependency edges. A malformed decision falls
+    // through to the FLOOR (fail-safe). No decision emitted → legacy file-count gate (back-compat).
+
+    const proposeThenAct = async (
+      items: LeafSplitItem[],
+      reason: string,
+    ): Promise<'split' | 'linear'> => {
+      if (!deps.proposeSplit || !deps.awaitSplitDecision) return 'linear';
+      const proposal = deps.proposeSplit({
+        project, session: sessionKey, leaf, itemCount: items.length, reason,
+      });
+      const answer = await deps.awaitSplitDecision({
+        escalationId: proposal.escalationId, createdAt: proposal.createdAt,
+      });
+      if (answer === 'split') {
+        await deps.splitInto!(leaf, items);
         try {
-          deps.escalate({
-            project,
-            session: sessionKey,
-            kind: 'decision',
-            todoId: leaf.id,
-            questionText:
-              `Leaf "${leaf.title ?? leaf.id}" exceeded the size gate (${splitFiles.length} files) and was ` +
-              `auto-split into ${splitFiles.length} PLANNED file-children (not yet runnable). Review the ` +
-              `decomposition: PROMOTE the children to ready (approve) if the split is sound, or reset this ` +
-              `leaf to build it LINEARLY in one run if the files are interdependent (shared modules don't ` +
-              `parallelize as atoms). Nothing runs until you promote.`,
-          });
-        } catch { /* escalation best-effort — never block the split outcome */ }
-        return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+          deps.resolveProposal?.(proposal.escalationId, 'resolved', 'human');
+        } catch { /* best-effort */ }
+        return 'split';
+      }
+      // 'linear' | 'timeout' — the SAFE DEFAULT
+      try {
+        deps.resolveProposal?.(proposal.escalationId, 'resolved', answer === 'timeout' ? 'ai' : 'human');
+      } catch { /* best-effort */ }
+      budget = Math.max(budget, raisedNodeBudget(deps.nodeBudget ?? NODE_BUDGET));
+      return 'linear';
+    };
+
+    if (deps.splitInto && manifest) {
+      const decision = manifest.splitDecision;
+
+      if (manifest.splitDecisionMalformed) {
+        // A malformed decision must NEVER read as "split into N". Take the floor.
+        // (fall through, no split)
+      } else if (decision) {
+        if (decision.split) {
+          if (await proposeThenAct(decision.items, decision.reason) === 'split') {
+            return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+          }
+          // else: fall through to the FLOOR with a raised budget
+        }
+        // decision.split === false ⇒ a COUPLED change. Runs WHOLE, at any file count.
+        // decision.reason states the cross-file invariant. Fall through to the floor.
+      } else if (!manifest.nonEnumerableFanout) {
+        // LEGACY fallback: no decision emitted ⇒ the old file-count gate (back-compat).
+        const splitFiles = [...new Set([
+          ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
+        ])];
+        if (splitFiles.length > SPLIT_CEILING) {
+          const items = splitFiles.map((f) => ({ id: f, files: [f], dependsOn: [] }));
+          if (await proposeThenAct(items, `${splitFiles.length} enumerated files exceeds the size gate`) === 'split') {
+            return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+          }
+        }
       }
     }
 
@@ -1851,6 +2020,9 @@ export async function makeLeafExecutorDeps(
     changeSet: (sessionKey) => wm.changeSet(sessionKey, epicBranch),
     splitInto: async (lf, files) => { await splitLeafInto(project, lf, files); },
     escalate: createEscalation,
+    proposeSplit,
+    awaitSplitDecision,
+    resolveProposal: resolveEscalation,
     recordNode,
     setInflight: setLeafInflight,
     clearInflight: clearLeafInflight,

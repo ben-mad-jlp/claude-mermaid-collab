@@ -30,6 +30,7 @@ import {
   updateTodo,
   removeTodo,
   clearCompleted,
+  collapseSplit,
   reorder,
   backfillEpicsUnderMission,
   type TodoLink as SessionTodoLink,
@@ -40,6 +41,7 @@ import { recordUsage, getUsage } from '../services/usage-store';
 import { refreshSummaryNow } from '../services/session-summary-loop';
 import { listSessionRuntimes } from '../services/session-runtime';
 import { getFleetStatus } from '../services/fleet-status';
+import type { ClaimSuppressionReport } from '../services/coordinator-live';
 import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
 import { lastAssistantTurn } from '../services/transcript-reader.ts';
@@ -3227,7 +3229,7 @@ export async function handleAPI(
     // (over-budget / breaker / probe-down / stranded-foundation / not-headless) so the
     // fleet panel can show "8 ready, 0 claimed — 3 stranded-foundation" instead of an
     // unexplained idle daemon. Best-effort; never block the live read on it.
-    let claimSuppression: unknown;
+    let claimSuppression: ClaimSuppressionReport | undefined;
     if (project) {
       try {
         const { diagnoseClaimSuppression } = await import('../services/coordinator-live');
@@ -3241,8 +3243,16 @@ export async function handleAPI(
       global: { max: maxInflightGlobal(), active: inflightActive() },
       ...(project ? { project: { max: maxInflightPerProject(project), active: inflightActive(project) } } : {}),
     };
+    const state = inflight.length > 0
+      ? 'working'
+      : claimSuppression?.blocked
+        ? 'blocked-on-decision'
+        : (claimSuppression?.suppressed.length ?? 0) > 0
+          ? 'claims-suppressed'
+          : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : 'idle';
     return Response.json({
       now,
+      state,
       inflight,
       breaker: { open: breakerOpen(now), openUntil: breakerOpenUntil() },
       paused,
@@ -3725,6 +3735,33 @@ export async function handleAPI(
 
       // Return both keys: `removedCount` is the historical contract the UI/MCP read.
       return Response.json({ removed: result.removed, removedCount: result.removed });
+    } catch (error: any) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+  }
+
+  // POST /api/session-todos/collapse-split - Undo a leaf split (drop open children, restore leaf)
+  if (path === '/api/session-todos/collapse-split' && req.method === 'POST') {
+    try {
+      const { project, session, leafId } = await req.json() as {
+        project?: string;
+        session?: string;
+        leafId?: string;
+      };
+
+      if (!project || !session || !leafId) {
+        return Response.json({ error: 'project, session, and leafId required' }, { status: 400 });
+      }
+
+      const result = await collapseSplit(project, leafId);
+
+      wsHandler.broadcast({
+        type: 'session_todos_updated',
+        project,
+        session,
+      });
+
+      return Response.json(result);
     } catch (error: any) {
       return Response.json({ error: error.message }, { status: 400 });
     }

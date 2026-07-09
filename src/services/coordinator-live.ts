@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo } from './todo-store';
 import { isEpic, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
+import { findBlockedSplits, type BlockedSplit } from './claimability';
 import { planOrphanReap, planPriorEpochReap, DEFAULT_ORPHAN_GRACE_MS, shouldPulseReap, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
 import { getStatus } from './session-status-store';
@@ -32,6 +33,7 @@ import './cad-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executor';
 import { leafAbortReason } from './leaf-abort';
+import { listOpenSplitProposals } from './split-proposal';
 import { getLeafRun } from './ledger-stats';
 import {
   breakerOpen,
@@ -513,6 +515,26 @@ export function displayTitle(t: { kind?: TodoKind | null; title?: string | null;
   return label ? `${label} ${bare}` : bare;
 }
 
+/** Containerhood is about OPEN work: a child that is `done` or `dropped` no longer makes its
+ *  parent a container. Without the `dropped` clause, the documented way to DECLINE a split
+ *  (drop the children) bricked the parent forever — `not-headless: has-children`, unclaimable,
+ *  with no path back to being a leaf (observed 2026-07-08).
+ *
+ *  Mirrors planCoordinatorTick's `openChildParents` guard (coordinator-core.ts) — same rule,
+ *  same two terminal statuses. Uses includeCompleted:true + an explicit filter rather than
+ *  leaning on listTodos' implicit `status != 'done'`, so the rule is readable in one place.
+ *
+ *  NOTE (second-order, do NOT overstate this fix): dropping the children does not make a
+ *  decline *durable*. The deterministic size gate re-splits the leaf on the next claim.
+ *  A decline only sticks once the leaf's SPEC changes (a conductor re-cut) or SR-3 lands
+ *  (split becomes a proposal with a safe default). This change only restores the *ability*
+ *  to decline; it does not make the decline survive the next tick.
+ */
+function hasOpenChildren(project: string, todoId: string): boolean {
+  return listTodos(project, { includeCompleted: true })
+    .some((t) => t.parentId === todoId && t.status !== 'dropped' && t.status !== 'done');
+}
+
 /** A leaf the headless executor may drive: a work todo with NO children (a leaf in
  *  the work-graph) that is not human-owned. Keeps gates/epics/missions/human todos out
  *  of the executor (those go the legacy path). `project` is the tracking project. */
@@ -526,9 +548,8 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   // before review→[LAND]. FIXED (epic d8ac1a18): the leaf-executor now has a 'review' execution
   // shape (leafExecutionMode → runReviewPipeline) whose deliverable IS a committed report, so
   // it survives the re-verify exactly like the 'verify' shape. Reviewer leaves are now headless.
-  // Leaf = no child todos parented to it in the tracking work-graph.
-  const hasChildren = listTodos(project, {}).some((t) => t.parentId === todo.id);
-  return !hasChildren;
+  // Leaf = no OPEN child todos parented to it in the tracking work-graph.
+  return !hasOpenChildren(project, todo.id);
 }
 
 /** P7 Phase-2 coverage probe: WHY is `todo` not a headless leaf? Returns the
@@ -542,7 +563,7 @@ export function headlessExclusionReason(todo: Todo, project: string): string | n
   if (isEpic(todo) || isMission(todo)) return 'epic-or-mission';
   if (GATE_TITLE_RE.test(todo.title ?? '')) return 'gate';
   // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
-  if (listTodos(project, {}).some((t) => t.parentId === todo.id)) return 'has-children';
+  if (hasOpenChildren(project, todo.id)) return 'has-children';
   return null;
 }
 
@@ -965,15 +986,25 @@ export interface ClaimSuppressionReport {
   /** Per-leaf hold reasons (only the suppressed ones). */
   suppressed: Array<{ todoId: string; title: string; reason: string }>;
   claimableIds: string[];
+  /** Split parents with unapproved open children — the project is BLOCKED ON A DECISION,
+   *  not idle. Non-empty ⇒ `claimable: 0` is NEVER quiescence. */
+  blockedSplits: import('./claimability').BlockedSplit[];
+  /** SR-3: open split PROPOSALS (raised, no children yet). Non-empty ⇒ a decision is pending. */
+  pendingSplitProposals: Array<{ escalationId: string; todoId: string | null; createdAt: number }>;
+  /** blockedSplits.length > 0 || pendingSplitProposals.length > 0. */
+  blocked: boolean;
 }
 
 export async function diagnoseClaimSuppression(project: string): Promise<ClaimSuppressionReport> {
   const level = getOrchestratorLevel(project);
   const ready = listReadyTodos(project);
   const mk = (reason: string) => ready.map((t) => ({ todoId: t.id, title: displayTitle(t), reason }));
+  const blockedSplits = findBlockedSplits(listTodos(project, { includeCompleted: true }));
+  const pendingSplitProposals = listOpenSplitProposals(project);
+  const blocked = blockedSplits.length > 0 || pendingSplitProposals.length > 0;
   // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
   if (overDailyBudget(project)) {
-    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [] };
+    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [], blockedSplits, pendingSplitProposals, blocked };
   }
   // Per-leaf pipeline, in claimGuard order: probe → stranded-foundation → headless.
   const ids = (ts: Todo[]) => new Set(ts.map((t) => t.id));
@@ -999,6 +1030,9 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
     projectGate,
     suppressed,
     claimableIds: claimable.map((t) => t.id),
+    blockedSplits,
+    pendingSplitProposals,
+    blocked,
   };
 }
 

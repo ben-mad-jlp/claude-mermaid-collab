@@ -28,6 +28,10 @@ let completeSessionName = '';
 let completeResultExtra: Record<string, unknown> = {};
 const updateTodoCalls: Array<{ id: string; patch: any }> = [];
 let resetTodoCalls: Array<{ id: string; status: string }> = [];
+// Overridable by the terminal-children describe block below: listTodos is stubbed
+// module-wide (no real DB in this file), so those tests point this at fixture rows
+// instead of touching todo-store's real listTodos.
+let mockListTodosImpl: (project: string, opts: any) => any[] = () => [];
 mock.module('../todo-store', () => ({
   listReadyTodos: () => [],
   claimTodo: async () => null,
@@ -36,13 +40,13 @@ mock.module('../todo-store', () => ({
   updateTodo: async (_project: string, id: string, patch: any) => { updateTodoCalls.push({ id, patch }); return { id, ...patch }; },
   resetTodo: async (_project: string, id: string, status: string) => { resetTodoCalls.push({ id, status }); return { id, status }; },
   getTodo: () => null,
-  listTodos: () => [],
+  listTodos: (project: string, opts: any) => mockListTodosImpl(project, opts),
   reclaimClaim: async () => 'ready',
   releaseClaim: async () => {},
   reclaimOrphan: async () => null,
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, displayTitle } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, displayTitle } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -89,6 +93,32 @@ describe('displayTitle', () => {
   });
   it('is idempotent against a still-prefixed stored title (no doubling)', () => {
     expect(displayTitle({ kind: 'epic', title: '[EPIC] Bugfix inbox' })).toBe('[EPIC] Bugfix inbox');
+  });
+});
+
+describe('isHeadlessLeaf / headlessExclusionReason — terminal children', () => {
+  const parent = { id: 'parent-1', title: 'leaf', assigneeKind: 'agent', type: 'backend' } as Todo;
+  const childBase = { id: 'child-1', parentId: 'parent-1', title: 'child', assigneeKind: 'agent', type: 'backend' };
+  afterEach(() => {
+    mockListTodosImpl = () => [];
+  });
+
+  it('a dropped-only child does not make the parent a container', () => {
+    mockListTodosImpl = () => [{ ...childBase, status: 'dropped' }];
+    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(true);
+    expect(headlessExclusionReason(parent, TEST_ROOT)).toBeNull();
+  });
+
+  it('a done-only child does not make the parent a container (regression pin)', () => {
+    mockListTodosImpl = () => [{ ...childBase, status: 'done' }];
+    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(true);
+    expect(headlessExclusionReason(parent, TEST_ROOT)).toBeNull();
+  });
+
+  it('a planned (open) child makes the parent a container', () => {
+    mockListTodosImpl = () => [{ ...childBase, status: 'planned' }];
+    expect(isHeadlessLeaf(parent, TEST_ROOT)).toBe(false);
+    expect(headlessExclusionReason(parent, TEST_ROOT)).toBe('has-children');
   });
 });
 

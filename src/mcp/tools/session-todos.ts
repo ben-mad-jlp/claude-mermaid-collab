@@ -14,6 +14,7 @@ import {
   assignTodo,
   removeTodo,
   clearCompleted,
+  collapseSplit,
   reorder,
   deriveTodoViews,
   type Todo,
@@ -278,6 +279,16 @@ export const clearCompletedSessionTodosSchema = {
   required: ['project', 'session'],
 };
 
+export const collapseSplitSchema = {
+  type: 'object',
+  properties: {
+    project: { type: 'string', description: 'Absolute path to project root' },
+    session: { type: 'string', description: 'Session name' },
+    leafId: { type: 'string', description: 'Id of the split leaf to collapse' },
+  },
+  required: ['project', 'session', 'leafId'],
+};
+
 export const reorderSessionTodosSchema = {
   type: 'object',
   properties: {
@@ -526,6 +537,10 @@ export async function clearCompletedSessionTodos(
   return { removedCount: r.removed };
 }
 
+export async function collapseSplitTodo(project: string, leafId: string) {
+  return collapseSplit(project, leafId);
+}
+
 export async function reorderSessionTodos(
   project: string,
   session: string,
@@ -724,6 +739,22 @@ export const sessionTodoToolDefs: ToolDef[] = [
       };
       if (!project || !session || !blueprintId) throw new Error('Missing required: project, session, blueprintId');
       const result = await completeTodosForTask(project, session, blueprintId, taskId);
+      ctx.broadcast({ type: 'session_todos_updated', project, session });
+      return JSON.stringify(result, null, 2);
+    },
+  },
+  {
+    name: 'collapse_split',
+    description: "Undo a leaf split: drop the leaf's open children and restore the leaf itself to a claimable leaf, atomically, preserving the leaf id (and its blueprint). Idempotent — reports which children it dropped. Note: the size gate may re-split on the next claim unless the leaf's spec changes.",
+    inputSchema: collapseSplitSchema,
+    handler: async (args, ctx) => {
+      const { project, session, leafId } = args as {
+        project: string;
+        session: string;
+        leafId: string;
+      };
+      if (!project || !session || !leafId) throw new Error('Missing required: project, session, leafId');
+      const result = await collapseSplitTodo(project, leafId);
       ctx.broadcast({ type: 'session_todos_updated', project, session });
       return JSON.stringify(result, null, 2);
     },

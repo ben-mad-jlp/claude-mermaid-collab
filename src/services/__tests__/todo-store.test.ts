@@ -1410,6 +1410,105 @@ describe('container drop → cascade-drop undone descendants', () => {
     await updateTodo(project, mid.id, { completed: true }); // mid is a plain leaf, not a container
     expect((await getTodo(project, leaf.id))!.status).not.toBe('dropped');
   });
+
+  describe('SR-7 inherited blueprint fields', () => {
+    test('inheritance fields default null/empty on create', async () => {
+      const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'normal leaf' });
+      expect(t.inheritedBlueprintFrom).toBe(null);
+      expect(t.inheritedFiles).toEqual([]);
+    });
+
+    test('splitLeafInto stamps inheritedBlueprintFrom and inheritedFiles on children', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      await splitLeafInto(project, parent, [
+        { id: 'a', files: ['src/a.ts'], dependsOn: [] },
+        { id: 'b', files: ['src/b.ts', 'src/b.test.ts'], dependsOn: ['a'] },
+      ]);
+      const children = listTodos(project).filter((t) => t.parentId === parent.id);
+      expect(children).toHaveLength(2);
+      // Both children inherit from the parent.
+      for (const child of children) {
+        expect(child.inheritedBlueprintFrom).toBe(parent.id);
+        expect(child.inheritedFiles.length).toBeGreaterThan(0);
+      }
+      // Child A owns a.ts.
+      const childA = children.find((c) => c.inheritedFiles.includes('src/a.ts'));
+      expect(childA?.inheritedFiles).toEqual(['src/a.ts']);
+      // Child B owns b.ts and b.test.ts.
+      const childB = children.find((c) => c.inheritedFiles.includes('src/b.ts'));
+      expect(childB?.inheritedFiles).toEqual(['src/b.ts', 'src/b.test.ts']);
+    });
+
+    test('inheritance fields round-trip through getTodo', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      const child = await createTodo(project, {
+        ownerSession: 's',
+        title: 'child',
+        parentId: parent.id,
+        inheritedBlueprintFrom: parent.id,
+        inheritedFiles: ['a.ts', 'b.ts'],
+      });
+      const fetched = getTodo(project, child.id)!;
+      expect(fetched.inheritedBlueprintFrom).toBe(parent.id);
+      expect(fetched.inheritedFiles).toEqual(['a.ts', 'b.ts']);
+    });
+
+    test('inheritance fields are patchable via updateTodo', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      let child = await createTodo(project, {
+        ownerSession: 's',
+        title: 'child',
+        parentId: parent.id,
+        inheritedBlueprintFrom: null,
+        inheritedFiles: [],
+      });
+      expect(child.inheritedBlueprintFrom).toBe(null);
+      expect(child.inheritedFiles).toEqual([]);
+      child = await updateTodo(project, child.id, {
+        inheritedBlueprintFrom: parent.id,
+        inheritedFiles: ['x.ts'],
+      });
+      expect(child.inheritedBlueprintFrom).toBe(parent.id);
+      expect(child.inheritedFiles).toEqual(['x.ts']);
+    });
+
+    test('splitLeafInto idempotency: second call is a no-op', async () => {
+      const parent = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[LEAF] parent' });
+      const result1 = await splitLeafInto(project, parent, [
+        { id: 'a', files: ['src/a.ts'], dependsOn: [] },
+      ]);
+      const result2 = await splitLeafInto(project, parent, [
+        { id: 'b', files: ['src/b.ts'], dependsOn: [] },
+      ]);
+      // Same parent, same children (second call did nothing).
+      expect(result2.childIds).toEqual(result1.childIds);
+      const children = listTodos(project).filter((t) => t.parentId === parent.id);
+      expect(children).toHaveLength(1);
+      expect(children[0].inheritedFiles).toEqual(['src/a.ts']);
+    });
+
+    test('pre-existing rows without inheritance columns read back with defaults', async () => {
+      // Simulate a row created before the columns existed (they're NULL in the DB).
+      // First create a todo to ensure the DB and tables exist.
+      const existing = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: 'setup' });
+
+      // Now insert a row directly with NULL for the new columns (simulating pre-migration data).
+      const db = new Database(join(project, '.collab', 'todos.db'));
+      const id = crypto.randomUUID();
+      const ts = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO todos (id, ownerSession, title, status, ord, createdAt, updatedAt, dependsOn, inheritedBlueprintFrom, inheritedFiles)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
+      ).run(id, 's', 'old row', 'planned', 20, ts, ts, '[]');
+      db.close();
+      _closeProject(project);
+
+      // Fetch and check defaults.
+      const t = getTodo(project, id)!;
+      expect(t.inheritedBlueprintFrom).toBe(null);
+      expect(t.inheritedFiles).toEqual([]);
+    });
+  });
 });
 
 describe('ClaimedTodoDropError — refuse to drop a live-claimed todo (1de16a83)', () => {

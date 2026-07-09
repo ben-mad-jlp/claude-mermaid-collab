@@ -201,6 +201,8 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         objectRef: null,
         decisionRef: null,
         claimProbe: null,
+      inheritedBlueprintFrom: null,
+      inheritedFiles: [],
       },
       {
         id: 'e1',
@@ -242,6 +244,8 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         objectRef: null,
         decisionRef: null,
         claimProbe: null,
+      inheritedBlueprintFrom: null,
+      inheritedFiles: [],
       },
       {
         id: 'land1',
@@ -283,6 +287,8 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         objectRef: null,
         decisionRef: null,
         claimProbe: null,
+      inheritedBlueprintFrom: null,
+      inheritedFiles: [],
       },
     ];
 

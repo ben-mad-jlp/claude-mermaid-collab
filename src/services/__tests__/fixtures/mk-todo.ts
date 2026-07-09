@@ -42,6 +42,8 @@ function base(): Omit<Todo, 'kind'> {
     objectRef: null,
     decisionRef: null,
     claimProbe: null,
+    inheritedBlueprintFrom: null,
+    inheritedFiles: [],
   };
 }
 
