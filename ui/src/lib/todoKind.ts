@@ -73,3 +73,10 @@ const PREFIX_RE = /^\s*\[(MISSION|EPIC|LAND)\]\s*/i;
  *  role. Becomes a safe no-op after stage C strips the stored prefixes. */
 export const stripKindPrefix = (title: string | null | undefined): string =>
   (title ?? '').replace(PREFIX_RE, '');
+
+/** Strips exactly one leading role bracket for DISPLAY purposes only — this is a
+ *  render/identity transform, not a role decision. Byte-mirror of the backend
+ *  `stripLabel` (`src/services/todo-kind.ts`). */
+const LABEL_RE = /^\s*\[(?:MISSION|EPIC|LAND)\]\s*/i;
+export const stripLabel = (title: string | null | undefined): string =>
+  (title ?? '').replace(LABEL_RE, '').trim();

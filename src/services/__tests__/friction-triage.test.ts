@@ -31,6 +31,7 @@ function makeTodo(overrides: Partial<Todo> = {}): Todo {
     assigneeSession: null,
     assigneeKind: null,
     title: overrides.title ?? 'Test todo',
+    kind: overrides.kind ?? 'leaf',
     description: null,
     status: overrides.status ?? 'planned',
     priority: null,
@@ -145,44 +146,44 @@ describe('friction-triage: threshold gate', () => {
 // ---------------------------------------------------------------------------
 
 describe('friction-triage: layer routing', () => {
-  it('routes domain friction to [EPIC] Bugfix inbox with category bug', async () => {
+  it('routes domain friction to the Bugfix inbox epic with category bug', async () => {
     const { deps, created } = makeDeps([
       { layer: 'domain', retryReason: 'missing-model', count: 4 },
     ]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreate = created.find((c) => /\[EPIC\]/i.test(c.input.title));
-    expect(epicCreate?.input.title).toBe('[EPIC] Bugfix inbox');
+    const epicCreate = created.find((c) => c.input.kind === 'epic');
+    expect(epicCreate?.input.title).toBe('Bugfix inbox');
 
     const todoCreate = created.find((c) => c.input.parentId != null);
     expect(todoCreate?.input.title).toContain('[bug]');
     expect(todoCreate?.input.title).toContain('missing-model');
   });
 
-  it('routes orchestration friction to [EPIC] Collab gaps with category gap', async () => {
+  it('routes orchestration friction to the Collab gaps epic with category gap', async () => {
     const { deps, created } = makeDeps([
       { layer: 'orchestration', retryReason: 'gate-format', count: 4 },
     ]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreate = created.find((c) => /\[EPIC\]/i.test(c.input.title));
-    expect(epicCreate?.input.title).toBe('[EPIC] Collab gaps');
+    const epicCreate = created.find((c) => c.input.kind === 'epic');
+    expect(epicCreate?.input.title).toBe('Collab gaps');
 
     const todoCreate = created.find((c) => c.input.parentId != null);
     expect(todoCreate?.input.title).toContain('[gap]');
   });
 
-  it('routes operational friction to [EPIC] Collab gaps with category gap', async () => {
+  it('routes operational friction to the Collab gaps epic with category gap', async () => {
     const { deps, created } = makeDeps([
       { layer: 'operational', retryReason: 'unlanded-epics-over-threshold', count: 5 },
     ]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreate = created.find((c) => /\[EPIC\]/i.test(c.input.title));
-    expect(epicCreate?.input.title).toBe('[EPIC] Collab gaps');
+    const epicCreate = created.find((c) => c.input.kind === 'epic');
+    expect(epicCreate?.input.title).toBe('Collab gaps');
 
     const todoCreate = created.find((c) => c.input.parentId != null);
     expect(todoCreate?.input.title).toContain('[gap]');
@@ -195,14 +196,14 @@ describe('friction-triage: layer routing', () => {
 
 describe('friction-triage: find-or-create epic', () => {
   it('reuses an existing bucket epic, does not create a second one', async () => {
-    const existingEpic = makeTodo({ id: 'epic-1', title: '[EPIC] Bugfix inbox', status: 'planned', parentId: null });
+    const existingEpic = makeTodo({ id: 'epic-1', title: 'Bugfix inbox', kind: 'epic', status: 'planned', parentId: null });
     const { deps, created } = makeDeps([
       { layer: 'domain', retryReason: 'missing-model', count: 4 },
     ], [existingEpic]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreates = created.filter((c) => /\[EPIC\]/i.test(c.input.title ?? ''));
+    const epicCreates = created.filter((c) => c.input.kind === 'epic');
     expect(epicCreates.length).toBe(0); // no new epic created
 
     const todoCreate = created.find((c) => c.input.parentId != null);
@@ -210,15 +211,14 @@ describe('friction-triage: find-or-create epic', () => {
   });
 
   it('does not reuse a bucket-titled todo whose kind is not epic', async () => {
-    const impostor = makeTodo({ id: 'not-an-epic', title: '[EPIC] Bugfix inbox', status: 'planned', parentId: null });
-    (impostor as any).kind = 'leaf';
+    const impostor = makeTodo({ id: 'not-an-epic', title: 'Bugfix inbox', kind: 'leaf', status: 'planned', parentId: null });
     const { deps, created } = makeDeps([
       { layer: 'domain', retryReason: 'missing-model', count: 4 },
     ], [impostor]);
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreates = created.filter((c) => /\[EPIC\]/i.test(c.input.title ?? ''));
+    const epicCreates = created.filter((c) => c.input.kind === 'epic');
     expect(epicCreates.length).toBe(1); // impostor is not reused; a real epic is created
   });
 
@@ -229,12 +229,62 @@ describe('friction-triage: find-or-create epic', () => {
 
     await runFrictionTriagePass(project, deps);
 
-    const epicCreate = created.find((c) => /\[EPIC\]/i.test(c.input.title ?? ''));
+    const epicCreate = created.find((c) => c.input.kind === 'epic');
     expect(epicCreate).toBeDefined();
     expect(epicCreate?.input.status).toBe('planned');
+    expect(epicCreate?.input.title).toBe('Bugfix inbox');
+    expect(epicCreate?.input.title).not.toMatch(/^\s*\[(EPIC|MISSION|LAND)\]/);
 
     const todoCreate = created.find((c) => c.input.parentId != null);
     expect(todoCreate?.input.parentId).toBeTruthy();
+  });
+
+  it('post-strip idempotence: reuses a bare-titled epic across two passes, no new epic creates', async () => {
+    const existingEpic = makeTodo({ id: 'epic-bare', title: 'Bugfix inbox', kind: 'epic', status: 'planned', parentId: null });
+    const { deps, created } = makeDeps([
+      { layer: 'domain', retryReason: 'reason-one', count: 4 },
+    ], [existingEpic]);
+
+    await runFrictionTriagePass(project, deps);
+
+    const deps2 = { ...deps, trends: () => ({
+      total: 1, considered: 1, byLayer: [],
+      recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'reason-two', count: 4 }],
+    }) };
+    await runFrictionTriagePass(project, deps2);
+
+    const epicCreates = created.filter((c) => c.input.kind === 'epic');
+    expect(epicCreates.length).toBe(0);
+
+    const filedTodos = created.filter((c) => c.input.parentId != null);
+    expect(filedTodos.length).toBe(2);
+    for (const t of filedTodos) {
+      expect(t.input.parentId).toBe('epic-bare');
+    }
+  });
+
+  it('pre-strip tolerance: reuses a legacy [EPIC]-prefixed epic, no new epic creates', async () => {
+    const existingEpic = makeTodo({ id: 'epic-legacy', title: '[EPIC] Bugfix inbox', kind: 'epic', status: 'planned', parentId: null });
+    const { deps, created } = makeDeps([
+      { layer: 'domain', retryReason: 'reason-one', count: 4 },
+    ], [existingEpic]);
+
+    await runFrictionTriagePass(project, deps);
+
+    const deps2 = { ...deps, trends: () => ({
+      total: 1, considered: 1, byLayer: [],
+      recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'reason-two', count: 4 }],
+    }) };
+    await runFrictionTriagePass(project, deps2);
+
+    const epicCreates = created.filter((c) => c.input.kind === 'epic');
+    expect(epicCreates.length).toBe(0);
+
+    const filedTodos = created.filter((c) => c.input.parentId != null);
+    expect(filedTodos.length).toBe(2);
+    for (const t of filedTodos) {
+      expect(t.input.parentId).toBe('epic-legacy');
+    }
   });
 });
 
