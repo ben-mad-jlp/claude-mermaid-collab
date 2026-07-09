@@ -7,7 +7,7 @@ import {
   createTodo, listTodos, getTodo, updateTodo, assignTodo, removeTodo, clearCompleted, reorder, sweepEpicRollups, splitLeafInto, _closeProject,
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
-  deriveTodoViews, OrphanTodoError,
+  deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as __resetSubs } from '../session-subscriptions';
@@ -1307,8 +1307,8 @@ describe('createTodo — every-todo-needs-an-epic guard (orphan reject + explici
   });
 });
 
-describe('epic close → cascade-drop undone descendants', () => {
-  test('closing an [EPIC] drops non-terminal descendants (transitively), keeps terminal ones', async () => {
+describe('container drop → cascade-drop undone descendants', () => {
+  test('dropping an [EPIC] drops non-terminal descendants (transitively), keeps terminal ones', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me', kind: 'epic' });
     const open1 = await createTodo(project, { ownerSession: 's', title: 'open child', parentId: epic.id });
     const open2 = await createTodo(project, { ownerSession: 's', title: 'open child 2', parentId: epic.id });
@@ -1316,13 +1316,26 @@ describe('epic close → cascade-drop undone descendants', () => {
     await updateTodo(project, doneChild.id, { completed: true });
     const grandchild = await createTodo(project, { ownerSession: 's', title: 'grandchild', parentId: open1.id });
 
-    await updateTodo(project, epic.id, { completed: true });
+    await updateTodo(project, epic.id, { status: 'dropped' });
 
-    expect((await getTodo(project, epic.id))!.status).toBe('done');
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
     expect((await getTodo(project, open1.id))!.status).toBe('dropped');
     expect((await getTodo(project, open2.id))!.status).toBe('dropped');
     expect((await getTodo(project, grandchild.id))!.status).toBe('dropped'); // transitive
     expect((await getTodo(project, doneChild.id))!.status).toBe('done');     // terminal untouched
+  });
+
+  test('an explicit `done` on a container with an open child is refused (no half-apply)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me', kind: 'epic' });
+    const open = await createTodo(project, { ownerSession: 's', title: 'open child', parentId: epic.id });
+
+    await expect(updateTodo(project, epic.id, { completed: true })).rejects.toThrow(/open descendant/);
+    await expect(updateTodo(project, epic.id, { completed: true })).rejects.toThrow(ContainerHasOpenChildrenError);
+
+    const after = await getTodo(project, epic.id);
+    expect(after!.status).not.toBe('done');
+    expect(after!.completedAt).toBeNull();
+    expect((await getTodo(project, open.id))!.status).not.toBe('dropped');
   });
 
   test('completing an epic with no open descendants is a cascade no-op', async () => {
@@ -1331,13 +1344,49 @@ describe('epic close → cascade-drop undone descendants', () => {
     await updateTodo(project, c.id, { completed: true });
     await updateTodo(project, epic.id, { completed: true });
     expect((await getTodo(project, c.id))!.status).toBe('done'); // unchanged, not re-dropped
+    expect((await getTodo(project, epic.id))!.status).toBe('done');
   });
 
-  test('closing a NON-[EPIC] parent does NOT cascade', async () => {
+  test('done via auto-rollup (sweepEpicRollups) does not cascade and does not throw', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] rollup', kind: 'epic' });
+    const c = await createTodo(project, { ownerSession: 's', title: 'child', parentId: epic.id });
+    await completeTodo(project, c.id, 'accepted');
+    await sweepEpicRollups(project);
+    expect((await getTodo(project, epic.id))!.status).toBe('done');
+  });
+
+  test('dropping a mission cascade-drops through an intermediate epic (3-deep)', async () => {
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[MISSION] converge', kind: 'mission' });
+    const epic = await createTodo(project, { ownerSession: 's', title: '[EPIC] under mission', kind: 'epic', parentId: mission.id });
+    const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: epic.id });
+
+    await updateTodo(project, mission.id, { status: 'dropped' });
+
+    expect((await getTodo(project, mission.id))!.status).toBe('dropped');
+    expect((await getTodo(project, epic.id))!.status).toBe('dropped');
+    expect((await getTodo(project, leaf.id))!.status).toBe('dropped');
+  });
+
+  test('dropping a container clears heldAt/heldReason/acceptanceStatus on cascaded descendants (F6)', async () => {
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] held', kind: 'epic' });
+    const child = await createTodo(project, { ownerSession: 's', title: 'held child', parentId: epic.id });
+    await updateTodo(project, child.id, { heldAt: new Date().toISOString(), heldReason: 'x', acceptanceStatus: 'rejected' });
+
+    await updateTodo(project, epic.id, { status: 'dropped' });
+
+    const after = await getTodo(project, child.id);
+    expect(after!.status).toBe('dropped');
+    expect(after!.heldAt).toBeNull();
+    expect(after!.heldReason).toBeNull();
+    expect(after!.acceptanceStatus).toBeNull();
+    expect(after!.claim).toBeNull();
+  });
+
+  test('closing a NON-container parent does NOT cascade', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] root', kind: 'epic' });
     const mid = await createTodo(project, { ownerSession: 's', title: 'plain parent', parentId: epic.id });
     const leaf = await createTodo(project, { ownerSession: 's', title: 'leaf', parentId: mid.id });
-    await updateTodo(project, mid.id, { completed: true }); // mid is not an [EPIC]
+    await updateTodo(project, mid.id, { completed: true }); // mid is a plain leaf, not a container
     expect((await getTodo(project, leaf.id))!.status).not.toBe('dropped');
   });
 });
@@ -1384,7 +1433,7 @@ describe('ClaimedTodoDropError — refuse to drop a live-claimed todo (1de16a83)
     expect(dropped.status).toBe('dropped');
   });
 
-  test('dropping an [EPIC] still cascade-drops a claimed descendant (pins today\'s out-of-scope behaviour)', async () => {
+  test('dropping a container RELEASES a claimed descendant\'s claim (does not refuse) — 241e72fc makes the release stop the work', async () => {
     const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's', title: '[EPIC] cleanup me', kind: 'epic' });
     const child = await createTodo(project, { ownerSession: 's', title: 'claimed child', parentId: epic.id });
     await updateTodo(project, child.id, { approvedAt: new Date().toISOString(), approvedBy: 's' });
@@ -1396,6 +1445,8 @@ describe('ClaimedTodoDropError — refuse to drop a live-claimed todo (1de16a83)
     const after = await getTodo(project, child.id);
     expect(after!.status).toBe('dropped');
     expect(after!.claim).toBeNull();
+    expect(after!.heldAt).toBeNull();
+    expect(after!.acceptanceStatus).toBeNull();
   });
 });
 
