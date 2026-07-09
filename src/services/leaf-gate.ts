@@ -40,7 +40,7 @@ export interface LeafGateConfig {
   baseTest?: string;
 }
 
-export type GateSpawn = (cwd: string, command: string) => Promise<{ ran: boolean; code: number; output: string }>;
+export type GateSpawn = (cwd: string, command: string) => Promise<{ ran: boolean; code?: number; output: string }>;
 
 export interface LeafGateResult {
   /** 'pass' = every declared command ran and exited 0 (or none were declared).
@@ -282,7 +282,7 @@ export async function runLeafGate(
   }
 
   // Test section: either multi-lane or legacy single-test form.
-  const lanes = cfg.tests ?? (cfg.test ? [legacyLane(cfg.test, cfg.testCwd)] : null);
+  const lanes = resolveLanes(cfg);
   if (lanes) {
     if (changeSet === null) {
       return {
@@ -297,22 +297,7 @@ export async function runLeafGate(
     const allSpecs = changeSet.map(normPathLocal).filter((p) => SPEC_FILE_RE.test(p));
 
     // Route each spec to the first matching lane, or track unmatched.
-    const unmatched: string[] = [];
-    const byLane = new Map<GateTestLane, string[]>();
-    for (const spec of [...new Set(allSpecs)]) {
-      const lane = lanes.find((l) => l.match.test(spec));
-      if (!lane) {
-        unmatched.push(spec);
-        continue;
-      }
-      // Strip the lane's cwd prefix from the spec path.
-      const rel = lane.cwd
-        ? spec.slice(lane.cwd.replace(/\/+$/, '').length + 1)
-        : spec;
-      const laneSpecs = byLane.get(lane) ?? [];
-      laneSpecs.push(rel);
-      byLane.set(lane, laneSpecs);
-    }
+    const { byLane, unmatched } = routeSpecsToLanes(allSpecs, lanes);
 
     // CONFIG GAP: unmatched specs in the multi-lane form (not the legacy form).
     if (unmatched.length > 0 && cfg.tests) {
@@ -340,10 +325,7 @@ export async function runLeafGate(
       const laneCwd = lane.cwd ? join(cwd, lane.cwd) : cwd;
 
       // Expand {file} or {files} based on the mode.
-      const commands =
-        lane.mode === 'per-file'
-          ? files.map((f) => lane.command.replace(/\{file\}/g, shellQuote(f)))
-          : [lane.command.replace(/\{files\}/g, files.map(shellQuote).join(' '))];
+      const commands = expandLaneCommands(lane, files);
 
       for (const command of commands) {
         const r = await spawn(laneCwd, command);
@@ -441,6 +423,42 @@ export async function runBaseGate(cwd: string, cfg: LeafGateConfig | null, spawn
   }
 
   return { status: 'pass', output: '', reasons: [], declared: true };
+}
+
+// --- lane primitives (exported for land-gate reuse) --------------------
+
+/** cfg.tests, or the single legacy lane, or null. */
+export function resolveLanes(cfg: LeafGateConfig): GateTestLane[] | null {
+  return cfg.tests ?? (cfg.test ? [legacyLane(cfg.test, cfg.testCwd)] : null);
+}
+
+/** First-match routing + lane-cwd prefix stripping. */
+export function routeSpecsToLanes(specs: readonly string[], lanes: readonly GateTestLane[]):
+  { byLane: Map<GateTestLane, string[]>; unmatched: string[] } {
+  const unmatched: string[] = [];
+  const byLane = new Map<GateTestLane, string[]>();
+  for (const spec of [...new Set(specs)]) {
+    const lane = lanes.find((l) => l.match.test(spec));
+    if (!lane) {
+      unmatched.push(spec);
+      continue;
+    }
+    // Strip the lane's cwd prefix from the spec path.
+    const rel = lane.cwd
+      ? spec.slice(lane.cwd.replace(/\/+$/, '').length + 1)
+      : spec;
+    const laneSpecs = byLane.get(lane) ?? [];
+    laneSpecs.push(rel);
+    byLane.set(lane, laneSpecs);
+  }
+  return { byLane, unmatched };
+}
+
+/** {file}/{files} expansion for one lane. */
+export function expandLaneCommands(lane: GateTestLane, files: readonly string[]): string[] {
+  return lane.mode === 'per-file'
+    ? files.map((f) => lane.command.replace(/\{file\}/g, shellQuote(f)))
+    : [lane.command.replace(/\{files\}/g, files.map(shellQuote).join(' '))];
 }
 
 // --- local helpers (kept private — no new cross-module surface) --------------------

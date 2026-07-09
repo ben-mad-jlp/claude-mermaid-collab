@@ -194,6 +194,19 @@ function openDb(): Database {
     output TEXT,
     checkedAt INTEGER NOT NULL
   )`);
+  // G10 land gate cache. Keyed on epicId + both shas (tip and base) — both must match
+  // for a cache hit. Tip changes after every leaf merge, base changes after every master
+  // merge. A stale pass would silently greenlight an unexamined tree (G10 failure).
+  // Unlike epic_base_gate, status='error' is NEVER cached — an incident is not a fact.
+  db.exec(`CREATE TABLE IF NOT EXISTS epic_land_gate (
+    epicId TEXT PRIMARY KEY,
+    project TEXT NOT NULL,
+    epicTipSha TEXT,
+    baseSha TEXT,
+    status TEXT NOT NULL,
+    result TEXT,
+    checkedAt INTEGER NOT NULL
+  )`);
   // G8 durable blueprint base SHA — survives terminal outcomes, independent of leaf_resume.
   // The blueprint's reusability is a leaf fact that must outlive run checkpoints.
   // Cleared only when the leaf is genuinely done (accepted/merged).
@@ -640,6 +653,52 @@ export function getEpicBaseGate(epicId: string, currentBaseSha: string | null | 
     const r = openDb().prepare('SELECT * FROM epic_base_gate WHERE epicId=?').get(epicId) as EpicBaseGateRow | undefined;
     if (!r) return null;
     if (!r.baseSha || r.baseSha !== currentBaseSha) return null; // stale row ⇒ MISS, re-check
+    return r;
+  } catch { return null; }
+}
+
+// --- G10 land gate cache (epic_land_gate) --------------------------------
+export interface EpicLandGateRow {
+  epicId: string;
+  project: string;
+  epicTipSha: string | null;
+  baseSha: string | null;
+  status: 'pass' | 'fail' | 'abstain'; // error is NEVER cached
+  result: string | null; // JSON EpicLandGateResult (output tails truncated)
+  checkedAt: number;
+}
+
+/** Upsert an epic's cached land-gate verdict. `result` (JSON) is truncated to
+ *  MAX_OUTPUT_CHARS on write. Never caches status='error' (incidents are not facts).
+ *  Best-effort: cache write failure means an extra gate run. */
+export function recordEpicLandGate(e: Omit<EpicLandGateRow, 'checkedAt'>, now: number = Date.now()): void {
+  // Defensive: error status is never passed by runEpicLandGate (it short-circuits return)
+  if ((e.status as any) === 'error') return;
+  try {
+    openDb().prepare(
+      `INSERT INTO epic_land_gate (epicId, project, epicTipSha, baseSha, status, result, checkedAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(epicId) DO UPDATE SET
+         project=excluded.project, epicTipSha=excluded.epicTipSha, baseSha=excluded.baseSha,
+         status=excluded.status, result=excluded.result, checkedAt=excluded.checkedAt`,
+    ).run(
+      e.epicId, e.project, e.epicTipSha ?? null, e.baseSha ?? null, e.status,
+      e.result == null ? null : e.result.slice(0, MAX_OUTPUT_CHARS),
+      now,
+    );
+  } catch { /* best-effort */ }
+}
+
+/** Read an epic's cached land-gate verdict. Both shas must match for a hit.
+ *  A null/absent sha on either side is a MISS (cannot prove the row describes
+ *  the tree in hand; re-running is the safe direction). */
+export function getEpicLandGate(epicId: string, epicTipSha: string | null | undefined, baseSha: string | null | undefined): EpicLandGateRow | null {
+  if (!epicTipSha || !baseSha) return null;
+  try {
+    const r = openDb().prepare('SELECT * FROM epic_land_gate WHERE epicId=?').get(epicId) as EpicLandGateRow | undefined;
+    if (!r) return null;
+    if (!r.epicTipSha || r.epicTipSha !== epicTipSha) return null; // tip changed ⇒ MISS
+    if (!r.baseSha || r.baseSha !== baseSha) return null; // base changed ⇒ MISS
     return r;
   } catch { return null; }
 }
