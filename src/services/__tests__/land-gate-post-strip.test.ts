@@ -12,23 +12,17 @@
 // written this test: master had the stripped data, the epic branch had the gate.
 import { describe, it, expect } from 'bun:test';
 import type { Todo } from '../todo-store';
+import type { TodoKind } from '../todo-kind';
 import { isBucketEpic, checkOwnership, findOwningMission, type LandActor } from '../land-authority';
 import { findViolations } from '../invariant-check';
+import { mkTodo } from './fixtures/mk-todo';
 
 const PROJECT = '/tmp/mc-post-strip-project';
 const CONDUCTOR: LandActor = { kind: 'conductor', session: 'sess-A' };
 
-const todo = (over: Partial<Todo> & { id: string; title: string }): Todo =>
-  ({
-    kind: 'leaf',
-    status: 'ready',
-    completed: false,
-    assigneeKind: 'agent',
-    ownerSession: 'sess-A',
-    parentId: null,
-    dependsOn: [],
-    ...over,
-  }) as Todo;
+// `kind` is required by mkTodo and has no default — a missing kind is a producer bug.
+const todo = (over: Partial<Todo> & { id: string; title: string; kind: TodoKind }): Todo =>
+  mkTodo({ status: 'ready', ownerSession: 'sess-A', ...over });
 
 // The three real buckets, exactly as master stores them today.
 const INBOX = todo({ id: 'bb4a9a5d', kind: 'epic', title: 'Inbox' });
@@ -97,7 +91,7 @@ describe('[G16] mission resolution and health checks read `kind`, not a prefix',
     title: 'The work graph knows its own shape — node roles are declared, containers close safely',
   });
   const EPIC = todo({ id: 'e1', kind: 'epic', title: 'A deliverable epic', parentId: MISSION.id });
-  const LEAF = todo({ id: 'c1', title: 'build the thing', parentId: EPIC.id });
+  const LEAF = todo({ id: 'c1', kind: 'leaf', title: 'build the thing', parentId: EPIC.id });
   const LAND = todo({ id: 'l1', kind: 'land', title: 'merge to master', parentId: EPIC.id, dependsOn: ['c1'] });
 
   it('findOwningMission resolves the mission from an epic with no prefix in any title', () => {
@@ -112,7 +106,7 @@ describe('[G16] mission resolution and health checks read `kind`, not a prefix',
   });
 
   it('a genuinely parentless non-mission todo is STILL an orphan', () => {
-    const stray = todo({ id: 'stray', title: 'floating work' });
+    const stray = todo({ id: 'stray', kind: 'leaf', title: 'floating work' });
     const orphans = findViolations([stray]).filter((v) => v.kind === 'orphan');
     expect(orphans.map((o) => o.todoId)).toEqual(['stray']);
   });
