@@ -117,6 +117,22 @@ export interface ProjectManifest {
    *  mirrors plugin-registry's PluginTypeOverlay (kept structural to avoid a
    *  config→service import cycle). */
   plugins?: Array<{ id: string; allowedChildTypes?: string[]; requiredArtifacts?: string[] }>;
+  /** The MECHANICAL leaf gate (G2). Unlike `gateCommand` (the completion-gate plugin, which
+   *  runs AFTER the review node already accepted and change-set-narrows its failures), these
+   *  commands run in the EXECUTOR, at the leaf worktree HEAD, BEFORE the review node is spent.
+   *  A non-zero exit is 'fail' and is final: no LLM output can overturn it. A command that
+   *  cannot RUN is 'error' → park blocked + escalate, never 'fail'.
+   *  Absent ⇒ no mechanical gate (the LLM verdict alone decides — pre-G2 behaviour). */
+  gate?: {
+    /** Static check, run at leaf HEAD and once at the epic base. e.g. `npx tsc --noEmit`. */
+    typecheck?: string;
+    /** Run ONCE PER change-set spec file; `{file}` ← one shell-quoted path. e.g. `bun test {file}`. */
+    test?: string;
+    /** cwd for `test` (relative to the worktree root) + prefix stripped from spec paths. */
+    testCwd?: string;
+    /** Full-suite command run ONLY at the epic base, once per epic. */
+    baseTest?: string;
+  };
 }
 
 const MANIFEST_REL = join('.collab', 'project.json');
