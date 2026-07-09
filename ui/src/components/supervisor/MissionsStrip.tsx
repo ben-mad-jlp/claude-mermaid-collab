@@ -187,7 +187,7 @@ const MissionEditDialog: React.FC<{
       }
     >
       <div>
-        <label className={labelCls}>Goal <span className="text-gray-400">([MISSION] prefix kept automatically)</span></label>
+        <label className={labelCls}>Goal</label>
         <input className={fieldCls} value={title} onChange={(e) => setTitle(e.target.value)} data-testid="mission-edit-title" />
       </div>
       <div>
@@ -262,7 +262,7 @@ const MissionCreateDialog: React.FC<{
         <input className={fieldCls} value={session} onChange={(e) => setSession(e.target.value)} placeholder="e.g. design" data-testid="mission-create-session" />
       </div>
       <div>
-        <label className={labelCls}>Goal <span className="text-gray-400">([MISSION] prefix added automatically)</span></label>
+        <label className={labelCls}>Goal</label>
         <input className={fieldCls} value={title} onChange={(e) => setTitle(e.target.value)} data-testid="mission-create-title" />
       </div>
       <div>
