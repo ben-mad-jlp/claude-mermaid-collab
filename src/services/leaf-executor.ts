@@ -24,6 +24,8 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { Todo } from './todo-store';
 import { splitLeafInto } from './todo-store';
+import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
+import { parseSplitDecision, topoSortSplitItems } from './split-decision';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
 import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
@@ -63,7 +65,15 @@ export interface LeafSizeManifest {
   filesToCreate: string[];
   filesToEdit: string[];
   tasks: Array<{ id: string; files: string[]; description: string }>;
+  /** SR-6: present iff the blueprint emitted a well-formed `splitDecision`. */
+  splitDecision?: LeafSplitDecision;
+  /** SR-6: true iff a `splitDecision` KEY was present but failed validation. The gate
+   *  then takes the FLOOR — a malformed decision must never read as "split into N". */
+  splitDecisionMalformed?: boolean;
 }
+
+// Re-export types so they're available to users of leaf-executor.ts
+export type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 
 /** Dependency seam — defaults wire the real implementations; tests inject mocks. */
 export interface LeafExecutorDeps {
@@ -165,12 +175,13 @@ export interface LeafExecutorDeps {
    *  Optional `?.`: when unwired (tests / non-git) it returns null and BOTH behaviours
    *  fall back to the prior conservative path (gate fails on any error; no skip). */
   changeSet?: (sessionKey: string) => Promise<string[] | null>;
-  /** Auto-split seam (worker-decomposition): decompose a too-big leaf into one child
-   *  leaf per file UNDER it — the leaf becomes a non-executable dependency-grouping
-   *  container (sweepEpicRollups closes it when its children settle; it owns no branch
-   *  and triggers no merge). Default → `splitLeafInto` in todo-store (createTodo per file
-   *  + release this leaf's claim). Optional `?.`: unwired (tests / floor) ⇒ never splits. */
-  splitInto?: (leaf: Todo, files: string[]) => Promise<void>;
+  /** Auto-split seam. SR-6: takes structured ITEMS (each = one child leaf, >= 1 file, with
+   *  sibling `dependsOn` edges), not a flat file list. A plain `string[]` is still accepted
+   *  and normalised to one edgeless item per file (legacy file-count path + old tests).
+   *  The leaf becomes a non-executable dependency-grouping container (sweepEpicRollups closes
+   *  it when its children settle; it owns no branch and triggers no merge). Default →
+   *  `splitLeafInto` in todo-store. Optional `?.`: unwired (tests / floor) ⇒ never splits. */
+  splitInto?: (leaf: Todo, items: LeafSplitItem[] | string[]) => Promise<void>;
   /** P5 size-gate seam: read back the blueprint artifact (the .md the blueprint
    *  node wrote, including its trailing ```json size block) so the executor can
    *  derive the {@link LeafSizeManifest}. Default reads
@@ -478,11 +489,24 @@ export function buildNodePrompt(
         '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
         '  "nonEnumerableFanout": <bool>,',
         '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
-        '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ] }',
+        '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
+        '  "splitDecision": { "split": <bool>, "reason": "<why>",',
+        '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
         '```',
         'estimatedFiles = total distinct files created+edited. estimatedTasks = number of',
         'independent units of work. nonEnumerableFanout = true ONLY if there are sites you',
         'CANNOT statically enumerate (dynamic dispatch, string-keyed/reflective call sites).',
+        '',
+        'YOU decide whether this leaf is decomposable — a file count cannot see coupling, you can.',
+        '`splitDecision.split: false` ⇒ the leaf runs WHOLE in one worker, even at 12 files. Choose',
+        'this whenever the change is COUPLED: a shared primitive that call sites must be written',
+        'against, a lock protocol, a two-sided predicate. State that invariant in `reason`.',
+        '`splitDecision.split: true` ⇒ EVERY item becomes ONE child leaf, and `dependsOn` becomes a',
+        'REAL dependency edge between them (a child whose dep is unmet cannot be claimed). An item MAY',
+        'hold several files — group them by INDEPENDENT UNIT, not one-per-file. A module and the tests',
+        'that import it are NOT independent: the test item dependsOn the module item. `dependsOn` ids',
+        'must reference sibling item ids, and the graph must be acyclic. Omit `items` when split:false.',
+        'Prefer `split: false` when in doubt — an unsound split races; a whole leaf merely runs longer.',
         '',
         `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your`,
         `FINAL reply message — verbatim — so the executor has the blueprint even if the file`,
@@ -682,6 +706,9 @@ export function parseSizeManifest(
           files: toStrArr(t.files),
           description: typeof t.description === 'string' ? t.description : '',
         }));
+      // SR-6: parse the optional splitDecision. A key present but malformed → tri-state.
+      const hasKey = Object.prototype.hasOwnProperty.call(raw, 'splitDecision');
+      const decision = hasKey ? parseSplitDecision(raw.splitDecision) : null;
       return {
         schemaVersion: typeof raw.schemaVersion === 'number' ? raw.schemaVersion : 1,
         estimatedFiles,
@@ -690,6 +717,8 @@ export function parseSizeManifest(
         filesToCreate: toStrArr(raw.filesToCreate),
         filesToEdit: toStrArr(raw.filesToEdit),
         tasks,
+        ...(decision ? { splitDecision: decision } : {}),
+        ...(hasKey && !decision ? { splitDecisionMalformed: true } : {}),
       };
     } catch {
       /* not parseable — try the next source, else fall through to null */
@@ -1541,39 +1570,58 @@ export async function runLeaf(
     }
 
     // --- AUTO-SPLIT (worker-decomposition) ---
-    // A leaf whose blueprint ENUMERATES more files than one run should carry is split
-    // PRE-FLIGHT into one child leaf per file under THIS leaf (which becomes a
-    // non-executable dependency-grouping container). Children commit to the SAME enclosing
-    // epic branch (resolveEpicId walks past this node) and complete as ordinary leaves;
-    // sweepEpicRollups closes this container when they all settle — NO new branch, NO land
-    // gate (the epic's LAND leaf stays the sole merge-to-master authority). Only when the
-    // fanout is ENUMERABLE — a non-enumerable manifest can't be partitioned, so it falls
-    // through to WAVES. Guarded by deps.splitInto (unwired ⇒ never splits).
-    if (deps.splitInto && manifest && !manifest.nonEnumerableFanout) {
-      const splitFiles = [...new Set([
-        ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
-      ])];
-      if (splitFiles.length > SPLIT_CEILING) {
-        await deps.splitInto(leaf, splitFiles);
-        // 5dffee35: the split children are created PLANNED (proposed), not auto-claimed.
-        // Surface the proposal so the planner can review + promote (or reset the leaf to
-        // build linear) — otherwise the planned children sit invisibly un-runnable. This
-        // restores the planner-promotes-ready gate the autonomous auto-split bypassed.
-        try {
-          deps.escalate({
-            project,
-            session: sessionKey,
-            kind: 'decision',
-            todoId: leaf.id,
-            questionText:
-              `Leaf "${leaf.title ?? leaf.id}" exceeded the size gate (${splitFiles.length} files) and was ` +
-              `auto-split into ${splitFiles.length} PLANNED file-children (not yet runnable). Review the ` +
-              `decomposition: PROMOTE the children to ready (approve) if the split is sound, or reset this ` +
-              `leaf to build it LINEARLY in one run if the files are interdependent (shared modules don't ` +
-              `parallelize as atoms). Nothing runs until you promote.`,
-          });
-        } catch { /* escalation best-effort — never block the split outcome */ }
-        return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+    // SR-6: the BLUEPRINT decides. A file count has no model of coupling. A blueprint-emitted
+    // decision directs the split (if any) and its dependency edges. A malformed decision falls
+    // through to the FLOOR (fail-safe). No decision emitted → legacy file-count gate (back-compat).
+    if (deps.splitInto && manifest) {
+      const decision = manifest.splitDecision;
+
+      if (manifest.splitDecisionMalformed) {
+        // A malformed decision must NEVER read as "split into N". Take the floor.
+        // (fall through, no split)
+      } else if (decision) {
+        if (decision.split) {
+          await deps.splitInto(leaf, decision.items);
+          try {
+            deps.escalate({
+              project, session: sessionKey, kind: 'decision', todoId: leaf.id,
+              questionText:
+                `Leaf "${leaf.title ?? leaf.id}" was decomposed BY ITS BLUEPRINT into ` +
+                `${decision.items.length} PLANNED children with dependency edges (not yet runnable). ` +
+                `Blueprint's reason: ${decision.reason}\n` +
+                `Review the decomposition: PROMOTE the children to ready (approve) if the split and ` +
+                `its build order are sound, or reset this leaf to build it LINEARLY in one run. ` +
+                `Nothing runs until you promote.`,
+            });
+          } catch { /* escalation best-effort */ }
+          return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+        }
+        // decision.split === false ⇒ a COUPLED change. Runs WHOLE, at any file count.
+        // decision.reason states the cross-file invariant. Fall through to the floor.
+      } else if (!manifest.nonEnumerableFanout) {
+        // LEGACY fallback: no decision emitted ⇒ the old file-count gate (back-compat).
+        const splitFiles = [...new Set([
+          ...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap((t) => t.files),
+        ])];
+        if (splitFiles.length > SPLIT_CEILING) {
+          // Normalize legacy string[] to items (one per file, no edges).
+          await deps.splitInto(leaf, splitFiles.map((f) => ({ id: f, files: [f], dependsOn: [] })));
+          try {
+            deps.escalate({
+              project,
+              session: sessionKey,
+              kind: 'decision',
+              todoId: leaf.id,
+              questionText:
+                `Leaf "${leaf.title ?? leaf.id}" exceeded the size gate (${splitFiles.length} files) and was ` +
+                `auto-split into ${splitFiles.length} PLANNED file-children (not yet runnable). Review the ` +
+                `decomposition: PROMOTE the children to ready (approve) if the split is sound, or reset this ` +
+                `leaf to build it LINEARLY in one run if the files are interdependent (shared modules don't ` +
+                `parallelize as atoms). Nothing runs until you promote.`,
+            });
+          } catch { /* escalation best-effort — never block the split outcome */ }
+          return finishWith({ outcome: 'split', attempts: state.attempt, nodesSpent: state.nodesSpent });
+        }
       }
     }
 

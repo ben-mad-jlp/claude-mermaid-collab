@@ -25,6 +25,7 @@ import {
   planResume,
   type LeafExecutorDeps,
   type LeafSizeManifest,
+  type LeafSplitItem,
 } from '../leaf-executor';
 import type { Todo } from '../todo-store';
 import type { NodeResult, NodeSpec } from '../../agent/node-invoker';
@@ -667,7 +668,7 @@ interface WaveOpts {
   persistCalls?: Array<{ attempt: number; manifest: LeafSizeManifest; blueprintMd: string; project: string }>;
   /** When provided, wires the auto-split seam and captures each splitInto call.
    *  Unset ⇒ seam unwired ⇒ never splits (prior behaviour). */
-  splitCalls?: Array<{ leafId: string; files: string[] }>;
+  splitCalls?: Array<{ leafId: string; items: LeafSplitItem[] | string[] }>;
 }
 
 function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[] } {
@@ -713,7 +714,7 @@ function makeWaveDeps(opts: WaveOpts): { deps: LeafExecutorDeps; calls: string[]
     readBlueprint: async () => manifestText,
     changeSet: opts.changeSet !== undefined ? async () => opts.changeSet ?? null : undefined,
     splitInto: opts.splitCalls
-      ? async (lf, files) => { opts.splitCalls!.push({ leafId: lf.id, files }); }
+      ? async (lf, items) => { opts.splitCalls!.push({ leafId: lf.id, items }); }
       : undefined,
     persistBlueprint: opts.persistCalls
       ? async ({ project, attempt, manifest, blueprintMd }) => {
@@ -745,9 +746,9 @@ describe('runLeaf P5 size gate', () => {
     expect(calls).toEqual(['blueprint', 'implement', 'review']);
   });
 
-  it('(m) over-ceiling enumerable manifest ⇒ SPLIT pre-flight (no floor/waves nodes run)', async () => {
+  it('(m) over-ceiling enumerable manifest (legacy path, no splitDecision) ⇒ SPLIT pre-flight', async () => {
     const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
-    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
     const { deps, calls } = makeWaveDeps({
       manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 3, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: [] },
       splitCalls,
@@ -755,14 +756,17 @@ describe('runLeaf P5 size gate', () => {
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).toBe('split');
     expect(splitCalls.length).toBe(1);
-    expect([...splitCalls[0].files].sort()).toEqual([...files].sort());
+    // Legacy path normalizes string[] to one item per file, all edgeless.
+    const items = splitCalls[0].items as LeafSplitItem[];
+    expect(items.length).toBe(14);
+    expect(items.every((i) => i.files.length === 1 && i.dependsOn.length === 0)).toBe(true);
     // Split happens AFTER blueprint but BEFORE any implement/research/verify work.
     expect(calls).toEqual(['blueprint']);
   });
 
   it('(n) over-ceiling but NON-ENUMERABLE fanout ⇒ no split, runs LINEAR (waves retired)', async () => {
     const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
-    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
     const { deps, calls } = makeWaveDeps({
       manifest: { schemaVersion: 1, estimatedFiles: 14, estimatedTasks: 1, nonEnumerableFanout: true, filesToCreate: [], filesToEdit: files, tasks: [{ id: 't', files, description: 'x' }] },
       reviewVerdict: 'VERDICT: PASS',
@@ -780,7 +784,7 @@ describe('runLeaf P5 size gate', () => {
 
   it('(o) enumerable but at/below the ceiling ⇒ no split (runs normally)', async () => {
     const files = Array.from({ length: 8 }, (_, i) => `f${i}.ts`);
-    const splitCalls: Array<{ leafId: string; files: string[] }> = [];
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
     const { deps } = makeWaveDeps({
       manifest: { schemaVersion: 1, estimatedFiles: 8, estimatedTasks: 8, nonEnumerableFanout: false, filesToCreate: files, filesToEdit: [], tasks: files.map((f, i) => ({ id: `t${i}`, files: [f], description: 'd' })) },
       reviewVerdict: 'VERDICT: PASS',
@@ -802,6 +806,135 @@ describe('runLeaf P5 size gate', () => {
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
     expect(res.outcome).not.toBe('split');
+  });
+
+  it('(q) split:false + reason + 14 files ⇒ no split, runs FLOOR (coupled fix)', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 14,
+        estimatedTasks: 3,
+        nonEnumerableFanout: false,
+        filesToCreate: files,
+        filesToEdit: [],
+        tasks: [],
+        splitDecision: { split: false, reason: 'shared lock protocol', items: [] },
+      },
+      reviewVerdict: 'VERDICT: PASS',
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(splitCalls.length).toBe(0); // no split
+    expect(calls).toEqual(['blueprint', 'implement', 'review']);
+    expect(res.outcome).toBe('accepted');
+  });
+
+  it('(r) split:true with 3 items (one multi-file, one with dependsOn) ⇒ split outcome, edges preserved', async () => {
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 4,
+        estimatedTasks: 2,
+        nonEnumerableFanout: false,
+        filesToCreate: [],
+        filesToEdit: [],
+        tasks: [],
+        splitDecision: {
+          split: true,
+          reason: 'independent units',
+          items: [
+            { id: 'mod', files: ['mod.ts', 'mod-helper.ts'], dependsOn: [] },
+            { id: 'tests', files: ['mod.test.ts'], dependsOn: ['mod'] },
+            { id: 'api', files: ['api-route.ts'], dependsOn: [] },
+          ],
+        },
+      },
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('split');
+    expect(splitCalls.length).toBe(1);
+    expect(calls).toEqual(['blueprint']);
+    const items = splitCalls[0].items as LeafSplitItem[];
+    expect(items.length).toBe(3);
+    expect(items[1].dependsOn).toContain('mod');
+  });
+
+  it('(s) 2 items over 3 files, all under ceiling ⇒ blueprint decision is authoritative, not count', async () => {
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 3,
+        estimatedTasks: 2,
+        nonEnumerableFanout: false,
+        filesToCreate: [],
+        filesToEdit: [],
+        tasks: [],
+        splitDecision: {
+          split: true,
+          reason: 'intended split',
+          items: [
+            { id: 'a', files: ['a.ts', 'a-helper.ts'], dependsOn: [] },
+            { id: 'b', files: ['b.ts'], dependsOn: ['a'] },
+          ],
+        },
+      },
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('split'); // blueprint decision, not file count
+    expect(splitCalls.length).toBe(1);
+    expect(calls).toEqual(['blueprint']);
+  });
+
+  it('(t) malformed splitDecision (e.g. split:true, items:[]) at 14 files ⇒ no split, runs FLOOR', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 14,
+        estimatedTasks: 3,
+        nonEnumerableFanout: false,
+        filesToCreate: files,
+        filesToEdit: [],
+        tasks: [],
+        splitDecision: { split: true, reason: 'x', items: [] }, // malformed: 1-item "split"
+      },
+      reviewVerdict: 'VERDICT: PASS',
+      nodeBudget: 200,
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(splitCalls.length).toBe(0); // malformed → floor, never split
+    expect(calls).toContain('implement');
+    expect(res.outcome).toBe('accepted');
+  });
+
+  it('(u) splitDecision absent at 14 files ⇒ legacy count path still splits (back-compat)', async () => {
+    const files = Array.from({ length: 14 }, (_, i) => `f${i}.ts`);
+    const splitCalls: Array<{ leafId: string; items: LeafSplitItem[] | string[] }> = [];
+    const { deps, calls } = makeWaveDeps({
+      manifest: {
+        schemaVersion: 1,
+        estimatedFiles: 14,
+        estimatedTasks: 3,
+        nonEnumerableFanout: false,
+        filesToCreate: files,
+        filesToEdit: [],
+        tasks: [],
+        // NO splitDecision key
+      },
+      splitCalls,
+    });
+    const res = await runLeaf('proj', makeLeaf(), deps);
+    expect(res.outcome).toBe('split');
+    expect(splitCalls.length).toBe(1);
+    expect(calls).toEqual(['blueprint']);
   });
 
 });
