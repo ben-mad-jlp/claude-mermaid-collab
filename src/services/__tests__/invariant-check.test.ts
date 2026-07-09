@@ -42,6 +42,8 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     objectRef: null,
     decisionRef: null,
     claimProbe: null,
+    inheritedBlueprintFrom: null,
+    inheritedFiles: [],
     ...partial,
     id: partial.id ?? `t${++seq}`,
     status,

@@ -106,3 +106,10 @@ export function topoSortSplitItems(items: LeafSplitItem[]): LeafSplitItem[] {
   if (sorted.length !== items.length) throw new Error('topoSortSplitItems: cycle detected');
   return sorted;
 }
+
+/** SR-7: the inherited slice is usable only if the plan text actually specifies every
+ *  file the child owns. An under-specified blueprint ⇒ null ⇒ caller runs a FULL blueprint. */
+export function sliceCoversFiles(planText: string | null | undefined, files: string[]): boolean {
+  if (!planText || !planText.trim() || files.length === 0) return false;
+  return files.every((f) => planText.includes(f.trim()));
+}

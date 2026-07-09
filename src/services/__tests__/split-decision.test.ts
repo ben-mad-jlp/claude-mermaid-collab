@@ -310,6 +310,8 @@ describe('splitLeafInto with items', () => {
       objectRef: null,
       decisionRef: null,
       claimProbe: null,
+      inheritedBlueprintFrom: null,
+      inheritedFiles: [],
       ...overrides,
     };
   }
