@@ -97,6 +97,17 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
       const deactivated = activateMission(project, todoId);
+      // Sync subscriptions: subscribe the activated mission and unsubscribe deactivated ones.
+      try {
+        const { syncMissionSubscription } = await import('../services/mission-subscription.js');
+        syncMissionSubscription(project, todoId);
+        for (const id of deactivated) {
+          syncMissionSubscription(project, id);
+        }
+      } catch (e) {
+        // Subscription failure must never fail the mission tool.
+        console.warn('mission subscription sync failed (non-fatal):', (e as Error).message);
+      }
       return JSON.stringify({ active: todoId, deactivated }, null, 2);
     }
     case 'update_mission': {
@@ -121,7 +132,17 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
       if (!isMission(node)) throw new Error(`not a mission node (kind='mission'): ${todoId}`);
+      const ownerSession = node.ownerSession ?? node.assigneeSession ?? null;
       deleteMission(project, todoId);            // control state + criteria
+      // Remove subscription before dropping the node (owner needed for unsubscribe).
+      if (ownerSession) {
+        try {
+          const { unsubscribeMission } = await import('../services/mission-subscription.js');
+          unsubscribeMission(project, todoId, ownerSession);
+        } catch (e) {
+          console.warn('mission subscription cleanup failed (non-fatal):', (e as Error).message);
+        }
+      }
       await updateTodoStore(project, todoId, { status: 'dropped' }); // drop the graph node
       return JSON.stringify({ deleted: todoId }, null, 2);
     }
@@ -136,6 +157,13 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
       const mission = toPhase ? setMissionPhase(project, todoId, toPhase) : advanceMission(project, todoId);
+      // Sync subscriptions: idempotent re-derive the right subscription state from phase.
+      try {
+        const { syncMissionSubscription } = await import('../services/mission-subscription.js');
+        syncMissionSubscription(project, todoId);
+      } catch (e) {
+        console.warn('mission subscription sync failed (non-fatal):', (e as Error).message);
+      }
       return JSON.stringify({ mission, rollup: getMissionRollup(project, todoId) }, null, 2);
     }
     case 'stamp_mission': {
@@ -155,6 +183,13 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (maxIterations !== undefined) cfg.maxIterations = maxIterations;
       if (procedure !== undefined) cfg.procedure = procedure;
       const mission = setMissionConfig(project, todoId, cfg);
+      // Sync subscriptions: idempotent (config change doesn't affect subscription state).
+      try {
+        const { syncMissionSubscription } = await import('../services/mission-subscription.js');
+        syncMissionSubscription(project, todoId);
+      } catch (e) {
+        console.warn('mission subscription sync failed (non-fatal):', (e as Error).message);
+      }
       return JSON.stringify({ mission }, null, 2);
     }
     case 'add_mission_criterion': {
