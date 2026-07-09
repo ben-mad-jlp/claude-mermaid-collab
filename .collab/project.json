@@ -5,6 +5,9 @@
   "changeSetTestCwd": "ui",
   "gate": {
     "typecheck": "npx tsc --noEmit -p tsconfig.json",
-    "test": "bun test {file}"
+    "tests": [
+      { "match": "^src/", "command": "bun test {file}" },
+      { "match": "^ui/", "command": "bunx vitest --run {files}", "cwd": "ui" }
+    ]
   }
 }

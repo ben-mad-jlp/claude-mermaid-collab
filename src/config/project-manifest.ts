@@ -126,10 +126,25 @@ export interface ProjectManifest {
   gate?: {
     /** Static check, run at leaf HEAD and once at the epic base. e.g. `npx tsc --noEmit`. */
     typecheck?: string;
-    /** Run ONCE PER change-set spec file; `{file}` ← one shell-quoted path. e.g. `bun test {file}`. */
+    /** LEGACY single-runner form. Mutually exclusive with `tests`. Run ONCE PER change-set
+     *  spec file; `{file}` ← one shell-quoted path. e.g. `bun test {file}`. */
     test?: string;
     /** cwd for `test` (relative to the worktree root) + prefix stripped from spec paths. */
     testCwd?: string;
+    /** Multi-lane form for a repo whose specs need DIFFERENT runners (e.g. `bun test` for src/,
+     *  `bunx vitest --run` for ui/). Each change-set spec is routed to the FIRST lane whose
+     *  `match` (a RegExp source, tested against the repo-root-relative path) accepts it. A spec
+     *  matching NO lane is a config gap → 'error' (park + escalate), never a silent pass. */
+    tests?: Array<{
+      /** RegExp source, e.g. `^ui/`. Tested against the root-relative spec path. */
+      match: string;
+      /** `{file}` ⇒ run once per spec; `{files}` ⇒ run once with all lane specs.
+       *  Exactly one of the two placeholders. */
+      command: string;
+      /** cwd for `command`, relative to the worktree root; also the prefix stripped
+       *  from the spec paths before substitution. Omitted ⇒ worktree root. */
+      cwd?: string;
+    }>;
     /** Full-suite command run ONLY at the epic base, once per epic. */
     baseTest?: string;
   };
