@@ -19,6 +19,9 @@
  */
 import React, { useEffect, useState } from 'react';
 import { useSupervisorStore, type MissionSummary, type MissionPhase } from '@/stores/supervisorStore';
+// Display strips route through the shared todoKind mirror — this file reads no title to
+// decide a role. The '[MISSION] prefix …' copy below describes server behaviour, not a read.
+import { stripKindPrefix } from '@/lib/todoKind';
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog';
 
 export interface MissionsStripProps {
@@ -55,14 +58,6 @@ function phaseTooltip(phase: MissionPhase): string {
   const cycle = PHASE_CYCLE.map((p) => PHASE_LABEL[p]).join(' → ');
   const current = PHASE_LABEL[phase] ?? phase;
   return `Convergence loop: ${cycle} → (iterate: loop back).\nVerify decides: converged / stopped / loop again.\nCurrent phase: ${current}.`;
-}
-
-function stripMissionPrefix(title: string): string {
-  return title.replace(/^\[MISSION\]\s*/i, '');
-}
-
-function stripEpicPrefix(title: string): string {
-  return title.replace(/^\[EPIC\]\s*/i, '');
 }
 
 const isTerminalPhase = (p: MissionPhase): boolean => p === 'converged' || p === 'stopped';
@@ -153,7 +148,7 @@ const MissionEditDialog: React.FC<{
   onClose: () => void;
   onSave: (patch: { title?: string; description?: string; maxIterations?: number | null; procedure?: string | null }) => Promise<void>;
 }> = ({ m, onClose, onSave }) => {
-  const [title, setTitle] = useState(stripMissionPrefix(m.node?.title ?? ''));
+  const [title, setTitle] = useState(stripKindPrefix(m.node?.title));
   const [description, setDescription] = useState((m.mission?.description as string | undefined) ?? '');
   const [procedure, setProcedure] = useState(m.mission?.procedure ?? '');
   const [cap, setCap] = useState(m.mission?.maxIterations != null ? String(m.mission.maxIterations) : '');
@@ -509,7 +504,7 @@ const MissionCard: React.FC<{
               paused
             </span>
           )}
-          {stripMissionPrefix(m.node?.title ?? 'Mission')}
+          {stripKindPrefix(m.node?.title ?? 'Mission')}
         </span>
         <span
           className={`shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${PHASE_STYLE[phase] ?? PHASE_STYLE.discover}`}
@@ -607,7 +602,7 @@ const MissionCard: React.FC<{
             <div key={e.id} className="flex items-start gap-1 text-3xs leading-snug" title={`${e.status}${e.acceptanceStatus ? ` · ${e.acceptanceStatus}` : ''}`}>
               <span className={`mt-1 shrink-0 h-1.5 w-1.5 rounded-full ${epicDotClass(e.status)}`} aria-hidden />
               <span className="text-gray-600 dark:text-gray-300 truncate">
-                {stripEpicPrefix(e.title)}
+                {stripKindPrefix(e.title)}
               </span>
               <span className="ml-auto shrink-0 text-gray-400 dark:text-gray-500 lowercase">
                 {e.status}
@@ -646,7 +641,7 @@ const MissionCard: React.FC<{
       <ConfirmDialog
         isOpen={confirmDelete}
         title="Delete mission?"
-        message={<>Permanently delete <strong>{stripMissionPrefix(m.node?.title ?? 'this mission')}</strong>? This drops the mission node, its loop state, and all criteria. This cannot be undone.</>}
+        message={<>Permanently delete <strong>{stripKindPrefix(m.node?.title ?? 'this mission')}</strong>? This drops the mission node, its loop state, and all criteria. This cannot be undone.</>}
         confirmLabel="Delete permanently"
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => { setConfirmDelete(false); void run(() => deleteMission(serverId, project, missionId)); }}
