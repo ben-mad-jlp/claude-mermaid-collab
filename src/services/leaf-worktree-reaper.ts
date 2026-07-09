@@ -1,10 +1,17 @@
-import { stat } from 'node:fs/promises';
+import { stat, readdir } from 'node:fs/promises';
+import * as path from 'node:path';
 import { getWorktreeManager } from './coordinator-live.js';
-import { listLeafInflight } from './worker-ledger.js';
-import { getTodo } from './todo-store.js';
+import { listLeafInflight, isLeafInflightLive } from './worker-ledger.js';
+import { isRunLive } from './leaf-subprocess-registry.js';
+import { getTodo, listTodos } from './todo-store.js';
+import { recordSupervisorAudit } from './supervisor-store.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
+/** GC pass throttle — the directory-vs-registration sweep (readdir + git worktree list +
+ *  per-dir git status) is heavier than the record-driven reaper above, so it runs on its
+ *  own, coarser cadence. */
+const GC_THROTTLE_MS = 30 * 60_000;
 /** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase has NO leaf_inflight
  *  row (rows are per-node, deleted on node-finish) yet is still live — and the
  *  leaf-executor's own self-merge runs in THIS window. Reaping then yanks the worktree out
@@ -91,4 +98,180 @@ export async function reapOrphanedLeafWorktrees(project: string): Promise<number
   }
 
   return reaped;
+}
+
+const lastGcMs = new Map<string, number>();
+
+export interface GcReport {
+  removed: string[];            // worktree paths deleted
+  refused: Array<{ path: string; reason: string; sample: string[] }>;
+  prunedRegistrations: number;  // reserved for a future direct prune count (always 0 today —
+                                 // `removePath` itself prunes as part of each removal)
+  scanned: number;
+}
+
+const GC_SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', 'out']);
+
+/** Bounded walk (depth ≤ 3, skipping build/vcs noise) returning FILE paths relative to
+ *  `root`. Mirrors the shape of WorktreeManager's private findPackageJsonDirs — this is
+ *  its file-listing sibling, used ONLY to answer "does this dangling checkout carry any
+ *  file the main checkout doesn't have at the same path" (the uncommitted-work guard). */
+async function listFilesBounded(root: string, relDir = '', depth = 3): Promise<string[]> {
+  const abs = path.join(root, relDir);
+  let entries: Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>;
+  try {
+    entries = await readdir(abs, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const e of entries) {
+    if (e.name.startsWith('.') && e.name !== '.') continue;
+    const relPath = path.join(relDir, e.name);
+    if (e.isDirectory()) {
+      if (GC_SKIP_DIRS.has(e.name) || depth <= 0) continue;
+      out.push(...(await listFilesBounded(root, relPath, depth - 1)));
+    } else if (e.isFile()) {
+      out.push(relPath);
+    }
+  }
+  return out;
+}
+
+/** Resolve a leaf-exec dir's 8-char id prefix to its todo. `getTodo` is an EXACT-id
+ *  lookup, so try it first (cheap, covers a full-id caller), then fall back to a
+ *  startsWith scan over listTodos (short-id convention: leaf/epic short ids are the
+ *  LEADING 8 hex of the full id everywhere). Needed because the leaf-exec-* dir name
+ *  only ever carries the 8-char prefix, never the full todo id. */
+function findLeafTodoByShortId(project: string, id8: string) {
+  const direct = getTodo(project, id8);
+  if (direct) return direct;
+  return listTodos(project, { includeCompleted: true }).find((t) => t.id.startsWith(id8)) ?? null;
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Directory-driven GC pass for leaf-exec-* worktrees (kill-the-running-build epic,
+ * HALF 2). `reapOrphanedLeafWorktrees` above is record-driven (`wm.list()`, which reads
+ * the SAME dir the worktree records live in) — a dir whose record was already deleted
+ * (e.g. `_removeInner`'s best-effort fs.rm fallback) is invisible to it forever. This
+ * pass instead scans the DIRECTORY and reconciles it against what git has registered,
+ * so it can drain orphans the record-driven reaper can never see.
+ *
+ * Conservative by construction: every guard can only REFUSE a removal (a live leaf, an
+ * unknown todo, uncommitted tracked changes, or an untracked file with no counterpart in
+ * the main checkout), never force one. `dryRun` skips the actual `removePath` call but
+ * still computes the full report.
+ */
+export async function gcLeafWorktrees(project: string, opts?: { dryRun?: boolean }): Promise<GcReport> {
+  const wm = getWorktreeManager(project);
+  const report: GcReport = { removed: [], refused: [], prunedRegistrations: 0, scanned: 0 };
+
+  let entries: Array<{ name: string; isDirectory(): boolean }>;
+  try {
+    entries = await readdir(wm.baseDir(), { withFileTypes: true });
+  } catch {
+    return report;
+  }
+  const now = Date.now();
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(LEAF_EXEC_PREFIX)) continue;
+    report.scanned += 1;
+    const dir = path.join(wm.baseDir(), entry.name);
+    const id8 = entry.name.slice(LEAF_EXEC_PREFIX.length, LEAF_EXEC_PREFIX.length + 8);
+
+    const todo = id8.length === 8 ? findLeafTodoByShortId(project, id8) : null;
+    if (!todo) {
+      report.refused.push({ path: dir, reason: 'unknown-todo', sample: [] });
+      continue;
+    }
+    if (todo.status !== 'done' && todo.status !== 'dropped') continue; // live leaf — skip silently
+
+    if (isLeafInflightLive(todo.id) || isRunLive(todo.id)) continue; // executor still running
+
+    // Grace window — mirrors isReapable's merge-race guard: a leaf just finished its
+    // self-merge may still be settling on disk.
+    let mtimeMs: number | null = null;
+    try { mtimeMs = (await stat(dir)).mtimeMs; } catch { mtimeMs = null; }
+    if (mtimeMs != null && now - mtimeMs < REAP_GRACE_MS) continue;
+
+    const status = await wm.statusAt(dir);
+    if (status === null) {
+      // Dangling (unregistered) checkout — git itself is unusable here. Nothing
+      // COMMITTED is at risk (the branch, if any, still lives in the main repo); the
+      // only risk is a file that exists ONLY in this dir. Bounded-walk compare against
+      // the main checkout.
+      const files = await listFilesBounded(dir);
+      const unique: string[] = [];
+      for (const f of files) {
+        if (!(await pathExists(path.join(project, f)))) unique.push(f);
+      }
+      if (unique.length > 0) {
+        report.refused.push({ path: dir, reason: 'dangling-with-unique-files', sample: unique.slice(0, 5) });
+        continue;
+      }
+    } else {
+      const tracked = status.filter((l) => !l.startsWith('??'));
+      if (tracked.length > 0) {
+        report.refused.push({
+          path: dir,
+          reason: 'uncommitted-tracked-changes',
+          sample: tracked.slice(0, 5).map((l) => l.slice(3)),
+        });
+        continue;
+      }
+      const untracked = status.filter((l) => l.startsWith('??')).map((l) => l.slice(3));
+      const uniqueUntracked: string[] = [];
+      for (const f of untracked) {
+        if (!(await pathExists(path.join(project, f)))) uniqueUntracked.push(f);
+      }
+      if (uniqueUntracked.length > 0) {
+        report.refused.push({ path: dir, reason: 'untracked-unique-files', sample: uniqueUntracked.slice(0, 5) });
+        continue;
+      }
+    }
+
+    if (!opts?.dryRun) {
+      try {
+        await wm.removePath(dir);
+        console.log(`[worktree-gc] removed orphaned worktree dir ${dir} (todo=${todo.id.slice(0, 8)} status=${todo.status})`);
+      } catch {
+        report.refused.push({ path: dir, reason: 'remove-failed', sample: [] });
+        continue;
+      }
+    }
+    report.removed.push(dir);
+  }
+
+  console.log(
+    `[worktree-gc] scanned=${report.scanned} removed=${report.removed.length} ` +
+    `refused=${report.refused.length} pruned=${report.prunedRegistrations}`,
+  );
+  try {
+    recordSupervisorAudit({
+      kind: 'reconcile',
+      project,
+      session: '',
+      detail: JSON.stringify({ source: 'worktree-gc', ...report }),
+    });
+  } catch { /* telemetry best-effort */ }
+
+  return report;
+}
+
+/** Throttled entry point (30 min/project) for the coordinator tick. Fire-and-forget —
+ *  mirrors `reapOrphanedLeafWorktrees`'s own throttle-and-call shape. */
+export async function tickGcLeafWorktrees(project: string): Promise<GcReport | null> {
+  const now = Date.now();
+  if ((now - (lastGcMs.get(project) ?? 0)) < GC_THROTTLE_MS) return null;
+  lastGcMs.set(project, now);
+  return gcLeafWorktrees(project);
 }
