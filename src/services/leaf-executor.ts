@@ -38,6 +38,7 @@ import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markL
 import { scopeFailureToChangeSet, isInChangeSet } from './gate-runner';
 import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
+import { stageUntrackedIntentToAdd } from './stage-untracked';
 
 /** Node kinds. The floor chains blueprint→implement→review (unchanged). P5 adds the
  *  wave kinds (research/wimplement/verify/fix); `'implement'` stays RESERVED for the
@@ -1616,6 +1617,16 @@ export async function runLeaf(
           if (swept.length) console.warn(`[leaf-executor] worktree write-leak: relocated ${swept.length} leaked file(s) from the main checkout into the worktree (${swept.slice(0, 5).join(', ')}${swept.length > 5 ? ', …' : ''})`);
         } catch { /* never break the run on the mitigation */ }
       }
+      // NEW-FILE VISIBILITY: a file the implement/fix node CREATED is untracked, and `git diff`
+      // never shows untracked files — the review node then truthfully reports it "absent" and the
+      // leaf thrashes implement→review to node-budget exhaustion (f0f0bd49). Record the path in
+      // the index (content NOT staged) so every git view the reviewer uses sees it. Explicit,
+      // .gitignore-respecting path list — never `git add -A`; worktrees carry 20+ untracked junk
+      // paths (db snapshots, deploy logs). Best-effort.
+      try {
+        const staged = stageUntrackedIntentToAdd(cwd);
+        if (staged.length) console.warn(`[leaf-executor] intent-to-add: made ${staged.length} new file(s) visible to review (${staged.slice(0, 5).join(', ')}${staged.length > 5 ? ', …' : ''})`);
+      } catch { /* never break the run on the mitigation */ }
       const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
       if (review.rateLimited) return pausedResult('review', review);
       reviewVerdict = parseVerdict(review.text);
