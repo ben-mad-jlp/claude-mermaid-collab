@@ -12,6 +12,7 @@
 
 import { subscriptionMatches, type Subscription, type SubscribableEvent } from './session-subscriptions';
 import type { Todo } from './todo-store';
+import { isEpic } from './todo-kind';
 
 export interface TodoSnapshot {
   status: string;
@@ -53,11 +54,14 @@ export function snapshotTodos(todos: Todo[]): SnapshotMap {
   return m;
 }
 
-/** Nearest [EPIC] ancestor id (walks parentId), or null. Title-based, cycle-safe. */
+/** Nearest EPIC ancestor id (walks parentId), or null. Kind-based, cycle-safe.
+ *  Returns null — NOT the Inbox epic — when there is no epic ancestor; epic-scoped
+ *  subscriptions depend on that. A MISSION ancestor is not an epic and does not stop
+ *  the walk. */
 function resolveEpicId(todo: Todo, byId: Map<string, Todo>): string | null {
   let cur: Todo | undefined = todo;
   for (let i = 0; cur && i < 50; i++) {
-    if ((cur.title ?? '').startsWith('[EPIC]')) return cur.id;
+    if (isEpic(cur)) return cur.id;
     if (!cur.parentId) return null;
     cur = byId.get(cur.parentId);
   }
