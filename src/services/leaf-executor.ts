@@ -147,6 +147,9 @@ export interface LeafExecutorDeps {
    *  stamped 'rejected'), FALSE if a concurrent run already took it terminal → caller
    *  discards the blocked outcome. (void/undefined = legacy: treat as owned.) */
   markRejecting?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
+  /** Bump the leaf's retryCount so an INFRA incident (vacuous review) is visible on the
+   *  graph. Ownership-gated; best-effort — never breaks the run. */
+  bumpRetry?: (project: string, leafId: string) => void | boolean | Promise<void | boolean>;
   /** Resume plan for this dispatch (slice 2). Absent ⇒ a clean fresh run. */
   resumePlan?: ResumePlan;
   /** Fetch the durable blueprint plan text for a leaf (reattach reuses it in a fresh
@@ -750,9 +753,23 @@ function stripSentinelFmt(text: string): string {
   return text.replace(/[`*_"']/g, '');
 }
 
-export function parseVerdict(text: string | undefined): 'pass' | 'fail' {
-  if (!text) return 'fail';
-  return /^\s*VERDICT:\s*PASS\b/im.test(stripSentinelFmt(text)) ? 'pass' : 'fail';
+/** The floor pipeline's review verdict. TRI-STATE, mirroring {@link VerifyGateVerdict}:
+ *  - 'pass'  — a parseable `VERDICT: PASS` line.
+ *  - 'fail'  — a parseable `VERDICT: FAIL` line: a real FINDING, feed it back to implement.
+ *  - 'error' — empty/whitespace, or NO parseable VERDICT line at all: the reviewer said
+ *              NOTHING. An INFRA failure, NOT a finding → park blocked (bug 80bacbc4: an
+ *              empty provider response read as 'fail', so the executor re-ran implement
+ *              against phantom findings and livelocked to node-budget exhaustion).
+ *  Fail-closed is preserved: an 'error' is never an accept. Anything that is neither an
+ *  explicit PASS nor an explicit FAIL is 'error' — a terse-but-real verdict is a PASS/FAIL
+ *  line and is handled here; judging a review's DEPTH is out of scope (G2/G3). */
+export type LeafReviewVerdict = 'pass' | 'fail' | 'error';
+
+export function parseVerdict(text: string | undefined): LeafReviewVerdict {
+  if (!text || !text.trim()) return 'error';
+  const m = stripSentinelFmt(text).match(/^\s*VERDICT:\s*(PASS|FAIL)\b/im);
+  if (!m) return 'error';
+  return m[1].toUpperCase() === 'PASS' ? 'pass' : 'fail';
 }
 
 /** The verify pipeline's domain-gate verdict (epic f5c7fc46), derived purely from the
@@ -1316,10 +1333,9 @@ export async function runLeaf(
     // end with a parseable VERDICT line, else the reviewer did no real work → park blocked.
     const reportMd = (rev.text ?? '').trim();
     if (!reportMd) return parkBlocked('review-report-empty');
-    if (!/^\s*VERDICT:\s*(PASS|FAIL)\b/im.test(stripSentinelFmt(reportMd))) {
-      return parkBlocked('review-report-no-verdict');
-    }
-    const verdict = parseVerdict(reportMd); // pass|fail — informational; BOTH accept.
+    const parsedVerdict = parseVerdict(reportMd);
+    if (parsedVerdict === 'error') return parkBlocked('review-report-no-verdict'); // no parseable VERDICT line
+    const verdict = parsedVerdict; // pass|fail — informational; BOTH accept.
 
     // L5: the EXECUTOR persists the report into the worktree (the node only emitted it) — a
     // node's new-file Write resolves to the project root, not the worktree, so it would never
@@ -1629,7 +1645,16 @@ export async function runLeaf(
       } catch { /* never break the run on the mitigation */ }
       const review = await runNode('review', buildSpec('review', cwd, blueprintBody));
       if (review.rateLimited) return pausedResult('review', review);
-      reviewVerdict = parseVerdict(review.text);
+      const parsed = parseVerdict(review.text);
+      // INFRA, not a finding (80bacbc4): the reviewer emitted nothing parseable. Feeding ''
+      // back to implement is a livelock (empty findings also defeat the isRepeat stuck-
+      // detector below, so it runs to node-budget exhaustion). Park, and RECORD it —
+      // retryCount stayed 0 before, so the graph showed no incident at all.
+      if (parsed === 'error') {
+        try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+        return parkBlocked('review-vacuous');
+      }
+      reviewVerdict = parsed;
       const findings = (review.text ?? '').trim();
       // A PASS means the work is COMPLETE — accept it regardless of budget. The budget is a
       // runaway guard on doing MORE work, not a reason to DISCARD a finished, passing leaf.
@@ -1839,6 +1864,12 @@ export async function makeLeafExecutorDeps(
         const { markRejectingIfOwned } = await import('./todo-store');
         return await markRejectingIfOwned(p, leafId, runClaimToken);
       } catch { return true; /* best-effort: don't change legacy behaviour on error */ }
+    },
+    bumpRetry: async (p, leafId) => {
+      try {
+        const { bumpRetryCountIfOwned } = await import('./todo-store');
+        return await bumpRetryCountIfOwned(p, leafId, runClaimToken);
+      } catch { return false; }
     },
     restoreBlueprint: (leafId) => getLatestNodeOutput(leafId, 'blueprint'),
     // P5 size-gate seam: read back the blueprint .md (with its trailing json block).
