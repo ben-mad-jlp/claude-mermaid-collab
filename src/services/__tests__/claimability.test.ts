@@ -15,6 +15,7 @@ import {
 } from '../claimability';
 import type { Todo } from '../todo-store';
 import { kindOf, MissingKindError } from '../todo-kind';
+import cases from './fixtures/claimability-cases.json';
 
 function mk(over: Partial<Todo> = {}): Todo {
   return {
@@ -199,5 +200,54 @@ describe('derivedStatus (legacy-shaped label)', () => {
     expect(derivedStatus(mk({ approvedAt: APPROVED }), map())).toBe('ready');
     expect(derivedStatus(mk({}), map())).toBe('planned'); // unapproved
     expect(derivedStatus(mk({ approvedAt: APPROVED, heldAt: APPROVED }), map())).toBe('blocked');
+  });
+});
+
+describe('shared fixture — server/UI parity table', () => {
+  for (const c of cases.cases) {
+    it(`${c.name}: ${c.why}`, () => {
+      const byId = map(...c.todos.map((t) => mk(t as Partial<Todo>)));
+      const subject = byId.get(c.subject);
+      expect(subject).toBeDefined();
+      expect(claimReason(subject!, byId)).toBe(c.expect.claimReason);
+      expect(derivedStatus(subject!, byId)).toBe(c.expect.derivedStatus);
+      expect(isClaimable(subject!, byId)).toBe(c.expect.isClaimable);
+    });
+  }
+});
+
+describe('dep-dropped (68b8bb09) — derived, never stored', () => {
+  const approved = { approvedAt: APPROVED };
+
+  it('a dropped dep reports dep-dropped, not deps-pending', () => {
+    const dep = mk({ id: 'D', status: 'dropped' });
+    const t = mk({ id: 'T', ...approved, dependsOn: ['D'] });
+    expect(claimReason(t, map(dep, t))).toBe('dep-dropped');
+    expect(isClaimable(t, map(dep, t))).toBe(false);
+    expect(derivedStatus(t, map(dep, t))).toBe('blocked'); // no distinct legacy label
+  });
+
+  it('reset_todo on the dep returns the dependent to deps-pending — the reason is DERIVED', () => {
+    // Same dependent object, byId rebuilt with the dep reset off `dropped`.
+    const t = mk({ id: 'T', ...approved, dependsOn: ['D'] });
+    expect(claimReason(t, map(mk({ id: 'D', status: 'dropped' }), t))).toBe('dep-dropped');
+    expect(claimReason(t, map(mk({ id: 'D', status: 'planned' }), t))).toBe('deps-pending');
+    // …and a dep reset all the way to done makes it claimable, with T never re-read from a column.
+    expect(claimReason(t, map(mk({ id: 'D', status: 'done' }), t))).toBe('claimable');
+  });
+
+  it('dep-rejected wins when a todo is blocked by BOTH (claimability.ts:118-124)', () => {
+    const dropped = mk({ id: 'DD', status: 'dropped' });
+    const rejected = mk({ id: 'DR', status: 'done', acceptanceStatus: 'rejected' });
+    const t = mk({ id: 'T', ...approved, dependsOn: ['DD', 'DR'] });
+    expect(claimReason(t, map(dropped, rejected, t))).toBe('dep-rejected');
+    // Reset the rejected dep → the harder blocker surfaces on the very next read.
+    const healed = mk({ id: 'DR', status: 'done', acceptanceStatus: 'accepted' });
+    expect(claimReason(t, map(dropped, healed, t))).toBe('dep-dropped');
+  });
+
+  it('a dangling dep id is not a drop — it reports deps-pending', () => {
+    const t = mk({ id: 'T', ...approved, dependsOn: ['GHOST'] });
+    expect(claimReason(t, map(t))).toBe('deps-pending');
   });
 });
