@@ -21,7 +21,7 @@ function mk(over: Partial<Todo> = {}): Todo {
     title: 't', description: null, status: 'planned', completed: false, priority: null,
     dueDate: null, parentId: null, dependsOn: [], order: 0, link: null,
     createdAt: '', updatedAt: '', completedAt: null, asanaGid: null, sessionName: null,
-    executedBySession: null, blueprintId: null, type: null, targetProject: null,
+    executedBySession: null, blueprintId: null, type: null, kind: null, targetProject: null,
     acceptanceStatus: null, claimedBy: null, claimToken: null, claimedAt: null,
     claimLeaseMs: null, claim: null, approvedAt: null, approvedBy: null, heldAt: null,
     heldReason: null, retryCount: 0, completedBy: null, objectRef: null, decisionRef: null,

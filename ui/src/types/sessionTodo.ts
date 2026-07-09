@@ -32,7 +32,10 @@ export interface SessionTodo {
   /** The WORKER session that ran this todo (the coordinator's pool lane). Distinct
    *  from claimedBy (the coordinator's reservation lock). Persists across done. */
   executedBySession?: string | null;
-  kind?: string | null;
+  /** Work-graph role, migrated off the title prefix (decision e852fb0c, stage A).
+   *  Populated by the backend for every row; optional for back-compat with payloads
+   *  written before the column existed. No UI reader yet — stage B. */
+  kind?: 'mission' | 'epic' | 'land' | 'leaf' | null;
   acceptanceStatus?: 'pending' | 'accepted' | 'rejected' | null;
   claimedBy?: string | null;
   retryCount?: number;

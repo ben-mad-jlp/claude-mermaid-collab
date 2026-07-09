@@ -46,6 +46,26 @@ export const MISSION_TITLE_PREFIX = '[MISSION]';
 export const isMissionTitle = (title: string | null | undefined): boolean =>
   /^\s*\[MISSION\]/i.test(title ?? '');
 
+/** The role a work-graph node plays. Stage A of the title-prefix → column migration
+ *  (decision e852fb0c): the column is WRITTEN here but READ by nothing yet — the 17
+ *  title-regex sites still own every decision. Stage B switches readers. */
+export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf';
+
+/** True for a todo that IS a `[LAND]` leaf — by the title convention. */
+export const isLandTitle = (title: string | null | undefined): boolean =>
+  /^\s*\[LAND\]/i.test(title ?? '');
+
+/** Derive the role from the legacy title prefix. TOTAL — never returns null, so no
+ *  row can be created with a NULL kind. The three role prefixes are mutually
+ *  exclusive in practice; check mission first (a mission is a durable root, and
+ *  must never be misread as an epic). */
+export const kindFromTitle = (title: string | null | undefined): TodoKind => {
+  if (isMissionTitle(title)) return 'mission';
+  if (isEpicTitle(title)) return 'epic';
+  if (isLandTitle(title)) return 'land';
+  return 'leaf';
+};
+
 /** True iff this todo IS the Inbox epic itself (a top-level root, not a child). */
 export const isInboxEpic = (t: Todo | undefined): boolean =>
   !!t && isEpicTitle(t.title) && t.title.trim() === INBOX_EPIC_TITLE;
