@@ -52,6 +52,7 @@ import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { DogfoodHealthPanel } from './DogfoodHealthPanel';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
+import { epicIdSet, isEpic } from '@/lib/todoKind';
 
 // Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
 // Escalations inbox and the worker roster refresh on the SAME clock — a
@@ -59,6 +60,40 @@ import { getWebSocketClient } from '@/lib/websocket';
 // within the same window the worker card turns red.
 const ESCALATION_POLL_MS = 10_000;
 const DAEMON_COUNTS_POLL_MS = 10_000;
+
+/** Graph-only view: hide finished noise. An epic is an epic BY DECLARED KIND
+ *  (`kind === 'epic'`), never "a todo that has children" — a split leaf keeps its
+ *  children as sub-tasks and a childless epic is still an epic. */
+export function selectGraphTodos(todos: SessionTodo[]): SessionTodo[] {
+  const finished = (t: SessionTodo) => t.status === 'done' || t.status === 'dropped';
+  const ids = new Set(todos.map((t) => t.id));
+  const epicIds = epicIdSet(todos);
+
+  // STRUCTURE (not role): children of each present parent, for the done-rollup below.
+  const childrenByParent = new Map<string, SessionTodo[]>();
+  for (const t of todos) {
+    if (t.parentId && ids.has(t.parentId)) {
+      const arr = childrenByParent.get(t.parentId) ?? [];
+      arr.push(t);
+      childrenByParent.set(t.parentId, arr);
+    }
+  }
+
+  // A "done epic" is a declared epic that HAS children and all of them are finished.
+  // Zero children ⇒ not done (an empty epic lane stays visible).
+  const doneEpics = new Set<string>();
+  for (const pid of epicIds) {
+    const kids = childrenByParent.get(pid);
+    if (kids && kids.length > 0 && kids.every(finished)) doneEpics.add(pid);
+  }
+
+  return todos.filter((t) => {
+    if (t.parentId && doneEpics.has(t.parentId)) return false;   // child of a done epic
+    if (doneEpics.has(t.id)) return false;                        // the done epic itself
+    if (!t.parentId && !isEpic(t) && finished(t)) return false;   // completed orphan
+    return true;
+  });
+}
 
 export const BridgeDashboard: React.FC = () => {
   const currentSession = useSessionStore((s) => s.currentSession);
@@ -351,34 +386,7 @@ export const BridgeDashboard: React.FC = () => {
       .map((s) => ({ ...s, status: s.status as 'active' | 'waiting' | 'permission' | 'unknown' }));
   }, [supervised, projectSubs, project, serverScope, sessionStatuses, fleet]);
 
-  // Graph-only view of the todos: the FleetGraph should not show finished noise —
-  // (a) completed/dropped ORPHAN todos (no parent, not an epic), and (b) EPICS
-  // whose every child is finished (hide the epic and its finished children).
-  // Active epics keep showing all their children (incl. done ones) for context.
-  // The inboxes/funnel/roster still use the full `todos`.
-  const graphTodos = useMemo(() => {
-    const finished = (t: SessionTodo) => t.status === 'done' || t.status === 'dropped';
-    const ids = new Set(todos.map((t) => t.id));
-    const childrenByParent = new Map<string, SessionTodo[]>();
-    for (const t of todos) {
-      if (t.parentId && ids.has(t.parentId)) {
-        const arr = childrenByParent.get(t.parentId) ?? [];
-        arr.push(t);
-        childrenByParent.set(t.parentId, arr);
-      }
-    }
-    const isEpic = (id: string) => childrenByParent.has(id);
-    const doneEpics = new Set<string>();
-    for (const [pid, kids] of childrenByParent) {
-      if (kids.every(finished)) doneEpics.add(pid);
-    }
-    return todos.filter((t) => {
-      if (t.parentId && doneEpics.has(t.parentId)) return false; // child of a fully-done epic
-      if (isEpic(t.id) && doneEpics.has(t.id)) return false;     // the fully-done epic itself
-      if (!t.parentId && !isEpic(t.id) && finished(t)) return false; // completed orphan
-      return true;
-    });
-  }, [todos]);
+  const graphTodos = useMemo(() => selectGraphTodos(todos), [todos]);
 
   const readyCount = useMemo(
     () => {
