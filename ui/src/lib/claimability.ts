@@ -11,16 +11,19 @@
  * identical; keep them in lockstep with the backend if the rule ever changes.
  */
 import type { SessionTodo } from '@/types/sessionTodo';
+import { isEpic } from '@/lib/todoKind';
 
 /** Single source of Inbox identity (byte-mirror of backend claimability.ts).
  *  The Inbox is a planning-only triage staging area: its children must NEVER be
- *  auto-run — re-home to a real epic first. Title-based (the epic model is). */
+ *  auto-run — re-home to a real epic first. The epic ROLE comes from the `kind`
+ *  column via `todoKind.ts`; only the Inbox's IDENTITY (which specific epic) is
+ *  still title-based. */
 export const INBOX_EPIC_TITLE = '[EPIC] Inbox';
-const isEpicTitle = (title: string | null | undefined): boolean =>
-  /^\s*\[EPIC\]/i.test(title ?? '');
-/** True iff this todo IS the Inbox epic itself (a top-level root, not a child). */
+/** True iff this todo IS the Inbox epic itself (a top-level root, not a child).
+ *  ROLE comes from `kind` (isEpic); the `=== INBOX_EPIC_TITLE` half is an IDENTITY
+ *  check naming one specific node, not a title-role predicate — it survives stage C. */
 export const isInboxEpic = (t: SessionTodo | undefined): boolean =>
-  !!t && isEpicTitle(t.title) && (t.title ?? '').trim() === INBOX_EPIC_TITLE;
+  !!t && isEpic(t) && (t.title ?? '').trim() === INBOX_EPIC_TITLE;
 /** True iff this todo's PARENT is the Inbox epic (i.e. it is a triage child). */
 export const parentIsInbox = (t: SessionTodo, byId: Map<string, SessionTodo>): boolean =>
   t.parentId != null && isInboxEpic(byId.get(t.parentId));
