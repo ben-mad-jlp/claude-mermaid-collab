@@ -147,6 +147,21 @@ describe('buildEpicBranchStatus', () => {
     expect(e.mergeable).toBe(false);
     expect(e.stranded).toBe(false); // land leaf done ⇒ not stranded even with ahead>0
   });
+
+  test('lists a mission-parented epic by kind, with no title prefix', () => {
+    const mission = todo({ id: 'm0', title: 'Converge on X', kind: 'mission' });
+    const epic = todo({ id: '45e2fb60-0000', title: 'unprefixed epic', kind: 'epic', parentId: 'm0', status: 'todo' });
+    const land = todo({ id: 'l0', title: 'land it', kind: 'land', parentId: '45e2fb60-0000', status: 'todo' });
+    const probe: GitProbe = () => ({ exists: true, ahead: 5, behind: 0, mergeable: true });
+    const r = buildEpicBranchStatus([mission, epic, land], probe);
+
+    expect(r.epics.map((e) => e.epicId)).toEqual(['45e2fb60-0000']); // the mission is NOT an epic
+    expect(r.epics[0].branch).toBe('collab/epic/45e2fb60');
+    expect(r.epics[0].ahead).toBe(5);
+    expect(r.epics[0].mergeable).toBe(true);
+    expect(r.epics[0].landLeafDone).toBe(false);
+    expect(r.strandedCount).toBe(1);
+  });
 });
 
 describe('pickBaseRef — main vs master auto-detect', () => {
