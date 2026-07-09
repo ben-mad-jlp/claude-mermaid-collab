@@ -1,7 +1,7 @@
 import Database from 'bun:sqlite';
 import { fireOrchestratorKick } from './orchestrator-kick';
-import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, kindFromTitle, type ClaimReason, type TodoKind } from './claimability';
-import { isEpic, isMission } from './todo-kind';
+import { isClaimable, claimReason, derivedStatus, depSatisfied, INBOX_EPIC_TITLE, type ClaimReason, type TodoKind } from './claimability';
+import { isEpic, isMission, stripLabel } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -146,18 +146,18 @@ export interface CreateTodoInput {
   executedBySession?: string | null;
   blueprintId?: string | null;
   type?: string | null;
-  /** Role, if the caller already knows it. Stage B: falls back to the title prefix
-   *  (`kindFromTitle`) when absent, so today this is purely forward-compat for stage C. */
-  kind?: TodoKind | null;
+  /** Work-graph role. Explicit only — stage C removed the title-prefix fallback.
+   *  Omitting it means 'leaf'; a mission/epic/land create MUST pass this. */
+  kind?: TodoKind;
   targetProject?: string | null;
   objectRef?: string | null;
   decisionRef?: string | null;
   claimProbe?: string | null;
   /** EVERY-TODO-NEEDS-AN-EPIC guard (373a2d52). A non-epic top-level create (no
-   *  parentId, title not `[EPIC] …`) is an ORPHAN and is REJECTED — so a planning
-   *  skill that forgets to attach an epic fails LOUDLY instead of silently dumping
-   *  into the Inbox. To deliberately file an unplanned high-level thought, set
-   *  `inbox:true` (the ONLY path that homes to [EPIC] Inbox — never assumed). */
+   *  parentId, kind not 'epic'/'mission') is an ORPHAN and is REJECTED — so a
+   *  planning skill that forgets to attach an epic fails LOUDLY instead of silently
+   *  dumping into the Inbox. To deliberately file an unplanned high-level thought,
+   *  set `inbox:true` (the ONLY path that homes to the Inbox epic — never assumed). */
   inbox?: boolean;
   /** Internal escape hatch for the few legit top-level non-epic creates (data
    *  migration, the readiness-gate dependency primitive). Skips the orphan guard. */
@@ -171,8 +171,9 @@ export class OrphanTodoError extends Error {
   constructor(title: string) {
     super(
       `Every work todo must belong to an epic — refusing to create "${title}" with no epic. ` +
-      `Pass parentId=<epic id> (the [EPIC] this belongs under), or set inbox:true to deliberately ` +
-      `file an unplanned high-level thought under [EPIC] Inbox.`,
+      `Pass parentId=<epic id> (the epic this belongs under; if you're creating the epic itself, ` +
+      `pass kind:'epic'), or set inbox:true to deliberately file an unplanned high-level thought ` +
+      `under the Inbox epic.`,
     );
     this.name = 'OrphanTodoError';
   }
@@ -355,10 +356,10 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'decisionRef', 'decisionRef TEXT');
   // Readiness-gates P4: nullable operator-env probe spec for the claim-time filter.
   addColumnIfMissing(db, 'todos', 'claimProbe', 'claimProbe TEXT');
-  // Stage A of the title-prefix → column migration (decision e852fb0c). Additive,
+  // Stage C of the title-prefix → column migration (decision e852fb0c). Additive,
   // nullable at the SQL level, but TOTAL in practice: the backfill below plus the
-  // create-path default mean no row is ever left NULL. NOTHING READS THIS YET —
-  // the 17 title-regex sites remain authoritative until stage B.
+  // create-path default mean no row is ever left NULL. This is now the SOLE source
+  // of role truth — the title prefix is stripped below and no longer authoritative.
   // NB: distinct from `type` (backend|ui|frontend worker routing).
   addColumnIfMissing(db, 'todos', 'kind', 'kind TEXT');
   // De-conflate Todo work-graph status (S1) — additive, nullable. The decision
@@ -390,6 +391,14 @@ function openDb(project: string): Database {
   db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
   db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
   db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
+  // Stage C (decision e852fb0c): the role prefix is now redundant with `kind`.
+  // Strip EXACTLY the three role prefixes, keyed on the already-backfilled `kind`
+  // column, never on a generic `title LIKE '[%]%'` — most bracketed titles are
+  // human-authored TOPIC tags ([UI], [BUG], [kind C]) and must survive verbatim.
+  // Idempotent: the LIKE guard matches zero rows on a second run.
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), 10)) WHERE kind='mission' AND TRIM(title) LIKE '[MISSION]%'`);
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='epic'    AND TRIM(title) LIKE '[EPIC]%'`);
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='land'    AND TRIM(title) LIKE '[LAND]%'`);
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
   const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -734,15 +743,22 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
  *  top-level create unless `inbox`/`allowOrphan` is set. */
 async function resolveTodoParent(project: string, input: CreateTodoInput): Promise<string | null> {
   if (input.parentId) return input.parentId;        // caller attached a parent
+  // isEpic/isMission read input.kind ONLY (post-strip): an epic/mission create
+  // MUST pass kind:'epic'/'mission' explicitly, or it is treated as a leaf and
+  // hits the orphan guard below.
   if (isEpic(input)) return null;                    // an epic is a legitimate root
-  if (isMission(input)) return null;                 // a [MISSION] is a durable root (Phase 2a)
+  if (isMission(input)) return null;                 // a mission is a durable root (Phase 2a)
   if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
-  // inbox:true → home under [EPIC] Inbox (find-or-create). The ONLY auto-home, and explicit.
+  // inbox:true → home under the Inbox epic (find-or-create). The ONLY auto-home, and explicit.
+  // Compare via stripLabel so this matches both the pre-strip row (`[EPIC] Inbox`)
+  // and the post-strip row (`Inbox`) — else the find-or-create forks a duplicate
+  // Inbox epic across the migration boundary.
+  const inboxTitle = stripLabel(INBOX_EPIC_TITLE);
   const existing = listTodos(project, { includeCompleted: true })
-    .find((t) => t.title?.trim() === INBOX_EPIC_TITLE && t.status !== 'dropped');
+    .find((t) => isEpic(t) && stripLabel(t.title) === inboxTitle && t.status !== 'dropped');
   if (existing) return existing.id;
-  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned' });
+  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned', kind: 'epic' });
   return inbox.id;
 }
 
@@ -779,7 +795,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.kind ?? kindFromTitle(input.title), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, input.kind ?? 'leaf', input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
       approvedAt, approvedBy, heldAt, heldReason
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
@@ -921,7 +937,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       // updateTodo) — refusing an epic close because some deep leaf is claimed is its own
       // footgun. Killing the running build + cleaning its worktree is the explicitly
       // out-of-scope follow-up (design §5 step 5); a test pins this current behaviour.
-      if (isEpic({ kind: existing.kind, title: next.title })) {
+      if (isEpic({ kind: existing.kind })) {
         try {
           db.prepare(
             `WITH RECURSIVE descendants(did) AS (

@@ -70,15 +70,18 @@ describe('landEpic — dirty-tree refusal and allowDirty bypass', () => {
     await runGit(repo, ['commit', '-q', '-m', 'base']);
 
     // Seed the work-graph so landEpic can resolve the escalation → todo → epic.
+    // Explicit kind (decision e852fb0c, stage C) — the title prefix no longer decides role.
     const epic = await createTodo(repo, { allowOrphan: true,
       title: '[EPIC] land test',
       ownerSession: 'test',
+      kind: 'epic',
     });
     epicId = epic.id;
     const landChild = await createTodo(repo, { allowOrphan: true,
       title: '[LAND] → master',
       ownerSession: 'test',
       parentId: epic.id,
+      kind: 'land',
     });
     const { escalation } = createEscalation({
       project: repo,

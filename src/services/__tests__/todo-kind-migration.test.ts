@@ -97,8 +97,8 @@ afterEach(() => {
 
 describe('resolveEpicId (coordinator-live) — kind-driven', () => {
   test('prefixed: leaf under a mission-parented epic resolves to the epic', async () => {
-    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] Converge' });
-    const epic = await createTodo(project, { ownerSession: 's1', title: '[EPIC] Foo', parentId: mission.id });
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[MISSION] Converge', kind: 'mission' });
+    const epic = await createTodo(project, { ownerSession: 's1', title: '[EPIC] Foo', kind: 'epic', parentId: mission.id });
     const leaf = await createTodo(project, { ownerSession: 's1', title: 'build a thing', parentId: epic.id });
     expect(resolveEpicId(leaf, project)).toBe(epic.id);
   });
@@ -121,10 +121,21 @@ describe('resolveEpicId (coordinator-live) — kind-driven', () => {
 });
 
 describe('mission is never rolled up / never epic-ready-to-land', () => {
+  // Stage C (decision e852fb0c) removed the insert-path kindFromTitle fallback, so
+  // the "prefixed" variant below must now pass kind explicitly too — inferred here
+  // from the bracket so the two buildGraph callers stay declarative. The "kind-only"
+  // variant passes bare titles (inferredKind returns undefined → defaults to 'leaf')
+  // and sets kind via the raw setKind helper afterward, same as before.
+  function inferredKind(title: string): 'mission' | 'epic' | undefined {
+    const t = title.trim();
+    if (t.startsWith('[MISSION]')) return 'mission';
+    if (t.startsWith('[EPIC]')) return 'epic';
+    return undefined;
+  }
   async function buildGraph(missionTitle: string, epicATitle: string, epicBTitle: string) {
-    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: missionTitle });
-    const epicA = await createTodo(project, { ownerSession: 's1', title: epicATitle, parentId: mission.id });
-    const epicB = await createTodo(project, { ownerSession: 's1', title: epicBTitle, parentId: mission.id });
+    const mission = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: missionTitle, kind: inferredKind(missionTitle) });
+    const epicA = await createTodo(project, { ownerSession: 's1', title: epicATitle, parentId: mission.id, kind: inferredKind(epicATitle) });
+    const epicB = await createTodo(project, { ownerSession: 's1', title: epicBTitle, parentId: mission.id, kind: inferredKind(epicBTitle) });
     const leafA = await createTodo(project, { ownerSession: 's1', title: 'leaf a', parentId: epicA.id });
     const leafB = await createTodo(project, { ownerSession: 's1', title: 'leaf b', parentId: epicB.id });
     return { mission, epicA, epicB, leafA, leafB };
