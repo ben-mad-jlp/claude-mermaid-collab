@@ -1986,6 +1986,10 @@ export async function makeLeafExecutorDeps(
   // gate; `absent` abstains LOUDLY; `misconfigured` is INFRA — never a silent pass.
   const gateDecl = resolveGateDeclaration(loadManifestSource(targetProject));
   const gateCfg = gateDecl.kind === 'declared' ? gateDecl.cfg : null;
+  // The FLOOR review loop calls runGate once per pass (implement→review→fix→review), but the
+  // abstention is a property of the LEAF, not of the pass. Latch it so the ledger carries one
+  // 'gate-abstain' row per leaf run — matching warnGateAbstention's own once-per-epic dedupe.
+  let recordedGateAbstain = false;
   return {
     invoker: ClaudeNodeInvoker,
     grokInvoker: GrokNodeInvoker,
@@ -2086,20 +2090,23 @@ export async function makeLeafExecutorDeps(
       if (early) return early; // misconfigured → mech.status==='error' → parkBlocked+escalate
       if (gateDecl.kind === 'absent') {
         warnGateAbstention(project, epicId, targetProject, gateDecl);
-        try {
-          recordNode({
-            project,
-            todoId: leaf.id,
-            session: leafSessionKey(leaf),
-            epicId,
-            leafId: leaf.id,
-            nodeKind: 'gate-abstain',
-            nodesSpent: 0,
-            verdict: 'pass',
-            outcomeDetail: 'gate-undeclared',
-            outputText: `${gateDecl.reason} (consulted ${gateDecl.manifestPath})`,
-          });
-        } catch { /* best-effort telemetry */ }
+        if (!recordedGateAbstain) {
+          recordedGateAbstain = true;
+          try {
+            recordNode({
+              project,
+              todoId: leaf.id,
+              session: leafSessionKey(leaf),
+              epicId,
+              leafId: leaf.id,
+              nodeKind: 'gate-abstain',
+              nodesSpent: 0,
+              verdict: 'pass',
+              outcomeDetail: 'gate-undeclared',
+              outputText: `${gateDecl.reason} (consulted ${gateDecl.manifestPath})`,
+            });
+          } catch { /* best-effort telemetry */ }
+        }
       }
       const changeSet = await wm.changeSet(leafSessionKey(leaf), epicBranch);
       return runLeafGate(cwd, gateCfg, changeSet, defaultGateSpawn);
