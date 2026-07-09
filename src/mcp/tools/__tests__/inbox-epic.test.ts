@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addSessionTodo, INBOX_EPIC_TITLE } from '../session-todos';
 import { listTodos, getTodo, createTodo, updateTodo, _closeProject } from '../../../services/todo-store';
+import { isInboxEpicTitle, isInboxEpic } from '../../../services/claimability';
 
 let project: string;
 beforeEach(() => { project = mkdtempSync(join(tmpdir(), 'inbox-epic-')); });
@@ -30,8 +31,12 @@ describe('every-todo-needs-an-epic: reject orphans, explicit Inbox only', () => 
     const a = await addSessionTodo(project, 's1', 'first', undefined, { inbox: true });
     const b = await addSessionTodo(project, 's1', 'second', undefined, { inbox: true });
     expect(a.parentId).toBe(b.parentId);
-    const inboxes = listTodos(project, { includeCompleted: true }).filter((t) => t.title === INBOX_EPIC_TITLE);
+    const inboxes = listTodos(project, { includeCompleted: true }).filter((t) => isInboxEpic(t));
     expect(inboxes.length).toBe(1);
+  });
+
+  test('INBOX_EPIC_TITLE is a bare topic name — the [EPIC] role prefix is not stored (stage C)', () => {
+    expect(INBOX_EPIC_TITLE).not.toMatch(/^\s*\[(EPIC|MISSION|LAND)\]/);
   });
 
   test('an epic created with a BARE title is stored kind=epic and is a root (BOMB 1)', async () => {
@@ -63,8 +68,22 @@ describe('every-todo-needs-an-epic: reject orphans, explicit Inbox only', () => 
     const epic = await addSessionTodo(project, 's1', 'Container', undefined, { kind: 'epic' });
     const child = await addSessionTodo(project, 's1', 'child', undefined, { parentId: epic.id });
     expect(child.parentId).toBe(epic.id);
-    const inboxes = listTodos(project, { includeCompleted: true }).filter((t) => t.title === INBOX_EPIC_TITLE);
+    const inboxes = listTodos(project, { includeCompleted: true }).filter((t) => isInboxEpic(t));
     expect(inboxes.length).toBe(0); // never needed an Inbox
+  });
+
+  test('a LEGACY prefixed "[EPIC] Inbox" row is adopted, not duplicated (migration window)', async () => {
+    const legacy = await createTodo(project, {
+      ownerSession: 's1',
+      kind: 'epic',
+      title: '[EPIC] Inbox',
+    });
+    const orphan = await addSessionTodo(project, 's1', 'orphan', undefined, { inbox: true });
+    expect(orphan.parentId).toBe(legacy.id); // adopted the legacy row, not a new one
+
+    const epics = listTodos(project, { includeCompleted: true }).filter((t) => isInboxEpic(t));
+    expect(epics.length).toBe(1);
+    expect(isInboxEpicTitle(epics[0].title)).toBe(true);
   });
 
   test('a done Inbox is reopened (not duplicated) when a new orphan arrives', async () => {
