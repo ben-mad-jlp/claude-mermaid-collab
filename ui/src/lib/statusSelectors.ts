@@ -46,6 +46,18 @@ export interface SessionStatus {
 }
 
 /**
+ * Options that customize the liveness roll-up. Passed in (never read from a store) so
+ * this module remains pure — all state comes from callers.
+ */
+export interface LivenessOptions {
+  /** True when the Orchestrator daemon is building leaves this session owns. Such a
+   *  session is quiet on purpose: it is NOT waiting on the human, so it must not be
+   *  counted in `needsAttention`. Passed in (never read from a store) — this module
+   *  is pure by invariant (see file header). */
+  daemonBuilding?: (s: SessionStatus) => boolean;
+}
+
+/**
  * A scope-narrowed roll-up of session liveness. `needsAttention` is the
  * status-side "needs you" set (waiting OR permission) — distinct from an open
  * escalation (audit D4); both surfaces read it from here so they cannot disagree.
@@ -149,6 +161,7 @@ export function selectEscalationKindCounts(
 export function selectLiveness(
   sessions: Record<string, SessionStatus>,
   scope: StatusScope,
+  opts: LivenessOptions = {},
 ): LivenessView {
   const view: LivenessView = {
     sessions: [],
@@ -171,7 +184,7 @@ export function selectLiveness(
         break;
       case 'waiting':
         view.waiting++;
-        view.needsAttention++;
+        if (!opts.daemonBuilding?.(s)) view.needsAttention++;
         break;
       case 'permission':
         view.permission++;
