@@ -154,3 +154,66 @@ describe('DaemonNodesMatrix — grouped by pipeline', () => {
     expect(within(screen.getByTestId('node-group-zen')).getByText(/not configurable here/)).toBeTruthy();
   });
 });
+
+describe('DaemonNodesMatrix — broadcast confirmation dialog', () => {
+  it('declining the dialog does not POST the broadcast', async () => {
+    const calls: Array<{ url: string; body?: any }> = [];
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    global.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+      calls.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url.includes('/api/projects')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ projects: [{ path: '/abs/p' }, { path: '/abs/a' }, { path: '/abs/b' }] }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(GET_BODY) });
+    }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-profiles-broadcast')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('node-profiles-broadcast'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
+    expect(confirmSpy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Cancel'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(calls.every((c) => !c.url.includes('/node-profiles/broadcast'))).toBe(true);
+  });
+
+  it('the dialog names the affected projects and their count', async () => {
+    global.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+      if (url.includes('/api/projects')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ projects: [{ path: '/abs/p' }, { path: '/abs/a' }, { path: '/abs/b' }] }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(GET_BODY) });
+    }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-profiles-broadcast')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('node-profiles-broadcast'));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByTestId('broadcast-confirm-count')).toHaveTextContent('2');
+    const targetsSpan = within(dialog).getByTestId('broadcast-confirm-targets');
+    expect(targetsSpan.textContent).toContain('/abs/a');
+    expect(targetsSpan.textContent).toContain('/abs/b');
+    expect(targetsSpan.textContent).not.toContain('/abs/p');
+  });
+
+  it('confirming issues the broadcast POST', async () => {
+    const calls: Array<{ url: string; body?: any }> = [];
+    global.fetch = vi.fn().mockImplementation((url: string, init?: any) => {
+      calls.push({ url, body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url.includes('/api/projects')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ projects: [{ path: '/abs/p' }, { path: '/abs/a' }, { path: '/abs/b' }] }) });
+      }
+      if (url.includes('/node-profiles/broadcast')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ applied: 2 }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(GET_BODY) });
+    }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-profiles-broadcast')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('node-profiles-broadcast'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
+    fireEvent.click(screen.getByText('Overwrite all projects'));
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes('/node-profiles/broadcast') && c.body?.project === '/abs/p')).toBe(true),
+    );
+    await waitFor(() => expect(screen.getByText('Applied to 2 projects.')).toBeTruthy());
+  });
+});
