@@ -62,7 +62,11 @@ export function parseBlueprintCriteria(blueprintMd: string): string[] {
 
     // Collect list items in the criteria section
     if (inCriteria) {
-      const match = line.match(/^\s*[-*]\s+(.+?)(?:\s*(?:—|\(cite|— cite).*)?$/);
+      // Accept BOTH bullet (-, *) and ordered (1. / 1)) list markers. Leaf specs write
+      // acceptance criteria as NUMBERED lists ("emit exactly these six: 1. … 2. …") and
+      // blueprints copy that format; matching only bullets made this validator abstain on
+      // every real blueprint (it never convicted a single criterion).
+      const match = line.match(/^\s*(?:[-*]|\d+[.)])\s+(.+?)(?:\s*(?:—|\(cite|— cite).*)?$/);
       if (match) {
         let criterion = match[1].trim();
         // Strip trailing citation tail (— cite file:line or (cite file:line))
