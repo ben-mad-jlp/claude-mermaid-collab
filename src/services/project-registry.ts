@@ -113,6 +113,17 @@ export class ProjectRegistry {
     const registry = await this.load();
     const now = new Date().toISOString();
 
+    // Migrate the project's todos.db NOW rather than at first render: a legacy DB with no
+    // `kind` column would otherwise surface undefined kinds to the Bridge. Dynamic import —
+    // todo-store statically imports this module (trackingProjectRoot), so a static import
+    // here would be a cycle. Never fatal: registration must succeed even if the DB is bad.
+    try {
+      const { migrateProjectKinds } = await import('./todo-store.js');
+      migrateProjectKinds(path);
+    } catch (err) {
+      console.warn(`Failed to migrate todos.db kind column for ${path}:`, err);
+    }
+
     // Check if project already exists
     const existingIndex = registry.projects.findIndex(p => p.path === path);
 
