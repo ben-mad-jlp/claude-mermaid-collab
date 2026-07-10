@@ -16,11 +16,12 @@ import { useSupervisorStore, type DeployStatus } from '../../../stores/superviso
 interface DeployBannerProps {
   project: string;
   serverScope: string;
+  onVisibleChange?: (visible: boolean) => void;
 }
 
 const POLL_MS = 8000;
 
-export const DeployBanner: React.FC<DeployBannerProps> = ({ project, serverScope }) => {
+export const DeployBanner: React.FC<DeployBannerProps> = ({ project, serverScope, onVisibleChange }) => {
   const fetchDeployStatus = useSupervisorStore((s) => s.fetchDeployStatus);
   const deploySelf = useSupervisorStore((s) => s.deploySelf);
 
@@ -30,6 +31,9 @@ export const DeployBanner: React.FC<DeployBannerProps> = ({ project, serverScope
   // The liveStartedAt at the moment we fired a deploy — when a poll returns a
   // DIFFERENT one, the new sidecar is up and the deploy succeeded.
   const deployingFromRef = useRef<string | null>(null);
+
+  const visible = !!status && (status.stale || deploying);
+  useEffect(() => { onVisibleChange?.(visible); }, [visible, onVisibleChange]);
 
   const poll = useCallback(async () => {
     if (!project) return;
@@ -81,7 +85,7 @@ export const DeployBanner: React.FC<DeployBannerProps> = ({ project, serverScope
   }, [deploySelf, serverScope, project, status?.liveStartedAt]);
 
   // Self-hide unless stale (or actively deploying, so the progress stays visible).
-  if (!status || (!status.stale && !deploying)) return null;
+  if (!visible || !status) return null;
 
   const reason = status.selfLandPending
     ? 'an epic landed after this build started'
