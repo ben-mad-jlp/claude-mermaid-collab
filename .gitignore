@@ -53,3 +53,11 @@ Thumbs.db
 # bun --compile intermediate artifacts
 *.bun-build
 .*.bun-build
+
+# Test-run artifacts (vitest/bun output redirects, coverage) — never source.
+# stage-untracked.ts enumerates with `git ls-files --others --exclude-standard`, which
+# honors these rules, so ignoring here is what stops junk being intent-to-added.
+/*.log
+/coverage/
+/ui/coverage/
+/ui/test-output*
