@@ -78,6 +78,10 @@ export interface ZenSessionCardProps {
   /** The active, non-terminal mission this session drives (conductor), if any. Drives the
    *  turn-aware tint, the mission ribbon, and the daemon's-turn freshness guard. */
   mission?: MissionSummary | null;
+  /** Count of this session's todos the Orchestrator daemon currently holds a claim on.
+   *  >0 ⇒ the session is purposefully quiet because its leaves are building — it is NOT
+   *  "your turn", so the header must not go green. */
+  daemonBuilding?: number;
 }
 
 /** Phase → small informational pill (mirrors the MissionsStrip vocabulary). These are
@@ -173,9 +177,10 @@ const ProjectBar: React.FC<{
   stale?: boolean;
   summaryStale?: boolean;
   elapsed?: string | null;
+  daemonBuilding?: number;
   onOpen: (project: string, session: string, serverId: string) => void;
   onClose?: () => void;
-}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', stale, summaryStale, elapsed, onOpen, onClose }) => {
+}> = ({ project, session, serverId, totals, daemon, size = 'sm', status = 'unknown', stale, summaryStale, elapsed, daemonBuilding = 0, onOpen, onClose }) => {
   const name = project.split('/').pop() || project;
   const sessionShort = session.split('/').pop() || session;
   // Project title scales with the card tier — it's the card's headline, so give it real weight.
@@ -224,6 +229,16 @@ const ProjectBar: React.FC<{
             {daemon.permission > 0 && (
               <span className="text-warning-600 dark:text-warning-400 font-semibold" title="awaiting permission">⚠ {daemon.permission}</span>
             )}
+          </span>
+        )}
+        {daemonBuilding > 0 && (
+          <span
+            data-testid="daemon-building"
+            className="flex items-center gap-1 text-3xs font-semibold text-warning-700 dark:text-warning-300 px-1.5 py-0.5 rounded bg-white/50 dark:bg-black/20"
+            title={`The daemon is building ${daemonBuilding} of this session's leaves — it is not waiting on you.`}
+          >
+            <span aria-hidden>⚙</span>
+            <span className="tabular-nums">{daemonBuilding} building</span>
           </span>
         )}
         {/* Summary failing to refresh — the card may be out of date (interpreter erroring,
@@ -365,6 +380,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   nextWork,
   onDismiss,
   mission,
+  daemonBuilding = 0,
 }) => {
   const cond = conductingView(mission);
   const [localExpanded, setLocalExpanded] = useState(false);
@@ -555,6 +571,10 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
   // and genuine activity (amber) always win; only THEN does a conducting session's turn
   // colour an otherwise-idle card — conductor's-move → amber ("your move"), daemon's-turn
   // → green (calm). No new colour lane; we reuse the amber/green/red vocabulary.
+  // Daemon-building outranks the green `waiting` rest-tint but NEVER a real ask
+  // (permission / has-question) or live pane activity.
+  const daemonBusy = daemonBuilding > 0 && (!subStatus || subStatus === 'waiting' || subStatus === 'unknown');
+
   const status: string =
     hasQuestion
       ? 'permission'
@@ -564,11 +584,15 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
           ? 'active'
           : subStatus === 'permission'
             ? 'permission'
-            : cond
-              ? (cond.turn === 'conductor' ? 'active' : 'waiting')
-              : subStatus && subStatus !== 'unknown'
-                ? subStatus
-                : structured?.status ?? summary?.progressState ?? 'unknown';
+            : cond?.turn === 'conductor'
+              ? 'active'
+              : daemonBusy
+                ? 'working'
+                : cond
+                  ? 'waiting'
+                  : subStatus && subStatus !== 'unknown'
+                    ? subStatus
+                    : structured?.status ?? summary?.progressState ?? 'unknown';
 
   // Activity: the SAME elapsed-since-heartbeat the watching SessionCard shows, driven by
   // the subscription `lastUpdate` (real session activity) — not the interpreter write.
@@ -743,7 +767,7 @@ export const ZenSessionCard: React.FC<ZenSessionCardProps> = ({
       }`}
     >
       {/* A daemon's-turn conductor is CORRECTLY idle — don't dim it as dead-stale. */}
-      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={cond?.turn === 'daemon' ? false : stale} summaryStale={narrationStale} elapsed={elapsed} onOpen={onOpen} onClose={onClose} />
+      <ProjectBar project={project} session={session} serverId={serverId} totals={totals} daemon={daemon} status={status} stale={cond?.turn === 'daemon' ? false : stale} summaryStale={narrationStale} elapsed={elapsed} daemonBuilding={daemonBuilding} onOpen={onOpen} onClose={onClose} />
       {cond && <MissionRibbon cond={cond} />}
 
       {/* Context-window fullness — a thin loading bar under the header, same thresholds
