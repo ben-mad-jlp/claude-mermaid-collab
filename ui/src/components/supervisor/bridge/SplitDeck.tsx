@@ -1,16 +1,10 @@
 /**
  * SplitDeck — the Bridge's root shell (BR-2 → Bridge P3, design §2/§8).
  *
- * A CommandBar across the top, then a single draggable <SplitPane> that ALWAYS
- * stacks vertically: the instrument zones on top, the FleetGraph as a full-width
- * strip at the bottom (graph laid out TB). The full width suits the dependency
- * graph and removes the wasted space the old side-by-side split left below the
- * short instrument column. The horizontal bar divider is draggable; its ratio
- * persists.
- *
- * Both panes are ALWAYS mounted (one SplitPane, no CSS show/hide and no
- * Panel|Graph tab toggle) — the old toggle could hide an open escalation in the
- * inactive tab, the documented worst case.
+ * Three columns: fixed-width rail on the left (ACT/WORK/TELEMETRY panels),
+ * then a draggable split between stage (FleetGraph + PlanPanel) and inspector
+ * (epic history / todo detail). CommandBar and Signals strip above the three
+ * columns. The stage ↔ inspector split is horizontal and persisted.
  */
 
 import React from 'react';
@@ -18,45 +12,34 @@ import { SplitPane } from '@/components/layout/SplitPane';
 
 export interface SplitDeckProps {
   commandBar: React.ReactNode;
-  left: React.ReactNode;
-  right: React.ReactNode;
+  signals?: React.ReactNode;   // SignalsStrip (zero-height when idle)
+  rail: React.ReactNode;       // BridgeRail — fixed 296px, sizes itself
+  stage: React.ReactNode;      // BridgeStage
+  inspector: React.ReactNode;  // BridgeInspector
 }
 
-export const SplitDeck: React.FC<SplitDeckProps> = ({ commandBar, left, right }) => {
-  const direction = 'vertical' as const;
-  const storageId = 'bridge-deck-split-v';
-
-  // The pane itself does NOT scroll: it's a bounded flex column so the fixed-height
-  // instruments (FleetVitals, RequirementsInbox) sit at their natural size and the
-  // tab group (flex-1) fills the rest and scrolls INSIDE its own content area.
-  const leftPane = (
-    <div data-testid="split-left" className="h-full min-h-0 w-full">
-      <div className="flex flex-col gap-3 p-3 w-full h-full min-h-0">{left}</div>
-    </div>
-  );
-  const rightPane = (
-    <div data-testid="split-right" className="h-full min-h-0 w-full overflow-hidden">
-      {right}
-    </div>
-  );
-
+export const SplitDeck: React.FC<SplitDeckProps> = ({ commandBar, signals, rail, stage, inspector }) => {
   return (
     <div data-testid="bridge-split-deck" className="flex flex-col h-full overflow-hidden bg-white dark:bg-gray-900">
       <div className="shrink-0">{commandBar}</div>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <SplitPane
-          // direction + storageId are passed dynamically (NOT via a remounting
-          // `key`) so the orientation flip never tears down the FleetGraph; the
-          // PanelGroup re-applies the axis and the per-orientation saved ratio
-          // in place.
-          direction={direction}
-          primaryContent={leftPane}
-          secondaryContent={rightPane}
-          defaultPrimarySize={45}
-          minPrimarySize={20}
-          maxPrimarySize={75}
-          storageId={storageId}
-        />
+      {signals && <div className="shrink-0">{signals}</div>}
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-row">
+        {rail}
+        <div className="flex-1 min-w-0 min-h-0">
+          <SplitPane
+            direction="horizontal"
+            primaryContent={
+              <div data-testid="split-stage" className="h-full min-h-0 w-full min-w-0 overflow-hidden flex flex-col">{stage}</div>
+            }
+            secondaryContent={
+              <div data-testid="split-inspector" className="h-full min-h-0 w-full min-w-0 overflow-hidden">{inspector}</div>
+            }
+            defaultPrimarySize={72}
+            minPrimarySize={40}
+            maxPrimarySize={88}
+            storageId="bridge-deck-split-c"
+          />
+        </div>
       </div>
     </div>
   );
