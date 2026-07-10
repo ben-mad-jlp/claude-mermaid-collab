@@ -6,7 +6,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { computePlanTotals, type PlanTotals } from '@/components/supervisor/PlanTotals';
 import { useFleetStatusByProject } from '@/hooks/useFleetStatus';
 import { ZenSessionCard, type DaemonTotals } from './ZenSessionCard';
-import { pulseStage, isArmed, nextUp as computeNextUp, nextWorkSuggestions, type NextUp, type NextWork } from '@/lib/zenPulse';
+import { pulseStage, isArmed, daemonBuildingFor, nextUp as computeNextUp, nextWorkSuggestions, type NextUp, type NextWork } from '@/lib/zenPulse';
 import { useUsageStore } from '@/stores/usageStore';
 import { activateSessionCard, type SessionCardData } from '@/components/layout/SessionCard';
 import { conductingView } from '@/lib/conductingView';
@@ -272,17 +272,18 @@ export const ZenMode: React.FC = () => {
       const daemonsTurn = cond?.turn === 'daemon';
       const isIdle = !escalation && summary?.structured?.status !== 'needs-input' && !daemonsTurn
         && (summary?.structured?.status === 'idle' || summary?.progressState === 'quiet');
-      const stage = isIdle ? pulseStage(summary?.paneSeenAt, now, dismissed[k] ?? 0) : 'off';
+      const daemonBuilding = daemonBuildingFor(s.session, todosByProject[s.project] ?? []);
+      const stage = isIdle ? pulseStage(summary?.paneSeenAt, now, dismissed[k] ?? 0, daemonBuilding > 0) : 'off';
       // The conductor's-move (a mission judgment phase) floats up like needs-you work;
       // a daemon's-turn conductor stays calm at rest.
       const rank = cond?.turn === 'conductor'
         ? sessionRank({ needsYou: true, state: summary?.progressState, status: summary?.structured?.status, armedIdle: false })
         : sessionRank({ needsYou, state: summary?.progressState, status: summary?.structured?.status, armedIdle: isArmed(stage) });
-      return { k, s, summary, escalation, rank, recency, stage, mission };
+      return { k, s, summary, escalation, rank, recency, stage, mission, daemonBuilding };
     });
     const ranked = [...stable].sort((a, b) => (a.rank - b.rank) || (b.recency - a.recency));
     return { stable, ranked };
-  }, [order, subscriptions, sessionSummaries, openEscalations, now, dismissed, missionByOwner]);
+  }, [order, subscriptions, sessionSummaries, openEscalations, now, dismissed, missionByOwner, todosByProject]);
 
   // Does the grid overflow its scroll area (i.e. you'd have to scroll to see every
   // card)? Measured on the scroll container; re-checked on resize and whenever the
@@ -422,7 +423,7 @@ export const ZenMode: React.FC = () => {
               gridAutoRows: `minmax(${minRowHeight}, 1fr)`,
             }}
           >
-            {cards.map(({ k, s, summary, escalation, stage, mission }) => {
+            {cards.map(({ k, s, summary, escalation, stage, mission, daemonBuilding }) => {
               const key = k;
               return (
                 <div key={key} className="min-h-0 h-full">
@@ -453,6 +454,7 @@ export const ZenMode: React.FC = () => {
                     onRequestRefresh={(sid, p, sess) => void refreshSummaryNow(sid, p, sess)}
                     onOpen={openSession}
                     mission={mission}
+                    daemonBuilding={daemonBuilding}
                   />
                 </div>
               );
