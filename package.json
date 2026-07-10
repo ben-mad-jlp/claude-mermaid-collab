@@ -1,6 +1,6 @@
 {
   "name": "claude-mermaid-collab",
-  "version": "6.17.5",
+  "version": "6.17.7",
   "type": "module",
   "description": "Browser UI for mermaid-collab with AI-powered interactions and backend server",
   "scripts": {

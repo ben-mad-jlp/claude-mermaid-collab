@@ -5,6 +5,36 @@ import {
   validateCriteriaCitability,
 } from '../criteria-citability';
 
+test('parseBlueprintCriteria: reads NUMBERED lists, not only bullets (the real spec format)', () => {
+  // Regression: leaf specs write criteria as "1. … 2. …" and blueprints copy that. The
+  // parser previously matched only [-*] bullets, so it extracted ZERO criteria from a real
+  // blueprint and validateCriteriaCitability abstained — making L4 a no-op. These are the
+  // two criterion shapes that discarded L3b (2c3f2c67/5443526b) and B0 (346a9343).
+  const md = `
+## Acceptance criteria
+
+1. \`src/services/verify-epic.ts\` registers the tool. — cite file:line
+2. \`npx tsc --noEmit -p tsconfig.json\` clean — cite file:line
+3. \`leaf-gate.ts\` untouched (out of scope) — cite file:line
+`;
+  const parsed = parseBlueprintCriteria(md);
+  expect(parsed.length).toBe(3); // was 0 before the fix
+
+  const result = validateCriteriaCitability(md, ['src/services/verify-epic.ts']);
+  expect(result.status).toBe('uncitable'); // was 'abstain' before the fix
+  const kinds = result.offenders.map((o) => o.kind).sort();
+  expect(kinds).toEqual(['absence', 'command-result']);
+});
+
+test('parseBlueprintCriteria: numbered list with ) marker also parses', () => {
+  const md = `
+## Acceptance criteria
+
+1) A clean criterion — src/services/criteria-citability.ts:50
+`;
+  expect(parseBlueprintCriteria(md).length).toBe(1);
+});
+
 test('classifyCriterion: real uncitable examples', () => {
   // Example 1: absence — "No production file touched"
   const v1 = classifyCriterion('No production file (useAgentStatus.ts) touched', [

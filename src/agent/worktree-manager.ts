@@ -369,9 +369,11 @@ export class WorktreeManager {
     for (const rel of pkgDirs) {
       const srcNM = path.join(this.opts.projectRoot, rel, 'node_modules');
       const dstNM = path.join(worktreePath, rel, 'node_modules');
-      // Only link where the MAIN repo actually has deps installed for that dir,
-      // and skip if the worktree dir already has a node_modules (real or symlink).
+      // Only link where the MAIN repo actually has deps installed for that dir.
       if (!(await this.pathExists(srcNM))) continue;
+      // Never overwrite whatever is already there. `lpathExists` is an `lstat`, so this is
+      // true for BOTH a real node_modules directory (a developer's install — clobbering it
+      // is data loss) and an existing symlink (idempotent re-run → no-op).
       if (await this.lpathExists(dstNM)) continue;
       try {
         await fs.symlink(srcNM, dstNM, 'dir');
@@ -1126,7 +1128,7 @@ export class WorktreeManager {
 
     // Already materialised? A linked worktree has a `.git` file at its root.
     if (await this.pathExists(path.join(wtPath, '.git'))) {
-      return { epicId, branch, path: wtPath };
+      return this.finishEpic(epicId, branch, wtPath);
     }
 
     await fs.mkdir(this.opts.baseDir, { recursive: true });
@@ -1156,7 +1158,7 @@ export class WorktreeManager {
     if (result.code !== 0) {
       // (b) sibling already materialised the worktree → just use it.
       if (await this.pathExists(path.join(wtPath, '.git'))) {
-        return { epicId, branch, path: wtPath };
+        return this.finishEpic(epicId, branch, wtPath);
       }
       await this.runGit(
         this.opts.projectRoot,
@@ -1181,7 +1183,7 @@ export class WorktreeManager {
       if (result.code !== 0) {
         // Final fallback: if the worktree exists now (a sibling won the retry race too), use it.
         if (await this.pathExists(path.join(wtPath, '.git'))) {
-          return { epicId, branch, path: wtPath };
+          return this.finishEpic(epicId, branch, wtPath);
         }
         throw new Error(
           `git worktree add (epic ${this.epicId8(epicId)}) failed (code ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
@@ -1189,6 +1191,17 @@ export class WorktreeManager {
       }
     }
 
+    return this.finishEpic(epicId, branch, wtPath);
+  }
+
+  /** Every `_ensureEpicInner` exit funnels here. An epic worktree is where UI leaves are
+   *  reviewed, so it must be able to run the repo's tests — which needs `ui/node_modules`
+   *  (jsdom / @testing-library have no up-tree sibling and die with ERR_MODULE_NOT_FOUND).
+   *  Best-effort, exactly as `create()` does at the leaf path: a main checkout with no deps
+   *  installed must NOT fail epic-worktree creation. Idempotent, so it also heals epic
+   *  worktrees materialised before this existed (the `.git`-already-present early return). */
+  private async finishEpic(epicId: string, branch: string, wtPath: string): Promise<EpicWorktree> {
+    await this.linkNodeModules(wtPath).catch(() => {});
     return { epicId, branch, path: wtPath };
   }
 
