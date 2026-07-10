@@ -46,6 +46,7 @@ import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
+import { validateCriteriaCitability } from './criteria-citability';
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
@@ -665,6 +666,61 @@ export function buildBlueprintRefreshPrompt(leaf: Todo, inheritedText: string, f
     `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your`,
     `FINAL reply message — verbatim — so the executor has the blueprint even if the file`,
     `read fails. (Write the file AND emit the full text as your final message.)`,
+  ].join('\n');
+}
+
+/** L4: Build the repair prompt for a blueprint node that emitted uncitable acceptance criteria.
+ *  The prompt quotes each offending criterion with its rule-violation reason, restates the
+ *  rules, and demands the full blueprint be rewritten to the same path with the same trailing
+ *  json manifest. Used as a one-shot in-place repair before the implement node is spawned. */
+export function buildCriteriaRepairPrompt(
+  leaf: Todo,
+  blueprintText: string,
+  citability: { verdicts: Array<{ text: string; kind?: string; reason?: string }>; offenders: Array<{ text: string; kind?: string; reason?: string }>; reasons: string[] },
+): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+  const bp = blueprintPath(leaf);
+
+  const offenderText = citability.offenders
+    .map(
+      (o) =>
+        `- "${o.text.slice(0, 80)}${o.text.length > 80 ? '...' : ''}" — ${o.reason || 'uncitable'}`,
+    )
+    .join('\n');
+
+  return [
+    'You are the BLUEPRINT node. Make REAL, compiling code edits.',
+    `Title: ${title}`,
+    `Description: ${description}`,
+    '',
+    'The prior blueprint you wrote has UNCITABLE acceptance criteria:',
+    '',
+    offenderText,
+    '',
+    "Every acceptance criterion in a blueprint must be satisfiable by a `file:line` citation inside the diff this leaf produces.",
+    "These three criterion types are NEVER citable in principle:",
+    "1. A command's result: a criterion that invokes a build/test (bun run, npm test, npx vitest, tsc, make, etc.) or asserts its outcome (tests pass, suite green, build clean, etc.).",
+    "2. An absence: a criterion that asserts a negative about code (no file touched, no field added, not changed, etc.).",
+    "3. A location outside your diff: a citation to a file:line you do not modify.",
+    '',
+    "Restate each uncitable criterion as the OBSERVABLE CODE CHANGE that would make a command pass or an absence true.",
+    "Then read the relevant code, and produce your corrected blueprint and WRITE it to `" +
+      bp +
+      "`.",
+    "The blueprint must cite the real files/symbols to touch and the exact change shape.",
+    '',
+    "FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the machine-readable size manifest — the prose blueprint goes above it). It MUST be the LAST json fence in the file and parse as:",
+    '```json',
+    '{ "schemaVersion": 1, "estimatedFiles": <int>, "estimatedTasks": <int>,',
+    '  "nonEnumerableFanout": <bool>,',
+    '  "filesToCreate": ["<path>"], "filesToEdit": ["<path>"],',
+    '  "tasks": [ { "id": "<slug>", "files": ["<path>"], "description": "<one line>" } ],',
+    '  "splitDecision": { "split": <bool>, "reason": "<why>",',
+    '    "items": [ { "id": "<slug>", "files": ["<path>"], "dependsOn": ["<slug>"] } ] } }',
+    '```',
+    '',
+    `ALSO output the COMPLETE blueprint (the same prose + the trailing json block) as your FINAL reply message — verbatim — so the executor has the blueprint even if the file read fails.`,
   ].join('\n');
 }
 
@@ -1912,14 +1968,14 @@ export async function runLeaf(
     // --- P5 SIZE GATE ---
     // Read the blueprint artifact (its trailing ```json size block) and derive the
     // manifest. Unparseable ⇒ null ⇒ the proven FLOOR (linear) fail-safe path.
-    const manifestText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
-    const manifest = parseSizeManifest(manifestText, bp.text);
+    let manifestText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
+    let manifest = parseSizeManifest(manifestText, bp.text);
     // Unconditional inline source (b77dd104): prefer the read-back .md, else the
     // blueprint node's own final-message text — so implement/review NEVER fall back to
     // globbing the shared blueprint dir (which leaked OTHER leaves' blueprints and made
     // the executor build the wrong feature). The blueprint node is instructed to emit
     // its full text as its final message, so bp.text is a reliable fallback.
-    const blueprintBody = manifestText && manifestText.trim() ? manifestText : bp.text;
+    let blueprintBody = (manifestText && manifestText.trim() ? manifestText : bp.text) ?? '';
 
     // Carry this good blueprint forward so a later attempt of THIS run reuses it (in-run
     // reattach) instead of re-running the blueprint node. Prefer the read-back .md (carries
@@ -1941,6 +1997,58 @@ export async function runLeaf(
         });
       } catch {
         /* persistence is durable-telemetry — never break the run */
+      }
+    }
+
+    // --- L4 CITABILITY GATE (pre-implement) --------------------------------
+    // Same predicate as the terminal G3 gate (validateReviewGrounding), paid for at the
+    // only moment it is free: the criteria exist, the implement+review nodes do not yet.
+    const declaredForCriteria = manifest
+      ? [...new Set([...manifest.filesToCreate, ...manifest.filesToEdit, ...manifest.tasks.flatMap(t => t.files)])]
+      : [];
+    let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria);
+    if (citability.status === 'uncitable') {
+      // REPAIR ONCE: re-prompt the blueprint node with the offending criterion QUOTED and the
+      // rule restated. Never silently drop or rewrite a criterion — it is the leaf's contract.
+      const repairSpec = {
+        ...buildSpec('blueprint', cwd),
+        prompt: buildCriteriaRepairPrompt(leaf, blueprintBody, citability),
+      };
+      const repair = await runNode('blueprint', repairSpec);
+      if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
+      if (repair.rateLimited) return pausedResult('blueprint', repair);
+      if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+      if (repair.ok) {
+        const reText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
+        const reBody = (reText && reText.trim() ? reText : repair.text) ?? '';
+        const reManifest = parseSizeManifest(reText, repair.text);
+        // Rebind manifest/blueprintBody to the revised blueprint for downstream use
+        if (reText && reText.trim()) manifestText = reText;
+        if (reManifest) manifest = reManifest;
+        blueprintBody = reBody;
+        // Re-persist the repaired blueprint (best-effort, same try/catch)
+        if (reText && reManifest) {
+          try {
+            await deps.persistBlueprint?.({
+              project,
+              leaf,
+              attempt: state.attempt,
+              manifest: reManifest,
+              blueprintMd: reText,
+            });
+          } catch {
+            /* persistence is durable-telemetry — never break the run */
+          }
+        }
+        // Re-validate the repaired criteria
+        const redeclaredForCriteria = reManifest
+          ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
+          : [];
+        citability = validateCriteriaCitability(reBody, redeclaredForCriteria);
+      }
+      if (citability.status === 'uncitable') {
+        try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+        return parkBlocked(`blueprint-uncitable-criterion: ${citability.reasons.join('; ')}`);
       }
     }
 
