@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
 import { listLeafInflight, reapStaleInflight } from './worker-ledger';
+import { treeStatus } from './tree-integrity';
 
 /**
  * package.json `name` of this very app. The self-project is identified by this
@@ -60,6 +61,7 @@ export interface DeployRequestResult {
     | 'unsupported-platform'
     | 'deploy-script-missing'
     | 'leaves-in-flight'
+    | 'tree-does-not-match-head'
     | 'spawn-failed';
   /** Absolute path to the deploy log (tail this to watch progress), when started. */
   logPath?: string;
@@ -149,6 +151,13 @@ export function requestSelfDeploy(
       };
     }
   }
+
+  const st = treeStatus(project);
+  if (st.resolved && !st.match) {
+    console.error(`[deploy] refused — working tree does not match HEAD\n  write-tree   ${st.workTree}\n  HEAD^{tree}  ${st.headTree}`);
+    return { ok: false, started: false, reason: 'tree-does-not-match-head' };
+  }
+
   const scriptPath = join(project, DEPLOY_SCRIPT_REL);
 
   const logDir = join(homedir(), '.mermaid-collab', 'deploy-logs');

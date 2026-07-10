@@ -70,6 +70,7 @@ import {
 import { resolveWorkerAgent } from '../agent/registry';
 import { getConfig } from './config-service';
 import { recordSelfLand, isSelfProject } from './deploy-service';
+import { treeStatus, restorePostLandTree } from './tree-integrity';
 import { recordFriction, getWatchState, setWatchState } from './friction-store';
 import {
   agentAliveInSubtree,
@@ -1234,6 +1235,8 @@ export interface LandEpicOutcome {
   selfLand?: boolean;
   /** Dirty paths in the main checkout when the land was refused (clean-tree guard). */
   dirtyPaths?: string[];
+  /** True when a corrupted post-land tree was detected and repaired via reset --hard <landSha>. */
+  treeRestored?: boolean;
 }
 
 export interface LandProof {
@@ -1679,13 +1682,41 @@ export async function landEpic(
       // Landed — remove the epic branch + worktree (gated on land success), resolve the card.
       await wm.removeEpic(epicId, targetProject).catch(() => {});
       try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
+
+      let treeRestored = false;
+      if (dirty.length === 0 && land.masterSha) {
+        const st = treeStatus(targetProject);
+        if (st.resolved && !st.match) {
+          const rep = restorePostLandTree(targetProject, land.masterSha);
+          treeRestored = rep.restored;
+          createEscalation({
+            project, session: esc.session, todoId,
+            kind: 'assumption-invalidated',
+            questionText:
+              `Post-land tree corruption on ${targetProject}: after landing ${epicBranch} at ` +
+              `${land.masterSha}, the checkout's index tree (${rep.before.workTree}) did not match ` +
+              `HEAD^{tree} (${rep.before.headTree}). Corrupted index snapshotted at ` +
+              `${rep.snapshotRef ?? '(snapshot FAILED)'}. Restore ${rep.restored ? 'succeeded' : 'FAILED'}.`,
+          });
+          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({
+            escalationId, epicId, epicBranch, land: 'tree-corrupt',
+            landSha: land.masterSha, workTree: rep.before.workTree, headTree: rep.before.headTree,
+            snapshotRef: rep.snapshotRef, restored: rep.restored,
+          }) });
+          await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'post-land-tree-corrupt', todoId: epicId, detail: `landSha=${land.masterSha} snapshot=${rep.snapshotRef}` }).catch(() => {});
+          if (!rep.restored || !rep.after.match) {
+            return { ok: false, landed: true, reason: 'post-land-tree-corrupt', epicId, epicBranch, masterSha: land.masterSha, treeRestored: false };
+          }
+        }
+      }
+
       resolveEscalation(escalationId, 'resolved', 'ai');
       const selfLand = isSelfProject(targetProject);
       // Stamp the self-land so the deploy-status surface can flag the running
       // binary as stale even when the version string didn't change.
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
-      return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand };
+      return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
       recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'error', reason: e instanceof Error ? e.message : String(e) }) });
       return { ok: false, landed: false, reason: e instanceof Error ? e.message : String(e), epicId, epicBranch };
