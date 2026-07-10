@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -16,7 +16,9 @@ describe('missionLoopIntegrity', () => {
           if (['.next', 'node_modules', 'dist', '.turbo', 'out', '.react-router'].includes(entry.name)) continue;
           walkDir(fullPath);
         } else if (entry.isFile() && /\.[tj]sx?$/.test(entry.name)) {
-          // Skip test files for this check (we're already in a test file)
+          // Test files are exempt: the lock is on shipped component code, and a test that asserts
+          // these tools are absent must name them. Excluding *.test.ts(x) keeps such tests from
+          // self-reporting as violations. A call site inside a test file cannot reach a user.
           if (entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.tsx')) continue;
           const content = fs.readFileSync(fullPath, 'utf-8');
           if (/advance_mission|set_mission_criterion/.test(content)) {
@@ -34,11 +36,5 @@ describe('missionLoopIntegrity', () => {
         `These should not be called from any React component.`
       );
     }
-  });
-
-  it('grep -rn verifies no advance_mission or set_mission_criterion', () => {
-    // This test documents the live grep that proves the lock is held
-    const result = 'No output expected from: grep -rn "advance_mission|set_mission_criterion" ui/src';
-    expect(result).toContain('No output expected');
   });
 });
