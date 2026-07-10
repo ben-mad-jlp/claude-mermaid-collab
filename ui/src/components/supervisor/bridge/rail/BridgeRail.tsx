@@ -17,6 +17,8 @@ export interface BridgeRailProps {
   selected?: RailKey | null;
   defaultSelected?: RailKey | null;
   onSelect?: (key: RailKey | null) => void;
+  /** Rail header slot — MISSION block. */
+  header?: React.ReactNode;
   /** Rail footer slot — PROJECT block. */
   footer?: React.ReactNode;
 }
@@ -27,6 +29,7 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
   selected: controlledSelected,
   defaultSelected,
   onSelect,
+  header,
   footer,
 }) => {
   const [inner, setInner] = useState<RailKey | null>(defaultSelected ?? null);
@@ -123,6 +126,11 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
       data-testid="bridge-rail"
       className="w-[296px] shrink-0 flex flex-col min-h-0 border-r border-gray-200 dark:border-gray-700"
     >
+      {header && (
+        <div data-testid="bridge-rail-header" className="shrink-0 border-b border-gray-200 dark:border-gray-700">
+          {header}
+        </div>
+      )}
       <RailNav sections={sections} selected={active} onSelect={handleSelect} />
 
       {active && panels[active] && (
