@@ -45,6 +45,9 @@ export interface LeafNodeStat {
   cacheReadTokens?: number | null; // prompt-cache hits — the bulk of real input on the Max plan
   cacheCreationTokens?: number | null; // prompt-cache writes — the per-node-spawn cost surface
   outputText?: string | null; // the node's final message — drillable in the UI
+  /** Commands recorded from the node's stream-json transcript at the spawn boundary
+   *  (not self-reported). Used to gate on cwd escapes and verify reviewer claims. */
+  commands?: import('./node-commands.js').RecordedCommand[] | null;
 }
 
 export interface LeafRunStats {
@@ -102,6 +105,16 @@ function isOutcomeMarker(r: { nodeKind?: string | null }): boolean {
   return r.nodeKind === 'outcome';
 }
 
+/** Safe parse of JSON-encoded RecordedCommand[]. Returns null on parse failure. */
+function safeParseCommands(json: string | null | undefined): ReturnType<typeof import('./node-commands.js').parseNodeCommands> | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 /** Inter-row gap (ms) that marks a re-run boundary. Matches the ad-hoc watcher
  *  heuristic seen in L4/L6 monitoring. */
 const RUN_GAP_MS = 120_000;
@@ -150,6 +163,7 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     cacheReadTokens: r.cacheReadTokens ?? null,
     cacheCreationTokens: r.cacheCreationTokens ?? null,
     outputText: r.outputText ?? null,
+    commands: safeParseCommands(r.commands as string | null | undefined),
   }));
 
   const attempts = Math.max(

@@ -77,6 +77,10 @@ export interface LedgerEntry {
    *  attempts, nodesSpent. Written ONCE so the outcome is never re-derived from
    *  scattered sources (the bug that made 'pending' read as 'rejected'). */
   outcomeDetail?: string | null;
+  /** JSON-encoded RecordedCommand[] from the node's stream-json transcript.
+   *  Extracted at the spawn boundary (not self-reported by the node). Used to gate
+   *  on cwd escapes and verify reviewer claims (C2). */
+  commands?: string | null;
 }
 
 /** Defensive cap on persisted node output — a node's final message is normally small,
@@ -149,6 +153,8 @@ function openDb(): Database {
   add('leafOutcome', 'TEXT'); // 'accepted'|'blocked'|'rejected'|'paused'|null (terminal)
   add('outputText', 'TEXT'); // node's final output text (diagnostic + UI source)
   add('outcomeDetail', 'TEXT'); // atomic terminal record (JSON) on the outcome marker row
+  // Additive migration: C2 command evidence (idempotent, nullable).
+  add('commands', 'TEXT'); // JSON-encoded RecordedCommand[] from stream-json
   // LIVE in-flight signal: the append-only ledger only gets a row when a node COMPLETES,
   // so a running node is invisible (the "3 minutes of silence" blind spot). This tiny
   // table holds exactly one row per CURRENTLY-running leaf (cross-process via SQLite, so
@@ -254,8 +260,8 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
       .prepare(
         `INSERT INTO worker_ledger
           (project, todoId, epicId, session, phase, provider, model, source, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, costUsd, knownPrice, steps, parseError,
-           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outputText, outcomeDetail, ts)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?)`,
+           nodeKind, nodesSpent, authMode, exitCode, durationMs, rateLimited, leafId, verdict, leafOutcome, outputText, outcomeDetail, commands, ts)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?,?,?,?, ?, ?)`,
       )
       .run(
         entry.project, entry.todoId, entry.epicId ?? null, entry.session, entry.phase, entry.provider, entry.model, entry.source,
@@ -266,6 +272,7 @@ export function recordPhase(entry: LedgerEntry, now: number = Date.now()): numbe
         entry.verdict ?? null, entry.leafOutcome ?? null,
         entry.outputText == null ? null : entry.outputText.slice(0, MAX_OUTPUT_CHARS),
         entry.outcomeDetail ?? null,
+        entry.commands ?? null,
         now,
       );
     return Number(res.lastInsertRowid);
@@ -343,6 +350,7 @@ export function recordNode(
       leafOutcome: entry.leafOutcome ?? null,
       outputText: entry.outputText ?? null,
       outcomeDetail: entry.outcomeDetail ?? null,
+      commands: entry.commands ?? null,
     },
     now,
   );

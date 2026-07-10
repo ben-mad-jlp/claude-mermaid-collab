@@ -45,6 +45,7 @@ import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './wo
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding } from './review-citations';
+import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
@@ -796,6 +797,12 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string): string {
     '',
     'Then compose a REVIEW REPORT (markdown): what was reviewed (and the diff base you used), the',
     'per-decision check results, and each finding with enough detail to act on.',
+    '',
+    'If you ran any command to verify a criterion, list it under a VERIFICATION: heading,',
+    'one `- ran: <exact command>` line each. The executor records what actually ran at the',
+    'spawn boundary and cross-checks; a listed command it never observed is flagged. Do not',
+    'list a command you did not run. If you ran nothing, omit the block.',
+    '',
     'End your reply with EXACTLY one line, nothing after it:',
     '`VERDICT: PASS`  (the change-set fully satisfies the spec — no material gaps)',
     '`VERDICT: FAIL — <one-line summary>`  (material gaps exist; they are filed as todos above)',
@@ -1224,6 +1231,8 @@ export async function runLeaf(
   // Which execution path the last attempt took — recorded on the terminal record so a
   // run's shape (and which path a failure came from) is legible without re-deriving.
   let pathTaken: 'floor' | 'waves' | 'review' | null = null;
+  // C2: accumulate recorded commands from each node for evidence gating in review
+  const recordedCommands: RecordedCommand[] = [];
 
   // G12: Snapshot untracked files BEFORE the first writing node so we can later
   // distinguish files the leaf created (new) from pre-existing junk. Declared here so
@@ -1354,9 +1363,15 @@ export async function runLeaf(
         // Persist the node's final message so a stuck/rejected leaf is diagnosable
         // (and UI-surfaceable) after the fact — the tsc error, review reason, etc.
         outputText: res.text ?? null,
+        // C2: persist recorded commands for evidence gating
+        commands: res.commands?.length ? JSON.stringify(res.commands) : null,
       });
     } catch {
       /* ledger is telemetry — never break the run */
+    }
+    // C2: accumulate commands in-memory for the review-pass gate
+    if (res.commands?.length) {
+      recordedCommands.push(...res.commands);
     }
     // DEFENSE-IN-DEPTH (6bc2dc36): a spawn whose CWD (the lane worktree) vanished mid-run
     // fails ENOENT for EVERY provider; the revise/WAVES loop would otherwise cascade ~14
@@ -1833,6 +1848,8 @@ export async function runLeaf(
   // reuses ONLY the plan text, never partial work. Only set after a good blueprint, so a
   // blueprint-failure attempt still re-runs it. Complements the cross-dispatch reattach.
   let carriedBlueprint: string | null = null;
+  // C2: non-fatal unbacked-claim warning from the review pass — carried forward for recordOutcome.
+  let unbackedNote: string | undefined;
   for (state.attempt = 0; state.attempt < ATTEMPT_CAP; ) {
     state.attempt += 1; // 1-based count for telemetry/escalation
     const isLastAttempt = state.attempt >= ATTEMPT_CAP;
@@ -2118,6 +2135,19 @@ export async function runLeaf(
             try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
             return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
           }
+          // C2: evidence gate — the claim must be a fact the executor holds.
+          const evidence = evaluateCommandEvidence({
+            commands: recordedCommands,
+            claims: parseVerificationClaims(grounding.criteria, review.text ?? ''),
+            worktreeRoot: cwd,
+          });
+          if (evidence.reject) {
+            try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+            return parkBlocked(`command-evidence: ${evidence.reasons.join('; ')}`);
+          }
+          unbackedNote = evidence.unbackedClaims.length
+            ? `unbacked-claim (non-fatal): ${evidence.reasons.join('; ')}`
+            : undefined;
         }
         findings = (review.text ?? '').trim();
       }
@@ -2193,7 +2223,7 @@ export async function runLeaf(
         : effective === 'rejected' ? 'gate-rejected'
         : undefined;
       recordOutcome(outcome, reviewVerdict, {
-        reason,
+        reason: reason ?? unbackedNote,
         pendingReason: gate.pendingReason,
         gateReasons: gate.gateReasons,
       });
