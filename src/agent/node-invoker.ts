@@ -20,6 +20,7 @@ import { dirname, join, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { resolveGrokModel } from './grok-model.js';
 import { registerLeafProc, unregisterLeafProc, groupKillPid } from '../services/leaf-subprocess-registry.js';
+import { parseNodeCommands } from '../services/node-commands.js';
 
 export type AuthMode = 'subscription' | 'api' | 'unknown' | 'grok';
 
@@ -139,6 +140,9 @@ export interface NodeResult {
   parseError?: string;
   /** Set by runNode when the node process died before doing any work (a config/infra fault). */
   startFailure?: { provider: string; model: string; detail: string };
+  /** Recorded by the executor from the node's own stream-json transcript — NEVER self-reported
+   *  by the node. Extracted from tool_use (Bash) and tool_result blocks at the spawn boundary. */
+  commands?: Array<{ cmd: string; cwd: string; exitCode: number | null }>;
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000;
@@ -541,6 +545,14 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
     captureTranscript(spec.transcriptPath, spec.transcriptLabel ?? 'node', stdout, { exitCode, durationMs });
   }
 
+  // Parse commands from stream-json (best-effort; parse failure → [])
+  let commands: ReturnType<typeof parseNodeCommands> = [];
+  try {
+    commands = parseNodeCommands(stdout, spec.cwd);
+  } catch {
+    // parse failure never fails a node
+  }
+
   if (timedOut) {
     return {
       ok: false,
@@ -551,6 +563,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       authMode,
       text: stdout,
       parseError: `node timed out after ${timeoutMs}ms (killed)`,
+      commands,
     };
   }
 
@@ -607,6 +620,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
     authMode,
     text: parsed.text,
     parseError: parsed.parseError ?? (parsed.isError ? (stderr || 'result is_error=true') : undefined),
+    commands,
   };
 }
 
