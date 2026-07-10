@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SessionTodo } from '@/types/sessionTodo';
+import { kindOf } from '@/lib/todoKind';
 
 /**
  * Supervisor store (v2 global model).
@@ -261,7 +262,10 @@ export interface SessionSummary {
 }
 
 const PROJECTS_KEY = 'supervisor-projects';
-const TODOS_KEY = 'supervisor-todos-by-project';
+/** Legacy (unversioned) todos cache. Pre-`kind` rows live here; a v1 blob can crash a
+ *  v2 client at first paint (kindOf throws before any fetch), so v2 never reads it. */
+const LEGACY_TODOS_KEY = 'supervisor-todos-by-project';
+const TODOS_KEY = 'supervisor-todos-by-project.v2';
 const ESCALATIONS_KEY = 'supervisor-escalations';
 const RESOLVED_ESCALATIONS_KEY = 'supervisor-escalations-resolved';
 const SUPERVISED_KEY = 'supervisor-supervised';
@@ -389,6 +393,33 @@ function hydrate<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/** A cache is a cache: any row we cannot classify is DROPPED, never defaulted.
+ *  `kindOf` throws MissingKindError on a kind-less row — that throw is the filter,
+ *  so the single kind rule stays in one place. A dropped row is refetched by
+ *  `loadProjectTodos`. Project entries left empty are dropped too. */
+function hasKind(t: unknown): boolean {
+  try { kindOf(t as { kind?: unknown; title?: unknown } as never); return true; }
+  catch { return false; }
+}
+
+function sanitizeTodosByProject(raw: unknown): Record<string, SessionTodo[]> {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, SessionTodo[]> = {};
+  for (const [project, rows] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(rows)) continue;
+    const kept = (rows as unknown[]).filter(hasKind) as SessionTodo[];
+    if (kept.length > 0) out[project] = kept;
+  }
+  return out;
+}
+
+/** One-shot: a v1 blob is never read again, so free its bytes (measured 13 MB on the
+ *  live desktop app, 2026-07-10) rather than orphaning them forever. */
+function hydrateTodosByProject(): Record<string, SessionTodo[]> {
+  try { localStorage.removeItem(LEGACY_TODOS_KEY); } catch { /* storage unavailable */ }
+  return sanitizeTodosByProject(hydrate<unknown>(TODOS_KEY, {}));
 }
 
 // Z9: module-scope snooze resurface timers, keyed by `${project}::${session}`.
@@ -652,7 +683,7 @@ interface SupervisorState {
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
-  todosByProject: hydrate<Record<string, SessionTodo[]>>(TODOS_KEY, {}),
+  todosByProject: hydrateTodosByProject(),
   unlandedEpicsByProject: {},
   sessionSummaries: {},
   pendingClears: {},

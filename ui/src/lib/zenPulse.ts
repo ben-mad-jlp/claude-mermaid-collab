@@ -1,4 +1,4 @@
-import type { SessionTodo } from '@/types/sessionTodo';
+import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
 import { buildById, claimReason } from '@/lib/claimability';
 import { isEpic } from '@/lib/todoKind';
 
@@ -22,7 +22,13 @@ export const GLOW_MS = 900_000;    // 4m–15m: one action chip; 15m+: soft halo
  * once-per-episode + re-arm invariant falls out of this for free. Callers gate this on
  * the session actually being idle (green); a non-idle session should pass 'off' through.
  */
-export function pulseStage(paneSeenAt: number | undefined, now: number, dismissedAt: number): PulseStage {
+export function pulseStage(
+  paneSeenAt: number | undefined,
+  now: number,
+  dismissedAt: number,
+  daemonBuilding = false,
+): PulseStage {
+  if (daemonBuilding) return 'off'; // its leaves are building — never invite new work
   if (!paneSeenAt) return 'off';
   if (dismissedAt === paneSeenAt) return 'off'; // dismissed this episode (re-arms when paneSeenAt advances)
   const quiet = now - paneSeenAt;
@@ -40,6 +46,29 @@ export function isArmed(stage: PulseStage): boolean {
 /** Stages where the Pulse line replaces the plain "updated Ns ago" footer. */
 export function isPulsing(stage: PulseStage): boolean {
   return stage === 'settled' || stage === 'warm' || stage === 'glowing';
+}
+
+/** Statuses after which a todo can never be in flight. `claimedBy` is NOT cleared on
+ *  completion (see sessionTodo.ts:34-35), so a terminal filter is load-bearing: without
+ *  it a finished leaf keeps the card reading "building" forever. */
+const TERMINAL: ReadonlySet<TodoStatus> = new Set(['done', 'dropped']);
+
+/**
+ * How many todos this session OWNS does the Orchestrator daemon currently hold a claim
+ * on. The link is `ownerSession` + `claimedBy` — NOT `sessionName`/`executedBySession`,
+ * which name the worker lane the daemon ran the leaf under, not the conductor.
+ * 0 ⇒ the session is not waiting on a build. Pure.
+ */
+export function daemonBuildingFor(session: string, todos: SessionTodo[]): number {
+  if (!session || !Array.isArray(todos)) return 0;
+  let n = 0;
+  for (const t of todos) {
+    if (t.ownerSession !== session) continue;
+    if (!t.claimedBy) continue;
+    if (TERMINAL.has(t.status) || t.completed) continue;
+    n++;
+  }
+  return n;
 }
 
 /**

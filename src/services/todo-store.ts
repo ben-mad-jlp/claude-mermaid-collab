@@ -8,7 +8,7 @@ import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { hostname } from 'node:os';
-import { trackingProjectRoot } from './project-registry';
+import { trackingProjectRoot, isTransientProjectPath, projectRegistry } from './project-registry';
 import type { LeafSplitItem } from './split-decision';
 import { topoSortSplitItems } from './split-decision';
 
@@ -457,6 +457,38 @@ function openDb(project: string): Database {
   }
   dbCache.set(project, db);
   return db;
+}
+
+export interface KindMigrationResult { project: string; ok: boolean; error?: string }
+
+/** Eagerly run the openDb migration block (incl. the stage-C `kind` backfill) for ONE
+ *  project. Returns false when the project has no `.collab/todos.db` — we never CREATE
+ *  a DB here (openDb would), because a project with no DB has no todos. */
+export function migrateProjectKinds(project: string): boolean {
+  const root = trackingProjectRoot(project);
+  if (isTransientProjectPath(project)) return false;
+  if (!existsSync(join(root, '.collab', 'todos.db'))) return false;
+  openDb(root);   // reuse — never duplicate the migration SQL
+  return true;
+}
+
+/** Eager, fault-isolated migration of every registered project. Lazy openDb() meant a
+ *  registered project this process had never opened still had a `kind`-less schema, so a
+ *  cross-project read served rows with kind === undefined and kindOf() threw. */
+export async function migrateAllRegisteredProjects(
+  registry: { list(): Promise<Array<{ path: string }>> } = projectRegistry
+): Promise<KindMigrationResult[]> {
+  const out: KindMigrationResult[] = [];
+  let projects: Array<{ path: string }> = [];
+  try { projects = await registry.list(); } catch { return out; }
+  for (const p of projects) {
+    try {
+      if (migrateProjectKinds(p.path)) out.push({ project: p.path, ok: true });
+    } catch (err) {
+      out.push({ project: p.path, ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return out;
 }
 
 /** user_version marker for the de-conflate S1 backfill (approvedAt/heldAt/claim). */
