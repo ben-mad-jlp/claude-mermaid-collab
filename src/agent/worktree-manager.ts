@@ -1591,6 +1591,19 @@ export class WorktreeManager {
     return res.stdout.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
   }
 
+  /** TRACKED-only dirty paths (`--untracked-files=no`): staged/modified/renamed tracked
+   *  files, excluding untracked ones. The post-land tree-integrity guard keys off this,
+   *  NOT dirtyPaths(): untracked files (e.g. docs/designs/) do not affect `git write-tree`
+   *  and are preserved by `git reset --hard`, so they must never suppress the guard — that
+   *  suppression is the 0949289b P0 (the guard was skipped on every allowDirty land). */
+  async trackedDirtyPaths(): Promise<string[]> {
+    if (!(await this.isGitRepo())) return [];
+    const res = await this.runGit(this.opts.projectRoot, ['status', '--porcelain', '--untracked-files=no'], QUICK_TIMEOUT_MS)
+      .catch(() => ({ code: 1, stdout: '', stderr: '' }));
+    if (res.code !== 0) return [];
+    return res.stdout.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
+  }
+
   // ---------------------------------------------------------------------------
   // landEpicToMaster — the land click (FBPE P4). Merge an epic's accumulation
   // branch (collab/epic/<id8>) onto master with a single --no-ff merge, then
