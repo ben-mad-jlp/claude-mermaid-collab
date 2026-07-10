@@ -253,11 +253,14 @@ describe('useAgentStatus', () => {
 
       const { result } = renderHook(() => useAgentStatus(2000));
 
+      expect(result.current.agentIsLoading).toBe(true);
+
       await waitFor(() => {
-        expect(result.current.agentStatus).toMatch(/working|waiting|idle/);
+        expect(result.current.agentIsLoading).toBe(false);
       }, { timeout: 3000 });
 
-      expect(result.current.agentIsLoading).toBe(false);
+      expect(result.current.agentStatus).toMatch(/working|waiting|idle/);
+      expect(result.current).toBeDefined();
     });
   });
 
