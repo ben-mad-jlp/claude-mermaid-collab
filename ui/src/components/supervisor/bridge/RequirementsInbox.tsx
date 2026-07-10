@@ -14,8 +14,9 @@
  * can never disagree.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useSupervisorStore, type Requirement, type RequirementSpec } from '@/stores/supervisorStore';
+import { useKeyboardOwner, KeyboardPriority } from '@/hooks/useKeyboardOwner';
 import { selectInboxRequirements, predecessorOf } from './requirementSelectors';
 import { RequirementCard } from './RequirementCard';
 
@@ -74,18 +75,13 @@ export const RequirementsInbox: React.FC<RequirementsInboxProps> = ({
     setActiveIdx(0);
   };
 
-  // Keep latest values in a ref so the window listener stays stable.
-  const stateRef = useRef({ inbox, clampedActive, editingId });
-  stateRef.current = { inbox, clampedActive, editingId };
-
-  useEffect(() => {
-    if (inbox.length === 0) return;
-    const onKey = (ev: KeyboardEvent) => {
+  useKeyboardOwner(
+    KeyboardPriority.SIGNALS,
+    (ev: KeyboardEvent) => {
       if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
       if (isTypingTarget(ev.target)) return;
-      const { inbox: cur, clampedActive: idx, editingId: editing } = stateRef.current;
-      if (editing) return; // the composer owns the keyboard while editing
-      const active = cur[idx];
+      if (editingId) return;
+      const active = inbox[clampedActive];
       if (!active) return;
 
       if (ev.key === '1' || ev.key === 'Enter') {
@@ -98,11 +94,9 @@ export const RequirementsInbox: React.FC<RequirementsInboxProps> = ({
         ev.preventDefault();
         reject(active);
       }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inbox.length]);
+    },
+    inbox.length > 0,
+  );
 
   if (inbox.length === 0) return null; // empty inbox is silent — no card noise
 
