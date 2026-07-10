@@ -112,3 +112,5 @@ export function restorePostLandTree(
 
   return { restored, snapshotRef, before, after };
 }
+
+// P0-fix proof-land marker (0949289b verified live v6.17.9) — safe to remove.
