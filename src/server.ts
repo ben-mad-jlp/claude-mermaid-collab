@@ -127,6 +127,19 @@ try {
   console.error(`mermaid-collab: project-list reconcile failed — ${err instanceof Error ? err.message : String(err)}`);
 }
 
+// Eager `kind` migration: openDb() is lazy, so a registered project this process has never
+// opened still serves rows with kind === undefined → kindOf() throws → the ROOT error
+// boundary blanks the desktop app. Fault-isolated: one bad DB must not abort startup.
+try {
+  const { migrateAllRegisteredProjects } = await import('./services/todo-store.js');
+  const results = await migrateAllRegisteredProjects();
+  const failed = results.filter((r) => !r.ok);
+  console.log(`📋 kind migration: ${results.length - failed.length} migrated, ${failed.length} failed`);
+  for (const f of failed) console.warn(`   ↳ ${f.project}: ${f.error}`);
+} catch (err) {
+  console.error(`mermaid-collab: kind migration failed — ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // Register scratch session on startup.
 // This MUST be idempotent and non-fatal on corrupt registry — otherwise
 // the very first thing every boot does is a destructive read-modify-write
