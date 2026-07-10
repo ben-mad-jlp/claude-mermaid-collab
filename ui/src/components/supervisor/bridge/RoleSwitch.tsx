@@ -1,7 +1,6 @@
 /**
  * RoleSwitch — the shared pill used for an orchestration-role on/off switch.
- * A status dot + label + scope tag + on/off word. Used by GlobalRoleSwitches
- * (Steward/Supervisor, in the CommandBar). ON spawns the role; OFF stops it.
+ * A status dot + label + scope tag + on/off word. ON spawns the role; OFF stops it.
  */
 import React from 'react';
 
