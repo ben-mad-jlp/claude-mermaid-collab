@@ -15,6 +15,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { useKeyboardOwner, KeyboardPriority } from '@/hooks/useKeyboardOwner';
 import { parseUiSpec } from './catalog';
 import { Renderer } from './Renderer';
 import { Markdown } from '@/components/ai-ui/display/Markdown';
@@ -95,40 +96,35 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ escalation, serverSc
     return [];
   }, [spec, escalation.options, escalation.recommended]);
 
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') {
+  useKeyboardOwner(KeyboardPriority.FOCAL, (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      onClose();
+      return;
+    }
+    const tag = (ev.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (/^[1-9]$/.test(ev.key)) {
+      const opt = answerables[Number(ev.key) - 1];
+      if (opt) {
         ev.preventDefault();
-        onClose();
-        return;
+        decide(opt.optionId);
       }
-      const tag = (ev.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (/^[1-9]$/.test(ev.key)) {
-        const opt = answerables[Number(ev.key) - 1];
-        if (opt) {
-          ev.preventDefault();
-          decide(opt.optionId);
-        }
-        return;
-      }
-      if (ev.key === 'Enter') {
-        const rec = answerables.find((a) => a.recommended);
-        if (rec) {
-          ev.preventDefault();
-          decide(rec.optionId);
-        }
-        return;
-      }
-      if ((ev.key === 'j' || ev.key === 'J') && onJump) {
+      return;
+    }
+    if (ev.key === 'Enter') {
+      const rec = answerables.find((a) => a.recommended);
+      if (rec) {
         ev.preventDefault();
-        onJump(escalation.project, escalation.session);
+        decide(rec.optionId);
       }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answerables, escalation.id]);
+      return;
+    }
+    if ((ev.key === 'j' || ev.key === 'J') && onJump) {
+      ev.preventDefault();
+      onJump(escalation.project, escalation.session);
+    }
+  });
 
   return (
     <div

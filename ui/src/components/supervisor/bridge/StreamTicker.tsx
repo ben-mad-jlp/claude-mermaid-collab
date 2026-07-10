@@ -14,6 +14,8 @@ export interface StreamTickerProps {
   events: StreamEvent[];
   /** Render body-only (no card chrome / header) for use inside a tab panel. */
   embedded?: boolean;
+  /** Single-line ticker mode — forwards to EventStream's collapsed branch; overrides the card chrome. */
+  collapsed?: boolean;
   /** Click an event → jump to what it's about (e.g. its todo's detail). Forwarded to
    *  EventStream, which renders rows clickable when set. */
   onSelectEvent?: (event: StreamEvent) => void;
@@ -21,7 +23,8 @@ export interface StreamTickerProps {
   titleByTodoId?: Map<string, string>;
 }
 
-export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded, onSelectEvent, titleByTodoId }) => {
+export const StreamTicker: React.FC<StreamTickerProps> = ({ events, embedded, collapsed, onSelectEvent, titleByTodoId }) => {
+  if (collapsed) return <EventStream events={events} collapsed titleByTodoId={titleByTodoId} />;
   if (embedded) return <EventStream events={events} className="min-h-0" onSelectEvent={onSelectEvent} titleByTodoId={titleByTodoId} />;
   return (
     <div

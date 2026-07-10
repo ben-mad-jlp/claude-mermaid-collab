@@ -15,6 +15,7 @@
  * POST /api/orchestrator/node-profiles { project, kind, model, effort, provider }
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog';
 
 interface Row {
   kind: string;
@@ -65,6 +66,8 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
   const [broadcastMsg, setBroadcastMsg] = useState<string | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [targets, setTargets] = useState<string[]>([]);
   const collapseInitedRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -105,9 +108,8 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
     })();
   }, [project, rows, load]);
 
-  const broadcast = useCallback(() => {
+  const doBroadcast = useCallback(() => {
     if (broadcasting || !project) return;
-    if (!window.confirm('Push this project’s provider + model + effort settings to ALL other projects? This replaces their per-node settings.')) return;
     setBroadcasting(true);
     setBroadcastMsg(null);
     void (async () => {
@@ -121,6 +123,18 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
         setBroadcasting(false);
       }
     })();
+  }, [broadcasting, project]);
+
+  const openConfirm = useCallback(async () => {
+    if (broadcasting || !project) return;
+    try {
+      const data = await apiGet('/api/projects');
+      const projectList = (data.projects ?? []).map((p: any) => p.path).filter((p: string) => p !== project);
+      setTargets(projectList);
+    } catch {
+      setTargets([]);
+    }
+    setConfirmOpen(true);
   }, [broadcasting, project]);
 
   const renderRow = (r: Row) => {
@@ -252,14 +266,32 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
         type="button"
         data-testid="node-profiles-broadcast"
         disabled={broadcasting}
-        onClick={broadcast}
+        onClick={openConfirm}
         title="Copy this project's per-provider + model + effort settings to every other project (replaces theirs)"
-        className="text-2xs px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+        className="text-2xs px-2 py-0.5 rounded border border-danger-300 dark:border-danger-700 bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300 hover:bg-danger-100 dark:hover:bg-danger-900/50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {broadcasting ? 'pushing…' : 'Push to all projects'}
+        {broadcasting ? 'pushing…' : '⚠ Push to all projects'}
       </button>
       {broadcastMsg && <span className="text-2xs text-gray-500 dark:text-gray-400">{broadcastMsg}</span>}
     </div>
+    <ConfirmDialog
+      isOpen={confirmOpen}
+      title="Overwrite node settings in every other project?"
+      message={
+        <>
+          This replaces the per-node provider, model and effort settings of{' '}
+          <strong data-testid="broadcast-confirm-count">{targets.length}</strong> other project
+          {targets.length === 1 ? '' : 's'} with this project's. There is no undo.{' '}
+          <span data-testid="broadcast-confirm-targets" className="font-mono">
+            {targets.length > 0 ? targets.join(', ') : 'every other registered project'}
+          </span>
+        </>
+      }
+      confirmLabel="Overwrite all projects"
+      cancelLabel="Cancel"
+      onCancel={() => setConfirmOpen(false)}
+      onConfirm={() => { setConfirmOpen(false); doBroadcast(); }}
+    />
     </div>
   );
 };

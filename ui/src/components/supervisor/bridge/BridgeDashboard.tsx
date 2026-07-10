@@ -15,7 +15,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { TodoDetailView } from '@/components/editors/TodoDetailView';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { isClaimable, buildById } from '@/lib/claimability';
 import { useSubscriptionStore } from '@/stores/subscriptionStore';
@@ -29,30 +28,29 @@ import { isOrchestratorSession } from '@/lib/liveness';
 import { useSessionStatuses } from '@/hooks/useSessionStatuses';
 import { useFleetStatus, type FleetWorkerState } from '@/hooks/useFleetStatus';
 import { NeedsYouZone } from './NeedsYouZone';
-import { InflightPanel } from './InflightPanel';
-import { ReadyPanel } from './ReadyPanel';
 import { StrandedPanel } from './StrandedPanel';
 import { projectPlanStats } from '@/components/layout/SupervisorPanel';
-import { RequirementsInbox } from './RequirementsInbox';
-import { FleetVitals } from './FleetVitals';
-import { DeployBanner } from './DeployBanner';
 import { SubscribersPanel } from './SubscribersPanel';
 import { StreamTicker } from './StreamTicker';
-import { PlanPanel } from '../PlanPanel';
-import { MissionsStrip } from '../MissionsStrip';
 import { DecisionCard } from './focal/DecisionCard';
-import { EpicHistoryView } from './EpicHistoryView';
 import { funnelCounts, excludeEpics, isStranded } from './funnel';
 import { selectOpenEscalations } from './escalationSelectors';
 import { useDeckStore } from '@/stores/deckStore';
 import { useWorkerFabricStore } from '@/stores/workerFabricStore';
 import { useTerminalStore } from '@/stores/terminalStore';
-import { TodoWorkerPanel } from './LaneCallout';
 import { ExecutorStatsPanel } from './ExecutorStatsPanel';
 import { DogfoodHealthPanel } from './DogfoodHealthPanel';
 import { useFeatureFlags } from '@/config/featureFlags';
 import { getWebSocketClient } from '@/lib/websocket';
 import { epicIdSet, isEpic } from '@/lib/todoKind';
+import { SignalsStrip } from './SignalsStrip';
+import { BridgeRail } from './rail/BridgeRail';
+import type { RailKey } from './rail/RailNav';
+import { MissionBlock } from './rail/MissionBlock';
+import { ProjectFooter } from './rail/ProjectFooter';
+import { WorkPanel } from './rail/panels/WorkPanel';
+import { BridgeStage } from './stage/BridgeStage';
+import { BridgeInspector } from './inspector/BridgeInspector';
 
 // Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
 // Escalations inbox and the worker roster refresh on the SAME clock — a
@@ -450,22 +448,15 @@ export const BridgeDashboard: React.FC = () => {
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  const [bridgeTab, setBridgeTab] = useState<'escalations' | 'land' | 'inflight' | 'ready' | 'stranded' | 'subscribers' | 'stream' | 'executor' | 'dogfood' | 'detail'>('escalations');
+  const [railPanel, setRailPanel] = useState<RailKey | null>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
     setSelectedEpic(null);
-    setBridgeTab('detail'); // surface the detail in the merged tab group
   };
   const handleSelectEpic = (epic: { id: string; label: string }) => {
     setSelectedEpic(epic);
-    setBridgeTab('detail');
-  };
-  /** Close the contextual detail tab: clear the selection and fall back to Ready. */
-  const closeDetail = () => {
     setSelectedTodoId(null);
-    setSelectedEpic(null);
-    setBridgeTab('ready');
   };
 
   // BR-4: focal DecisionCard overlay (behind a flag; inline inbox card untouched).
@@ -503,161 +494,66 @@ export const BridgeDashboard: React.FC = () => {
             inProgressCount={planStats.inProgress}
             blockedCount={planStats.blocked}
             parked={planStats.idleWithWork}
-            serverScope={serverScope}
             project={project}
             onRefresh={onManualRefresh}
           />
         }
-        left={
-          <>
-            {/* Progress funnel (Backlog▸Ready▸In-flight▸Blocked▸Done). The
-                coordinator on/off now lives in the CommandBar role-switch line
-                next to Steward/Supervisor, so this is standalone (no card). */}
-            <FleetVitals
-              todos={todos}
-              coverage={coverageByProject[project]}
-              unlandedEpics={unlandedEpicsByProject[project]}
-            />
-            {/* Self-deploy banner — self-hides unless the running sidecar is stale
-                against the repo (version drift OR a self-land post-dating the
-                build). The one place the human-gated Deploy lives. */}
-            <DeployBanner project={project} serverScope={serverScope} />
-            {/* The confirm-loop heartbeat — full width above the columns, self-hides
-                when there's no requirement to sign off. */}
-            <RequirementsInbox
-              requirements={requirementsByProject[project] ?? []}
-              project={project}
-              serverScope={serverScope}
-            />
-            {/* One merged tabbed instrument panel above the graph: Escalations · Todos
-                · Workers · Stream, plus a CONTEXTUAL Detail tab that appears when a todo
-                or epic is selected (in the graph or the Todos tab). */}
-            <div className="flex-1 min-h-0 flex flex-col">
-              <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col flex-1 min-h-[18rem] min-w-0">
-                <div className="shrink-0 flex items-stretch border-b border-gray-200 dark:border-gray-700 overflow-x-auto min-w-0">
-                  {([
-                    { key: 'escalations', label: 'Escalations', count: blockerEscalations.length, loud: true },
-                    { key: 'land', label: 'Land', count: landEscalations.length, info: true },
-                    { key: 'inflight', label: 'In-flight', count: daemonCounts.inflight ?? inflightCount, info: true },
-                    { key: 'ready', label: 'Ready', count: daemonCounts.claimable ?? readyCount, info: true },
-                    { key: 'stranded', label: 'Stranded', count: strandedCount, warn: true },
-                    { key: 'subscribers', label: 'Subscribers' },
-                    { key: 'stream', label: 'Stream' },
-                    { key: 'executor', label: 'Executor' },
-                    { key: 'dogfood', label: 'Dogfood' },
-                    ...((selectedTodoId || selectedEpic)
-                      ? [{ key: 'detail' as const, label: selectedEpic ? 'Epic' : 'Todo', closable: true }]
-                      : []),
-                  ] as Array<{ key: typeof bridgeTab; label: string; count?: number; loud?: boolean; warn?: boolean; info?: boolean; closable?: boolean }>).map((t) => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      data-testid={`bridge-tab-${t.key}`}
-                      data-active={bridgeTab === t.key}
-                      onClick={() => setBridgeTab(t.key)}
-                      className={`flex shrink-0 whitespace-nowrap items-center gap-1 px-3 py-2 text-2xs font-semibold uppercase tracking-wide border-b-2 -mb-px transition-colors ${
-                        bridgeTab === t.key
-                          ? 'border-accent-500 text-accent-700 dark:text-accent-300'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                      }`}
-                    >
-                      {t.label}
-                      {t.count != null && t.count > 0 && (
-                        <span className={t.loud ? 'text-danger-600 dark:text-danger-400 font-bold' : t.warn ? 'text-warning-600 dark:text-warning-400 font-semibold' : t.info ? 'text-info-700 dark:text-info-400 font-semibold' : 'text-gray-400 dark:text-gray-500'}>{t.count}</span>
-                      )}
-                      {t.closable && (
-                        <span
-                          role="button"
-                          aria-label="Close detail"
-                          onClick={(e) => { e.stopPropagation(); closeDetail(); }}
-                          className="ml-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 leading-none"
-                        >
-                          ✕
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex-1 min-h-0 overflow-y-auto">
-                  {bridgeTab === 'escalations' && (
-                    <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
-                  )}
-                  {bridgeTab === 'land' && (
-                    <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>
-                  )}
-                  {bridgeTab === 'inflight' && (
-                    <div className="p-2"><InflightPanel todos={todos} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>
-                  )}
-                  {bridgeTab === 'ready' && (
-                    <ReadyPanel todos={todos} claimableIds={daemonCounts.claimableIds} onSelectTodo={handleSelectTodo} />
-                  )}
-                  {bridgeTab === 'stranded' && (
-                    <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />
-                  )}
-                  {bridgeTab === 'subscribers' && (
-                    <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />
-                  )}
-                  {bridgeTab === 'stream' && (
-                    <div className="p-2">
-                      <StreamTicker
-                        embedded
-                        events={projectStreamEvents}
-                        titleByTodoId={titleByTodoId}
-                        onSelectEvent={(e) => {
-                          // Jump to the detail of what the event is about, when it carries a
-                          // todo target we can resolve in the current set. Targetless events no-op.
-                          const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined;
-                          if (t) handleSelectTodo(t);
-                        }}
-                      />
-                    </div>
-                  )}
-                  {bridgeTab === 'executor' && (
-                    <div className="p-2">
-                      <ExecutorStatsPanel project={project} serverScope={serverScope} />
-                    </div>
-                  )}
-                  {bridgeTab === 'dogfood' && (
-                    <div className="p-2">
-                      <DogfoodHealthPanel project={project} serverScope={serverScope} />
-                    </div>
-                  )}
-                  {bridgeTab === 'detail' && (
-                    selectedEpic ? (
-                      <EpicHistoryView
-                        epicId={selectedEpic.id}
-                        epicLabel={selectedEpic.label}
-                        serverScope={serverScope}
-                        project={project}
-                      />
-                    ) : selectedTodoId ? (
-                      <>
-                        <TodoWorkerPanel todoId={selectedTodoId} project={project} serverId={serverScope} />
-                        <div className="p-3">
-                          <TodoDetailView todoId={selectedTodoId} />
-                        </div>
-                      </>
-                    ) : (
-                      <p className="p-3 text-xs text-gray-400 dark:text-gray-500 italic">Nothing selected.</p>
-                    )
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
+        signals={
+          <SignalsStrip
+            requirements={requirementsByProject[project] ?? []}
+            project={project}
+            serverScope={serverScope}
+          />
         }
-        right={
-          <div className="flex flex-col h-full min-h-0">
-            <MissionsStrip serverId={serverScope} project={project} session={currentSession?.name} />
-            <div className="flex-1 min-h-0">
-              <PlanPanel
-                serverId={serverScope}
-                project={project}
-                onSelectTodo={handleSelectTodo}
-                onSelectEpic={handleSelectEpic}
+        rail={
+          <BridgeRail
+            selected={railPanel}
+            onSelect={setRailPanel}
+            counts={{
+              escalations: blockerEscalations.length,
+              land: landEscalations.length,
+              inflight: daemonCounts.inflight ?? inflightCount,
+              ready: daemonCounts.claimable ?? readyCount,
+              stranded: strandedCount,
+            }}
+            header={<MissionBlock serverId={serverScope} project={project} session={currentSession?.name} />}
+            footer={
+              <ProjectFooter
+                unlandedEpics={unlandedEpicsByProject[project]}
+                coverage={coverageByProject[project]}
+                onSelectPanel={setRailPanel}
               />
-            </div>
-          </div>
+            }
+            panels={{
+              escalations: <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
+              land: <div className="p-2"><NeedsYouZone embedded escalations={landEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} emptyLabel="No epics ready to land" variant="land" /></div>,
+              work: <WorkPanel todos={todos} project={project} serverScope={serverScope} claimableIds={daemonCounts.claimableIds} onJump={handleJump} onSelectTodo={handleSelectTodo} />,
+              stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
+              stream: <div className="p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
+              executor: <div className="p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
+              subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
+              dogfood: <div className="p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
+            }}
+          />
+        }
+        stage={
+          <BridgeStage
+            serverId={serverScope}
+            project={project}
+            events={projectStreamEvents}
+            titleByTodoId={titleByTodoId}
+            onSelectTodo={handleSelectTodo}
+            onSelectEpic={handleSelectEpic}
+            onSelectRailPanel={setRailPanel}
+          />
+        }
+        inspector={
+          <BridgeInspector
+            selectedEpic={selectedEpic}
+            selectedTodoId={selectedTodoId}
+            project={project}
+            serverScope={serverScope}
+          />
         }
       />
 
