@@ -1234,6 +1234,18 @@ export function resolveInheritedSlice(
   return { from, files, text: text as string };
 }
 
+/** Compose the terminal reason for a gate that could not run (mech.status==='error').
+ *  The misconfigured-declaration path (leaf-gate.gateResultForDeclaration) puts its whole
+ *  explanation in `reasons`, with NO `command` and an empty `output` — so formatting from
+ *  command+output alone produced the opaque `gate-could-not-run: gate — ` that stranded leaf
+ *  41718cf0 with nothing recorded. Include `reasons` when present; otherwise fall back to the
+ *  exact command+output shape (do not regress the legible messages). */
+export function formatGateErrorReason(mech: LeafGateResult): string {
+  const head = `gate-could-not-run: ${mech.command ?? 'gate'} — ${lastLines(mech.output, 5)}`;
+  const reasons = (mech.reasons ?? []).filter((r) => r && r.trim());
+  return reasons.length ? `${head} [${reasons.join('; ')}]` : head;
+}
+
 export async function runLeaf(
   project: string,
   leaf: Todo,
@@ -2209,7 +2221,7 @@ export async function runLeaf(
       // park blocked, escalate, spawn NO fix node (80bacbc4, one layer down).
       if (mech.status === 'error') {
         try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-        return parkBlocked(`gate-could-not-run: ${mech.command ?? 'gate'} — ${lastLines(mech.output, 5)}`);
+        return parkBlocked(formatGateErrorReason(mech));
       }
 
       // A mechanically-red tree NEVER spends a review node. The LLM's opinion on broken
