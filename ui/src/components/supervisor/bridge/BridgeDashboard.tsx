@@ -503,7 +503,6 @@ export const BridgeDashboard: React.FC = () => {
             inProgressCount={planStats.inProgress}
             blockedCount={planStats.blocked}
             parked={planStats.idleWithWork}
-            serverScope={serverScope}
             project={project}
             onRefresh={onManualRefresh}
           />

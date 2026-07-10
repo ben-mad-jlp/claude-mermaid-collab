@@ -25,8 +25,6 @@ export interface CommandBarProps {
   inProgressCount?: number;
   blockedCount?: number;
   parked?: boolean;
-  /** Routing scope (kept for API compatibility). */
-  serverScope: string;
   /** Active project. */
   project?: string;
   /** Re-fetch all Bridge data for the current scope. */
