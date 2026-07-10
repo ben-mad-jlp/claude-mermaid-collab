@@ -1684,7 +1684,15 @@ export async function landEpic(
       try { await setWatchState(targetProject, `watch:land-conflict:${epicId.slice(0, 8)}`, 'landed'); } catch { /* best-effort */ }
 
       let treeRestored = false;
-      if (dirty.length === 0 && land.masterSha) {
+      // Gate the post-land tree-integrity guard on TRACKED-dirty only. The old gate
+      // (`dirty.length === 0`) skipped the guard on EVERY allowDirty land — and every
+      // self-land is allowDirty because untracked docs/designs/ files exist — so the
+      // guard never ran and the 0949289b stale-checkout corruption went undetected
+      // (treeRestored:false while the tree was actually corrupt). Untracked files don't
+      // affect write-tree vs HEAD^{tree} and are preserved by `git reset --hard`, so they
+      // must not suppress the guard. restorePostLandTree snapshots before restoring.
+      const trackedDirty = await wm.trackedDirtyPaths().catch(() => dirty);
+      if (trackedDirty.length === 0 && land.masterSha) {
         const st = treeStatus(targetProject);
         if (st.resolved && !st.match) {
           const rep = restorePostLandTree(targetProject, land.masterSha);
