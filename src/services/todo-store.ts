@@ -384,6 +384,9 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'type', 'type TEXT');
   addColumnIfMissing(db, 'todos', 'targetProject', 'targetProject TEXT');
   addColumnIfMissing(db, 'todos', 'acceptanceStatus', 'acceptanceStatus TEXT');
+  // mission-requirements: the epic→criterion edge. A mission epic names which criterion
+  // it serves. Additive column only; A3 wires the writer + the approval-time enforcement.
+  addColumnIfMissing(db, 'todos', 'servesCriterionId', 'servesCriterionId TEXT');
   addColumnIfMissing(db, 'todos', 'claimedBy', 'claimedBy TEXT');
   addColumnIfMissing(db, 'todos', 'claimToken', 'claimToken TEXT');
   addColumnIfMissing(db, 'todos', 'claimedAt', 'claimedAt TEXT');

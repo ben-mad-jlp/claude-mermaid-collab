@@ -76,6 +76,12 @@ export interface MissionRow {
    *  mission at a time, so at most one mission per session is active; the mission-loop
    *  pass only drives active missions. Default true (a lone mission just works). */
   active: boolean;
+  /** Human-set abandonment stamp (ms epoch), or null = active. A mission-requirements
+   *  concept: an abandoned mission with unmet criteria is otherwise indistinguishable
+   *  from an in-progress one; this makes "done with it" explicit. (Additive; A2 reads it.) */
+  abandonedAt: number | null;
+  /** Per-mission USD budget ceiling, or null = project default. (Additive; A2 reads it.) */
+  budgetUsd: number | null;
 }
 
 export interface MissionCriterion {
@@ -90,6 +96,11 @@ export interface MissionCriterion {
   evidence: string | null;
   verifiedBy: string | null;
   verifiedAt: number | null;
+  /** The sha the verdict was checked against (staleness pin). Null until verified. */
+  verifiedAtSha: string | null;
+  /** File paths the verdict cited (JSON array). A later leaf's land-diff ∩ evidencePaths
+   *  re-opens this criterion when one of these files changes. Empty until verified. */
+  evidencePaths: string[];
 }
 
 /** Two convergence gauges: mechanical = this iteration's build progress; capability
@@ -120,7 +131,9 @@ CREATE TABLE IF NOT EXISTS mission (
   createdAt INTEGER NOT NULL,
   updatedAt INTEGER NOT NULL,
   lastDogfoodAt INTEGER,
-  lastAssessAt INTEGER
+  lastAssessAt INTEGER,
+  abandonedAt INTEGER,
+  budgetUsd REAL
 );
 CREATE TABLE IF NOT EXISTS mission_criterion (
   id TEXT PRIMARY KEY,
@@ -128,7 +141,9 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   text TEXT NOT NULL,
   met INTEGER NOT NULL DEFAULT 0,
   "order" INTEGER NOT NULL DEFAULT 0,
-  updatedAt INTEGER NOT NULL
+  updatedAt INTEGER NOT NULL,
+  verifiedAtSha TEXT,
+  evidencePaths TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
 `;
@@ -160,6 +175,12 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAt', 'verifiedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastNudgeAt', 'lastNudgeAt INTEGER');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
+  // v3 (mission-requirements) additive columns. Nothing behavioural reads these yet
+  // (A2/A3 do); this leaf only makes the shape available.
+  addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
+  addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'evidencePaths', 'evidencePaths TEXT');
   // v2 one-shot phase migration: remap the legacy 6-phase vocabulary onto the
   // canonical 5 (dogfood/find_gap→discover, steward/land→execute, assess→verify).
   db.exec(`UPDATE mission SET phase='discover' WHERE phase IN ('dogfood','find_gap')`);
@@ -197,6 +218,8 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     lastVerifyAt: (row.lastAssessAt as number | null) ?? null,
     lastNudgeAt: (row.lastNudgeAt as number | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
+    abandonedAt: (row.abandonedAt as number | null) ?? null,
+    budgetUsd: (row.budgetUsd as number | null) ?? null,
   };
 }
 
@@ -425,6 +448,8 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     evidence: (r.evidence as string | null) ?? null,
     verifiedBy: (r.verifiedBy as string | null) ?? null,
     verifiedAt: (r.verifiedAt as number | null) ?? null,
+    verifiedAtSha: (r.verifiedAtSha as string | null) ?? null,
+    evidencePaths: r.evidencePaths ? (JSON.parse(r.evidencePaths as string) as string[]) : [],
   }));
 }
 
@@ -439,7 +464,7 @@ export function addCriterion(project: string, todoId: string, text: string): Mis
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, 0, ?, ?)')
     .run(id, todoId, trimmed, order, ts);
-  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null };
+  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [] };
 }
 
 /** Mark a criterion met / unmet (bare — no verify provenance). Prefer
