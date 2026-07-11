@@ -1,0 +1,14 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[Embed src /api/...]
+    B2[Same-origin fetch hits active upstream]
+    B1 --> B2
+  end
+  subgraph after["After"]
+    A1[Embed src /api/...]
+    A2[Prefix /srv/serverId]
+    A3[Routes to correct upstream]
+    A1 --> A2 --> A3
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

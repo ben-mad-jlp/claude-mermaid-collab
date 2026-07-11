@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant App as bootstrap()
+    participant SS as ServerSupervisor
+    participant BP as createBrowserPane()
+    App->>SS: new ServerSupervisor({repoRoot, project, session, cdpPort})
+    App->>SS: supervisor.start()
+    SS-->>App: {port, attached}
+    App->>BP: createBrowserPane(mainWindow, {0,0,0,0})
+    BP-->>App: browserPane (BrowserPane)
+    Note over App: No control server<br/>No paneManager IPC<br/>No env injection for control URL/token

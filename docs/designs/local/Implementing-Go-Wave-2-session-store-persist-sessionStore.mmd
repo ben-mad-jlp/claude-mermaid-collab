@@ -1,0 +1,17 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[sessionStore: in-memory only]
+    B2[Reload to currentSession lost]
+  end
+  subgraph after["After"]
+    A1[sessionStore persisted]
+    A2[Restore on launch]
+    A3{server.serverId connected and online?}
+    A4[Keep currentSession]
+    A5[Clear; show picker]
+    A2 --> A3
+    A3 -->|yes| A4
+    A3 -->|no| A5
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

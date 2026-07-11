@@ -1,0 +1,21 @@
+flowchart LR
+  subgraph Before["Before (buggy)"]
+    A1[onInstanceUp fires] --> A2[openTunnel]
+    A2 --> A3["localPort = localAddress.port"]
+    A3 -.crash if string.-> A4[(crash)]
+    A1 -.repeat events.-> A2
+    A2 -.no dispose.-> A5[(tunnel leak)]
+  end
+  subgraph After["After (fixed)"]
+    B1[onInstanceUp fires] --> B2{existing tunnel?}
+    B2 -- yes --> B3[dispose + delete]
+    B2 -- no --> B4[openTunnel]
+    B3 --> B4
+    B4 --> B5{localAddress type}
+    B5 -- string --> B6["parse :PORT"]
+    B5 -- object --> B7[".port"]
+    B6 --> B8{valid port?}
+    B7 --> B8
+    B8 -- no --> B9[log + return]
+    B8 -- yes --> B10[update settings]
+  end

@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant App as bootstrap()
+    participant BPM as BrowserPaneManager
+    participant DC as DesktopControl
+    participant SS as ServerSupervisor
+    App->>BPM: new BrowserPaneManager(mainWindow, {0,0,0,0})
+    App->>BPM: ensureSessionTab(session)
+    App->>DC: new DesktopControl(paneManager)
+    App->>DC: control.start()
+    DC-->>App: {url, token}
+    App->>SS: new ServerSupervisor({..., controlUrl, controlToken})
+    App->>SS: supervisor.start()
+    SS-->>App: {port, attached}
+    Note over App: IPC: mc:browser:listTabs/openTab/closeTab/activateTab/navigate/setBounds<br/>IPC: mc:setZoomFactor

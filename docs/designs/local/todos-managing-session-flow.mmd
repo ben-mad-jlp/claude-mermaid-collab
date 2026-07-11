@@ -1,0 +1,27 @@
+flowchart TB
+  subgraph store["Per-project todo store (SQLite — source of truth, Phase 0)"]
+    db["todos: ownerSession, assigneeSession, status, ..."]
+  end
+
+  subgraph mgr["Manager session (any session)"]
+    mUI["UI: assign todo → assigneeSession = worker<br/>dashboard grouped by assignee/status"]
+  end
+  subgraph wkr["Worker session"]
+    wUI["UI: 'Assigned to me' + toast on new assignment<br/>updates status → broadcast back"]
+  end
+
+  mUI -- "PATCH assigneeSession" --> db
+  wUI -- "PATCH status" --> db
+
+  db -. "session_todos_updated (WS broadcast)" .-> mUI
+  db -. "session_todos_updated (WS broadcast)" .-> wUI
+
+  gap["THE GAP (fix in Phase 1): broadcast payload only carries owner `session`;<br/>App.tsx refetches only if session===currentSession → assignee's UI IGNORES it.<br/>FIX: add ownerSession+assigneeSession to payload; refetch when<br/>assigneeSession===currentSession too. Worker's Claude sees it on next list poll<br/>(no push-into-Claude primitive in v1)."]
+  db -.-> gap
+
+  note["No 'managing session' role flag — any session assigns to any sibling.<br/>ownerSession immutable (audit); assigneeSession mutable.<br/>Reuses Phase-0 store; Todo.link{blueprintId,taskId} stays the bridge to task-graph."]
+  store --- note
+
+  style store fill:#e8f0ff,stroke:#6688cc
+  style gap fill:#ffdddd,stroke:#ff6666
+  style note fill:#ddffdd,stroke:#66bb66

@@ -1,0 +1,36 @@
+flowchart TD
+  classDef proposed fill:#eee,stroke:#999,color:#333
+  classDef ready fill:#fff3cd,stroke:#d39e00,color:#333
+  classDef inprog fill:#cce5ff,stroke:#3399ff,color:#003366
+  classDef review fill:#e2d4f0,stroke:#8e44ad,color:#33134d
+  classDef released fill:#d4edda,stroke:#28a745,color:#155724
+
+  Robot["robot: ArmBot<br/>lifecycle: planned · rev A"]:::proposed
+
+  subgraph EpicAxis["epic: Bring-up Axis 1 (container)"]
+    direction TB
+    Axis["axis: J1<br/>in_progress · profile→cad · rev A"]:::inprog
+    Motor["motor: J1-Motor<br/>released · rev B<br/>artifacts: partspec"]:::released
+    Enc["encoder: J1-Enc<br/>in_review · electrical sch"]:::review
+    Drv["driver: J1-Drv<br/>ready · rev A"]:::ready
+  end
+
+  subgraph EpicFw["epic: Control Firmware (container)"]
+    direction TB
+    Lib["library: motion-ctl<br/>in_progress · profile→library<br/>targetProject=/repos/fw"]:::inprog
+    Req["requirement: R-12<br/>&quot;≤48V rail&quot; · released"]:::released
+  end
+
+  Robot --> EpicAxis
+  Robot --> EpicFw
+  Axis --> Motor
+  Axis --> Enc
+  Axis --> Drv
+  Lib --> Req
+
+  Motor -. "dependsOn (wave edge)" .-> Drv
+  Req == "allocates: ≤48V → J1 subtree" ==> Axis
+
+  classDef wfacet fill:#fff,stroke:#3399ff,stroke-dasharray:2 2,color:#003366
+  WF["WorkFacet (ephemeral)<br/>claimToken · lease · retryCount<br/>cleared on → released"]:::wfacet
+  Axis -. "has open" .-> WF

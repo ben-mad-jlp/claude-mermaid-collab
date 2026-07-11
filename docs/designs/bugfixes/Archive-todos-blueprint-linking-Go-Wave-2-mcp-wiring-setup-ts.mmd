@@ -1,0 +1,18 @@
+flowchart TD
+  subgraph before["BEFORE (setup.ts)"]
+    style before fill:#ffdddd,stroke:#ffaaaa
+    B1["import session-todos\n(no completeTodosForTask,\nno completeLinkedTodosSchema)"]
+    B2["add_session_todo handler\ndestructures {project,session,text}\ncalls addSessionTodo(project,session,text)"]
+    B3["update_session_todo handler\ndestructures {project,session,id,text,completed,order}\ncalls updateSessionTodo(...,{text,completed,order})"]
+    B4["tool declarations\nlist/add/update/toggle/remove/\nclear/reorder — no complete_linked_todos"]
+    B5["no complete_linked_todos handler"]
+  end
+
+  subgraph after["AFTER (setup.ts)"]
+    style after fill:#ddffdd,stroke:#aaffaa
+    A1["import session-todos\n+ completeTodosForTask\n+ completeLinkedTodosSchema"]
+    A2["add_session_todo handler\ndestructures {project,session,text,link}\ncalls addSessionTodo(project,session,text,link)"]
+    A3["update_session_todo handler\ndestructures {project,session,id,text,completed,order,link}\ncalls updateSessionTodo(...,{text,completed,order,link})"]
+    A4["tool declarations\n...reorder +\nnew complete_linked_todos\nusing completeLinkedTodosSchema"]
+    A5["complete_linked_todos handler\ndestructures {project,session,blueprintId,taskId}\nvalidates project/session/blueprintId\ncalls completeTodosForTask(...)\nbroadcasts session_todos_updated\nreturns JSON result"]
+  end

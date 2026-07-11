@@ -1,0 +1,16 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[mermaid-collab://...?project=X&session=Y]
+    B2[Parse project + session]
+    B3[Send to renderer]
+    B1 --> B2 --> B3
+  end
+  subgraph after["After"]
+    A1[mermaid-collab://...?srv=Z&project=X&session=Y]
+    A2[Parse srv + project + session]
+    A3[Fallback srv = local]
+    A4[Send to renderer including srv]
+    A1 --> A2 --> A3 --> A4
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

@@ -1,0 +1,40 @@
+graph TB
+    subgraph Backend["Backend (src/)"]
+        Types["src/types.ts\nDiagram/Document/Spreadsheet interfaces"]
+        DM["src/services/diagram-manager.ts"]
+        DocM["src/services/document-manager.ts"]
+        SM["src/services/spreadsheet-manager.ts"]
+        SR["src/services/session-registry.ts\nCreates artifact dirs"]
+        API["src/routes/api.ts\nCRUD endpoints per type"]
+        MCP["src/mcp/setup.ts\nMCP tool registration"]
+        WS["src/websocket/handler.ts\nBroadcast events per type"]
+        Archive["src/mcp/tools/collab-state.ts\nSession archive"]
+    end
+
+    subgraph Frontend["Frontend (ui/)"]
+        ItemType["ui/src/types/item.ts\ntype union: diagram|document|design|spreadsheet"]
+        Store["ui/src/stores/sessionStore.ts\nState per artifact type"]
+        APIClient["ui/src/lib/api.ts\nFetch methods per type"]
+        Loader["ui/src/hooks/useDataLoader.ts\nParallel fetch all types"]
+        Sidebar["ui/src/components/layout/Sidebar.tsx\nList + icons per type"]
+        Unified["UnifiedEditor.tsx\nRoutes to type-specific editor"]
+        DiagEd["DiagramEditor"]
+        DocEd["DocumentEditor"]
+        DesignEd["DesignEditor"]
+        SpreadEd["SpreadsheetEditor"]
+    end
+
+    MCP --> API
+    API --> DM & DocM & SM
+    API --> WS
+    SR --> DM & DocM & SM
+    Loader --> APIClient
+    APIClient --> API
+    Store --> Sidebar
+    Store --> Unified
+    Unified --> DiagEd & DocEd & DesignEd & SpreadEd
+
+    style Types fill:#ffeb3b,stroke:#f57f17
+    style ItemType fill:#ffeb3b,stroke:#f57f17
+    style SR fill:#ffeb3b,stroke:#f57f17
+    style Archive fill:#ffeb3b,stroke:#f57f17

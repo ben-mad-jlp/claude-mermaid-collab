@@ -1,0 +1,40 @@
+flowchart LR
+  subgraph OBJ["SYSTEM-OBJECT TREE — durable / revisioned · &quot;the thing&quot;"]
+    direction TB
+    R["Robot rev B<br/>type=robot · designStatus=in_design"]
+    A1["Axis J1 rev A<br/>type=axis · released"]
+    A2["Axis J2 rev A<br/>type=axis · in_review"]
+    M1["Motor<br/>type=part · partspec.pdf"]
+    E1["Encoder<br/>type=part · partspec.pdf"]
+    H1["Harness<br/>type=harness · electrical.mmd"]
+    REQ["Payload &lt;= 5kg<br/>type=requirement"]
+    R --> A1
+    R --> A2
+    R --> H1
+    A1 --> M1
+    A1 --> E1
+    REQ -. satisfies .-> A1
+  end
+
+  subgraph WG["WORK-GRAPH — ephemeral / leased · &quot;the doing&quot;"]
+    direction TB
+    EP["[EPIC] Bring up Axis J2<br/>targetSubtree = Axis J2"]
+    T1["todo: model J2 bracket (CAD)<br/>type=cad · done"]
+    T2["todo: wire J2 harness<br/>type=electrical · in_progress"]
+    T3["todo: review J2 release<br/>type=default · ready"]
+    EP --> T1
+    EP --> T2
+    EP --> T3
+    T2 -. dependsOn .-> T1
+    T3 -. dependsOn .-> T2
+  end
+
+  EP ==>|"epic.targetSystemObjectId"| A2
+  T1 ==>|"todo.systemObjectId"| A2
+  T2 ==>|"todo.systemObjectId"| H1
+  T3 ==>|"on complete &rarr; sets reviewState=approved, designStatus=released"| A2
+
+  classDef obj fill:#e8f0fe,stroke:#3367d6,color:#13294b;
+  classDef work fill:#fef7e0,stroke:#f9ab00,color:#3c2f00;
+  class R,A1,A2,M1,E1,H1,REQ obj;
+  class EP,T1,T2,T3 work;

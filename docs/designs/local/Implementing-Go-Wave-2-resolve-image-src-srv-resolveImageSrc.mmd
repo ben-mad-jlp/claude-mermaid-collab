@@ -1,0 +1,17 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[src starts with /api/]
+    B2[Return src unchanged]
+    B1 --> B2
+  end
+  subgraph after["After"]
+    A1[src starts with /api/]
+    A2{artifact.serverId set?}
+    A3[Return /srv/id + src]
+    A4[Return src unchanged]
+    A1 --> A2
+    A2 -->|yes| A3
+    A2 -->|no| A4
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

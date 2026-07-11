@@ -1,0 +1,34 @@
+flowchart TB
+  subgraph app["Electron app"]
+    subgraph rend["Renderer (collab UI)"]
+      ui["React UI<br/>relative URLs: fetch('/api/..'), WS '/ws'<br/>(24+ call sites UNCHANGED)"]
+      sctx["ServerContext (thin)<br/>active server id + switch()"]
+      ui --- sctx
+    end
+    subgraph main["Main process"]
+      proxy["Per-server local HTTP+WS proxy<br/>127.0.0.1:randomPort<br/>injects auth token, rewrites origin"]
+      store["Connection store<br/>{id,label,host,port,token,status}<br/>tokens in safeStorage"]
+      sup["ServerSupervisor (local only)"]
+      proxy --- store
+    end
+    rend -->|"relative reqs → proxy URL"| proxy
+    sctx -. "mc.switchServer() / listServers()" .-> store
+  end
+
+  subgraph local["This machine"]
+    srvL["Local sidecar<br/>127.0.0.1 (supervised)"]
+    sup --> srvL
+  end
+  subgraph remote["Remote machine (Claude hook/CLI started)"]
+    srvR["Server bound 0.0.0.0<br/>+ MERMAID_AUTH_TOKEN"]
+  end
+
+  proxy -->|"localhost, no token"| srvL
+  proxy -->|"host:port + Bearer token"| srvR
+
+  note["KEY: the proxy is the renderer's single origin →<br/>relative URLs keep working, NO 24-site rewrite.<br/>Switch = repoint proxy + reset WS singleton + remount.<br/>Browser (non-app) stays single-origin as today."]
+
+  style app fill:#e8f0ff,stroke:#6688cc
+  style main fill:#fff6dd,stroke:#ccaa44
+  style remote fill:#f0f0f0,stroke:#999
+  style note fill:#ddffdd,stroke:#66bb66

@@ -1,0 +1,23 @@
+flowchart TD
+  subgraph before["BEFORE"]
+    style before fill:#ffdddd,stroke:#ffaaaa
+    B1["SessionTodo\n{id, text, completed, order,\ncreatedAt, updatedAt}"]
+    B2["addSessionTodo(project, session, text)\n→ SessionTodo"]
+    B3["updateSessionTodo(project, session, id,\n{text?, completed?, order?})\n→ SessionTodo"]
+    B4["No link concept\nNo completeTodosForTask"]
+    B5["Schemas: add/update have no link field\nNo completeLinkedTodosSchema"]
+  end
+
+  subgraph after["AFTER"]
+    style after fill:#ddffdd,stroke:#aaffaa
+    A1["SessionTodoLink\n{blueprintId: string, taskId?: string}"]
+    A2["SessionTodo\n{...existing fields, link?: SessionTodoLink}"]
+    A3["addSessionTodo(project, session, text, link?)\n→ SessionTodo (link persisted if provided)"]
+    A4["updateSessionTodo(project, session, id,\n{text?, completed?, order?, link?: SessionTodoLink | null})\nundefined=leave, object=set, null=delete"]
+    A5["completeTodosForTask(project, session,\nblueprint, taskId?)\n→ SessionTodo[] (changed)"]
+    A6["Schemas: addSessionTodoSchema +link\nupdateSessionTodoSchema +link\ncompleteLinkedTodosSchema (new)"]
+    A1 --> A2
+    A2 --> A3
+    A2 --> A4
+    A2 --> A5
+  end

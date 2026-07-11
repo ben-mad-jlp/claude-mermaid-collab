@@ -1,0 +1,24 @@
+flowchart TB
+  subgraph Before["BEFORE: workspace-half.ts"]
+    B1[activateWorkspace] --> B2[mkdir INSTANCES_DIR]
+    B2 --> B3[initial scan -> announceUp]
+    B3 --> B4[FS watcher: onDidCreate/Change/Delete]
+    B4 --> B5[30s poll fallback]
+    B5 --> B6[no startServer command]
+  end
+
+  subgraph After["AFTER: workspace-half.ts"]
+    A1[activateWorkspace] --> A2[mkdir INSTANCES_DIR]
+    A2 --> A3[initial scan -> announceUp]
+    A3 --> A4[FS watcher: unchanged]
+    A4 --> A5[30s poll fallback: unchanged]
+    A5 --> A6[register mermaidCollab.workspace.startServer]
+    A6 --> A7["resolveServerSource()"]
+    A7 --> A8["spawnCollabServer({project,session,source,output})"]
+    A8 --> A9[getOrCreateOutput 'mermaid-collab Server &#40;remote&#41;']
+    A8 --> A10[return pid, sessionId, version]
+    A8 -. catch AlreadyRunning .-> A11[return err.pid, err.sessionId, source.version]
+    A6 --> A12[push registration to ctx.subscriptions]
+  end
+
+  Before --> After

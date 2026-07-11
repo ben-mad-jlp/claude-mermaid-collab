@@ -1,0 +1,18 @@
+flowchart TD
+    subgraph BEFORE["Before (no link chip)"]
+        B_CB["checkbox"] --> B_ID["#id span"]
+        B_ID --> B_TEXT["text span (clickable to edit)"]
+        B_TEXT --> B_DEL["delete button"]
+    end
+
+    subgraph AFTER["After (with link chip)"]
+        A_CB["checkbox"] --> A_ID["#id span"]
+        A_ID --> A_TEXT["text span (clickable to edit)"]
+        A_TEXT --> A_LINK{"todo.link?"}
+        A_LINK -- "yes" --> A_CHIP["muted chip: ↳ shortSlug · taskId\ntitle=full blueprintId\nonClick=selectDocument(blueprintId)"]
+        A_LINK -- "no" --> A_DEL2["delete button"]
+        A_CHIP --> A_DEL2
+    end
+
+    style BEFORE fill:#ffdddd,stroke:#ffaaaa
+    style AFTER fill:#ddffdd,stroke:#aaffaa

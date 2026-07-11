@@ -1,0 +1,15 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[proxy.setUpstream-upstream]
+    B2[Mutable active upstream]
+    B3[Renderer switcher repoints]
+    B1 --> B2 --> B3
+  end
+  subgraph after["After"]
+    A1[Proxy built with local sidecar at startup]
+    A2[Immutable; no switcher]
+    A3[Legacy /api/ to local; /srv/id/api/ to upstream id]
+    A1 --> A2 --> A3
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

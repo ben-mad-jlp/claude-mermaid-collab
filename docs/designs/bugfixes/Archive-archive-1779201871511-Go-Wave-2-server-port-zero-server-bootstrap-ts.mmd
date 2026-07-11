@@ -1,0 +1,25 @@
+flowchart TB
+  subgraph Before
+    B1[config.PORT validated 1-65535] --> B2["Bun.serve({ port: config.PORT })"]
+    B2 --> B3[console.log running on PORT]
+  end
+  subgraph After
+    A1[PORT_REQUEST: '0' allowed] --> A2["Bun.serve({ port: PORT_REQUEST })"]
+    A2 --> A3[actualPort = server.port]
+    A3 --> A4[deriveSessionId MERMAID_PROJECT, MERMAID_SESSION]
+    A4 --> A5[writeInstance discovery file]
+    A5 -->|ok| A6[installSignalHandlers sessionId]
+    A5 -->|throw| A7[log + process.exit 1]
+    A6 --> A8[console.log listening :actualPort as sessionId]
+  end
+  style B1 fill:#ffdddd,stroke:#ffaaaa
+  style B2 fill:#ffdddd,stroke:#ffaaaa
+  style B3 fill:#ffdddd,stroke:#ffaaaa
+  style A1 fill:#ddffdd,stroke:#aaffaa
+  style A2 fill:#ddffdd,stroke:#aaffaa
+  style A3 fill:#ddffdd,stroke:#aaffaa
+  style A4 fill:#ddffdd,stroke:#aaffaa
+  style A5 fill:#ddffdd,stroke:#aaffaa
+  style A6 fill:#ddffdd,stroke:#aaffaa
+  style A7 fill:#ddffdd,stroke:#aaffaa
+  style A8 fill:#ddffdd,stroke:#aaffaa

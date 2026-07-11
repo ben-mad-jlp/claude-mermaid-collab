@@ -1,0 +1,15 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[useServer returns activeId, setActive, servers]
+    B2[14+ readers of activeId]
+    B1 --> B2
+  end
+  subgraph after["After"]
+    A1[useServers returns servers, capabilities, refresh]
+    A2[No activeId concept]
+    A3[Readers use currentSession.serverId or pickers]
+    A1 --> A3
+    A2 -.removed.-> A3
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

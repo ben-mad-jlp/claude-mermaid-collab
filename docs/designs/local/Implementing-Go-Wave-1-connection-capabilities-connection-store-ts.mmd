@@ -1,0 +1,14 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[connection-store tracks id, url, online]
+    B2[create-terminal response success+tmux]
+    B3[response consumed but tmux flag dropped]
+  end
+  subgraph after["After"]
+    A1[connection-store tracks id, url, online, capabilities]
+    A2[create-terminal response success+tmux]
+    A3[response updates capabilities.tmux for serverId]
+    A4[getServerCapabilities id exposed via IPC]
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

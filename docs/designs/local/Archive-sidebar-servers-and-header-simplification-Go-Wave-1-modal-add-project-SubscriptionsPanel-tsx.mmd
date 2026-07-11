@@ -1,0 +1,23 @@
+flowchart TD
+  subgraph before["Before"]
+    m1[Modal opens]
+    g1[per-server group summary]
+    l1[existing sessions only]
+    m1 --> g1 --> l1
+  end
+  subgraph after["After"]
+    m2[Modal opens]
+    g2[per-server group summary]
+    ap["+ New project toggle + input"]
+    pp["pending projects header (new — empty)"]
+    l2[existing sessions]
+    m2 --> g2 --> ap
+    ap -->|submit absolute path| post["POST /api/projects via mc.invokeOnServer"]
+    post -->|ok| refresh[bump refreshTick → refetch sessions]
+    post -.->|fail/no bridge| pend["add to pendingProjects[serverId]"]
+    pend --> pp
+    g2 --> pp
+    g2 --> l2
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

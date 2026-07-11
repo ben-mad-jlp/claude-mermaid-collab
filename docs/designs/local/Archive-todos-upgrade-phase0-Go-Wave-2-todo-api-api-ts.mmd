@@ -1,0 +1,27 @@
+flowchart TD
+    subgraph BEFORE["BEFORE (session-todos.ts JSON store)"]
+        direction TB
+        B1["GET /api/session-todos\n?project&session&includeCompleted\n→ listSessionTodos(project, session, {includeCompleted})"]
+        B2["POST /api/session-todos\nbody: {project,session,text,link}\n→ addSessionTodo(project,session,text,link)"]
+        B3["POST /api/session-todos/clear-completed\nbody: {project,session}\n→ clearCompletedSessionTodos(project,session)"]
+        B4["POST /api/session-todos/reorder\nbody: {project,session,orderedIds:number[]}\n→ reorderSessionTodos(project,session,orderedIds)"]
+        B5["PATCH /api/session-todos/:id  (regex /\\d+/)\nbody: {project,session,text,completed,order,link}\nid = parseInt(match[1],10)\n→ updateSessionTodo(project,session,id,patch)"]
+        B6["DELETE /api/session-todos/:id  (regex /\\d+/)\n?project&session\nid = parseInt(match[1],10)\n→ removeSessionTodo(project,session,id)"]
+        B7[["broadcast session_todos_updated\n{type,project,session}"]]
+        B1 & B2 & B3 & B4 & B5 & B6 --> B7
+    end
+
+    subgraph AFTER["AFTER (todo-store.ts SQLite)"]
+        direction TB
+        A1["GET /api/session-todos\n?project&session&includeCompleted&assigneeSession&ownerSession&status\n→ listTodos(project, {session,ownerSession,assigneeSession,status,includeCompleted})"]
+        A2["POST /api/session-todos\nbody: {project,session,title|text,link,status,assigneeSession,priority,dueDate,description}\nownerSession = session\n→ createTodo(project, {ownerSession,title,link,...})"]
+        A3["POST /api/session-todos/clear-completed\nbody: {project,session}\n→ clearCompleted(project,session)  returns {removed}"]
+        A4["POST /api/session-todos/reorder\nbody: {project,session,orderedIds:string[]}\n→ reorder(project,orderedIds)"]
+        A5["PATCH /api/session-todos/:id  (regex /[^/]+/)\nbody: {project,session,title|text,completed,status,assigneeSession,priority,dueDate,description,link}\nid = match[1] (string)\n→ updateTodo(project,id,patch)"]
+        A6["DELETE /api/session-todos/:id  (regex /[^/]+/)\n?project&session\nid = match[1] (string)\n→ removeTodo(project,id)  (void)"]
+        A7[["broadcast session_todos_updated\n{type,project,session}\n(single broadcast covers owner+assignee — clients re-fetch)"]]
+        A1 & A2 & A3 & A4 & A5 & A6 --> A7
+    end
+
+    style BEFORE fill:#ffdddd,stroke:#ffaaaa
+    style AFTER fill:#ddffdd,stroke:#aaffaa

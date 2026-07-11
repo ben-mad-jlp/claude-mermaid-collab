@@ -1,0 +1,26 @@
+flowchart TB
+  subgraph machine["One machine (one project+session)"]
+    code["Project code + .collab/"]
+    server["Collab server<br/>WebSocketHandler: Set&lt;socket&gt;<br/>broadcast() → all connected"]
+    code --- server
+  end
+
+  ui1["UI client 1<br/>(browser tab)"]
+  ui2["UI client 2<br/>(native app window)"]
+  ui3["UI client 3<br/>(phone / other device)"]
+  claude["Claude Code<br/>(MCP / HTTP)"]
+  ide["IDE channel<br/>(VSCodium ext)"]
+
+  server <-- "WS (live updates)" --> ui1
+  server <-- "WS" --> ui2
+  server <-- "WS" --> ui3
+  server <-- "MCP" --> claude
+  server <-- "channel" --> ide
+
+  note["One server fans out to MANY clients at once.\nUIs are just one client type alongside\nClaude + IDE. (Shallow collab today:\nlast-write-wins, no presence/cursors.)\n\nEach UI still views ONE server at a time\n(single origin); the switcher changes WHICH."]
+  server -.-> note
+
+  style machine fill:#e8f0ff,stroke:#6688cc
+  style note fill:#fff6dd,stroke:#ccaa44
+  style claude fill:#ddffdd,stroke:#66bb66
+  style ide fill:#ddffdd,stroke:#66bb66

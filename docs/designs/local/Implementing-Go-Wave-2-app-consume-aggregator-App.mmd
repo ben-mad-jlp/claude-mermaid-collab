@@ -1,0 +1,16 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[Proxy WS to App.tsx onMessage]
+    B2[claude_session_* / context_update]
+    B3[Tag with activeServerId]
+    B4[updateStatus/updateContextPercent]
+    B1 --> B2 --> B3 --> B4
+  end
+  subgraph after["After"]
+    A1[Per-server aggregator to useWatchEvents]
+    A2[Already-tagged events with serverId]
+    A3[updateStatus/updateContextPercent with msg.serverId]
+    A1 --> A2 --> A3
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

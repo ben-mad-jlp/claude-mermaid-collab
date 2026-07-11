@@ -1,0 +1,43 @@
+flowchart LR
+    AS[("activeServerId<br/>ServerContext")]
+
+    subgraph A["(a) Genuinely needs a default — 2 sites"]
+        A1["App.tsx:297<br/>legacy-entry migration<br/>one-shot on first load"]
+        A2["TerminalDrawer '+' button<br/>where to spawn a new terminal<br/>when no server picked"]
+        A3["Server switcher UI itself<br/>self-referential"]
+    end
+
+    subgraph B["(b) Legacy hacks — 7-9 sites"]
+        B1["App.tsx:962-992<br/>tags claude_session_* WS<br/>msgs with activeId because<br/>proxy WS lacks serverId"]
+        B2["SidebarView.tsx:25-33<br/>tags claude_context_update<br/>same reason"]
+        B3["→ fix: route through<br/>WatchAggregator's<br/>already-tagged stream"]
+    end
+
+    subgraph C["(c) Should be per-action — 2 sites"]
+        C1["SubscriptionsPanel:208<br/>row click → IDE terminal"]
+        C2["SubscriptionsPanel:310<br/>tmux button"]
+        C3["→ regression: blocks<br/>IDE action on non-active<br/>server even if it works"]
+    end
+
+    subgraph U["Upstream proxy (the real reason)"]
+        U1["Electron ServerProxy<br/>points at ONE upstream"]
+        U2["Artifact tree<br/>fetches /api/diagrams etc<br/>from proxied upstream"]
+        U3["Current-session view<br/>single-server query"]
+        U4["Proxy WS<br/>one connection,<br/>no serverId field"]
+    end
+
+    AS --> A1 & A2 & A3
+    AS --> B1 & B2
+    AS --> C1 & C2
+    AS -. "repoints" .-> U1
+    U1 --> U2 & U3 & U4
+
+    classDef need fill:#1e3a2e,stroke:#10b981,color:#d1fae5
+    classDef legacy fill:#3a1e1e,stroke:#ef4444,color:#fee2e2
+    classDef peraction fill:#3a2e1e,stroke:#f59e0b,color:#fef3c7
+    classDef upstream fill:#1e2a3a,stroke:#60a5fa,color:#dbeafe
+
+    class A1,A2,A3 need
+    class B1,B2,B3 legacy
+    class C1,C2,C3 peraction
+    class U1,U2,U3,U4 upstream
