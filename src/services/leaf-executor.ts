@@ -1221,8 +1221,15 @@ export function isNodeStartFailure(res: NodeResult): boolean {
   if (res.rateLimited || res.ok) return false;
   const u = res.usage;
   const zeroTokens = ((u?.inputTokens ?? 0) + (u?.outputTokens ?? 0) + (u?.cacheReadTokens ?? 0)) === 0;
+  if (!zeroTokens) return false;
+  // A node killed at its wall-clock timeout having burned ZERO tokens never ran — a
+  // provider/model/config startup fault (e.g. hung at SessionStart). Classify as a
+  // node-START failure regardless of duration; the discriminator is tokens==0, NOT dur.
+  if (res.timedOut) return true;
+  // Otherwise: only a FAST zero-token death (real CLI fork+exit fault); the [100,5000)
+  // floor avoids matching sub-100ms test mocks.
   const dur = res.durationMs ?? 0;
-  return zeroTokens && dur >= 100 && dur < 5_000;
+  return dur >= 100 && dur < 5_000;
 }
 
 /** SR-7: inheritance from a parent's durable blueprint plan, scoped to a child's file slice.
