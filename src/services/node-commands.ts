@@ -203,8 +203,22 @@ function claimMatches(claim: string, recorded: RecordedCommand): boolean {
 }
 
 /**
+ * A cwd-escape only FAKES EVIDENCE when the escaped command is a build/test/verification run —
+ * it could report a green from the MAIN checkout instead of the worktree (the exact false-green
+ * this gate exists to stop). A read-only diagnostic that escaped (grep/find/ls/cat/sed -n while a
+ * node explores the wider repo) backs no criterion and is harmless; rejecting the whole leaf over
+ * it discards CORRECT code. So an escape is fatal ONLY for a verification invocation.
+ */
+const VERIFICATION_INVOCATION =
+  /(?:^|[\s;&|`(])(?:tsc|vitest|jest|mocha|eslint|playwright|cypress)\b|(?:^|[\s;&|`(])(?:npm|npx|bun|pnpm|yarn|make|cargo|go)\s+(?:run|test|build|ci|install|exec)\b/i;
+export function escapeIsFatal(cmd: string): boolean {
+  return VERIFICATION_INVOCATION.test(cmd);
+}
+
+/**
  * Evaluate command evidence against recorded commands and reviewer claims.
- * Returns escapes and unbacked claims; reject iff escapes exist OR policy is 'reject' and claims are unbacked.
+ * Returns escapes and unbacked claims; reject iff a VERIFICATION-command escape exists OR policy
+ * is 'reject' and claims are unbacked. A read-only diagnostic escape is recorded but non-fatal.
  */
 export function evaluateCommandEvidence(opts: {
   commands: RecordedCommand[];
@@ -215,11 +229,15 @@ export function evaluateCommandEvidence(opts: {
   const escapes: RecordedCommand[] = [];
   const reasons: string[] = [];
 
-  // Check for cwd escapes
+  // Check for cwd escapes — only a verification-command escape can fake evidence and is fatal.
   for (const cmd of commands) {
     if (isCwdEscape(cmd.cwd, worktreeRoot)) {
-      escapes.push(cmd);
-      reasons.push(`command "${cmd.cmd}" ran outside worktree: ${cmd.cwd}`);
+      if (escapeIsFatal(cmd.cmd)) {
+        escapes.push(cmd);
+        reasons.push(`verification command "${cmd.cmd}" ran outside worktree: ${cmd.cwd}`);
+      } else {
+        reasons.push(`note: read-only command ran outside worktree (non-fatal): ${cmd.cwd}`);
+      }
     }
   }
 
