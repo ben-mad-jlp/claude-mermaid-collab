@@ -19,7 +19,7 @@ import { isEpicTodo, isLandTodo } from './invariant-check';
 import { epicBranchName } from './epic-branch-status';
 import { INBOX_EPIC_TITLE } from './claimability';
 import { isMission, stripLabel } from './todo-kind.ts';
-import { getMission, isTerminalPhase } from './mission-store';
+import { getMission, isMissionTerminal } from './mission-store';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
@@ -211,14 +211,14 @@ export function checkOwnership(
 
   // Rule 4: Mission must be active and not terminal
   const missionRow = getMission(project, mission.id);
-  if (!missionRow?.active || isTerminalPhase(missionRow.phase)) {
-    const phase = missionRow?.phase ?? 'unknown';
+  if (!missionRow?.active || isMissionTerminal(missionRow)) {
+    const status = missionRow?.status ?? 'unknown';
     return {
       ok: false,
       ownership: 'unowned',
       blocker: {
         code: 'no-active-mission',
-        message: `Mission ${mission.title} is not active (phase: ${phase})`,
+        message: `Mission ${mission.title} is not active (status: ${status})`,
       },
     };
   }

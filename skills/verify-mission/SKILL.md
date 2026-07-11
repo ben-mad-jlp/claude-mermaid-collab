@@ -13,11 +13,11 @@ allowed-tools:
   - mcp__plugin_mermaid-collab_mermaid__advance_mission
 ---
 
-# verify-mission — the independent VERIFY gate
+# verify-mission — the independent gate
 
-This is the **heart of the convergence loop**. Per the loops principle: *the model that did the work is far too generous a grader.* VERIFY must be an **independent check** — a fresh reviewer, separate from whoever did EXECUTE — that can actually FAIL the work. Without it you have "the agent agreeing with itself on repeat" (the Ralph-Wiggum loop).
+This is the **heart of the convergence loop**. Per the loops principle: *the model that did the work is far too generous a grader.* The verify gate must be an **independent check** — a fresh reviewer, separate from whoever did the work — that can actually FAIL the work. Without it you have "the agent agreeing with itself on repeat" (the Ralph-Wiggum loop).
 
-Invoke this at a mission's **VERIFY** phase instead of hand-marking criteria met.
+Invoke this **when the mission's derived `status` is `needs-verify`** (a serving epic has landed but a criterion is still unverified, `verifiedAt == null`), or any time a criterion needs re-checking. This is not a phase the loop steps into; it is a gate that fires when a criterion goes unverified.
 
 ## Inputs
 - `project` — the mission's tracking project (abs path).
@@ -56,16 +56,24 @@ observed — a test that passed, a file/symbol present, a UI behavior seen — o
 concrete gap that makes it NOT met>"}
 ```
 
-### 3. Record each verdict (with evidence)
+### 3. Record each verdict (with evidence, sha, and paths)
 For each returned verdict, call:
-`set_mission_criterion { project, criterionId, met, evidence, verifiedBy: "<reviewer agent label>" }`.
-The `evidence` + `verifiedBy` are the durable audit trail of WHY the gate passed/failed. **Fail closed**: if an agent couldn't confirm a criterion, record `met: false`.
+`set_mission_criterion { project, criterionId, met, evidence, verifiedBy: "<reviewer agent label>", verifiedAtSha: "<git sha>", evidencePaths: ["file/path1", "file/path2", ...] }`.
+
+The `evidence` + `verifiedBy` are the durable audit trail of WHY the gate passed/failed. **`verifiedAtSha`** is the git commit hash the verdict was checked against — it is the staleness pin. If a later `land_epic` touches a file in **`evidencePaths`**, the mission system automatically re-opens the criterion (it is no longer staleness-pinned). This ensures criteria stay fresh as the codebase evolves.
+
+How to supply these fields:
+- **`verifiedAtSha`**: the git commit hash at the time the verdict was checked. Either have each per-criterion agent return it, or capture the current sha via `git rev-parse HEAD` (Bash) at the start of step 2 and use it for all verdicts in this gate run.
+- **`evidencePaths`**: the file paths the verdict cited as evidence. Have each agent return them (e.g., "the test file `tests/auth.test.ts` passed," or "the UI component `src/components/Login.tsx` renders correctly"). Include only files that directly support the verdict — if the criterion is broad, list the key files checked.
+
+**Fail closed**: if an agent couldn't confirm a criterion, record `met: false`.
 
 ### 4. Let the mission decide
-After all verdicts are recorded, the gate has run. Call `advance_mission { project, todoId }` from the VERIFY phase — the mission itself makes the ITERATE decision off the independently-checked criteria:
-- all criteria met → **converged** (goal genuinely achieved).
-- else `maxIterations` reached → **stopped**.
-- else → back to **discover**, iteration++ (the loop continues on the gaps the gate exposed).
+After all verdicts are recorded, the gate has run. The mission's **derived `status` recomputes on the next `get_mission` call** (via `deriveMissionStatus`, see `mission-store.ts:564-573`):
+- **All criteria met** → `status = converged` (goal genuinely achieved).
+- **Unmet criteria remain** → conductor re-enters `needs-discovery` (iteration++); the unmet criteria and their evidence ARE the next iteration's input. If the mission's budget is exhausted, `status = over-budget` or `abandoned` instead (terminal states).
+
+The gate does **not** call `advance_mission` or step a phase counter. Convergence is a property of the criteria themselves, read back via the derived `status` on the next conductor nudge. Record verdicts, and the loop's next step emerges from the data.
 
 ### 5. Report
 Summarize: N/total criteria met, which failed + the evidence, and the resulting phase (converged / stopped / looped to discover). If it looped, the un-met criteria + their evidence ARE the next iteration's DISCOVER input.

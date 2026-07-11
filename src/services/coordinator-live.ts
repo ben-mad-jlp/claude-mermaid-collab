@@ -28,7 +28,8 @@ import { loadProjectManifest, type ProjectManifest } from '../config/project-man
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { runEpicLandGate, landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, type LandReadinessVerdict, type LandBlocker } from './land-authority';
+import { landReadiness, findOwningMission, type LandReadinessVerdict, type LandBlocker } from './land-authority';
+import { getMission, isMissionTerminal } from './mission-store';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
@@ -1323,6 +1324,25 @@ export async function autoLandReadiness(
 }
 
 /**
+ * Arming gate for the intrinsic mission-membership auto-land authority (C1). The authority is
+ * DERIVED (isMissionEpic && green proof) and audited every tick, but stays DISARMED until P0
+ * 0949289b Part 2 (post-land stale-checkout tree corruption) is fully fixed — CONSTRAINT
+ * 020b7ab1: build the new autonomy path, do not enable it unattended while that P0 is open.
+ * Flip to true (with the P0 closed) to arm; no other change required.
+ */
+const MISSION_AUTOLAND_ARMED = false;
+
+/** An epic is a "mission epic" when it has an owning mission that is active and non-terminal.
+ *  Mirrors land-authority Rules 3-4 (findOwningMission + active/non-terminal), minus the
+ *  conductor-session ownership check — the daemon is the actor here, not a conductor. */
+function isMissionEpic(project: string, epicId: string, todos: Todo[]): boolean {
+  const { mission } = findOwningMission(todos, epicId);
+  if (!mission) return false;
+  const row = getMission(project, mission.id);
+  return !!row?.active && !isMissionTerminal(row);
+}
+
+/**
  * Surface (and, at level>=drive, AUTO-LAND) the epic-ready-to-land card(s) for a
  * rolled-up epic. Extracted from completeTodo so the reconcile-pass sweep can call
  * the IDENTICAL logic every tick — making the land surface SELF-HEALING (it catches
@@ -1346,6 +1366,7 @@ export async function surfaceEpicLand(
   const autoLand = getOrchestratorLevel(project) === 'auto';
   try {
     const allTodos = listTodos(project, { includeCompleted: true });
+    const missionEpic = isMissionEpic(project, epicId, allTodos);
     const children = allTodos
       .filter((t) => t.parentId === epicId && t.status !== 'dropped');
     const { byRepo, ambiguous } = partitionEpicChildrenByRepo(children, project);
@@ -1383,6 +1404,9 @@ export async function surfaceEpicLand(
         epicChildIds: repoChildIds,
         epicWorktreeCwd: epic?.path ?? repo,
       });
+      const proofGreen = proof.ok && proof.gate.status === 'pass';
+      const missionLandAuthority = missionEpic && proofGreen && MISSION_AUTOLAND_ARMED;
+      const landAuthorized = autoLand || missionLandAuthority;
       // Staleness FLAG (never auto-rebase): how far behind master the epic base drifted.
       const behind = await wm.epicBehindBase(epicId).catch(() => 0);
       const staleFlag = behind > 0 ? ` ⚠️ ${behind} commit(s) behind master (flag only — no auto-rebase)` : '';
@@ -1400,12 +1424,12 @@ export async function surfaceEpicLand(
         kind: 'epic-ready-to-land',
         questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
       });
-      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proof.ok, reason: proof.reason, landGate: proof.gate.status, children: repoChildIds.length, behindMaster: behind, multiRepo, autoLand }) });
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proof.ok, reason: proof.reason, landGate: proof.gate.status, children: repoChildIds.length, behindMaster: behind, multiRepo, autoLand, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
 
       // AUTO-LAND at level>=drive on a green proof — reuse the safe landEpic path
       // (re-derives the proof, lands behind the mutex, conflict→rebase card). The
       // dedup above ensures we don't re-fire on an already-open card.
-      if (proof.ok && proof.gate.status === 'pass' && autoLand && escalation?.id) {
+      if (proofGreen && landAuthorized && escalation?.id) {
         // ONE PROOF: the daemon lands only through the same landReadiness() the human and
         // conductor paths use. deriveEpicLandProof (above) is necessary but NOT sufficient:
         // it omits the [LAND]-leaf dep check (a383bc2c) and the G9 presence check.
@@ -1700,6 +1724,7 @@ export async function landEpic(
           createEscalation({
             project, session: esc.session, todoId,
             kind: 'assumption-invalidated',
+            operatorGated: true,
             questionText:
               `Post-land tree corruption on ${targetProject}: after landing ${epicBranch} at ` +
               `${land.masterSha}, the checkout's index tree (${rep.before.workTree}) did not match ` +
@@ -1719,6 +1744,13 @@ export async function landEpic(
       }
 
       resolveEscalation(escalationId, 'resolved', 'ai');
+      try {
+        const { unverifyCriteriaForLandedPaths } = await import('./mission-store.ts');
+        const affected = unverifyCriteriaForLandedPaths(project, land.landedPaths ?? [], { landedSha: land.masterSha });
+        if (affected.length > 0) {
+          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, unverified: affected.length, criteria: affected.map((a) => a.criterionId) }) });
+        }
+      } catch { /* best-effort — never fail a completed land on the un-verify */ }
       const selfLand = isSelfProject(targetProject);
       // Stamp the self-land so the deploy-status surface can flag the running
       // binary as stale even when the version string didn't change.

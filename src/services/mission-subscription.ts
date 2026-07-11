@@ -7,7 +7,7 @@
  */
 
 import { getTodo } from './todo-store.js';
-import { getMission, isTerminalPhase } from './mission-store.js';
+import { getMission, isMissionTerminal } from './mission-store.js';
 import { addSubscription, removeSubscription } from './session-subscriptions.js';
 
 /** Sync mission ownership to subscription state: subscribe owner when active+non-terminal,
@@ -19,7 +19,7 @@ export function syncMissionSubscription(project: string, todoId: string): 'subsc
 
   if (!ownerSession) return 'noop';
 
-  if (m && m.active && !isTerminalPhase(m.phase)) {
+  if (m && m.active && !isMissionTerminal(m)) {
     addSubscription(project, ownerSession, 'mission', todoId);
     return 'subscribed';
   } else {

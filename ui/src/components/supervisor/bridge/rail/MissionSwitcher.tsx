@@ -3,9 +3,7 @@ import { stripKindPrefix } from '@/lib/todoKind';
 import { useSupervisorStore, type MissionSummary } from '@/stores/supervisorStore';
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog';
 import {
-  PHASE_STYLE,
-  PHASE_LABEL,
-  phaseTooltip,
+  StatusPill,
   isTerminalPhase,
   MissionEditDialog,
   MissionCreateDialog,
@@ -157,7 +155,7 @@ export const MissionSwitcher: React.FC<MissionSwitcherProps> = ({ serverId, proj
                     : 'border-dashed opacity-60'
                 }`}
               >
-                {/* Title + phase pill */}
+                {/* Title + status pill */}
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-3xs font-semibold text-gray-800 dark:text-gray-100 line-clamp-2">
                     {!active && (
@@ -167,12 +165,7 @@ export const MissionSwitcher: React.FC<MissionSwitcherProps> = ({ serverId, proj
                     )}
                     {stripKindPrefix(m.node?.title ?? 'Mission')}
                   </span>
-                  <span
-                    className={`shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${PHASE_STYLE[view.phase]}`}
-                    title={phaseTooltip(view.phase)}
-                  >
-                    {PHASE_LABEL[view.phase]}
-                  </span>
+                  <StatusPill status={view.status} />
                 </div>
 
                 {/* Iteration */}

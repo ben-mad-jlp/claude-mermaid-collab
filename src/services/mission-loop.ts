@@ -1,28 +1,23 @@
 /**
- * mission-loop.ts — Phase 2b, slice 2: the ASSIST-mode mission driver.
+ * mission-loop.ts — the mission driver nudges the steward for convergence.
  *
- * A per-watched-project orchestrator pass (mirrors runContextRecyclePass) that
- * advances convergence missions through the canonical loop
- * DISCOVER → PLAN → EXECUTE → VERIFY → (ITERATE) WITHOUT the steward hand-calling
- * advance_mission every time. It rides the same hybrid the article prescribes:
+ * A per-watched-project orchestrator pass that nudges the steward to drive their
+ * active mission. Mission status is derived (never stored); the pass reads it and
+ * decides whether to nudge:
  *
- *   - EXECUTE is MECHANICAL → the daemon's Build pass already builds the mission's
- *     epic leaves; this pass just auto-advances EXECUTE→VERIFY once they're all done.
- *   - DISCOVER / PLAN / VERIFY are JUDGMENT → the pass NUDGES the steward session
- *     with a phase-specific instruction (VERIFY = run the independent /verify-mission
- *     gate). It does NOT auto-act on judgment phases in `assist` mode — the steward
- *     stays in the loop. (`auto` mode, slice 3, would auto-drive those too.)
+ *   - needs-discovery / needs-verify: nudge the steward (with status-specific instruction)
+ *   - blocked: nudge ONCE, then silence (lastNudgeAt prevents spam)
+ *   - building / over-budget / terminal (converged/abandoned): no nudge
  *
- * The STOP-WHEN guard (maxIterations) already lives in advanceMission, so the loop
- * can't run forever. Nudges are idle-gated (never disturb a busy session) and
- * debounced (lastNudgeAt cooldown) so the pass can't spam.
+ * Nudges are idle-gated (never disturb a busy session) and debounced (lastNudgeAt
+ * cooldown) so the pass can't spam.
  *
  * `planMissionLoopStep` is PURE (no I/O) → fully unit-tested; the runner is a thin
  * apply-the-action shell over injectable deps.
  */
 
-import type { MissionPhase, MissionSummary } from './mission-store.ts';
-import { listMissions, advanceMission, stampMissionNudge, isTerminalPhase } from './mission-store.ts';
+import type { MissionStatus, MissionSummary } from './mission-store.ts';
+import { listMissions, stampMissionNudge, isMissionTerminal } from './mission-store.ts';
 import { getStatus } from './session-status-store.ts';
 import { nudgeSession } from './claude-launch.ts';
 
@@ -30,12 +25,11 @@ export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudge
 
 export type MissionLoopAction =
   | { kind: 'none'; reason: string }
-  | { kind: 'advance'; reason: string }
   | { kind: 'nudge'; session: string; message: string; reason: string };
 
 export interface MissionLoopStepInput {
-  mission: { todoId: string; phase: MissionPhase; iteration: number; lastNudgeAt: number | null; procedure: string | null; title: string; active: boolean };
-  rollup: { converged: boolean; mechanical: { done: number; total: number }; capability: { met: number; total: number } };
+  mission: { todoId: string; status: MissionStatus; lastNudgeAt: number | null; title: string; active: boolean };
+  rollup: { capability: { met: number; total: number } };
   ownerSession: string | null;
   /** Is the steward session idle (safe to nudge without interrupting active work)? */
   idle: boolean;
@@ -69,68 +63,74 @@ const CONDUCTOR_PREAMBLE =
   'Decompose the gap into an [EPIC] + leaves and approve them (make ready) so the daemon builds them; ' +
   'do not hand-edit source yourself. (Load /conductor if you have not.)';
 
-function nudgeMessage(phase: MissionPhase, m: MissionLoopStepInput['mission'], rollup: MissionLoopStepInput['rollup'], now: number): string {
+function nudgeMessage(status: MissionStatus, m: MissionLoopStepInput['mission'], rollup: MissionLoopStepInput['rollup'], now: number): string {
   const goal = goalOf(m.title);
-  const proc = m.procedure ? `\nProcedure: ${m.procedure}` : '';
   const stamp = fireStamp(now);
   const head = `${stamp} 🎯 Mission «${goal}»`;
-  switch (phase) {
-    case 'discover':
-      return `${head} is in DISCOVER (iteration ${m.iteration}). ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact gap, and file it as an [EPIC] child of this mission. Then run advance_mission.${proc}`;
-    case 'plan':
-      return `${head} is in PLAN (iteration ${m.iteration}). ${CONDUCTOR_PREAMBLE}\nTurn the gap into an [EPIC] + leaves under the mission and approve it (make it ready). Then advance_mission.`;
-    case 'execute':
-      return `${head} is in EXECUTE but has no epics to build (${rollup.mechanical.done}/${rollup.mechanical.total}). ${CONDUCTOR_PREAMBLE}\nAdd an [EPIC] child to build, or advance_mission past execute.`;
-    case 'verify':
-      return `${head} is in VERIFY (iteration ${m.iteration}). Run /verify-mission for this mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met) and then advances (converge / stop / loop).`;
+  switch (status) {
+    case 'needs-discovery':
+      return `${head} needs DISCOVERY. ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact gap, and file it as an [EPIC] + leaves under this mission and approve it (make it ready).`;
+    case 'needs-verify':
+      return `${head} needs VERIFY. Run /verify-mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met).`;
+    case 'blocked':
+      return `${head} is BLOCKED — a mission leaf is parked/rejected/escalated or an unapproved split. ${CONDUCTOR_PREAMBLE}\nResolve the blocker (review the rejected leaf, approve the split, or handle the escalation).`;
     default:
-      return `${head} needs attention (phase ${phase}).`;
+      return `${head} needs attention (status: ${status}).`;
   }
 }
 
 /**
  * Decide the single action for one mission this tick. PURE.
- *  - inactive / terminal → none.
- *  - EXECUTE with all epics done → advance (mechanical EXECUTE→VERIFY).
- *  - EXECUTE still building → none (wait for the daemon).
- *  - judgment phase (discover/plan/verify, or execute-with-no-epics): nudge the
- *    steward — but only if idle + past the debounce cooldown + we have a session.
+ *  - inactive → none.
+ *  - terminal (converged or abandoned) → none.
+ *  - building / over-budget → none (wait or address the budget).
+ *  - blocked: nudge ONCE (blocked-silenced if already nudged).
+ *  - needs-discovery / needs-verify: nudge (debounced).
  *
  * Driving is gated by the mission's `active` flag (one active mission per session) —
- * NOT a per-project mode. The orchestrator only calls the pass for WATCHED projects,
- * which is the real safety boundary; this stays attended (nudge steward for judgment).
+ * NOT a per-project mode. The orchestrator only calls the pass for WATCHED projects.
  */
 export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAction {
   const { mission, rollup, ownerSession, idle, now, cooldownMs } = input;
-  if (!mission.active) return { kind: 'none', reason: 'inactive' }; // a session drives ONE mission
-  if (isTerminalPhase(mission.phase)) return { kind: 'none', reason: `terminal:${mission.phase}` };
+  if (!mission.active) return { kind: 'none', reason: 'inactive' };
+  if (mission.status === 'converged') return { kind: 'none', reason: 'converged' };
+  if (mission.status === 'abandoned') return { kind: 'none', reason: 'abandoned' };
+  if (mission.status === 'over-budget') return { kind: 'none', reason: 'over-budget' };
+  if (mission.status === 'building') return { kind: 'none', reason: 'building' };
 
-  // EXECUTE is mechanical: the daemon builds; auto-advance once the iteration's epics settle.
-  if (mission.phase === 'execute' && rollup.mechanical.total > 0) {
-    if (rollup.mechanical.done === rollup.mechanical.total) {
-      return { kind: 'advance', reason: 'execute-epics-all-done' };
-    }
-    return { kind: 'none', reason: 'execute-building' };
-  }
-
-  // Judgment phases (+ execute-with-no-epics): nudge the steward, idle-gated + debounced.
   if (!ownerSession) return { kind: 'none', reason: 'no-owner-session' };
   if (!idle) return { kind: 'none', reason: 'session-busy' };
-  if (mission.lastNudgeAt != null && now - mission.lastNudgeAt < cooldownMs) {
-    return { kind: 'none', reason: 'nudge-cooldown' };
+
+  // blocked: nudge once, then silence (never re-nudge blocked until it changes)
+  if (mission.status === 'blocked') {
+    if (mission.lastNudgeAt != null) return { kind: 'none', reason: 'blocked-silenced' };
+    return {
+      kind: 'nudge',
+      session: ownerSession,
+      message: nudgeMessage(mission.status, mission, rollup, now),
+      reason: 'nudge:blocked',
+    };
   }
-  return {
-    kind: 'nudge',
-    session: ownerSession,
-    message: nudgeMessage(mission.phase, mission, rollup, now),
-    reason: `nudge:${mission.phase}`,
-  };
+
+  // needs-discovery / needs-verify: nudge if past cooldown
+  if (mission.status === 'needs-discovery' || mission.status === 'needs-verify') {
+    if (mission.lastNudgeAt != null && now - mission.lastNudgeAt < cooldownMs) {
+      return { kind: 'none', reason: 'nudge-cooldown' };
+    }
+    return {
+      kind: 'nudge',
+      session: ownerSession,
+      message: nudgeMessage(mission.status, mission, rollup, now),
+      reason: `nudge:${mission.status}`,
+    };
+  }
+
+  return { kind: 'none', reason: `no-action:${mission.status}` };
 }
 
 export interface MissionLoopDeps {
   list?: (project: string) => MissionSummary[];
   isIdle?: (project: string, session: string) => boolean;
-  advance?: (project: string, todoId: string) => unknown;
   nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'no-tmux'>;
   stampNudge?: (project: string, todoId: string) => void;
   now?: number;
@@ -139,27 +139,24 @@ export interface MissionLoopDeps {
 
 export interface MissionLoopResult {
   project: string;
-  advanced: string[];
   nudged: string[];
   skipped: number;
 }
 
 /**
- * Run one mission-loop pass for a project. Drives the project's ACTIVE, non-terminal
- * missions (nudge steward for judgment phases, auto-advance mechanical EXECUTE→VERIFY).
- * The orchestrator only calls this for WATCHED projects — that + the mission `active`
- * flag are the gates; there is no per-project on/off mode.
+ * Run one mission-loop pass for a project. Nudges the steward for their active,
+ * non-terminal missions. The orchestrator only calls this for WATCHED projects —
+ * that + the mission `active` flag are the gates; there is no per-project on/off mode.
  */
 export async function runMissionLoopPass(project: string, deps: MissionLoopDeps = {}): Promise<MissionLoopResult> {
   const list = deps.list ?? listMissions;
   const isIdle = deps.isIdle ?? ((p: string, s: string) => getStatus(p, s)?.status === 'waiting');
-  const advance = deps.advance ?? advanceMission;
   const nudge = deps.nudge ?? nudgeSession;
   const stampNudge = deps.stampNudge ?? stampMissionNudge;
   const now = deps.now ?? Date.now();
   const cooldownMs = deps.cooldownMs ?? MISSION_NUDGE_COOLDOWN_MS;
 
-  const result: MissionLoopResult = { project, advanced: [], nudged: [], skipped: 0 };
+  const result: MissionLoopResult = { project, nudged: [], skipped: 0 };
 
   let missions: MissionSummary[];
   try { missions = list(project); } catch { return result; }
@@ -168,11 +165,11 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
     const session = m.ownerSession ?? m.assigneeSession ?? null;
     const action = planMissionLoopStep({
       mission: {
-        todoId: m.node.id, phase: m.mission.phase, iteration: m.mission.iteration,
-        lastNudgeAt: m.mission.lastNudgeAt ?? null, procedure: m.mission.procedure ?? null, title: m.node.title,
+        todoId: m.node.id, status: m.mission.status ?? 'needs-discovery',
+        lastNudgeAt: m.mission.lastNudgeAt ?? null, title: m.node.title,
         active: m.mission.active !== false,
       },
-      rollup: { converged: m.rollup.converged, mechanical: m.rollup.mechanical, capability: m.rollup.capability },
+      rollup: { capability: m.rollup.capability },
       ownerSession: session,
       idle: session ? isIdle(project, session) : false,
       now,
@@ -180,10 +177,7 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
     });
 
     try {
-      if (action.kind === 'advance') {
-        advance(project, m.node.id);
-        result.advanced.push(m.node.id);
-      } else if (action.kind === 'nudge') {
+      if (action.kind === 'nudge') {
         await nudge(project, action.session, action.message);
         stampNudge(project, m.node.id);
         result.nudged.push(m.node.id);

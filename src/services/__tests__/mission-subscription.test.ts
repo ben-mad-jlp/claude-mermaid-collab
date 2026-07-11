@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTodo, _closeProject } from '../todo-store.ts';
-import { upsertMission, setMissionPhase, _resetMissionDbCache } from '../mission-store.ts';
+import { upsertMission, setMissionAbandoned, _resetMissionDbCache } from '../mission-store.ts';
 import { addSubscription, listSubscriptionsForSession, __resetForTest as resetSubscriptions } from '../session-subscriptions.ts';
 import { syncMissionSubscription, unsubscribeMission } from '../mission-subscription.ts';
+import { _closeLedgerDb } from '../worker-ledger.ts';
+import { _closeDb as _closeSupervisorDb } from '../supervisor-store.ts';
 
 let project: string;
 
@@ -20,7 +22,10 @@ async function makeMissionNode(title = '[MISSION] Test', session = 's1') {
 }
 
 beforeEach(() => {
+  _closeSupervisorDb();
+  _closeLedgerDb();
   project = mkdtempSync(join(tmpdir(), 'mc-mission-sub-'));
+  _resetMissionDbCache(project);
   process.env.MERMAID_SUPERVISOR_DIR = project;
   process.env.MERMAID_DATA_DIR = mkdtempSync(join(tmpdir(), 'mc-subs-'));
   resetSubscriptions();
@@ -29,6 +34,8 @@ beforeEach(() => {
 afterEach(() => {
   _closeProject(project);
   _resetMissionDbCache(project);
+  _closeLedgerDb();
+  _closeSupervisorDb();
   resetSubscriptions();
   delete process.env.MERMAID_SUPERVISOR_DIR;
   delete process.env.MERMAID_DATA_DIR;
@@ -72,27 +79,14 @@ describe('syncMissionSubscription', () => {
     expect(subs[0].targetId).toBe(m2);
   });
 
-  test('advance to terminal phase (converged) → sub removed', async () => {
+  test('abandon a mission → sub removed', async () => {
     const m = await makeMissionNode('[MISSION] Test', 's1');
     upsertMission(project, m);
     syncMissionSubscription(project, m);
 
     expect(listSubscriptionsForSession(project, 's1')).toHaveLength(1);
 
-    setMissionPhase(project, m, 'converged');
-    syncMissionSubscription(project, m);
-
-    expect(listSubscriptionsForSession(project, 's1')).toHaveLength(0);
-  });
-
-  test('advance to terminal phase (stopped) → sub removed', async () => {
-    const m = await makeMissionNode('[MISSION] Test', 's1');
-    upsertMission(project, m, { maxIterations: 1 });
-    syncMissionSubscription(project, m);
-
-    expect(listSubscriptionsForSession(project, 's1')).toHaveLength(1);
-
-    setMissionPhase(project, m, 'stopped');
+    setMissionAbandoned(project, m, Date.now());
     syncMissionSubscription(project, m);
 
     expect(listSubscriptionsForSession(project, 's1')).toHaveLength(0);

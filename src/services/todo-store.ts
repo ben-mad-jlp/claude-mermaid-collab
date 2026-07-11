@@ -121,6 +121,9 @@ export interface Todo {
    *  (design §4): the link is the ONLY coupling — a durable object carries NO
    *  work-graph lifecycle (no status/claim/lease here on the object side). */
   objectRef: string | null;
+  /** A3 epic→criterion edge: the mission acceptance-criterion id this epic serves,
+   *  or null. Set at create; required by the approval check for a mission-homed epic. */
+  servesCriterionId: string | null;
   /** Readiness-gates P2: when this todo is a design/decision [GATE], the
    *  decision-record id whose approval auto-completes it. Null for non-gate todos
    *  and gates cleared manually. */
@@ -188,6 +191,11 @@ export interface CreateTodoInput {
    *  A string → parent to that mission explicitly. Ignored for non-epic creates and
    *  for bucket epics, which are always roots. */
   missionId?: string | null;
+  /** A3 epic→criterion edge. When a `kind:'epic'` create homes to a mission, this
+   *  names WHICH acceptance criterion the epic serves. Persisted to the A1
+   *  `servesCriterionId` column. Optional at create; the approval-time check
+   *  (updateTodo) REQUIRES it for a mission-homed epic. */
+  servesCriterionId?: string | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -202,6 +210,21 @@ export class OrphanTodoError extends Error {
       `under the Inbox epic.`,
     );
     this.name = 'OrphanTodoError';
+  }
+}
+
+/** Thrown by updateTodo when a mission-homed `kind:'epic'` is APPROVED (status→ready)
+ *  without a servesCriterionId — the A3 epic→criterion edge. Carries a `code` so
+ *  HTTP/MCP callers can map it to a 4xx. Models the create-time OrphanTodoError. */
+export class MissingCriterionEdgeError extends Error {
+  readonly code = 'missing-criterion-edge';
+  constructor(todoId: string, missionId: string) {
+    super(
+      `Cannot approve epic ${todoId.slice(0, 8)}: it is homed to mission ${missionId.slice(0, 8)} ` +
+      `but declares no servesCriterionId (the epic→criterion edge). Set servesCriterionId ` +
+      `to the acceptance criterion this epic serves before approving.`,
+    );
+    this.name = 'MissingCriterionEdgeError';
   }
 }
 
@@ -309,6 +332,7 @@ interface TodoRow {
   retryCount: number;
   completedBy: string | null;
   objectRef: string | null;
+  servesCriterionId: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
@@ -384,6 +408,9 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'type', 'type TEXT');
   addColumnIfMissing(db, 'todos', 'targetProject', 'targetProject TEXT');
   addColumnIfMissing(db, 'todos', 'acceptanceStatus', 'acceptanceStatus TEXT');
+  // mission-requirements: the epic→criterion edge. A mission epic names which criterion
+  // it serves. Additive column only; A3 wires the writer + the approval-time enforcement.
+  addColumnIfMissing(db, 'todos', 'servesCriterionId', 'servesCriterionId TEXT');
   addColumnIfMissing(db, 'todos', 'claimedBy', 'claimedBy TEXT');
   addColumnIfMissing(db, 'todos', 'claimToken', 'claimToken TEXT');
   addColumnIfMissing(db, 'todos', 'claimedAt', 'claimedAt TEXT');
@@ -799,6 +826,7 @@ function rowToTodo(row: TodoRow): Todo {
     retryCount: row.retryCount ?? 0,
     completedBy: row.completedBy ?? null,
     objectRef: row.objectRef ?? null,
+    servesCriterionId: row.servesCriterionId ?? null,
     decisionRef: row.decisionRef ?? null,
     claimProbe: row.claimProbe ?? null,
     inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
@@ -840,9 +868,9 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
  *  static edge would close a cycle. Any failure (no mission.db yet) → null, never throw. */
 async function resolveActiveMissionId(project: string, ownerSession?: string | null): Promise<string | null> {
   try {
-    const { listMissions, isTerminalPhase } = await import('./mission-store.ts');
+    const { listMissions, isMissionTerminal } = await import('./mission-store.ts');
     const live = listMissions(project).filter(
-      (m) => m.mission.active && !isTerminalPhase(m.mission.phase) &&
+      (m) => m.mission.active && !isMissionTerminal(m.mission) &&
              m.node.status !== 'done' && m.node.status !== 'dropped',
     );
     if (live.length === 0) return null;
@@ -909,9 +937,9 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
-        sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, decisionRef, claimProbe,
+        sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, decisionRef, claimProbe,
         approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -921,7 +949,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       ts, ts, status === 'done' ? ts : null, null,
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
-      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
+      input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.servesCriterionId ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
       approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? [])
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
@@ -992,6 +1020,18 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
            WHERE id IN (SELECT did FROM descendants) AND status NOT IN ('done','dropped')`
       ).get(id) as { n: number }).n;
       if (openCount > 0) throw new ContainerHasOpenChildrenError(id, openCount);
+    }
+
+    // A3 epic→criterion edge (approval-time). A mission-homed epic must declare WHICH
+    // acceptance criterion it serves before it can be approved. Fires only on the
+    // approval transition (approvedAt newly minted) so re-saves of an already-approved
+    // epic don't re-trip it. Models the create-time OrphanTodoError guard.
+    const newlyApproved = approvedAt != null && existing.approvedAt == null;
+    if (newlyApproved && isEpic(existing) && !existing.servesCriterionId) {
+      const parent = existing.parentId ? getTodo(project, existing.parentId) : null;
+      if (parent && isMission(parent)) {
+        throw new MissingCriterionEdgeError(id, parent.id);
+      }
     }
 
     const completedAt = status === 'done' ? (existing.completedAt ?? nowIso()) : null;

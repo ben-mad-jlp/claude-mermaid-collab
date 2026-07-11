@@ -291,6 +291,10 @@ export interface SupervisorConfig {
 export type MissionPhase =
   | 'discover' | 'plan' | 'execute' | 'verify' | 'converged' | 'stopped';
 
+export type MissionStatus =
+  | 'abandoned' | 'over-budget' | 'blocked' | 'building'
+  | 'needs-verify' | 'needs-discovery' | 'converged';
+
 export interface MissionSummary {
   node: { id: string; title: string; status: string };
   ownerSession: string | null;
@@ -316,8 +320,9 @@ export interface MissionSummary {
     converged: boolean;
     stopped?: boolean;
     stopReason?: string | null;
+    status?: MissionStatus;
   };
-  criteria: Array<{ id: string; text: string; met: boolean; order: number }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[] }>;
   /** This mission's `kind:'epic'` children, as classified server-side — no client predicate needed. */
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
 }

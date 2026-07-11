@@ -2,73 +2,48 @@
  * mission-store.ts — durable loop-control state for the convergence-loop MISSION
  * (Phase 2a of the autonomous convergence loop; companion to context-recycle).
  *
- * A MISSION is a durable capability goal the steward converges the app toward by
- * repeating DOGFOOD → FIND GAP → PLAN → STEWARD → LAND → ASSESS, iteration after
- * iteration, until the app does the thing. Each iteration's gaps become transient
- * `[EPIC]` children under a `[MISSION]` graph node; the mission node itself is a
- * durable non-closing root (see todo-kind.isMission + the two rollup
- * exemptions in todo-store).
+ * A MISSION is a durable capability goal, represented by a `[MISSION]` work-graph
+ * root node whose convergence is tracked in a separate `.collab/mission.db`. Each
+ * mission has acceptance CRITERIA (the goal definition). Mission status is DERIVED
+ * from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified),
+ * and the mission row's `abandonedAt` flag — NOT from stored phase/iteration state.
+ * The old phase machine (discover/plan/execute/verify cycles) was removed in F1;
+ * the mission node itself remains a durable non-closing root.
  *
- * DESIGN (locked via Grok consult, doc phase2-grok-consult-synthesis): the mission
- * NODE lives in the todo work-graph (for board visibility + epic parenting +
- * descendant rollup), but ALL loop-control state — phase, iteration, acceptance
- * criteria — lives HERE in a SEPARATE `.collab/mission.db`, keyed by the node's
- * todo id. This keeps the control state OFF the `todos` aggregate (whose invariants
- * were never built for a long-lived phase machine) while still letting the node
- * participate in the graph. Phase 2a is steward-HAND-driven: there is NO autonomous
- * advancing pass yet (that is Phase 2b, earned once a phase is mechanized), so this
- * store is a plain durable record the steward reads and advances by hand.
+ * DESIGN: the mission NODE lives in the todo work-graph (for board visibility +
+ * epic parenting + descendant rollup); loop-control state (criteria + abandonment)
+ * lives HERE in a SEPARATE `.collab/mission.db`, keyed by the node's todo id.
  */
 import Database from 'bun:sqlite';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { listTodos } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
+import { listLeafRuns } from './ledger-stats.ts';
 
-/**
- * The convergence-loop phases — the canonical agentic loop
- * DISCOVER → PLAN → EXECUTE → VERIFY → (ITERATE = loop back, iteration++).
- * ITERATE is not a phase; it's the transition VERIFY makes: converge, stop, or
- * loop back to DISCOVER. Two terminal states:
- *   - `converged` — VERIFY passed (all acceptance criteria met). The goal is done.
- *   - `stopped`   — the STOP-WHEN guard fired (maxIterations reached un-converged).
- */
-export type MissionPhase =
-  | 'discover' // work out what needs doing
-  | 'plan'     // decide how to do it
-  | 'execute'  // do the work (daemon-buildable)
-  | 'verify'   // check against the goal
-  | 'converged'
-  | 'stopped';
+/** Derived-on-read capability status of a mission (never stored; computed from the
+ *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
+ *  the order listed in deriveMissionStatus. */
+export type MissionStatus =
+  | 'abandoned'       // abandonedAt set
+  | 'over-budget'     // spendUsd >= budgetUsd
+  | 'blocked'         // a mission leaf is parked/rejected, escalated, or an unapproved split
+  | 'building'        // a mission leaf is in flight
+  | 'needs-verify'    // an unverified criterion while a serving epic has landed
+  | 'needs-discovery' // an unmet criterion with no open epic serving it
+  | 'converged';      // every criterion met
 
-/** The active cycle (terminals excluded). VERIFY's next is decided by advanceMission
- *  (converge / stop / loop back to DISCOVER), not a plain wrap. */
-export const MISSION_CYCLE: MissionPhase[] = ['discover', 'plan', 'execute', 'verify'];
-
-export const MISSION_PHASES: MissionPhase[] = [...MISSION_CYCLE, 'converged', 'stopped'];
-
-/** A phase is terminal when the loop has stopped (goal met, or gave up). */
-export const isTerminalPhase = (p: MissionPhase): boolean => p === 'converged' || p === 'stopped';
+/** A mission is terminal (the loop has stopped) when it converged or a human abandoned it.
+ *  Replaces the removed isTerminalPhase(phase) — reads the derived status, not stored phase. */
+export function isMissionTerminal(m: Pick<MissionRow, 'status' | 'abandonedAt'>): boolean {
+  return m.abandonedAt != null || m.status === 'converged';
+}
 
 export interface MissionRow {
   /** The `[MISSION]` node's todo id (FK into the work-graph). */
   todoId: string;
-  phase: MissionPhase;
-  iteration: number;
   createdAt: number;
   updatedAt: number;
-  /** STOP-WHEN guard: max iterations before the loop stops un-converged. Null =
-   *  unbounded (converge-or-run-forever — use with care). */
-  maxIterations: number | null;
-  /** The EACH-ITERATION recipe (freeform markdown/text): what to do each lap. */
-  procedure: string | null;
-  /** ON-STOP: why the loop is in a terminal state ('converged' | 'max-iterations'
-   *  | freeform), or null while still running. */
-  stopReason: string | null;
-  /** Last time DISCOVER was stamped this iteration (ms epoch), or null. */
-  lastDiscoverAt: number | null;
-  /** Last time VERIFY was stamped (ms epoch), or null. */
-  lastVerifyAt: number | null;
   /** Last time the mission-loop pass nudged the steward for this mission (ms epoch),
    *  or null — the nudge debounce so the pass doesn't spam every tick. */
   lastNudgeAt: number | null;
@@ -76,6 +51,14 @@ export interface MissionRow {
    *  mission at a time, so at most one mission per session is active; the mission-loop
    *  pass only drives active missions. Default true (a lone mission just works). */
   active: boolean;
+  /** Human-set abandonment stamp (ms epoch), or null = active. A mission-requirements
+   *  concept: an abandoned mission with unmet criteria is otherwise indistinguishable
+   *  from an in-progress one; this makes "done with it" explicit. */
+  abandonedAt: number | null;
+  /** Per-mission USD budget ceiling, or null = project default. */
+  budgetUsd: number | null;
+  /** Derived-on-read: populated by getMission, absent on the raw rowToMission row. */
+  status?: MissionStatus;
 }
 
 export interface MissionCriterion {
@@ -90,37 +73,46 @@ export interface MissionCriterion {
   evidence: string | null;
   verifiedBy: string | null;
   verifiedAt: number | null;
+  /** The sha the verdict was checked against (staleness pin). Null until verified. */
+  verifiedAtSha: string | null;
+  /** File paths the verdict cited (JSON array). A later leaf's land-diff ∩ evidencePaths
+   *  re-opens this criterion when one of these files changes. Empty until verified. */
+  evidencePaths: string[];
+}
+
+export interface MissionRecheck {
+  criterionId: string;
+  todoId: string;
+  reason: string;
+  landedSha: string | null;
+  enqueuedAt: number;
 }
 
 /** Two convergence gauges: mechanical = this iteration's build progress; capability
  *  = the real "is the mission done" signal over acceptance criteria. */
 export interface MissionRollup {
   todoId: string;
-  phase: MissionPhase;
-  iteration: number;
-  /** STOP-WHEN cap (null = unbounded). */
-  maxIterations: number | null;
-  /** Descendant `[EPIC]` children: done vs total (this iteration's build progress). */
+  /** Descendant `[EPIC]` children: done vs total. */
   mechanical: { done: number; total: number };
   /** Acceptance criteria: met vs total (the true convergence gauge). */
   capability: { met: number; total: number };
-  /** True iff there is ≥1 criterion and every criterion is met (VERIFY passes). */
+  /** True iff there is ≥1 criterion and every criterion is met. */
   converged: boolean;
-  /** True once the loop reached a terminal phase (converged or stopped). */
+  /** True when the mission is terminal (converged or abandoned). */
   stopped: boolean;
-  /** Why the loop stopped ('converged' | 'max-iterations' | …), or null if running. */
-  stopReason: string | null;
+  /** Derived capability status, first-match-wins precedence. */
+  status: MissionStatus;
 }
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS mission (
   todoId TEXT PRIMARY KEY,
-  phase TEXT NOT NULL,
-  iteration INTEGER NOT NULL,
   createdAt INTEGER NOT NULL,
   updatedAt INTEGER NOT NULL,
-  lastDogfoodAt INTEGER,
-  lastAssessAt INTEGER
+  lastNudgeAt INTEGER,
+  active INTEGER NOT NULL DEFAULT 1,
+  abandonedAt INTEGER,
+  budgetUsd REAL
 );
 CREATE TABLE IF NOT EXISTS mission_criterion (
   id TEXT PRIMARY KEY,
@@ -128,9 +120,18 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   text TEXT NOT NULL,
   met INTEGER NOT NULL DEFAULT 0,
   "order" INTEGER NOT NULL DEFAULT 0,
-  updatedAt INTEGER NOT NULL
+  updatedAt INTEGER NOT NULL,
+  verifiedAtSha TEXT,
+  evidencePaths TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
+CREATE TABLE IF NOT EXISTS mission_recheck (
+  criterionId TEXT PRIMARY KEY,
+  todoId TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  landedSha TEXT,
+  enqueuedAt INTEGER NOT NULL
+);
 `;
 
 const dbCache = new Map<string, Database>();
@@ -138,6 +139,20 @@ const dbCache = new Map<string, Database>();
 function addColumnIfMissing(db: Database, table: string, column: string, decl: string): void {
   const cols = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${decl}`);
+}
+
+function migrateDropPhaseMachine(db: Database): void {
+  const cols = db.query('PRAGMA table_info(mission)').all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'phase')) return; // already migrated / fresh DB
+  db.exec('BEGIN');
+  db.exec(`CREATE TABLE mission_new (
+    todoId TEXT PRIMARY KEY, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
+    lastNudgeAt INTEGER, active INTEGER NOT NULL DEFAULT 1, abandonedAt INTEGER, budgetUsd REAL);`);
+  db.exec(`INSERT INTO mission_new (todoId, createdAt, updatedAt, lastNudgeAt, active, abandonedAt, budgetUsd)
+           SELECT todoId, createdAt, updatedAt, lastNudgeAt, active, abandonedAt, budgetUsd FROM mission;`);
+  db.exec('DROP TABLE mission');
+  db.exec('ALTER TABLE mission_new RENAME TO mission');
+  db.exec('COMMIT');
 }
 
 function openDb(project: string): Database {
@@ -148,23 +163,17 @@ function openDb(project: string): Database {
   const db = new Database(join(dir, 'mission.db'));
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
-  // v2 (loop-spec) additive columns — the STOP-WHEN guard, the EACH-ITERATION
-  // procedure, and the ON-STOP reason. The lastDiscoverAt/lastVerifyAt stamps reuse
-  // the legacy lastDogfoodAt/lastAssessAt columns (renamed in the API, not the DB).
-  addColumnIfMissing(db, 'mission', 'maxIterations', 'maxIterations INTEGER');
-  addColumnIfMissing(db, 'mission', 'procedure', 'procedure TEXT');
-  addColumnIfMissing(db, 'mission', 'stopReason', 'stopReason TEXT');
   // VERIFY-gate audit trail on each criterion (independent-judge evidence + provenance).
   addColumnIfMissing(db, 'mission_criterion', 'evidence', 'evidence TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedBy', 'verifiedBy TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAt', 'verifiedAt INTEGER');
   addColumnIfMissing(db, 'mission', 'lastNudgeAt', 'lastNudgeAt INTEGER');
   addColumnIfMissing(db, 'mission', 'active', 'active INTEGER NOT NULL DEFAULT 1');
-  // v2 one-shot phase migration: remap the legacy 6-phase vocabulary onto the
-  // canonical 5 (dogfood/find_gap→discover, steward/land→execute, assess→verify).
-  db.exec(`UPDATE mission SET phase='discover' WHERE phase IN ('dogfood','find_gap')`);
-  db.exec(`UPDATE mission SET phase='execute'  WHERE phase IN ('steward','land')`);
-  db.exec(`UPDATE mission SET phase='verify'   WHERE phase='assess'`);
+  addColumnIfMissing(db, 'mission', 'abandonedAt', 'abandonedAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
+  addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'evidencePaths', 'evidencePaths TEXT');
+  migrateDropPhaseMachine(db);
   dbCache.set(project, db);
   return db;
 }
@@ -185,18 +194,12 @@ const nowMs = (): number => Date.now();
 function rowToMission(row: Record<string, unknown>): MissionRow {
   return {
     todoId: row.todoId as string,
-    phase: row.phase as MissionPhase,
-    iteration: row.iteration as number,
     createdAt: row.createdAt as number,
     updatedAt: row.updatedAt as number,
-    maxIterations: (row.maxIterations as number | null) ?? null,
-    procedure: (row.procedure as string | null) ?? null,
-    stopReason: (row.stopReason as string | null) ?? null,
-    // lastDiscoverAt/lastVerifyAt live in the legacy lastDogfoodAt/lastAssessAt columns.
-    lastDiscoverAt: (row.lastDogfoodAt as number | null) ?? null,
-    lastVerifyAt: (row.lastAssessAt as number | null) ?? null,
     lastNudgeAt: (row.lastNudgeAt as number | null) ?? null,
     active: (row.active as number | null) == null ? true : (row.active as number) === 1,
+    abandonedAt: (row.abandonedAt as number | null) ?? null,
+    budgetUsd: (row.budgetUsd as number | null) ?? null,
   };
 }
 
@@ -212,130 +215,43 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
   const row = openDb(project)
     .query('SELECT * FROM mission WHERE todoId = ?')
     .get(todoId) as Record<string, unknown> | null;
-  return row ? rowToMission(row) : undefined;
+  if (!row) return undefined;
+  const m = rowToMission(row);
+  return { ...m, status: deriveMissionStatus(collectMissionStatusFacts(project, m)) };
 }
 
 /**
  * Attach (or return existing) loop-control state to a `[MISSION]` node. Idempotent:
- * a second call for the same node returns the existing row unchanged. Starts at
- * phase='dogfood', iteration=1. The CALLER is responsible for having created the
- * `[MISSION]` graph node (via the normal todo path) — this store owns control
- * state only, never node creation, keeping the two concerns uncoupled.
+ * a second call for the same node returns the existing row unchanged. The CALLER is
+ * responsible for having created the `[MISSION]` graph node (via the normal todo path)
+ * — this store owns control state only, never node creation, keeping the two concerns uncoupled.
  */
 export function upsertMission(
   project: string,
   todoId: string,
-  opts: { maxIterations?: number | null; procedure?: string | null } = {},
+  opts: { budgetUsd?: number | null } = {},
 ): MissionRow {
   const existing = getMission(project, todoId);
   if (existing) return existing;
   const ts = nowMs();
   openDb(project)
     .prepare(
-      `INSERT INTO mission (todoId, phase, iteration, createdAt, updatedAt, maxIterations, procedure, lastDogfoodAt, lastAssessAt)
-       VALUES (?, 'discover', 1, ?, ?, ?, ?, NULL, NULL)`,
+      `INSERT INTO mission (todoId, createdAt, updatedAt, budgetUsd)
+       VALUES (?, ?, ?, ?)`,
     )
-    .run(todoId, ts, ts, opts.maxIterations ?? null, opts.procedure ?? null);
+    .run(todoId, ts, ts, opts.budgetUsd ?? null);
   return getMission(project, todoId)!;
 }
 
-/** Set a mission's phase explicitly (e.g. jump straight to 'converged' or back).
- *  Setting a non-terminal phase clears any stopReason (the loop resumes). */
-export function setMissionPhase(project: string, todoId: string, phase: MissionPhase): MissionRow {
+/** Human-set abandonment stamp. A mission-requirements concept: mark a mission
+ *  "done with it" (abandonedAt = now, ms epoch) or clear it (null → active again).
+ *  Writes the A1 `abandonedAt` column; readers (A2) surface it. */
+export function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): MissionRow {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
-  const stopReason = isTerminalPhase(phase) ? (m.stopReason ?? phase) : null;
   openDb(project)
-    .prepare('UPDATE mission SET phase = ?, stopReason = ?, updatedAt = ? WHERE todoId = ?')
-    .run(phase, stopReason, nowMs(), todoId);
-  return getMission(project, todoId)!;
-}
-
-/** Update a mission's loop-spec config (STOP-WHEN cap + EACH-ITERATION procedure).
- *  Pass a field to change it; omit to leave unchanged. */
-export function setMissionConfig(
-  project: string,
-  todoId: string,
-  cfg: { maxIterations?: number | null; procedure?: string | null },
-): MissionRow {
-  const m = getMission(project, todoId);
-  if (!m) throw new Error(`mission not found: ${todoId}`);
-  const maxIterations = cfg.maxIterations !== undefined ? cfg.maxIterations : m.maxIterations;
-  const procedure = cfg.procedure !== undefined ? cfg.procedure : m.procedure;
-  openDb(project)
-    .prepare('UPDATE mission SET maxIterations = ?, procedure = ?, updatedAt = ? WHERE todoId = ?')
-    .run(maxIterations, procedure, nowMs(), todoId);
-  return getMission(project, todoId)!;
-}
-
-/** The naive next phase in the active cycle (VERIFY wraps to DISCOVER). Terminal
- *  states stay put. advanceMission owns the VERIFY→converge/stop/iterate decision. */
-export function nextPhase(phase: MissionPhase): MissionPhase {
-  if (isTerminalPhase(phase)) return phase;
-  const i = MISSION_CYCLE.indexOf(phase);
-  if (i < 0) return 'discover';
-  return MISSION_CYCLE[(i + 1) % MISSION_CYCLE.length];
-}
-
-/**
- * Advance a mission one step through DISCOVER→PLAN→EXECUTE→VERIFY. The interesting
- * step is VERIFY (the ITERATE decision, embodying STOP-WHEN):
- *   - all criteria met            → `converged`   (goal achieved)
- *   - else maxIterations reached  → `stopped`     (STOP-WHEN guard fired)
- *   - else                        → `discover`, iteration++  (loop back)
- * No-op once terminal. Phase 2a: the steward calls this by hand; Phase 2b's pass
- * will call the same function.
- */
-export function advanceMission(project: string, todoId: string): MissionRow {
-  const m = getMission(project, todoId);
-  if (!m) throw new Error(`mission not found: ${todoId}`);
-  if (isTerminalPhase(m.phase)) return m;
-
-  let phase: MissionPhase;
-  let iteration = m.iteration;
-  let stopReason: string | null = null;
-
-  if (m.phase === 'verify') {
-    const conv = getMissionRollup(project, todoId).converged;
-    if (conv) {
-      phase = 'converged';
-      stopReason = 'converged';
-    } else if (m.maxIterations != null && m.iteration >= m.maxIterations) {
-      phase = 'stopped';
-      stopReason = 'max-iterations';
-    } else {
-      phase = 'discover';
-      iteration = m.iteration + 1; // ITERATE: a new lap begins
-    }
-  } else {
-    phase = nextPhase(m.phase);
-  }
-
-  openDb(project)
-    .prepare('UPDATE mission SET phase = ?, iteration = ?, stopReason = ?, updatedAt = ? WHERE todoId = ?')
-    .run(phase, iteration, stopReason, nowMs(), todoId);
-  return getMission(project, todoId)!;
-}
-
-/** Stamp that DISCOVER ran this iteration (the discover-phase activity signal). */
-export function stampDiscover(project: string, todoId: string): MissionRow {
-  const m = getMission(project, todoId);
-  if (!m) throw new Error(`mission not found: ${todoId}`);
-  const ts = nowMs();
-  openDb(project)
-    .prepare('UPDATE mission SET lastDogfoodAt = ?, updatedAt = ? WHERE todoId = ?')
-    .run(ts, ts, todoId);
-  return getMission(project, todoId)!;
-}
-
-/** Stamp that a VERIFY check ran (the verify-phase activity signal). */
-export function stampVerify(project: string, todoId: string): MissionRow {
-  const m = getMission(project, todoId);
-  if (!m) throw new Error(`mission not found: ${todoId}`);
-  const ts = nowMs();
-  openDb(project)
-    .prepare('UPDATE mission SET lastAssessAt = ?, updatedAt = ? WHERE todoId = ?')
-    .run(ts, ts, todoId);
+    .prepare('UPDATE mission SET abandonedAt = ?, updatedAt = ? WHERE todoId = ?')
+    .run(abandonedAt, nowMs(), todoId);
   return getMission(project, todoId)!;
 }
 
@@ -401,10 +317,10 @@ export function activateMission(project: string, todoId: string): string[] {
 
 /** True iff the session already has an active, NON-TERMINAL mission (used to default
  *  a newly created mission inactive only when its session is genuinely driving one).
- *  A converged/stopped mission still carries active=1 but must NOT block a new one. */
+ *  A converged/abandoned mission still carries active=1 but must NOT block a new one. */
 export function sessionHasActiveMission(project: string, session: string, excludeTodoId?: string): boolean {
   return listMissions(project).some(
-    (m) => m.node.id !== excludeTodoId && m.mission.active && !isTerminalPhase(m.mission.phase) &&
+    (m) => m.node.id !== excludeTodoId && m.mission.active && !isMissionTerminal(m.mission) &&
       (m.ownerSession === session || m.assigneeSession === session),
   );
 }
@@ -425,6 +341,8 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     evidence: (r.evidence as string | null) ?? null,
     verifiedBy: (r.verifiedBy as string | null) ?? null,
     verifiedAt: (r.verifiedAt as number | null) ?? null,
+    verifiedAtSha: (r.verifiedAtSha as string | null) ?? null,
+    evidencePaths: r.evidencePaths ? (JSON.parse(r.evidencePaths as string) as string[]) : [],
   }));
 }
 
@@ -439,7 +357,7 @@ export function addCriterion(project: string, todoId: string, text: string): Mis
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, 0, ?, ?)')
     .run(id, todoId, trimmed, order, ts);
-  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null };
+  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [] };
 }
 
 /** Mark a criterion met / unmet (bare — no verify provenance). Prefer
@@ -460,15 +378,17 @@ export function setCriterionMet(project: string, criterionId: string, met: boole
 export function setCriterionVerdict(
   project: string,
   criterionId: string,
-  verdict: { met: boolean; evidence?: string | null; verifiedBy?: string | null },
+  verdict: { met: boolean; evidence?: string | null; verifiedBy?: string | null; verifiedAtSha?: string | null; evidencePaths?: string[] },
 ): void {
   const res = openDb(project)
-    .prepare('UPDATE mission_criterion SET met = ?, evidence = ?, verifiedBy = ?, verifiedAt = ?, updatedAt = ? WHERE id = ?')
+    .prepare('UPDATE mission_criterion SET met = ?, evidence = ?, verifiedBy = ?, verifiedAt = ?, verifiedAtSha = ?, evidencePaths = ?, updatedAt = ? WHERE id = ?')
     .run(
       verdict.met ? 1 : 0,
       verdict.evidence ?? null,
       verdict.verifiedBy ?? null,
       nowMs(),
+      verdict.verifiedAtSha ?? null,
+      verdict.evidencePaths ? JSON.stringify(verdict.evidencePaths) : null,
       nowMs(),
       criterionId,
     );
@@ -489,7 +409,114 @@ export function removeCriterion(project: string, criterionId: string): void {
   openDb(project).prepare('DELETE FROM mission_criterion WHERE id = ?').run(criterionId);
 }
 
+/** Un-verify a criterion: null its entire VERIFY verdict so an independent re-check
+ *  must re-judge it (met=false, verifiedAt/evidence/verifiedBy/verifiedAtSha → null).
+ *  evidencePaths is PRESERVED so a subsequent land can still match it before re-verify. */
+export function clearCriterionVerdict(project: string, criterionId: string): void {
+  const res = openDb(project)
+    .prepare('UPDATE mission_criterion SET met = 0, evidence = NULL, verifiedBy = NULL, verifiedAt = NULL, verifiedAtSha = NULL, updatedAt = ? WHERE id = ?')
+    .run(nowMs(), criterionId);
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+export function enqueueRecheck(project: string, r: { criterionId: string; todoId: string; reason: string; landedSha?: string | null }): void {
+  openDb(project)
+    .prepare('INSERT INTO mission_recheck (criterionId, todoId, reason, landedSha, enqueuedAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(criterionId) DO UPDATE SET reason=excluded.reason, landedSha=excluded.landedSha, enqueuedAt=excluded.enqueuedAt')
+    .run(r.criterionId, r.todoId, r.reason, r.landedSha ?? null, nowMs());
+}
+
+export function listPendingRechecks(project: string): MissionRecheck[] {
+  const rows = openDb(project)
+    .prepare('SELECT * FROM mission_recheck ORDER BY enqueuedAt ASC')
+    .all() as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    criterionId: row.criterionId as string,
+    todoId: row.todoId as string,
+    reason: row.reason as string,
+    landedSha: (row.landedSha as string | null) ?? null,
+    enqueuedAt: row.enqueuedAt as number,
+  }));
+}
+
+export function clearRecheck(project: string, criterionId: string): void {
+  openDb(project).prepare('DELETE FROM mission_recheck WHERE criterionId = ?').run(criterionId);
+}
+
+/** Verification-as-event: given the paths a land touched, un-verify every MET criterion
+ *  whose evidencePaths intersect them and enqueue a per-criterion re-check. Pure path-set
+ *  intersection — NO LLM. Returns the affected {criterionId, todoId} list (for audit). */
+export function unverifyCriteriaForLandedPaths(
+  project: string,
+  landedPaths: string[],
+  opts: { landedSha?: string | null } = {},
+): { criterionId: string; todoId: string }[] {
+  if (landedPaths.length === 0) return [];
+  const landed = new Set(landedPaths);
+  const affected: { criterionId: string; todoId: string }[] = [];
+  for (const m of listMissions(project)) {
+    for (const c of listCriteria(project, m.node.id)) {
+      if (!c.met) continue;
+      if (!c.evidencePaths.some((p) => landed.has(p))) continue;
+      clearCriterionVerdict(project, c.id);
+      enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
+      affected.push({ criterionId: c.id, todoId: c.todoId });
+    }
+  }
+  return affected;
+}
+
 // ── Convergence rollup ──────────────────────────────────────────────────────
+
+export interface MissionStatusFacts {
+  abandonedAt: number | null;
+  budgetUsd: number | null;
+  spendUsd: number;
+  hasBlockedLeaf: boolean;   // a leaf run rejected or blocked (parked/rejected/escalation/unapproved-split)
+  hasBuildingLeaf: boolean;  // a leaf run in flight (pending/paused)
+  hasLandedEpic: boolean;    // a mission epic reached status 'done'
+  hasOpenEpic: boolean;      // a mission epic is neither done nor dropped
+  criteria: { met: boolean; verifiedAt: number | null }[];
+}
+
+/** First-match-wins precedence exactly as specified in the A2 brief. */
+export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
+  if (f.abandonedAt != null) return 'abandoned';
+  if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
+  if (f.hasBlockedLeaf) return 'blocked';
+  if (f.hasBuildingLeaf) return 'building';
+  if (f.hasLandedEpic && f.criteria.some((c) => c.verifiedAt == null)) return 'needs-verify';
+  if (f.criteria.some((c) => !c.met) && !f.hasOpenEpic) return 'needs-discovery';
+  if (f.criteria.length > 0 && f.criteria.every((c) => c.met)) return 'converged';
+  return 'needs-discovery'; // default: nothing landed/built/verified yet (incl. no criteria)
+}
+
+/** Gather the facts deriveMissionStatus needs from the work-graph + ledger. Does NOT call
+ *  getMission/getMissionRollup (no recursion); the caller passes the already-read MissionRow. */
+export function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
+  const epics = listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
+  );
+  // getMission is a hot, fundamental read — it must NOT crash because the OPTIONAL worker-ledger
+  // read failed (e.g. the ledger DB is momentarily unavailable / not yet created). Degrade to
+  // no run-facts: the mission still derives a status from its criteria + epic states.
+  let runs: ReturnType<typeof listLeafRuns> = [];
+  try {
+    runs = epics.flatMap((e) => listLeafRuns({ project, epicId: e.id }));
+  } catch {
+    runs = [];
+  }
+  const criteria = listCriteria(project, m.todoId);
+  return {
+    abandonedAt: m.abandonedAt,
+    budgetUsd: m.budgetUsd,
+    spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),
+    hasBlockedLeaf: runs.some((r) => r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
+    hasBuildingLeaf: runs.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused'),
+    hasLandedEpic: epics.some((e) => e.status === 'done'),
+    hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
+    criteria: criteria.map((c) => ({ met: c.met, verifiedAt: c.verifiedAt })),
+  };
+}
 
 /**
  * Compute the mission's two convergence gauges. MECHANICAL counts the mission
@@ -565,15 +592,13 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
   const mechDone = epics.filter((e) => e.status === 'done').length;
   const criteria = listCriteria(project, todoId);
   const capMet = criteria.filter((c) => c.met).length;
+  const facts = collectMissionStatusFacts(project, m);
   return {
     todoId,
-    phase: m.phase,
-    iteration: m.iteration,
-    maxIterations: m.maxIterations,
     mechanical: { done: mechDone, total: epics.length },
     capability: { met: capMet, total: criteria.length },
     converged: criteria.length > 0 && capMet === criteria.length,
-    stopped: isTerminalPhase(m.phase),
-    stopReason: m.stopReason,
+    stopped: isMissionTerminal(m),
+    status: deriveMissionStatus(facts),
   };
 }

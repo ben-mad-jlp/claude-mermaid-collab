@@ -1,14 +1,15 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test';
 
 // Isolate the GLOBAL supervisor.db before any imports that touch it.
-process.env.MERMAID_SUPERVISOR_DIR = mkdtempSync(join(tmpdir(), 'mc-land-auth-'));
+const supervisorDir = mkdtempSync(join(tmpdir(), 'mc-land-auth-'));
+process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 // Mock mission-store before importing land-authority.
 // getMission is called with (project, todoId) and returns a MissionRow or undefined.
-const missions = new Map<string, { phase: string; active: boolean }>();
+const missions = new Map<string, { status: string; active: boolean; abandonedAt: number | null }>();
 
 mock.module('../mission-store', () => ({
   getMission: (project: string, todoId: string) => {
@@ -16,20 +17,15 @@ mock.module('../mission-store', () => ({
     if (!m) return undefined;
     return {
       todoId,
-      phase: m.phase,
+      status: m.status,
       active: m.active,
-      iteration: 0,
+      abandonedAt: m.abandonedAt,
       createdAt: 0,
       updatedAt: 0,
-      maxIterations: null,
-      procedure: null,
-      stopReason: null,
-      lastDiscoverAt: null,
-      lastVerifyAt: null,
       lastNudgeAt: null,
     };
   },
-  isTerminalPhase: (p: string) => p === 'converged' || p === 'stopped',
+  isMissionTerminal: (m: { status: string; abandonedAt: number | null }) => m.abandonedAt != null || m.status === 'converged',
 }));
 
 // Mock todo-store so no real SQLite is touched.
@@ -62,6 +58,11 @@ import { epicBranchName } from '../epic-branch-status';
 import type { LandReadinessReport } from '../epic-land-readiness';
 import type { EpicLandGateResult } from '../epic-land-gate';
 import type { Todo } from '../todo-store';
+
+afterAll(() => {
+  delete process.env.MERMAID_SUPERVISOR_DIR;
+  try { rmSync(supervisorDir, { recursive: true, force: true }); } catch { /* ignore */ }
+});
 
 const PROJECT = '/tmp/mc-land-auth-project';
 const SESSION = 'conductor-A';
@@ -156,7 +157,7 @@ function mkGraph() {
   });
 
   // Seed the missions registry with m1 (execute phase, active).
-  missions.set('m1', { phase: 'execute', active: true });
+  missions.set('m1', { status: 'needs-discovery', active: true, abandonedAt: null });
 
   return { m1, e1, l1, d1 };
 }
@@ -398,7 +399,7 @@ describe('checkOwnership — the ownership rule', () => {
   it('conductor, foreign mission: names the owner and the caller', () => {
     const m1 = todo({ id: 'm1', title: '[MISSION] converge', ownerSession: 'conductor-B' });
     const e1 = todo({ id: 'e1', title: '[EPIC] the work', parentId: 'm1' });
-    missions.set('m1', { phase: 'execute', active: true });
+    missions.set('m1', { status: 'needs-discovery', active: true, abandonedAt: null });
     const conductorActor = { kind: 'conductor', session: SESSION } as const;
     const result = checkOwnership(PROJECT, 'e1', conductorActor, [m1, e1]);
     expect(result.ok).toBe(false);
@@ -419,7 +420,7 @@ describe('checkOwnership — the ownership rule', () => {
 
   it('conductor, mission not active (active: false) → no-active-mission', () => {
     const { m1, e1 } = mkGraph();
-    missions.set('m1', { phase: 'execute', active: false });
+    missions.set('m1', { status: 'needs-discovery', active: false, abandonedAt: null });
     const conductorActor = { kind: 'conductor', session: SESSION } as const;
     const result = checkOwnership(PROJECT, 'e1', conductorActor, [m1, e1]);
     expect(result.ok).toBe(false);
@@ -429,7 +430,7 @@ describe('checkOwnership — the ownership rule', () => {
 
   it('conductor, mission terminal (phase: converged) → no-active-mission', () => {
     const { m1, e1 } = mkGraph();
-    missions.set('m1', { phase: 'converged', active: true });
+    missions.set('m1', { status: 'converged', active: true, abandonedAt: null });
     const conductorActor = { kind: 'conductor', session: SESSION } as const;
     const result = checkOwnership(PROJECT, 'e1', conductorActor, [m1, e1]);
     expect(result.ok).toBe(false);
@@ -704,7 +705,7 @@ describe('landAuthority — three actors, one proof', () => {
       dependsOn: ['l1'],
       status: 'ready',
     });
-    missions.set('m1', { phase: 'execute', active: true });
+    missions.set('m1', { status: 'needs-discovery', active: true, abandonedAt: null });
 
     const conductorActor = { kind: 'conductor', session: SESSION } as const;
     const verdict = await landAuthority(PROJECT, 'e1', conductorActor, {
