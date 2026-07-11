@@ -1,4 +1,4 @@
-import type { MissionSummary, MissionPhase, MissionStatus } from '@/stores/supervisorStore';
+import type { MissionSummary, MissionStatus } from '@/stores/supervisorStore';
 import { stripKindPrefix } from '@/lib/todoKind';
 
 /**
@@ -21,7 +21,6 @@ export type ConductorTurn = 'daemon' | 'conductor';
 
 export interface ConductingView {
   turn: ConductorTurn;
-  phase: MissionPhase;
   status: MissionStatus;
   goal: string;
   /** Compact micro-label for the card, e.g. "daemon building 2/3" or "your move · plan". */
@@ -30,7 +29,7 @@ export interface ConductingView {
   mechanical: { done: number; total: number };
 }
 
-const TERMINAL_PHASES = new Set<MissionPhase>(['converged', 'stopped']);
+const TERMINAL_STATUSES = new Set<MissionStatus>(['converged', 'abandoned']);
 
 /** Display-only: tear the role label off the mission title for the card ribbon.
  *  This never decides a role — the mission-ness of `m` is settled by `m.mission`
@@ -43,33 +42,25 @@ export function conductingView(m?: MissionSummary | null): ConductingView | null
   if (!m) return null;
   const mi = m.mission ?? ({} as MissionSummary['mission']);
   if (mi.active === false) return null; // paused mission — not the session's live driver
-  const phase = (m.rollup?.phase ?? mi.phase) as MissionPhase | undefined;
-  if (!phase || TERMINAL_PHASES.has(phase)) return null;
-
   const status = (m.rollup?.status ?? 'needs-discovery') as MissionStatus;
+  // Terminal / non-driving statuses have no conducting view — the mission is done or abandoned.
+  if (TERMINAL_STATUSES.has(status)) return null;
+
   const capability = m.rollup?.capability ?? { met: 0, total: 0 };
   const mechanical = m.rollup?.mechanical ?? { done: 0, total: 0 };
   const goal = goalOf(m.node?.title ?? 'mission');
 
-  // Prefer status for turn decision when available.
+  // The daemon is building this iteration's epics → the conductor waits (calm, low rank).
   if (status === 'building') {
-    const label = `daemon building ${mechanical.done}/${mechanical.total}`;
-    return { turn: 'daemon', phase, status, goal, label, capability, mechanical };
+    return { turn: 'daemon', status, goal, label: `daemon building ${mechanical.done}/${mechanical.total}`, capability, mechanical };
   }
 
-  // EXECUTE with epics still in flight = the daemon is building; the conductor waits (fallback for payloads without status).
-  if (phase === 'execute' && mechanical.total > 0 && mechanical.done < mechanical.total) {
-    return { turn: 'daemon', phase, status, goal, label: `daemon building ${mechanical.done}/${mechanical.total}`, capability, mechanical };
-  }
-
-  // Otherwise it's the conductor's move (judgment, or execute with nothing to build).
+  // Otherwise it's the conductor's move: judgment (discover/verify) or a hold (blocked/over-budget).
   const label =
     status === 'needs-verify' ? 'your move · verify'
     : status === 'needs-discovery' ? 'your move · discover'
-    : phase === 'discover' ? 'your move · discover'
-    : phase === 'plan' ? 'your move · plan'
-    : phase === 'verify' ? 'your move · verify'
-    : phase === 'execute' && mechanical.total > 0 ? 'wrapping up · verify next'
-    : 'your move · needs an epic';
-  return { turn: 'conductor', phase, status, goal, label, capability, mechanical };
+    : status === 'blocked' ? 'your move · blocked'
+    : status === 'over-budget' ? 'your move · over budget'
+    : 'your move';
+  return { turn: 'conductor', status, goal, label, capability, mechanical };
 }

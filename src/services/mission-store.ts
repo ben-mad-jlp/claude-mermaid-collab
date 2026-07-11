@@ -496,7 +496,15 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
   const epics = listTodos(project, { includeCompleted: true }).filter(
     (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
   );
-  const runs = epics.flatMap((e) => listLeafRuns({ project, epicId: e.id }));
+  // getMission is a hot, fundamental read — it must NOT crash because the OPTIONAL worker-ledger
+  // read failed (e.g. the ledger DB is momentarily unavailable / not yet created). Degrade to
+  // no run-facts: the mission still derives a status from its criteria + epic states.
+  let runs: ReturnType<typeof listLeafRuns> = [];
+  try {
+    runs = epics.flatMap((e) => listLeafRuns({ project, epicId: e.id }));
+  } catch {
+    runs = [];
+  }
   const criteria = listCriteria(project, m.todoId);
   return {
     abandonedAt: m.abandonedAt,
