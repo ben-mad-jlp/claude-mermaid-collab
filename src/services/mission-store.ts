@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { listTodos } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
+import { listLeafRuns } from './ledger-stats.ts';
 
 /**
  * The convergence-loop phases — the canonical agentic loop
@@ -40,6 +41,18 @@ export type MissionPhase =
   | 'verify'   // check against the goal
   | 'converged'
   | 'stopped';
+
+/** Derived-on-read capability status of a mission (never stored; computed from the
+ *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
+ *  the order listed in deriveMissionStatus. */
+export type MissionStatus =
+  | 'abandoned'       // abandonedAt set
+  | 'over-budget'     // spendUsd >= budgetUsd
+  | 'blocked'         // a mission leaf is parked/rejected, escalated, or an unapproved split
+  | 'building'        // a mission leaf is in flight
+  | 'needs-verify'    // an unverified criterion while a serving epic has landed
+  | 'needs-discovery' // an unmet criterion with no open epic serving it
+  | 'converged';      // every criterion met
 
 /** The active cycle (terminals excluded). VERIFY's next is decided by advanceMission
  *  (converge / stop / loop back to DISCOVER), not a plain wrap. */
@@ -82,6 +95,8 @@ export interface MissionRow {
   abandonedAt: number | null;
   /** Per-mission USD budget ceiling, or null = project default. (Additive; A2 reads it.) */
   budgetUsd: number | null;
+  /** Derived-on-read (A2): populated by getMission, absent on the raw rowToMission row. */
+  status?: MissionStatus;
 }
 
 export interface MissionCriterion {
@@ -121,6 +136,8 @@ export interface MissionRollup {
   stopped: boolean;
   /** Why the loop stopped ('converged' | 'max-iterations' | …), or null if running. */
   stopReason: string | null;
+  /** Derived capability status (A2), first-match-wins precedence. */
+  status: MissionStatus;
 }
 
 const SCHEMA = `
@@ -235,7 +252,9 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
   const row = openDb(project)
     .query('SELECT * FROM mission WHERE todoId = ?')
     .get(todoId) as Record<string, unknown> | null;
-  return row ? rowToMission(row) : undefined;
+  if (!row) return undefined;
+  const m = rowToMission(row);
+  return { ...m, status: deriveMissionStatus(collectMissionStatusFacts(project, m)) };
 }
 
 /**
@@ -497,15 +516,17 @@ export function setCriterionMet(project: string, criterionId: string, met: boole
 export function setCriterionVerdict(
   project: string,
   criterionId: string,
-  verdict: { met: boolean; evidence?: string | null; verifiedBy?: string | null },
+  verdict: { met: boolean; evidence?: string | null; verifiedBy?: string | null; verifiedAtSha?: string | null; evidencePaths?: string[] },
 ): void {
   const res = openDb(project)
-    .prepare('UPDATE mission_criterion SET met = ?, evidence = ?, verifiedBy = ?, verifiedAt = ?, updatedAt = ? WHERE id = ?')
+    .prepare('UPDATE mission_criterion SET met = ?, evidence = ?, verifiedBy = ?, verifiedAt = ?, verifiedAtSha = ?, evidencePaths = ?, updatedAt = ? WHERE id = ?')
     .run(
       verdict.met ? 1 : 0,
       verdict.evidence ?? null,
       verdict.verifiedBy ?? null,
       nowMs(),
+      verdict.verifiedAtSha ?? null,
+      verdict.evidencePaths ? JSON.stringify(verdict.evidencePaths) : null,
       nowMs(),
       criterionId,
     );
@@ -527,6 +548,49 @@ export function removeCriterion(project: string, criterionId: string): void {
 }
 
 // ── Convergence rollup ──────────────────────────────────────────────────────
+
+export interface MissionStatusFacts {
+  abandonedAt: number | null;
+  budgetUsd: number | null;
+  spendUsd: number;
+  hasBlockedLeaf: boolean;   // a leaf run rejected or blocked (parked/rejected/escalation/unapproved-split)
+  hasBuildingLeaf: boolean;  // a leaf run in flight (pending/paused)
+  hasLandedEpic: boolean;    // a mission epic reached status 'done'
+  hasOpenEpic: boolean;      // a mission epic is neither done nor dropped
+  criteria: { met: boolean; verifiedAt: number | null }[];
+}
+
+/** First-match-wins precedence exactly as specified in the A2 brief. */
+export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
+  if (f.abandonedAt != null) return 'abandoned';
+  if (f.budgetUsd != null && f.spendUsd >= f.budgetUsd) return 'over-budget';
+  if (f.hasBlockedLeaf) return 'blocked';
+  if (f.hasBuildingLeaf) return 'building';
+  if (f.hasLandedEpic && f.criteria.some((c) => c.verifiedAt == null)) return 'needs-verify';
+  if (f.criteria.some((c) => !c.met) && !f.hasOpenEpic) return 'needs-discovery';
+  if (f.criteria.length > 0 && f.criteria.every((c) => c.met)) return 'converged';
+  return 'needs-discovery'; // default: nothing landed/built/verified yet (incl. no criteria)
+}
+
+/** Gather the facts deriveMissionStatus needs from the work-graph + ledger. Does NOT call
+ *  getMission/getMissionRollup (no recursion); the caller passes the already-read MissionRow. */
+function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
+  const epics = listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
+  );
+  const runs = epics.flatMap((e) => listLeafRuns({ project, epicId: e.id }));
+  const criteria = listCriteria(project, m.todoId);
+  return {
+    abandonedAt: m.abandonedAt,
+    budgetUsd: m.budgetUsd,
+    spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),
+    hasBlockedLeaf: runs.some((r) => r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
+    hasBuildingLeaf: runs.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused'),
+    hasLandedEpic: epics.some((e) => e.status === 'done'),
+    hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
+    criteria: criteria.map((c) => ({ met: c.met, verifiedAt: c.verifiedAt })),
+  };
+}
 
 /**
  * Compute the mission's two convergence gauges. MECHANICAL counts the mission
@@ -602,6 +666,7 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
   const mechDone = epics.filter((e) => e.status === 'done').length;
   const criteria = listCriteria(project, todoId);
   const capMet = criteria.filter((c) => c.met).length;
+  const facts = collectMissionStatusFacts(project, m);
   return {
     todoId,
     phase: m.phase,
@@ -612,5 +677,6 @@ export function getMissionRollup(project: string, todoId: string): MissionRollup
     converged: criteria.length > 0 && capMet === criteria.length,
     stopped: isTerminalPhase(m.phase),
     stopReason: m.stopReason,
+    status: deriveMissionStatus(facts),
   };
 }

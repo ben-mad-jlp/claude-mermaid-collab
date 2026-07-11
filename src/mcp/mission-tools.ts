@@ -33,7 +33,7 @@ export const MISSION_TOOL_DEFS = [
       { name: 'advance_mission', description: "Advance a mission ONE step through the loop DISCOVER→PLAN→EXECUTE→VERIFY. At VERIFY it makes the ITERATE decision: all criteria met → converged; else maxIterations reached → stopped; else loop back to DISCOVER (iteration++). Pass toPhase to jump to a specific phase (e.g. 'converged'/'stopped' to end, or back to 'discover'). Phase 2a is steward-hand-driven. Returns the new state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, toPhase: { type: 'string', enum: MISSION_PHASES, description: 'Optional: jump to this phase instead of advancing one step.' } }, required: ['project', 'todoId'] } },
       { name: 'stamp_mission', description: "Record a phase activity signal on a mission: event='discover' stamps that a DISCOVER pass ran this iteration; event='verify' stamps that a VERIFY check ran. Timestamps only — does not advance the phase (use advance_mission for that).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, event: { type: 'string', enum: ['discover', 'verify'] } }, required: ['project', 'todoId', 'event'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
-      { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. Pass remove=true to delete the criterion instead. Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
+      { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. Pass remove=true to delete the criterion instead. Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, verifiedAtSha: { type: 'string', description: 'Git sha the verdict was checked against (staleness pin).' }, evidencePaths: { type: 'array', items: { type: 'string' }, description: 'File paths the verdict cited (a later land-diff touching one re-opens this criterion).' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
 ];
 
 /**
@@ -204,18 +204,18 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       return JSON.stringify({ criterion, rollup: getMissionRollup(project, todoId) }, null, 2);
     }
     case 'set_mission_criterion': {
-      const { project, criterionId, met, evidence, verifiedBy, remove } = args as {
-        project: string; criterionId: string; met?: boolean; evidence?: string; verifiedBy?: string; remove?: boolean;
+      const { project, criterionId, met, evidence, verifiedBy, verifiedAtSha, evidencePaths, remove } = args as {
+        project: string; criterionId: string; met?: boolean; evidence?: string; verifiedBy?: string; verifiedAtSha?: string; evidencePaths?: string[]; remove?: boolean;
       };
       if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
       if (remove) { removeCriterion(project, criterionId); return JSON.stringify({ removed: criterionId }, null, 2); }
       if (typeof met !== 'boolean') throw new Error('met (boolean) is required unless remove=true');
-      if (evidence !== undefined || verifiedBy !== undefined) {
-        setCriterionVerdict(project, criterionId, { met, evidence, verifiedBy });
+      if (evidence !== undefined || verifiedBy !== undefined || verifiedAtSha !== undefined || evidencePaths !== undefined) {
+        setCriterionVerdict(project, criterionId, { met, evidence, verifiedBy, verifiedAtSha, evidencePaths });
       } else {
         setCriterionMet(project, criterionId, met);
       }
-      return JSON.stringify({ criterionId, met, evidence: evidence ?? null, verifiedBy: verifiedBy ?? null }, null, 2);
+      return JSON.stringify({ criterionId, met, evidence: evidence ?? null, verifiedBy: verifiedBy ?? null, verifiedAtSha: verifiedAtSha ?? null, evidencePaths: evidencePaths ?? [] }, null, 2);
     }
     default:
       return null;
