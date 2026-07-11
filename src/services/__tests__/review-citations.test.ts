@@ -57,6 +57,22 @@ describe('validateReviewGrounding', () => {
     expect(g.reasons.join(' ')).toContain('cite');
   });
 
+  it('ok: absence-criterion fix — a cited positive PLUS an [N/A] non-goal is NOT vacuous (04062de3 shape)', () => {
+    // The exact class that repeatedly stranded the mission-rewrite epic: a floor-path leaf whose
+    // spec carried an inherently-uncitable non-goal. When the reviewer marks that non-goal [N/A]
+    // (not [MET]) — as the review-node prompt now instructs — the positive criterion carries the
+    // citation and the leaf survives. If someone later "tightens" the gate to convict N/A even when
+    // a positive criterion is cited, this fails and the whole failure class comes back.
+    const text = [
+      '- [MET] servesCriterionId plumbed through createTodo — src/services/todo-store.ts:872',
+      '- [N/A] No phase/iteration/maxIterations changes (non-goal respected) — absence, nothing to cite',
+      '',
+      'VERDICT: PASS',
+    ].join('\n');
+    const g = validateReviewGrounding(text, ['src/services/todo-store.ts']);
+    expect(g.status).toBe('ok');
+  });
+
   it('abstain: changeSet === null, never vacuous', () => {
     const text = 'no criteria at all\n\nVERDICT: PASS';
     const g = validateReviewGrounding(text, null);
