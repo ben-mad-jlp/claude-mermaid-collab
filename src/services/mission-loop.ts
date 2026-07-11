@@ -69,7 +69,7 @@ function nudgeMessage(status: MissionStatus, m: MissionLoopStepInput['mission'],
   const head = `${stamp} 🎯 Mission «${goal}»`;
   switch (status) {
     case 'needs-discovery':
-      return `${head} needs DISCOVERY. ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact gap, and file it as an [EPIC] + leaves under this mission and approve it (make it ready).`;
+      return `${head} is NOT converged — ${rollup.capability.met}/${rollup.capability.total} criteria met. ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact unmet criterion, and file it as an [EPIC] + leaves under this mission and approve it (make it ready).`;
     case 'needs-verify':
       return `${head} needs VERIFY. Run /verify-mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met).`;
     case 'blocked':
