@@ -10,7 +10,6 @@ allowed-tools:
   - Agent
   - mcp__plugin_mermaid-collab_mermaid__get_mission
   - mcp__plugin_mermaid-collab_mermaid__set_mission_criterion
-  - mcp__plugin_mermaid-collab_mermaid__advance_mission
 ---
 
 # verify-mission — the independent gate
@@ -73,7 +72,7 @@ After all verdicts are recorded, the gate has run. The mission's **derived `stat
 - **All criteria met** → `status = converged` (goal genuinely achieved).
 - **Unmet criteria remain** → conductor re-enters `needs-discovery` (iteration++); the unmet criteria and their evidence ARE the next iteration's input. If the mission's budget is exhausted, `status = over-budget` or `abandoned` instead (terminal states).
 
-The gate does **not** call `advance_mission` or step a phase counter. Convergence is a property of the criteria themselves, read back via the derived `status` on the next conductor nudge. Record verdicts, and the loop's next step emerges from the data.
+The gate does **not** advance a phase or step a counter. Convergence is a property of the criteria themselves, read back via the derived `status` on the next conductor nudge. Record verdicts, and the loop's next step emerges from the data.
 
 ### 5. Report
 Summarize: N/total criteria met, which failed + the evidence, and the resulting phase (converged / stopped / looped to discover). If it looped, the un-met criteria + their evidence ARE the next iteration's DISCOVER input.
