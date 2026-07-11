@@ -137,6 +137,10 @@ export interface LandResult {
   masterSha?: string;
   /** Machine reason on a non-landed outcome (e.g. 'epic-merge-conflict', 'non-git'). */
   reason?: string;
+  /** Repo-root-relative paths touched by this land (git diff --name-only
+   *  oldBaseSha..masterSha). Populated only on landed === true; [] otherwise.
+   *  Consumed by the verification-as-event un-verify (mission-store). */
+  landedPaths?: string[];
 }
 
 /** Result of checking whether an epic's accumulation branch has drifted behind trunk.
@@ -1749,7 +1753,15 @@ export class WorktreeManager {
       if (updateRes.code !== 0) {
         return { landed: false, conflict: false, reason: `base-ref-cas-failed: ${updateRes.stderr.trim()}` };
       }
-      return { landed: true, conflict: false, masterSha };
+      const diffRes = await this.runGit(
+        this.opts.projectRoot,
+        ['diff', '--name-only', `${oldBaseSha}..${masterSha}`],
+        QUICK_TIMEOUT_MS,
+      );
+      const landedPaths = diffRes.code === 0
+        ? diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
+        : [];
+      return { landed: true, conflict: false, masterSha, landedPaths };
     } finally {
       // Always tear down the throwaway detached land worktree.
       await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(

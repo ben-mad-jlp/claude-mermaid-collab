@@ -118,6 +118,14 @@ export interface MissionCriterion {
   evidencePaths: string[];
 }
 
+export interface MissionRecheck {
+  criterionId: string;
+  todoId: string;
+  reason: string;
+  landedSha: string | null;
+  enqueuedAt: number;
+}
+
 /** Two convergence gauges: mechanical = this iteration's build progress; capability
  *  = the real "is the mission done" signal over acceptance criteria. */
 export interface MissionRollup {
@@ -163,6 +171,13 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   evidencePaths TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
+CREATE TABLE IF NOT EXISTS mission_recheck (
+  criterionId TEXT PRIMARY KEY,
+  todoId TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  landedSha TEXT,
+  enqueuedAt INTEGER NOT NULL
+);
 `;
 
 const dbCache = new Map<string, Database>();
@@ -547,6 +562,62 @@ export function removeCriterion(project: string, criterionId: string): void {
   openDb(project).prepare('DELETE FROM mission_criterion WHERE id = ?').run(criterionId);
 }
 
+/** Un-verify a criterion: null its entire VERIFY verdict so an independent re-check
+ *  must re-judge it (met=false, verifiedAt/evidence/verifiedBy/verifiedAtSha → null).
+ *  evidencePaths is PRESERVED so a subsequent land can still match it before re-verify. */
+export function clearCriterionVerdict(project: string, criterionId: string): void {
+  const res = openDb(project)
+    .prepare('UPDATE mission_criterion SET met = 0, evidence = NULL, verifiedBy = NULL, verifiedAt = NULL, verifiedAtSha = NULL, updatedAt = ? WHERE id = ?')
+    .run(nowMs(), criterionId);
+  if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+export function enqueueRecheck(project: string, r: { criterionId: string; todoId: string; reason: string; landedSha?: string | null }): void {
+  openDb(project)
+    .prepare('INSERT INTO mission_recheck (criterionId, todoId, reason, landedSha, enqueuedAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(criterionId) DO UPDATE SET reason=excluded.reason, landedSha=excluded.landedSha, enqueuedAt=excluded.enqueuedAt')
+    .run(r.criterionId, r.todoId, r.reason, r.landedSha ?? null, nowMs());
+}
+
+export function listPendingRechecks(project: string): MissionRecheck[] {
+  const rows = openDb(project)
+    .prepare('SELECT * FROM mission_recheck ORDER BY enqueuedAt ASC')
+    .all() as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    criterionId: row.criterionId as string,
+    todoId: row.todoId as string,
+    reason: row.reason as string,
+    landedSha: (row.landedSha as string | null) ?? null,
+    enqueuedAt: row.enqueuedAt as number,
+  }));
+}
+
+export function clearRecheck(project: string, criterionId: string): void {
+  openDb(project).prepare('DELETE FROM mission_recheck WHERE criterionId = ?').run(criterionId);
+}
+
+/** Verification-as-event: given the paths a land touched, un-verify every MET criterion
+ *  whose evidencePaths intersect them and enqueue a per-criterion re-check. Pure path-set
+ *  intersection — NO LLM. Returns the affected {criterionId, todoId} list (for audit). */
+export function unverifyCriteriaForLandedPaths(
+  project: string,
+  landedPaths: string[],
+  opts: { landedSha?: string | null } = {},
+): { criterionId: string; todoId: string }[] {
+  if (landedPaths.length === 0) return [];
+  const landed = new Set(landedPaths);
+  const affected: { criterionId: string; todoId: string }[] = [];
+  for (const m of listMissions(project)) {
+    for (const c of listCriteria(project, m.node.id)) {
+      if (!c.met) continue;
+      if (!c.evidencePaths.some((p) => landed.has(p))) continue;
+      clearCriterionVerdict(project, c.id);
+      enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
+      affected.push({ criterionId: c.id, todoId: c.todoId });
+    }
+  }
+  return affected;
+}
+
 // ── Convergence rollup ──────────────────────────────────────────────────────
 
 export interface MissionStatusFacts {
@@ -574,7 +645,7 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
 
 /** Gather the facts deriveMissionStatus needs from the work-graph + ledger. Does NOT call
  *  getMission/getMissionRollup (no recursion); the caller passes the already-read MissionRow. */
-function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
+export function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
   const epics = listTodos(project, { includeCompleted: true }).filter(
     (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
   );

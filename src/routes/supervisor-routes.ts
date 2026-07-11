@@ -302,8 +302,8 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         if (!body.project || !body.criterionId || !body.text) return jsonError('project, criterionId, text are required', 400);
         const { handleMissionTool } = await import('../mcp/mission-tools.ts');
         await handleMissionTool('update_mission_criterion', body);
-        const { setCriterionVerdict } = await import('../services/mission-store.ts');
-        setCriterionVerdict(body.project, body.criterionId, { met: false, evidence: null, verifiedBy: null });
+        const { clearCriterionVerdict } = await import('../services/mission-store.ts');
+        clearCriterionVerdict(body.project, body.criterionId);
         return Response.json({ criterionId: body.criterionId, text: body.text, verdictCleared: true });
       } catch (err) {
         return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
