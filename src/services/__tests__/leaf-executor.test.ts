@@ -2165,6 +2165,36 @@ describe('isNodeStartFailure', () => {
     };
     expect(isNodeStartFailure(res)).toBe(true);
   });
+
+  it('returns true for a zero-token TIMEOUT regardless of long duration', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: -1,
+      stdout: '',
+      durationMs: 600_000,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      timedOut: true,
+      parseError: 'node timed out after 600000ms (killed)',
+    };
+    expect(isNodeStartFailure(res)).toBe(true);
+  });
+
+  it('returns false for a TIMEOUT that consumed tokens (ordinary slow failure)', () => {
+    const res: NodeResult = {
+      ok: false,
+      exitCode: -1,
+      stdout: '',
+      durationMs: 600_000,
+      usage: { inputTokens: 1200, outputTokens: 40 },
+      rateLimited: false,
+      authMode: 'subscription',
+      timedOut: true,
+      parseError: 'node timed out after 600000ms (killed)',
+    };
+    expect(isNodeStartFailure(res)).toBe(false);
+  });
 });
 
 describe('parkNodeStartFailure integration (node start-failure through runLeaf)', () => {

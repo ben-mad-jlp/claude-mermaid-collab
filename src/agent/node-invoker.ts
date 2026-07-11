@@ -138,6 +138,9 @@ export interface NodeResult {
   text?: string;
   /** Set when --output-format json failed to parse, or on timeout/auth halt. */
   parseError?: string;
+  /** Set by the invoker when the node was killed at its wall-clock timeout (not a
+   *  normal exit). A timeout with zero tokens is a node-START failure, not work. */
+  timedOut?: boolean;
   /** Set by runNode when the node process died before doing any work (a config/infra fault). */
   startFailure?: { provider: string; model: string; detail: string };
   /** Recorded by the executor from the node's own stream-json transcript — NEVER self-reported
@@ -563,6 +566,7 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       authMode,
       text: stdout,
       parseError: `node timed out after ${timeoutMs}ms (killed)`,
+      timedOut: true,
       commands,
     };
   }
@@ -1026,6 +1030,7 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
       authMode,
       text: partial.text,
       parseError: grokParseError(`node timed out after ${timeoutMs}ms (killed)`),
+      timedOut: true,
     };
   }
 
