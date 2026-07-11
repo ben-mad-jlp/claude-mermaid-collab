@@ -61,3 +61,9 @@ Thumbs.db
 /coverage/
 /ui/coverage/
 /ui/test-output*
+
+# SQLite ephemeral WAL/SHM sidecars — never belong in git (bug 36393ef2)
+*.db-shm
+*.db-wal
+**/.collab/*.db-shm
+**/.collab/*.db-wal

@@ -141,6 +141,11 @@ export interface LandResult {
    *  oldBaseSha..masterSha). Populated only on landed === true; [] otherwise.
    *  Consumed by the verification-as-event un-verify (mission-store). */
   landedPaths?: string[];
+  /** P0 0949289b Part 2 — how the main checkout was synced to the land commit after the ref
+   *  advance (it is on the base ref, so its working tree would otherwise be stranded pre-land):
+   *  'reset-hard' = synced clean; 'dirty-skipped' = real tracked work present, left for the guard;
+   *  'reset-failed' = the sync reset errored; 'not-checked-out' = base ref not checked out here. */
+  treeSynced?: 'reset-hard' | 'dirty-skipped' | 'reset-failed' | 'not-checked-out';
 }
 
 /** Result of checking whether an epic's accumulation branch has drifted behind trunk.
@@ -1753,6 +1758,37 @@ export class WorktreeManager {
       if (updateRes.code !== 0) {
         return { landed: false, conflict: false, reason: `base-ref-cas-failed: ${updateRes.stderr.trim()}` };
       }
+
+      // P0 0949289b Part 2 — PREVENT the post-land stale-checkout corruption at the SOURCE.
+      // `update-ref` advanced <baseRef>, but if THIS repo (projectRoot) has <baseRef> checked out,
+      // its HEAD followed the symref to <masterSha> while its index + working tree stayed at the
+      // PRE-land content — so `git write-tree` != `HEAD^{tree}` and a deploy would build the stale
+      // tree (the 5-hour silent-failure class). Sync the checkout to the land commit. SAFE: we only
+      // `reset --hard` when the tracked working tree has NO real uncommitted work vs the pre-land
+      // commit (reset --hard preserves untracked docs/designs). Ephemeral SQLite WAL sidecars
+      // (*.db-shm/*.db-wal) are excluded — they are test cruft, never real work, and previously
+      // (bug 36393ef2) kept the checkout perpetually "dirty" so the old guard never ran. If real
+      // tracked work IS present (a rare allowDirty land over uncommitted edits) we skip the reset
+      // and leave it for the caller's post-land guard to escalate.
+      let treeSynced: LandResult['treeSynced'] = 'not-checked-out';
+      const headRef = await this.runGit(this.opts.projectRoot, ['symbolic-ref', '--quiet', 'HEAD'], QUICK_TIMEOUT_MS);
+      if (headRef.code === 0 && headRef.stdout.trim() === `refs/heads/${baseRef}`) {
+        const realWork = await this.runGit(
+          this.opts.projectRoot,
+          ['diff', '--name-only', oldBaseSha, '--', '.', ':(exclude)*.db-shm', ':(exclude)*.db-wal'],
+          QUICK_TIMEOUT_MS,
+        );
+        const realDirty = realWork.code === 0
+          ? realWork.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
+          : ['<diff-failed>'];
+        if (realDirty.length === 0) {
+          const sync = await this.runGit(this.opts.projectRoot, ['reset', '--hard', masterSha], QUICK_TIMEOUT_MS);
+          treeSynced = sync.code === 0 ? 'reset-hard' : 'reset-failed';
+        } else {
+          treeSynced = 'dirty-skipped';
+        }
+      }
+
       const diffRes = await this.runGit(
         this.opts.projectRoot,
         ['diff', '--name-only', `${oldBaseSha}..${masterSha}`],
@@ -1761,7 +1797,7 @@ export class WorktreeManager {
       const landedPaths = diffRes.code === 0
         ? diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean)
         : [];
-      return { landed: true, conflict: false, masterSha, landedPaths };
+      return { landed: true, conflict: false, masterSha, landedPaths, treeSynced };
     } finally {
       // Always tear down the throwaway detached land worktree.
       await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(

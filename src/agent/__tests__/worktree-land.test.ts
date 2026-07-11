@@ -100,6 +100,25 @@ describe('WorktreeManager — landEpicToMaster + removeEpic (FBPE P4)', () => {
     expect(await exists(path.join(persistDir, 'worktrees', '__land-master__'))).toBe(false);
   });
 
+  it('P0 0949289b Part 2: syncs the on-master checkout to the land commit (write-tree == HEAD^{tree}, content on disk)', async () => {
+    await epicWith('feature.txt', 'epic-output\n');
+    // The checkout is on master and the epic's file is NOT yet on disk (pre-land content).
+    expect(await exists(path.join(repo, 'feature.txt'))).toBe(false);
+
+    const res = await mgr.landEpicToMaster(EPIC);
+    expect(res.landed).toBe(true);
+    expect(res.treeSynced).toBe('reset-hard');
+
+    // Before the Part-2 fix, `update-ref` advanced master while THIS checkout's index + working
+    // tree stayed at the pre-land content → `git write-tree` (index) != `HEAD^{tree}`, and a
+    // deploy would build the stale tree (the 5-hour silent-failure class). The source-side sync
+    // must leave them equal and the landed file present ON DISK.
+    const writeTree = (await runGit(repo, ['write-tree'])).stdout.trim();
+    const headTree = (await runGit(repo, ['rev-parse', 'HEAD^{tree}'])).stdout.trim();
+    expect(writeTree).toBe(headTree);
+    expect(await fs.readFile(path.join(repo, 'feature.txt'), 'utf8')).toBe('epic-output\n');
+  });
+
   it('leaves master UNTOUCHED on a conflicting epic and reports conflict', async () => {
     await epicWith('clash.txt', 'epic-side\n');
     // Diverge master on the SAME file so the merge conflicts.
