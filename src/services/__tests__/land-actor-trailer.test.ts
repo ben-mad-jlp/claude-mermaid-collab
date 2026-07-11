@@ -3,7 +3,7 @@ import { describe, it, expect, mock } from 'bun:test';
 // Mocks registered BEFORE importing ../land-authority so the static import graph is intercepted.
 mock.module('../mission-store', () => ({
   getMission: (_p: string, todoId: string) => MISSIONS.get(todoId),
-  isTerminalPhase: (phase: string) => phase === 'converged' || phase === 'abandoned',
+  isMissionTerminal: (m: { status: string; abandonedAt: number | null }) => m.abandonedAt != null || m.status === 'converged',
 }));
 mock.module('../todo-store', () => ({ listTodos: () => TODOS }));
 
@@ -42,7 +42,7 @@ const CODE = todo({ id: 'c1', title: 'build thing', parentId: 'e1', status: 'don
 const LAND = todo({ id: 'l1', title: '[LAND] Owned work → master', parentId: 'e1', assigneeKind: 'human', dependsOn: ['c1'] });
 let TODOS = [MISSION, EPIC, CODE, LAND];
 
-let MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+let MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
 const gateUnit = (over: Partial<LandGateUnit> = {}): LandGateUnit => ({
   key: '0:test.ts',
@@ -134,7 +134,7 @@ describe('Landed-By trailer records the actor', () => {
   it('human actor: verdict.trailer matches landedByTrailer', async () => {
     // Reset mocks for this test
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const actor: LandActor = { kind: 'human' };
     const { calls, probes } = countingProbes();
@@ -146,7 +146,7 @@ describe('Landed-By trailer records the actor', () => {
 
   it('conductor actor: verdict.trailer matches landedByTrailer', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const actor: LandActor = { kind: 'conductor', session: SESSION };
     const { calls, probes } = countingProbes();
@@ -158,7 +158,7 @@ describe('Landed-By trailer records the actor', () => {
 
   it('daemon actor: verdict.trailer matches landedByTrailer', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const actor: LandActor = { kind: 'daemon', level: 'auto' };
     const { calls, probes } = countingProbes();
@@ -180,7 +180,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
     const results = [];
     for (const actor of actors) {
       TODOS = [MISSION, EPIC, CODE, LAND];
-      MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+      MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
       const { calls, probes } = countingProbes();
       const verdict = await landAuthority(PROJECT, 'e1', actor, { probes, todos: TODOS });
@@ -218,7 +218,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
 
     for (const actor of actors) {
       TODOS = [MISSION, EPIC, CODE, LAND];
-      MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+      MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
       const { calls, probes } = countingProbes();
       const verdict = await landAuthority(PROJECT, 'e1', actor, { probes, todos: TODOS });
@@ -229,7 +229,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
 
   it('green probes: ownership is n/a for human and daemon, owned for conductor', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const human: LandActor = { kind: 'human' };
     const { probes: probes1 } = countingProbes();
@@ -237,7 +237,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
     expect(humanVerdict.ownership).toBe('n/a');
 
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const daemon: LandActor = { kind: 'daemon', level: 'auto' };
     const { probes: probes2 } = countingProbes();
@@ -245,7 +245,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
     expect(daemonVerdict.ownership).toBe('n/a');
 
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const conductor: LandActor = { kind: 'conductor', session: SESSION };
     const { probes: probes3 } = countingProbes();
@@ -263,7 +263,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
     const results = [];
     for (const actor of actors) {
       TODOS = [MISSION, EPIC, CODE, LAND];
-      MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+      MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
       const { calls, probes } = countingProbes();
 
@@ -297,7 +297,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
 
   it('authority does not short-circuit safety: foreign conductor still runs full proof', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const foreigner: LandActor = { kind: 'conductor', session: 'someone-else' };
     const { calls, probes } = countingProbes();
@@ -316,7 +316,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
 
   it('safety does not short-circuit authority: foreign conductor + red probes', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const foreigner: LandActor = { kind: 'conductor', session: 'someone-else' };
     const { calls, probes } = countingProbes();
@@ -343,7 +343,7 @@ describe('ONE proof, THREE actors — no path bypasses landReadiness', () => {
 describe('inherited red is reported, not blocking', () => {
   it('gate returns inherited: green=true, inheritedRed=true, authorized=true for owning conductor', async () => {
     TODOS = [MISSION, EPIC, CODE, LAND];
-    MISSIONS = new Map([['m1', { todoId: 'm1', active: 1, phase: 'execute' }]]);
+    MISSIONS = new Map([['m1', { todoId: 'm1', active: true, status: 'needs-discovery', abandonedAt: null }]]);
 
     const conductor: LandActor = { kind: 'conductor', session: SESSION };
     const { calls, probes } = countingProbes();

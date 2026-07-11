@@ -1,4 +1,4 @@
-import { listMissions, isTerminalPhase, type MissionSummary } from './mission-store.ts';
+import { listMissions, isMissionTerminal, type MissionSummary } from './mission-store.ts';
 
 /** The roles a session can be RESUMED into. Extend as planner/worker earn it —
  *  conductor is the only demonstrated case (a session that owns a live mission). */
@@ -26,7 +26,7 @@ export function resolveSessionRole(project: string, session: string, deps: Sessi
   try {
     const list = (deps.listMissions ?? listMissions)(project);
     const owns = list.some(
-      (m) => m.mission.active && !isTerminalPhase(m.mission.phase) &&
+      (m) => m.mission.active && !isMissionTerminal(m.mission) &&
         (m.ownerSession === session || m.assigneeSession === session),
     );
     return owns ? 'conductor' : null;

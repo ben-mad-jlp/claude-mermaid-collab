@@ -8,10 +8,9 @@ import {
   getTodo, deriveTodoViews, reassignOwnerSession, updateTodo as updateTodoStore,
 } from '../services/todo-store.js';
 import {
-  upsertMission, getMission, advanceMission, setMissionPhase, setMissionConfig, stampDiscover, stampVerify,
+  upsertMission, getMission,
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, removeCriterion, listCriteria, getMissionRollup,
   activateMission, sessionHasActiveMission, setMissionActive, deleteMission, setMissionAbandoned,
-  MISSION_PHASES, type MissionPhase,
 } from '../services/mission-store.js';
 import { isMission, stripLabel } from '../services/todo-kind.js';
 import { getMissionCost } from '../services/mission-cost.js';
@@ -22,16 +21,13 @@ import { addSessionTodo } from './tools/session-todos.js';
  * array in setup.ts via `...MISSION_TOOL_DEFS`.
  */
 export const MISSION_TOOL_DEFS = [
-      { name: 'create_mission', description: "Create a durable MISSION — a convergence LOOP toward a goal. It is a top-level MISSION work-graph node (kind='mission') (a non-closing root: unlike an epic it never auto-closes) plus loop-control state running the canonical agentic loop DISCOVER→PLAN→EXECUTE→VERIFY→(ITERATE: loop back, iteration++). VERIFY checks the acceptance criteria: all met → converged; else if the maxIterations STOP-WHEN cap is hit → stopped; else loop back to DISCOVER. Each iteration's gaps become transient [EPIC] children (the EXECUTE work). Set `criteria` (the VERIFY gate — the real 'done' signal), `maxIterations` (the STOP-WHEN guard so a loop can't run forever), and `procedure` (the EACH-ITERATION recipe). Returns node + state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal, stated bare — do not prefix it. The role lives in the `kind` column and is rendered by the UI.' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, maxIterations: { type: 'number', description: 'STOP-WHEN cap: stop after this many un-converged iterations (omit = unbounded).' }, procedure: { type: 'string', description: 'The EACH-ITERATION recipe (what to do each lap).' }, budgetUsd: { type: 'number', description: 'Optional per-mission USD budget ceiling (null = project default).' } }, required: ['project', 'session', 'title'] } },
+      { name: 'create_mission', description: "Create a durable MISSION — a convergence goal toward which the work-graph evolves. It is a top-level MISSION work-graph node (kind='mission', non-closing root) plus acceptance criteria (the VERIFY gate — the true 'done' signal). Mission status is derived from the work-graph (epic children, leaf runs), acceptance criteria (met/unverified), and human abandonment. Set `criteria` (what must be true for the mission to converge). Returns node + control state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, title: { type: 'string', description: 'Mission goal, stated bare — do not prefix it. The role lives in the `kind` column and is rendered by the UI.' }, description: { type: 'string' }, criteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria = the VERIFY gate; convergence = all met.' }, budgetUsd: { type: 'number', description: 'Optional per-mission USD budget ceiling (null = project default).' } }, required: ['project', 'session', 'title'] } },
       { name: 'set_active_mission', description: "Make ONE mission the ACTIVE mission for its owning session and deactivate every OTHER mission owned by that session — a steward drives one mission at a time, and the mission-loop pass only drives the active one. Missions of other sessions are untouched. Returns the deactivated ids.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission', description: "Edit a mission's node — its title (goal) and/or description. The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' }, abandonedAt: { type: ['number', 'null'], description: 'Human-set abandonment stamp (ms epoch); null clears it. Set to mark the mission "done with it".' } }, required: ['project', 'todoId'] } },
       { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission_criterion', description: "Edit an acceptance criterion's TEXT (the assertion). Does not change its met/verdict — use set_mission_criterion for that.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'criterionId', 'text'] } },
-      { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (phase, iteration, criteria, verdicts). todoId must be a mission node (kind='mission').", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
-      { name: 'set_mission_config', description: "Update a mission's loop-spec config — the maxIterations STOP-WHEN cap and/or the EACH-ITERATION procedure. Pass a field to change it; omit to leave unchanged (pass maxIterations:null to clear the cap).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, maxIterations: { type: ['number', 'null'] }, procedure: { type: ['string', 'null'] } }, required: ['project', 'todoId'] } },
-      { name: 'get_mission', description: 'Read a mission\'s full state: loop-control row (phase, iteration, timestamps), acceptance criteria, and the convergence rollup — mechanical (this iteration\'s [EPIC] children done/total) + capability (criteria met/total) + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' } }, required: ['project', 'todoId'] } },
-      { name: 'advance_mission', description: "Advance a mission ONE step through the loop DISCOVER→PLAN→EXECUTE→VERIFY. At VERIFY it makes the ITERATE decision: all criteria met → converged; else maxIterations reached → stopped; else loop back to DISCOVER (iteration++). Pass toPhase to jump to a specific phase (e.g. 'converged'/'stopped' to end, or back to 'discover'). Phase 2a is steward-hand-driven. Returns the new state + rollup.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, toPhase: { type: 'string', enum: MISSION_PHASES, description: 'Optional: jump to this phase instead of advancing one step.' } }, required: ['project', 'todoId'] } },
-      { name: 'stamp_mission', description: "Record a phase activity signal on a mission: event='discover' stamps that a DISCOVER pass ran this iteration; event='verify' stamps that a VERIFY check ran. Timestamps only — does not advance the phase (use advance_mission for that).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, event: { type: 'string', enum: ['discover', 'verify'] } }, required: ['project', 'todoId', 'event'] } },
+      { name: 'set_mission_owner', description: "Re-home a MISSION to a different session — reassign its ownerSession (and assigneeSession) so its card AND the mission-loop nudge target the right (live) session. Use when a mission was created under the wrong session name; preserves all mission state (criteria, verdicts). todoId must be a mission node (kind='mission').", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, session: { type: 'string', description: 'The session to own/drive the mission (e.g. the live board session).' } }, required: ['project', 'todoId', 'session'] } },
+      { name: 'get_mission', description: 'Read a mission\'s full state: control state, acceptance criteria, and the convergence rollup — mechanical (direct [EPIC] children done/total) + capability (criteria met/total) + converged flag.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' } }, required: ['project', 'todoId'] } },
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' } }, required: ['project', 'todoId', 'text'] } },
       { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. Pass remove=true to delete the criterion instead. Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, verifiedAtSha: { type: 'string', description: 'Git sha the verdict was checked against (staleness pin).' }, evidencePaths: { type: 'array', items: { type: 'string' }, description: 'File paths the verdict cited (a later land-diff touching one re-opens this criterion).' }, remove: { type: 'boolean', description: 'If true, delete the criterion (ignores met).' } }, required: ['project', 'criterionId'] } },
 ];
@@ -44,9 +40,9 @@ export const MISSION_TOOL_DEFS = [
 export async function handleMissionTool(name: string, args: any): Promise<string | null> {
   switch (name) {
     case 'create_mission': {
-      const { project, session, title, description, criteria, maxIterations, procedure, budgetUsd } = args as {
+      const { project, session, title, description, criteria, budgetUsd } = args as {
         project: string; session: string; title: string; description?: string; criteria?: string[];
-        maxIterations?: number | null; procedure?: string | null; budgetUsd?: number | null;
+        budgetUsd?: number | null;
       };
       if (!project || !session || !title) throw new Error('Missing required: project, session, title');
       // Store the BARE goal. `kind` is the only role signal (stage C, decision e852fb0c);
@@ -60,7 +56,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         kind: 'mission',
         assigneeSession: session, description,
       });
-      upsertMission(project, node.id, { maxIterations: maxIterations ?? null, procedure: procedure ?? null, budgetUsd: budgetUsd ?? null });
+      upsertMission(project, node.id, { budgetUsd: budgetUsd ?? null });
       // One-active-per-session: if this session is already driving an active mission,
       // create the new one INACTIVE (don't steal focus). Otherwise it stays active.
       if (sessionHasActiveMission(project, session, node.id)) setMissionActive(project, node.id, false);
@@ -155,46 +151,6 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       if (!project || !criterionId || !text) throw new Error('Missing required: project, criterionId, text');
       updateCriterionText(project, criterionId, text);
       return JSON.stringify({ criterionId, text }, null, 2);
-    }
-    case 'advance_mission': {
-      const { project, todoId, toPhase } = args as { project: string; todoId: string; toPhase?: MissionPhase };
-      if (!project || !todoId) throw new Error('Missing required: project, todoId');
-      if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-      const mission = toPhase ? setMissionPhase(project, todoId, toPhase) : advanceMission(project, todoId);
-      // Sync subscriptions: idempotent re-derive the right subscription state from phase.
-      try {
-        const { syncMissionSubscription } = await import('../services/mission-subscription.js');
-        syncMissionSubscription(project, todoId);
-      } catch (e) {
-        console.warn('mission subscription sync failed (non-fatal):', (e as Error).message);
-      }
-      return JSON.stringify({ mission, rollup: getMissionRollup(project, todoId) }, null, 2);
-    }
-    case 'stamp_mission': {
-      const { project, todoId, event } = args as { project: string; todoId: string; event: 'discover' | 'verify' };
-      if (!project || !todoId || !event) throw new Error('Missing required: project, todoId, event');
-      if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-      const mission = event === 'discover' ? stampDiscover(project, todoId) : stampVerify(project, todoId);
-      return JSON.stringify({ mission }, null, 2);
-    }
-    case 'set_mission_config': {
-      const { project, todoId, maxIterations, procedure } = args as {
-        project: string; todoId: string; maxIterations?: number | null; procedure?: string | null;
-      };
-      if (!project || !todoId) throw new Error('Missing required: project, todoId');
-      if (!getMission(project, todoId)) throw new Error(`mission not found: ${todoId}`);
-      const cfg: { maxIterations?: number | null; procedure?: string | null } = {};
-      if (maxIterations !== undefined) cfg.maxIterations = maxIterations;
-      if (procedure !== undefined) cfg.procedure = procedure;
-      const mission = setMissionConfig(project, todoId, cfg);
-      // Sync subscriptions: idempotent (config change doesn't affect subscription state).
-      try {
-        const { syncMissionSubscription } = await import('../services/mission-subscription.js');
-        syncMissionSubscription(project, todoId);
-      } catch (e) {
-        console.warn('mission subscription sync failed (non-fatal):', (e as Error).message);
-      }
-      return JSON.stringify({ mission }, null, 2);
     }
     case 'add_mission_criterion': {
       const { project, todoId, text } = args as { project: string; todoId: string; text: string };

@@ -15,8 +15,9 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { checkOwnership, landedByTrailer, type LandActor } from '../../services/land-authority';
 import { createTodo, getTodo, _closeProject, listTodos } from '../../services/todo-store';
-import { upsertMission, setMissionPhase } from '../../services/mission-store';
+import { upsertMission, setMissionAbandoned } from '../../services/mission-store';
 import { _closeDb as _closeSupervisorDb } from '../../services/supervisor-store';
+import { _closeLedgerDb } from '../../services/worker-ledger';
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
@@ -62,6 +63,7 @@ describe('land-epic-actor — authority gating', () => {
 
   afterEach(() => {
     _closeProject(repo);
+    _closeLedgerDb();
     try { rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
@@ -146,7 +148,6 @@ describe('land-epic-actor — authority gating', () => {
       ownerSession: 'conductor-2',
     });
     upsertMission(repo, mission.id);
-    setMissionPhase(repo, mission.id, 'execute');
 
     // Create an epic under that mission
     const epic = await createTodo(repo, {
@@ -176,7 +177,6 @@ describe('land-epic-actor — authority gating', () => {
       ownerSession: 'conductor-1',
     });
     upsertMission(repo, mission.id);
-    setMissionPhase(repo, mission.id, 'execute');
 
     // Create an epic under that mission
     const epic = await createTodo(repo, {
@@ -204,7 +204,6 @@ describe('land-epic-actor — authority gating', () => {
       ownerSession: 'conductor-session-xyz',
     });
     upsertMission(repo, mission.id);
-    setMissionPhase(repo, mission.id, 'execute');
 
     const epic = await createTodo(repo, {
       title: '[EPIC] Owned work',
@@ -265,7 +264,7 @@ describe('land-epic-actor — authority gating', () => {
       ownerSession: 'conductor-1',
     });
     upsertMission(repo, mission.id);
-    setMissionPhase(repo, mission.id, 'converged');
+    setMissionAbandoned(repo, mission.id, Date.now());
 
     const epic = await createTodo(repo, {
       title: '[EPIC] Child of done mission',
