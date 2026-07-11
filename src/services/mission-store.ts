@@ -492,6 +492,17 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
 
 /** Gather the facts deriveMissionStatus needs from the work-graph + ledger. Does NOT call
  *  getMission/getMissionRollup (no recursion); the caller passes the already-read MissionRow. */
+/** Blocked/building state is LIVE only from epics still in play — a done/landed epic's historical
+ *  parked/building leaf-runs are not a live blocker (they would otherwise pin a converged, landed
+ *  mission at "blocked" forever, per the precedence blocked>converged). Pure + exported for test. */
+export function liveRunsOf<T extends { epicId: string | null }>(
+  runs: readonly T[],
+  epics: readonly { id: string; status: string }[],
+): T[] {
+  const liveEpicIds = new Set(epics.filter((e) => e.status !== 'done').map((e) => e.id));
+  return runs.filter((r) => r.epicId != null && liveEpicIds.has(r.epicId));
+}
+
 export function collectMissionStatusFacts(project: string, m: MissionRow): MissionStatusFacts {
   const epics = listTodos(project, { includeCompleted: true }).filter(
     (t) => t.parentId === m.todoId && t.status !== 'dropped' && isEpic(t),
@@ -505,13 +516,17 @@ export function collectMissionStatusFacts(project: string, m: MissionRow): Missi
   } catch {
     runs = [];
   }
+  // Blocked/building state is LIVE only from epics still in play (see liveRunsOf) — a converged
+  // mission that once had a parked leaf under a since-landed epic must not read "blocked" forever
+  // (and nudge). Spend still counts ALL runs (total cost is historical by nature).
+  const liveRuns = liveRunsOf(runs, epics);
   const criteria = listCriteria(project, m.todoId);
   return {
     abandonedAt: m.abandonedAt,
     budgetUsd: m.budgetUsd,
     spendUsd: runs.reduce((s, r) => s + r.costUsd, 0),
-    hasBlockedLeaf: runs.some((r) => r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
-    hasBuildingLeaf: runs.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused'),
+    hasBlockedLeaf: liveRuns.some((r) => r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
+    hasBuildingLeaf: liveRuns.some((r) => r.finalOutcome === 'pending' || r.finalOutcome === 'paused'),
     hasLandedEpic: epics.some((e) => e.status === 'done'),
     hasOpenEpic: epics.some((e) => e.status !== 'done'), // dropped already filtered out
     criteria: criteria.map((c) => ({ met: c.met, verifiedAt: c.verifiedAt })),
