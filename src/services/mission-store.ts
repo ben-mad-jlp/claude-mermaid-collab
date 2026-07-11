@@ -248,17 +248,17 @@ export function getMission(project: string, todoId: string): MissionRow | undefi
 export function upsertMission(
   project: string,
   todoId: string,
-  opts: { maxIterations?: number | null; procedure?: string | null } = {},
+  opts: { maxIterations?: number | null; procedure?: string | null; budgetUsd?: number | null } = {},
 ): MissionRow {
   const existing = getMission(project, todoId);
   if (existing) return existing;
   const ts = nowMs();
   openDb(project)
     .prepare(
-      `INSERT INTO mission (todoId, phase, iteration, createdAt, updatedAt, maxIterations, procedure, lastDogfoodAt, lastAssessAt)
-       VALUES (?, 'discover', 1, ?, ?, ?, ?, NULL, NULL)`,
+      `INSERT INTO mission (todoId, phase, iteration, createdAt, updatedAt, maxIterations, procedure, budgetUsd, lastDogfoodAt, lastAssessAt)
+       VALUES (?, 'discover', 1, ?, ?, ?, ?, ?, NULL, NULL)`,
     )
-    .run(todoId, ts, ts, opts.maxIterations ?? null, opts.procedure ?? null);
+    .run(todoId, ts, ts, opts.maxIterations ?? null, opts.procedure ?? null, opts.budgetUsd ?? null);
   return getMission(project, todoId)!;
 }
 
@@ -288,6 +288,18 @@ export function setMissionConfig(
   openDb(project)
     .prepare('UPDATE mission SET maxIterations = ?, procedure = ?, updatedAt = ? WHERE todoId = ?')
     .run(maxIterations, procedure, nowMs(), todoId);
+  return getMission(project, todoId)!;
+}
+
+/** Human-set abandonment stamp. A mission-requirements concept: mark a mission
+ *  "done with it" (abandonedAt = now, ms epoch) or clear it (null → active again).
+ *  Writes the A1 `abandonedAt` column; readers (A2) surface it. */
+export function setMissionAbandoned(project: string, todoId: string, abandonedAt: number | null): MissionRow {
+  const m = getMission(project, todoId);
+  if (!m) throw new Error(`mission not found: ${todoId}`);
+  openDb(project)
+    .prepare('UPDATE mission SET abandonedAt = ?, updatedAt = ? WHERE todoId = ?')
+    .run(abandonedAt, nowMs(), todoId);
   return getMission(project, todoId)!;
 }
 
