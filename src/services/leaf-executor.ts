@@ -46,7 +46,7 @@ import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
-import { validateCriteriaCitability } from './criteria-citability';
+import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
@@ -2265,8 +2265,17 @@ export async function runLeaf(
           const cs = (await deps.changeSet?.(sessionKey)) ?? null;
           const grounding = validateReviewGrounding(review.text ?? '', cs);
           if (grounding.status === 'vacuous') {
-            try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-            return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+            // FLOOR-PATH FIX: a COMMAND-RESULT criterion (tsc/test/build/lint/grep) cannot be
+            // cited to a diff line — verifying it is the command-evidence gate's job below, not
+            // grounding's. When the ONLY uncited criteria are structural command-results, defer to
+            // that gate rather than discard a correct leaf (the class that stranded floor-path
+            // leaves B1/A*). Absence/non-goal criteria are NOT deferred — the reviewer marks those
+            // [N/A]; auto-exempting them would false-pass a real negative check ("no regression").
+            const deferToEvidence = uncitedCriteriaAreAllCommandResults(grounding.criteria, cs ?? []);
+            if (!deferToEvidence) {
+              try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+              return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+            }
           }
           // C2: evidence gate — the claim must be a fact the executor holds.
           const evidence = evaluateCommandEvidence({
