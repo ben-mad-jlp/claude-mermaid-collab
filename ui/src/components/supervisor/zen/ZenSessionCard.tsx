@@ -7,6 +7,7 @@ import { ZenPulseLine } from './ZenPulseLine';
 import { ZenNextPanel } from './ZenNextPanel';
 import { isPulsing, type PulseStage, type NextUp, type NextWork } from '@/lib/zenPulse';
 import { conductingView, type ConductingView } from '@/lib/conductingView';
+import { STATUS_LABEL, STATUS_STYLE as STATUS_PILL_STYLE } from '@/components/supervisor/bridge/rail/missionShared';
 import type { MissionSummary, MissionPhase } from '@/stores/supervisorStore';
 
 // ZenSessionCard — the SINGLE Zen primitive (redesign 2026-06-20). One card per
@@ -97,10 +98,10 @@ const PHASE_PILL: Record<MissionPhase, string> = {
 };
 
 /** Compact mission ribbon under the header — the "dedicated conducting treatment": goal +
- *  phase pill + a mini Goal(criteria)/Build(epics) gauge + a whose-turn micro-label. Styled
+ *  status pill + a mini Goal(criteria)/Build(epics) gauge + a whose-turn micro-label. Styled
  *  as neutral content (like the header's plan/daemon chips), so it reads distinct-but-calm. */
 const MissionRibbon: React.FC<{ cond: ConductingView }> = ({ cond }) => {
-  const { turn, phase, goal, label, capability, mechanical } = cond;
+  const { turn, status, goal, label, capability, mechanical } = cond;
   return (
     <div
       data-testid="mission-ribbon"
@@ -110,8 +111,8 @@ const MissionRibbon: React.FC<{ cond: ConductingView }> = ({ cond }) => {
     >
       <span aria-hidden>🎯</span>
       <span className="font-semibold text-gray-700 dark:text-gray-200 truncate max-w-[10rem]">{goal}</span>
-      <span className={`shrink-0 font-semibold px-1 py-0.5 rounded uppercase tracking-wide ${PHASE_PILL[phase] ?? PHASE_PILL.discover}`}>
-        {phase}
+      <span className={`shrink-0 font-semibold px-1 py-0.5 rounded uppercase tracking-wide ${STATUS_PILL_STYLE[status] ?? STATUS_PILL_STYLE['needs-discovery']}`}>
+        {STATUS_LABEL[status]}
       </span>
       <span className="shrink-0 font-mono tabular-nums text-gray-500 dark:text-gray-400" title="Acceptance criteria met / total (the convergence gauge)">
         goal {capability.met}/{capability.total}

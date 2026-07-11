@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import { stripKindPrefix } from '@/lib/todoKind';
 import { useSupervisorStore, type MissionSummary } from '@/stores/supervisorStore';
 import {
-  PHASE_STYLE,
-  PHASE_LABEL,
-  phaseTooltip,
+  StatusPill,
   isTerminalPhase,
   epicDotClass,
   Gauge,
@@ -68,18 +66,12 @@ export const MissionBlock: React.FC<MissionBlockProps> = ({ serverId, project, s
 
   return (
     <div data-testid="mission-block" className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 space-y-2">
-      {/* Title + Phase pill */}
+      {/* Title + Status pill */}
       <div className="flex items-start justify-between gap-2">
         <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-snug">
           {stripKindPrefix(m.node?.title ?? 'Mission')}
         </span>
-        <span
-          data-testid="mission-phase-pill"
-          className={`shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${PHASE_STYLE[view.phase]}`}
-          title={phaseTooltip(view.phase)}
-        >
-          Phase: {PHASE_LABEL[view.phase]}
-        </span>
+        <StatusPill status={view.status} />
       </div>
 
       {/* Owner row */}

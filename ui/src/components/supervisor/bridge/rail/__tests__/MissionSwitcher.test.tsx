@@ -27,7 +27,7 @@ function makeMission(over: Partial<any> = {}) {
     ownerSession: 'session1',
     assigneeSession: 'session1',
     mission: { todoId: 'm1', phase: 'discover', iteration: 1, maxIterations: 5, active: true, ...over.mission },
-    rollup: { phase: 'discover', iteration: 1, maxIterations: 5, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 0 }, converged: false },
+    rollup: { phase: 'discover', iteration: 1, maxIterations: 5, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 0 }, converged: false, status: 'needs-discovery' as const, ...over.rollup },
     criteria: [],
     epics: [],
     ...over,
@@ -95,7 +95,7 @@ describe('MissionSwitcher', () => {
   it('Activate on terminal mission shows ConfirmDialog', async () => {
     missions = [makeMission({
       mission: { todoId: 'm1', phase: 'converged', iteration: 1, maxIterations: 5, active: false },
-      rollup: { phase: 'converged', iteration: 1, maxIterations: 5, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 0 }, converged: true },
+      rollup: { phase: 'converged', iteration: 1, maxIterations: 5, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 0 }, converged: true, status: 'converged' as const },
     })];
     render(
       <MissionSwitcher
@@ -196,7 +196,7 @@ describe('MissionSwitcher', () => {
       makeMission({
         node: { id: 'm2', title: '[MISSION] Completed', status: 'done' },
         mission: { todoId: 'm2', phase: 'converged', iteration: 1, maxIterations: 5, active: false },
-        rollup: { phase: 'converged', iteration: 1, maxIterations: 5, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 0 }, converged: true },
+        rollup: { phase: 'converged', iteration: 1, maxIterations: 5, mechanical: { done: 0, total: 0 }, capability: { met: 0, total: 0 }, converged: true, status: 'converged' as const },
       }),
     ];
     render(

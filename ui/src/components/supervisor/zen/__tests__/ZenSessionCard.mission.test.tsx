@@ -24,7 +24,7 @@ function mission(over: any = {}): any {
     ownerSession: 'bsync',
     assigneeSession: 'bsync',
     mission: { todoId: 'm1', phase: 'execute', iteration: 1, active: true, ...over.mission },
-    rollup: { phase: over.mission?.phase ?? 'execute', iteration: 1, mechanical: { done: 1, total: 3 }, capability: { met: 0, total: 3 }, converged: false, ...over.rollup },
+    rollup: { phase: over.mission?.phase ?? 'execute', iteration: 1, mechanical: { done: 1, total: 3 }, capability: { met: 0, total: 3 }, converged: false, status: 'building' as const, ...over.rollup },
     criteria: [], epics: [],
   };
 }
@@ -46,12 +46,12 @@ describe('ZenSessionCard mission ribbon', () => {
     expect(document.querySelector('.bg-warning-300')).toBeNull();
   });
 
-  it('conductor’s move (plan) → ribbon shows your-move + amber header tint', () => {
-    render(<ZenSessionCard {...baseProps} mission={mission({ mission: { phase: 'plan' }, rollup: { phase: 'plan', mechanical: { done: 0, total: 0 } } })} />);
-    const ribbon = screen.getByTestId('mission-ribbon');
-    expect(ribbon.getAttribute('data-turn')).toBe('conductor');
-    expect(ribbon.textContent).toContain('your move');
-    expect(document.querySelector('.bg-warning-300')).toBeTruthy(); // amber = your move
+  it("conductor’s move (plan) → ribbon shows your-move + amber header tint", () => {
+    render(<ZenSessionCard {...baseProps} mission={mission({ mission: { phase: "plan" }, rollup: { phase: "plan", mechanical: { done: 0, total: 0 }, status: "needs-discovery" as const } })} />);
+    const ribbon = screen.getByTestId("mission-ribbon");
+    expect(ribbon.getAttribute("data-turn")).toBe("conductor");
+    expect(ribbon.textContent).toContain("your move");
+    expect(document.querySelector(".bg-warning-300")).toBeTruthy(); // amber = your move
   });
 
   it('no mission → no ribbon', () => {

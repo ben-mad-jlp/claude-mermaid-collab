@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { stripKindPrefix } from '@/lib/todoKind';
-import { type MissionSummary, type MissionPhase, useSupervisorStore } from '@/stores/supervisorStore';
+import { type MissionSummary, type MissionPhase, type MissionStatus, useSupervisorStore } from '@/stores/supervisorStore';
 import { ConfirmDialog } from '@/components/dialogs/ConfirmDialog';
 
 /** Phase → pill classes. 'converged' is loud green; the rest reuse the board's
@@ -33,6 +33,51 @@ export function phaseTooltip(phase: MissionPhase): string {
 }
 
 export const isTerminalPhase = (p: MissionPhase): boolean => p === 'converged' || p === 'stopped';
+
+/** Status → pill classes. Status is the derived capability state of the mission. */
+export const STATUS_STYLE: Record<MissionStatus, string> = {
+  converged:        'bg-success-100 text-success-700 dark:bg-success-900/40 dark:text-success-300',
+  building:         'bg-info-100 text-info-700 dark:bg-info-900/40 dark:text-info-300',
+  'needs-verify':   'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  'needs-discovery': 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+  blocked:          'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
+  'over-budget':    'bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300',
+  abandoned:        'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+};
+
+export const STATUS_LABEL: Record<MissionStatus, string> = {
+  converged:        'Converged',
+  building:         'Building',
+  'needs-verify':   'Needs verify',
+  'needs-discovery': 'Needs discovery',
+  blocked:          'Blocked',
+  'over-budget':    'Over budget',
+  abandoned:        'Abandoned',
+};
+
+export function statusTooltip(status: MissionStatus): string {
+  const tooltips: Record<MissionStatus, string> = {
+    converged: 'All criteria met — goal achieved.',
+    building: 'A serving epic is building; the conductor is correctly waiting.',
+    'needs-verify': 'A serving epic landed but a criterion is not yet independently verified.',
+    'needs-discovery': 'The mission needs discovery work to identify what to build.',
+    blocked: 'A criterion is blocked and needs attention.',
+    'over-budget': 'The mission has exceeded its iteration budget.',
+    abandoned: 'The mission has been abandoned.',
+  };
+  return tooltips[status] ?? status;
+}
+
+/** StatusPill component — renders the derived mission status with color coding. */
+export const StatusPill: React.FC<{ status: MissionStatus }> = ({ status }) => (
+  <span
+    data-testid="mission-status-pill"
+    className={`shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${STATUS_STYLE[status]}`}
+    title={statusTooltip(status)}
+  >
+    {STATUS_LABEL[status]}
+  </span>
+);
 
 /** Board-ish status → dot colour for an epic row. */
 export function epicDotClass(status: string): string {
@@ -316,7 +361,7 @@ export const Gauge: React.FC<{
 // ── Criteria editor (add / edit-text / remove — verdict stays read-only) ──────
 
 export const CriteriaEditor: React.FC<{
-  criteria: Array<{ id: string; text: string; met: boolean; order: number }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[] }>;
   onAdd: (text: string) => Promise<void>;
   onEdit: (criterionId: string, text: string) => Promise<void>;
   onRemove: (criterionId: string) => Promise<void>;
@@ -359,9 +404,29 @@ export const CriteriaEditor: React.FC<{
               data-testid="criterion-edit-input"
             />
           ) : (
-            <span className={`flex-1 ${c.met ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}`}>
-              {c.text}
-            </span>
+            <div className="flex-1 flex items-center gap-1">
+              <span className={`${c.met ? 'text-gray-600 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                {c.text}
+              </span>
+              {c.met && c.verifiedAtSha && (
+                <span
+                  data-testid="criterion-provenance"
+                  className="text-3xs text-gray-400 dark:text-gray-500 font-mono"
+                  title={`Independently checked at ${c.verifiedAtSha}; files uncited since.`}
+                >
+                  @{c.verifiedAtSha.slice(0, 7)}
+                </span>
+              )}
+              {c.met && !c.verifiedAtSha && (
+                <span
+                  data-testid="criterion-provenance"
+                  className="text-3xs text-gray-400 dark:text-gray-500 italic"
+                  title="Marked met without an independent verify — provenance unknown."
+                >
+                  (unverified)
+                </span>
+              )}
+            </div>
           )}
           {editingId !== c.id && (
             <span className="opacity-0 group-hover/crit:opacity-100 flex gap-0.5 shrink-0">
@@ -411,6 +476,7 @@ export const CriteriaEditor: React.FC<{
 /** Computed view of a MissionSummary — derived fields for rendering. */
 export interface MissionView {
   phase: MissionPhase;
+  status: MissionStatus;
   iteration: number;
   maxIterations: number | null;
   converged: boolean;
@@ -419,7 +485,7 @@ export interface MissionView {
   procedure: string | null;
   cap: { met: number; total: number };
   mech: { done: number; total: number };
-  criteria: Array<{ id: string; text: string; met: boolean; order: number }>;
+  criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[] }>;
   epics: Array<{ id: string; title: string; status: string; acceptanceStatus?: string }>;
   owner: string | null;
   active: boolean;
@@ -429,6 +495,7 @@ export interface MissionView {
 /** Helper to compute the derived fields a MissionCard needs. */
 export function missionView(m: MissionSummary): MissionView {
   const phase = (m.rollup?.phase ?? m.mission?.phase ?? 'discover') as MissionPhase;
+  const status = (m.rollup?.status ?? 'needs-discovery') as MissionStatus;
   const iteration = m.rollup?.iteration ?? m.mission?.iteration ?? 0;
   const maxIterations = m.rollup?.maxIterations ?? m.mission?.maxIterations ?? null;
   const converged = !!m.rollup?.converged;
@@ -443,7 +510,7 @@ export function missionView(m: MissionSummary): MissionView {
   const active = m.mission?.active !== false;
   const missionId = m.node?.id;
 
-  return { phase, iteration, maxIterations, converged, stopped, stopReason, procedure, cap, mech, criteria, epics, owner, active, missionId };
+  return { phase, status, iteration, maxIterations, converged, stopped, stopReason, procedure, cap, mech, criteria, epics, owner, active, missionId };
 }
 
 export const MissionCard: React.FC<{
@@ -502,12 +569,7 @@ export const MissionCard: React.FC<{
           )}
           {stripKindPrefix(m.node?.title ?? 'Mission')}
         </span>
-        <span
-          className={`shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${PHASE_STYLE[view.phase] ?? PHASE_STYLE.discover}`}
-          title={phaseTooltip(view.phase)}
-        >
-          Phase: {PHASE_LABEL[view.phase] ?? view.phase}
-        </span>
+        <StatusPill status={view.status} />
       </div>
 
       {view.owner && (

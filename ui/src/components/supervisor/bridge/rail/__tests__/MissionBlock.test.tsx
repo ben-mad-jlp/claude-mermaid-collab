@@ -26,7 +26,7 @@ function makeMission(over: Partial<any> = {}) {
     ownerSession: 'design',
     assigneeSession: 'design',
     mission: { todoId: 'm1', phase: 'discover', iteration: 3, maxIterations: 8, procedure: 'do the thing', active: true, ...over.mission },
-    rollup: { phase: 'discover', iteration: 3, maxIterations: 8, mechanical: { done: 1, total: 2 }, capability: { met: 2, total: 3 }, converged: false },
+    rollup: { phase: 'discover', iteration: 3, maxIterations: 8, mechanical: { done: 1, total: 2 }, capability: { met: 2, total: 3 }, converged: false, status: 'needs-discovery' as const, ...over.rollup },
     criteria: [{ id: 'c1', text: 'first crit', met: true, order: 0 }],
     epics: [{ id: 'e1', title: '[EPIC] First', status: 'done' }],
     ...over,
@@ -40,19 +40,19 @@ beforeEach(() => {
 });
 
 describe('MissionBlock', () => {
-  it('renders phase pill, iter, converged/stopped badges, owner, procedure', async () => {
+  it('renders status pill, iter, converged/stopped badges, owner, procedure', async () => {
     render(<MissionBlock serverId="local" project="/proj" session="design" />);
     await waitFor(() => screen.getByTestId('mission-block'));
 
-    expect(screen.getByTestId('mission-phase-pill')).toBeInTheDocument();
-    expect(screen.getByTestId('mission-phase-pill')).toHaveTextContent('Phase: Discover');
+    expect(screen.getByTestId('mission-status-pill')).toBeInTheDocument();
+    expect(screen.getByTestId('mission-status-pill')).toHaveTextContent('Needs discovery');
     expect(screen.getByTestId('mission-owner')).toHaveTextContent('session: design');
     expect(screen.getByText(/iter 3\/8/)).toBeInTheDocument();
     expect(screen.getByText(/do the thing/)).toBeInTheDocument();
   });
 
   it('renders converged badge when converged', async () => {
-    missions = [makeMission({ rollup: { phase: 'discover', iteration: 3, maxIterations: 8, mechanical: { done: 1, total: 2 }, capability: { met: 2, total: 3 }, converged: true } })];
+    missions = [makeMission({ rollup: { phase: 'discover', iteration: 3, maxIterations: 8, mechanical: { done: 1, total: 2 }, capability: { met: 2, total: 3 }, converged: true, status: 'converged' as const } })];
     actions.fetchMissions.mockResolvedValue(missions);
 
     render(<MissionBlock serverId="local" project="/proj" session="design" />);
@@ -63,7 +63,7 @@ describe('MissionBlock', () => {
   it('renders stopped badge when phase is stopped', async () => {
     missions = [makeMission({
       mission: { todoId: 'm1', phase: 'stopped', iteration: 3, maxIterations: 8, procedure: 'do the thing', active: true },
-      rollup: { phase: 'stopped', iteration: 3, maxIterations: 8, mechanical: { done: 1, total: 2 }, capability: { met: 2, total: 3 }, converged: false },
+      rollup: { phase: 'stopped', iteration: 3, maxIterations: 8, mechanical: { done: 1, total: 2 }, capability: { met: 2, total: 3 }, converged: false, status: 'needs-discovery' as const },
     })];
     actions.fetchMissions.mockResolvedValue(missions);
 
@@ -117,12 +117,25 @@ describe('MissionBlock', () => {
     expect(screen.getByText(/First/)).toBeInTheDocument();
   });
 
-  it('mission-phase-pill is a span with no onclick', async () => {
+  it('mission-status-pill is a span with no onclick', async () => {
     render(<MissionBlock serverId="local" project="/proj" session="design" />);
-    await waitFor(() => screen.getByTestId('mission-phase-pill'));
-    const pill = screen.getByTestId('mission-phase-pill');
+    await waitFor(() => screen.getByTestId('mission-status-pill'));
+    const pill = screen.getByTestId('mission-status-pill');
     expect(pill.tagName).toBe('SPAN');
     expect(pill.closest('button')).toBeNull();
+  });
+
+  it('criterion-provenance shows short verified sha for met criterion', async () => {
+    missions = [makeMission({
+      criteria: [{ id: 'c1', text: 'first crit', met: true, order: 0, verifiedAtSha: 'a1b2c3d4e5f6' }],
+    })];
+    actions.fetchMissions.mockResolvedValue(missions);
+
+    render(<MissionBlock serverId="local" project="/proj" session="design" />);
+    await waitFor(() => screen.getByTestId('mission-goal-toggle'));
+    fireEvent.click(screen.getByTestId('mission-goal-toggle'));
+    const provenance = screen.getByTestId('criterion-provenance');
+    expect(provenance).toHaveTextContent('@a1b2c3d');
   });
 
   it('criterion-marker is a span with no onclick', async () => {
