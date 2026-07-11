@@ -170,6 +170,18 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // catches any approvedAt path the primary approval block didn't intercept). The
   // Inbox epic ITSELF is a top-level root (parentId null) → unaffected; only its
   // CHILDREN are gated. Re-home to a real epic to make it claimable.
+  //
+  // WHY THIS GATE IS DISTINCT FROM 'parent-unreleased' (and both must coexist):
+  //   1. Buckets are NEVER released: the Inbox epic has no owner; releasing it
+  //      would auto-run all triage children, defeating the planning-only rule
+  //      (constraint 373a2d52). If deleted, 'parent-unreleased' would surface the
+  //      wrong remediation ("release the Inbox") instead of the right one ("re-home").
+  //   2. This gate sits ABOVE the approval/release gates (before 'unapproved'). If
+  //      an Inbox ever gets approvedAt set (stray approve, replayed frame),
+  //      hasUnreleasedEpicAncestor returns false → 'parent-unreleased' does NOT fire
+  //      → children would become claimable. This gate still fires and keeps them
+  //      gated, so it covers an accidentally-approved bucket that 'parent-unreleased'
+  //      cannot (the approved-bucket backstop).
   if (parentIsInbox(t, byId)) return 'inbox-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
