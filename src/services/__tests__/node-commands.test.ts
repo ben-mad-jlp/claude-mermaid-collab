@@ -204,6 +204,30 @@ describe('node-commands', () => {
       expect(result.reasons[0]).toContain(mainCheckout);
     });
 
+    it('does NOT reject a READ-ONLY diagnostic that escaped (C3 cwd-escape class — correct code)', () => {
+      // A node exploring the wider repo (grep/find) that cd'd out backs no criterion and cannot
+      // fake a green — rejecting the whole leaf over it discards correct code.
+      const commands: RecordedCommand[] = [
+        { cmd: 'cd /repo && grep -rn "mission-status" .collab', cwd: mainCheckout, exitCode: 0 },
+        { cmd: 'find . -name "MissionBlock.test.tsx"', cwd: mainCheckout, exitCode: 0 },
+      ];
+      const result = evaluateCommandEvidence({ commands, claims: [], worktreeRoot });
+      expect(result.reject).toBe(false);
+      expect(result.escapes).toHaveLength(0);
+      expect(result.reasons.some((r) => r.includes('non-fatal'))).toBe(true);
+    });
+
+    it('STILL rejects a VERIFICATION command that escaped — false-green guard intact', () => {
+      const commands: RecordedCommand[] = [
+        { cmd: 'grep -rn foo .', cwd: mainCheckout, exitCode: 0 }, // read-only → non-fatal
+        { cmd: 'cd /repo/ui && npm run test:ci', cwd: mainCheckout, exitCode: 0 }, // verification → fatal
+      ];
+      const result = evaluateCommandEvidence({ commands, claims: [], worktreeRoot });
+      expect(result.reject).toBe(true);
+      expect(result.escapes).toHaveLength(1);
+      expect(result.escapes[0]!.cmd).toContain('npm run test:ci');
+    });
+
     it('warns on unbacked claim (policy="warn")', () => {
       const commands: RecordedCommand[] = [];
       const result = evaluateCommandEvidence({
@@ -256,7 +280,7 @@ describe('node-commands', () => {
 
     it('combines escapes and unbacked claims in reasons', () => {
       const commands: RecordedCommand[] = [
-        { cmd: 'escaped_cmd', cwd: mainCheckout, exitCode: 0 },
+        { cmd: 'npx vitest run', cwd: mainCheckout, exitCode: 0 }, // verification escape → fatal
       ];
       const result = evaluateCommandEvidence({
         commands,
@@ -265,7 +289,7 @@ describe('node-commands', () => {
       });
       expect(result.reject).toBe(true);
       expect(result.reasons.length).toBe(2);
-      expect(result.reasons[0]).toContain('escaped_cmd');
+      expect(result.reasons[0]).toContain('npx vitest run');
       expect(result.reasons[1]).toContain('unbacked_claim');
     });
   });
