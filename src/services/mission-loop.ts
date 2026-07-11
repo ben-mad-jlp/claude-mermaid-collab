@@ -20,6 +20,7 @@ import type { MissionStatus, MissionSummary } from './mission-store.ts';
 import { listMissions, stampMissionNudge, isMissionTerminal } from './mission-store.ts';
 import { getStatus } from './session-status-store.ts';
 import { nudgeSession } from './claude-launch.ts';
+import { fireStamp } from './nudge-stamp.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
 
@@ -41,19 +42,6 @@ function goalOf(title: string): string {
   return title.replace(/^\s*\[MISSION\]\s*/i, '').trim() || 'mission';
 }
 
-/** Format an epoch (ms) as a compact local wall-clock stamp, e.g. "[14:32 CDT]".
- *  Prefixed to every nudge so the human can see WHEN a prompt fired in the steward's
- *  transcript. `now` is passed in (kept out of the pure planner) — no Date.now() here. */
-function fireStamp(now: number): string {
-  try {
-    return `[${new Date(now).toLocaleTimeString('en-US', {
-      hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short',
-    })}]`;
-  } catch {
-    return `[t=${now}]`;
-  }
-}
-
 /** The standing CONDUCTOR discipline, prepended to every nudge (lever #1). A mission
  *  is driven by a CONDUCTOR: it directs the players (files [EPIC]+leaves, approves
  *  them for the daemon to build), it does NOT play the instruments (no hand-editing
@@ -69,7 +57,7 @@ function nudgeMessage(status: MissionStatus, m: MissionLoopStepInput['mission'],
   const head = `${stamp} 🎯 Mission «${goal}»`;
   switch (status) {
     case 'needs-discovery':
-      return `${head} needs DISCOVERY. ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact gap, and file it as an [EPIC] + leaves under this mission and approve it (make it ready).`;
+      return `${head} is NOT converged — ${rollup.capability.met}/${rollup.capability.total} criteria met. ${CONDUCTOR_PREAMBLE}\nExercise the app toward the goal, find the single highest-impact unmet criterion, and file it as an [EPIC] + leaves under this mission and approve it (make it ready).`;
     case 'needs-verify':
       return `${head} needs VERIFY. Run /verify-mission — the INDEPENDENT gate checks each criterion against ground truth (${rollup.capability.met}/${rollup.capability.total} currently met).`;
     case 'blocked':

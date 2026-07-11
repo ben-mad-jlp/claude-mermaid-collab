@@ -48,7 +48,8 @@ test('needs-discovery + idle + no prior nudge → nudge', () => {
   expect(a.kind).toBe('nudge');
   if (a.kind === 'nudge') {
     expect(a.session).toBe('design');
-    expect(a.message).toContain('needs DISCOVERY');
+    expect(a.message).toContain('NOT converged');
+    expect(a.message).toContain('criteria met');
   }
 });
 
@@ -135,7 +136,7 @@ test('runner: nudges an idle needs-discovery mission + stamps the debounce', asy
   });
   expect(r.nudged).toEqual(['m1']);
   expect(stamped).toBe(1);
-  expect(calls[0]).toContain('needs DISCOVERY');
+  expect(calls[0]).toContain('NOT converged');
 });
 
 test('runner: skips a building mission', async () => {

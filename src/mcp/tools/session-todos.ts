@@ -181,6 +181,7 @@ export const addSessionTodoSchema = {
     },
     parentId: { type: 'string', description: 'Parent todo id — the [EPIC] (or sub-task parent) this belongs under. REQUIRED for work todos: every todo must belong to an epic. Omitting it (and inbox) is REJECTED. For a kind:\'epic\' create, an explicit parentId here means "epic OR mission" and wins over missionId.' },
     missionId: { type: ['string', 'null'], description: "Mission homing for a kind:'epic' create. OMIT for the default: the epic is parented to the session's ACTIVE mission. Pass null to force a root epic (opt-out), or a mission todo id to home it explicitly. Ignored for leaves and for the Inbox / Bugfix inbox bucket epics, which are always roots." },
+    servesCriterionId: { type: ['string', 'null'], description: 'A3 epic→criterion edge: the acceptance criterion this epic serves. When a kind:\'epic\' create homes to a mission, set this to the criterion ID to satisfy the approval-time guard. Optional at create; the approval check requires it for a mission-homed epic.' },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
     type: { type: 'string', description: 'Agent-profile type (frontend/backend/api/ui/library). Overrides inference from files.' },
     files: { type: 'array', items: { type: 'string' }, description: 'Touched files — used to infer the agent-profile type when `type` is omitted.' },
@@ -229,6 +230,7 @@ export const updateSessionTodoSchema = {
       description: 'List of todo ids this todo depends on',
     },
     parentId: { type: 'string', description: 'Parent todo id (for subtasks)' },
+    servesCriterionId: { type: ['string', 'null'], description: 'A3 epic→criterion edge: the acceptance criterion this epic serves. Set this on a mission-homed epic before approving it. Pass null to clear.' },
     sessionName: { type: 'string', description: 'Session name to associate with this todo' },
     targetProject: { type: ['string', 'null'], description: 'Absolute path to the repo where this todo is IMPLEMENTED, when different from the tracking project (the worker spawns with cwd=targetProject and its gate runs there). Pass null to clear. Steward use: reroute a cross-project todo (e.g. a yolox/build123d todo) that was created without it.' },
   },
@@ -395,6 +397,8 @@ export async function addSessionTodo(
      *  ACTIVE mission BY DEFAULT. `null` → force a root epic. A string → that mission.
      *  Ignored for leaves and for BUCKET epics (Inbox / Bugfix inbox), which stay roots. */
     missionId?: string | null;
+    /** A3 epic→criterion edge: the mission acceptance-criterion id this epic serves. */
+    servesCriterionId?: string | null;
     sessionName?: string | null;
     type?: string | null;
     /** Touched files — used to INFER the agent-profile type when `type` is absent. */
@@ -463,6 +467,7 @@ export async function updateSessionTodo(
     link?: SessionTodoLink | null;
     dependsOn?: string[];
     parentId?: string | null;
+    servesCriterionId?: string | null;
     sessionName?: string | null;
     targetProject?: string | null;
   }
@@ -501,6 +506,7 @@ export async function updateSessionTodo(
     link: updates.link,
     dependsOn: updates.dependsOn,
     parentId: updates.parentId,
+    servesCriterionId: updates.servesCriterionId,
     sessionName: updates.sessionName,
     targetProject: updates.targetProject,
   });
@@ -610,7 +616,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Add a new per-session todo. Appended to the end of the list with an order value greater than any existing todo.',
     inputSchema: addSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, sessionName, type, files, inbox, kind } = args as {
+      const { project, session, text, title, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, sessionName, type, files, inbox, kind } = args as {
         project: string;
         session: string;
         text?: string;
@@ -625,6 +631,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
         dependsOn?: string[];
         parentId?: string | null;
         missionId?: string | null;
+        servesCriterionId?: string | null;
         sessionName?: string | null;
         type?: string | null;
         files?: string[];
@@ -632,7 +639,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
         kind?: TodoKind;
       };
       if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
-      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, sessionName, type, files, inbox, kind });
+      const result = await addSessionTodo(project, session, title ?? text!, link, { assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, missionId, servesCriterionId, sessionName, type, files, inbox, kind });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },
@@ -642,7 +649,7 @@ export const sessionTodoToolDefs: ToolDef[] = [
     description: 'Update a per-session todo. Any combination of text, completed, and order can be provided; omitted fields are left unchanged.',
     inputSchema: updateSessionTodoSchema,
     handler: async (args, ctx) => {
-      const { project, session, id, text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName } = args as {
+      const { project, session, id, text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, sessionName, targetProject } = args as {
         project: string;
         session: string;
         id: string;
@@ -660,10 +667,12 @@ export const sessionTodoToolDefs: ToolDef[] = [
         dueDate?: string;
         dependsOn?: string[];
         parentId?: string | null;
+        servesCriterionId?: string | null;
         sessionName?: string | null;
+        targetProject?: string | null;
       };
       if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName });
+      const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, servesCriterionId, sessionName, targetProject });
       ctx.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
       return JSON.stringify(result, null, 2);
     },

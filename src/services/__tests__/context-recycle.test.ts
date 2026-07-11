@@ -53,8 +53,12 @@ test('recovering longer than the timeout escalates', () => {
 });
 
 test('advisoryText surfaces the percent, or "high" when unknown', () => {
-  expect(advisoryText({ contextPercent: 82 })).toContain('82%');
-  expect(advisoryText({ contextPercent: null })).toContain('high');
+  expect(advisoryText({ contextPercent: 82 }, 1000)).toContain('82%');
+  expect(advisoryText({ contextPercent: null }, 1000)).toContain('high');
+});
+
+test('advisoryText is stamped with [HH:MM TZ]', () => {
+  expect(advisoryText({ contextPercent: 82 }, 1000)).toMatch(/^\[\d{2}:\d{2} [A-Z]{2,4}\] /);
 });
 
 // --- runner: dep-injected, no-DB-write paths ---

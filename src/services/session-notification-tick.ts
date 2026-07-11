@@ -18,6 +18,7 @@ import {
 } from './session-subscriptions';
 import { snapshotTodos, diffTodos, planNotifications, type SnapshotMap } from './session-notification-router';
 import { nudgeSession } from './claude-launch';
+import { fireStamp } from './nudge-stamp';
 
 /** Don't re-nudge a session more often than this (coalesces a burst into one wake). */
 export const MIN_NUDGE_INTERVAL_MS = 60_000;
@@ -82,7 +83,7 @@ export async function runNotificationTick(
     // clock could falsely throttle the FIRST nudge (now - 0 < interval).
     if (now() - (lastNudgeAt.get(key) ?? -Infinity) < MIN_NUDGE_INTERVAL_MS) continue;
     const label = project.split('/').pop() || project;
-    const res = await nudge(project, session, `📥 ${count} update${count === 1 ? '' : 's'} on ${label} — call inbox()`);
+    const res = await nudge(project, session, `${fireStamp(now())} 📥 ${count} update${count === 1 ? '' : 's'} on ${label} — call inbox()`);
     if (res === 'sent') { lastNudgeAt.set(key, now()); nudged.push(session); }
   }
 

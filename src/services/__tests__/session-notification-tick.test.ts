@@ -48,6 +48,15 @@ describe('runNotificationTick', () => {
     expect(drainInbox(P, 's1')[0].summary).toMatch(/done/);
   });
 
+  it('stamps inbox nudges with [HH:MM TZ]', async () => {
+    addSubscription(P, 's1', 'project');
+    const before = [todo('a', { status: 'ready', kind: 'leaf' })];
+    await runNotificationTick(P, deps(before, 1000)); // seed
+    const after = [todo('a', { status: 'done', kind: 'leaf' })];
+    await runNotificationTick(P, deps(after, 2000)); // nudge @2000
+    expect(nudges[0].text).toMatch(/^\[\d{2}:\d{2} [A-Z]{2,4}\] 📥/);
+  });
+
   it('no subscriptions → no-op', async () => {
     const r = await runNotificationTick(P, deps([todo('a', { status: 'done', kind: 'leaf' })], 1000));
     expect(r).toEqual({ enqueued: 0, nudged: [] });
