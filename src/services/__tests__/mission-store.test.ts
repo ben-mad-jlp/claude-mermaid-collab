@@ -10,6 +10,7 @@ import {
   upsertMission, getMission, deleteMission,
   addCriterion, listCriteria, setCriterionMet, removeCriterion,
   getMissionRollup, listMissions, isMissionTerminal, setMissionAbandoned, _resetMissionDbCache,
+  liveRunsOf,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 
@@ -323,5 +324,31 @@ describe('[MISSION] node is a durable non-closing root', () => {
     const res = await completeTodo(project, child, 'accepted');
     expect(res.rolledUp).toContain(epicId);
     expect(getTodo(project, epicId)!.status).toBe('done');
+  });
+});
+
+describe('liveRunsOf — a landed epic\'s historical parks are not a live blocker', () => {
+  test('excludes runs of DONE epics, keeps runs of in-play epics', () => {
+    const epics = [
+      { id: 'e-landed', status: 'done' },
+      { id: 'e-open', status: 'todo' },
+    ];
+    const runs = [
+      { epicId: 'e-landed', finalOutcome: 'blocked' }, // historical park under a since-landed epic
+      { epicId: 'e-open', finalOutcome: 'pending' },    // live build under an open epic
+    ];
+    expect(liveRunsOf(runs, epics).map((r) => r.epicId)).toEqual(['e-open']);
+  });
+
+  test('a blocked run under a still-open epic IS live (real blocker still counts)', () => {
+    const epics = [{ id: 'e1', status: 'ready' }];
+    const runs = [{ epicId: 'e1', finalOutcome: 'blocked' }];
+    expect(liveRunsOf(runs, epics)).toHaveLength(1);
+  });
+
+  test('a converged mission whose ONLY parks are under a done epic has no live block', () => {
+    const epics = [{ id: 'e-done', status: 'done' }];
+    const runs = [{ epicId: 'e-done', finalOutcome: 'rejected' }];
+    expect(liveRunsOf(runs, epics)).toHaveLength(0);
   });
 });
