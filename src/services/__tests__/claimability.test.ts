@@ -137,7 +137,7 @@ describe('claimReason — each branch', () => {
 
 describe('Inbox = planning-only (inbox-planning gate)', () => {
   const inbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null, kind: 'epic' });
-  const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null, kind: 'epic' });
+  const realEpic = mk({ id: 'EP', title: '[EPIC] Real work', parentId: null, kind: 'epic', approvedAt: APPROVED });
 
   it('isInboxEpic: only the Inbox root', () => {
     expect(isInboxEpic(inbox)).toBe(true);
@@ -259,5 +259,95 @@ describe('dep-dropped (68b8bb09) — derived, never stored', () => {
   it('a dangling dep id is not a drop — it reports deps-pending', () => {
     const t = mk({ id: 'T', ...approved, dependsOn: ['GHOST'] });
     expect(claimReason(t, map(t))).toBe('deps-pending');
+  });
+});
+
+describe('parent-unreleased gate (EPIC 1052bacd)', () => {
+  const approved = { approvedAt: APPROVED };
+
+  it('case 1: leaf under unreleased epic → parent-unreleased, not claimable', () => {
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: null });
+    const leaf = mk({ id: 'L', parentId: 'EP', ...approved });
+    expect(claimReason(leaf, map(epic, leaf))).toBe('parent-unreleased');
+    expect(isClaimable(leaf, map(epic, leaf))).toBe(false);
+  });
+
+  it('case 2: release transition — only epic.approvedAt changes → leaf becomes claimable', () => {
+    const unreleased = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: null });
+    const released = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: APPROVED });
+    const leaf = mk({ id: 'L', parentId: 'EP', ...approved });
+    expect(claimReason(leaf, map(unreleased, leaf))).toBe('parent-unreleased');
+    expect(claimReason(leaf, map(released, leaf))).toBe('claimable');
+  });
+
+  it('case 3: positive control — split child under leaf-with-children parent is claimable', () => {
+    // A split leaf (kind:'leaf') with children and approvedAt=null should NOT gate.
+    // Only EPIC ancestors gate, never a leaf parent (82f1011a shape).
+    const splitLeaf = mk({ id: 'SP', title: 'Split', kind: 'leaf', parentId: null, approvedAt: null });
+    const child = mk({ id: 'C', parentId: 'SP', ...approved });
+    expect(claimReason(child, map(splitLeaf, child))).toBe('claimable');
+    expect(isClaimable(child, map(splitLeaf, child))).toBe(true);
+  });
+
+  it('case 4: grandchild under unreleased epic (chain walked) → parent-unreleased', () => {
+    const topEpic = mk({ id: 'TOP', title: 'Top', kind: 'epic', parentId: null, approvedAt: null });
+    const midLeaf = mk({ id: 'MID', parentId: 'TOP', ...approved });
+    const grandchild = mk({ id: 'GC', parentId: 'MID', ...approved });
+    expect(claimReason(grandchild, map(topEpic, midLeaf, grandchild))).toBe('parent-unreleased');
+  });
+
+  it('case 5: in-flight leaf under unreleased epic → in-flight wins (not revoked)', () => {
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: null });
+    const leaf = mk({ id: 'L', parentId: 'EP', ...approved, claim: CLAIM });
+    expect(claimReason(leaf, map(epic, leaf))).toBe('in-flight');
+  });
+
+  it('case 6: mission ancestor does NOT gate — leaf under epic under mission is claimable', () => {
+    const mission = mk({ id: 'M', title: 'Mission', kind: 'mission', parentId: null, approvedAt: null });
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: 'M', approvedAt: APPROVED });
+    const leaf = mk({ id: 'L', parentId: 'EP', ...approved });
+    expect(claimReason(leaf, map(mission, epic, leaf))).toBe('claimable');
+  });
+
+  it('case 6b: leaf directly under mission (no epic) is claimable', () => {
+    const mission = mk({ id: 'M', title: 'Mission', kind: 'mission', parentId: null, approvedAt: null });
+    const leaf = mk({ id: 'L', parentId: 'M', ...approved });
+    expect(claimReason(leaf, map(mission, leaf))).toBe('claimable');
+  });
+
+  it('hasUnreleasedEpicAncestor: true for unreleased epic parent', () => {
+    const { hasUnreleasedEpicAncestor } = require('../claimability');
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: null });
+    const leaf = mk({ id: 'L', parentId: 'EP' });
+    expect(hasUnreleasedEpicAncestor(leaf, map(epic, leaf))).toBe(true);
+  });
+
+  it('hasUnreleasedEpicAncestor: false for released epic', () => {
+    const { hasUnreleasedEpicAncestor } = require('../claimability');
+    const epic = mk({ id: 'EP', title: 'Epic', kind: 'epic', parentId: null, approvedAt: APPROVED });
+    const leaf = mk({ id: 'L', parentId: 'EP' });
+    expect(hasUnreleasedEpicAncestor(leaf, map(epic, leaf))).toBe(false);
+  });
+
+  it('hasUnreleasedEpicAncestor: false for leaf-with-children parent', () => {
+    const { hasUnreleasedEpicAncestor } = require('../claimability');
+    const splitLeaf = mk({ id: 'SP', title: 'Split', kind: 'leaf', parentId: null, approvedAt: null });
+    const child = mk({ id: 'C', parentId: 'SP' });
+    expect(hasUnreleasedEpicAncestor(child, map(splitLeaf, child))).toBe(false);
+  });
+
+  it('hasUnreleasedEpicAncestor: false for mission parent', () => {
+    const { hasUnreleasedEpicAncestor } = require('../claimability');
+    const mission = mk({ id: 'M', title: 'Mission', kind: 'mission', parentId: null, approvedAt: null });
+    const leaf = mk({ id: 'L', parentId: 'M' });
+    expect(hasUnreleasedEpicAncestor(leaf, map(mission, leaf))).toBe(false);
+  });
+
+  it('hasUnreleasedEpicAncestor: terminates on self-referential parentId cycle', () => {
+    const { hasUnreleasedEpicAncestor } = require('../claimability');
+    const cycled = mk({ id: 'CYC', title: 'Cycled', kind: 'epic', parentId: 'CYC', approvedAt: null });
+    const leaf = mk({ id: 'L', parentId: 'CYC' });
+    expect(hasUnreleasedEpicAncestor(leaf, map(cycled, leaf))).toBe(true);
+    // returns rather than hangs
   });
 });
