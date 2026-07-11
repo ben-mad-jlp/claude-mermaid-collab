@@ -280,6 +280,9 @@ export type UpdateTodoPatch = Partial<{
   /** One-directional FK → SystemObject.id. Set to link this work-todo to a
    *  durable system-object; null to unlink. No lifecycle coupling (the firewall). */
   objectRef: string | null;
+  /** A3 epic→criterion edge: the mission acceptance-criterion id this epic serves,
+   *  or null to clear. Used to satisfy the approval-time guard for mission-homed epics. */
+  servesCriterionId: string | null;
   decisionRef: string | null;
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
@@ -1026,11 +1029,16 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     // acceptance criterion it serves before it can be approved. Fires only on the
     // approval transition (approvedAt newly minted) so re-saves of an already-approved
     // epic don't re-trip it. Models the create-time OrphanTodoError guard.
+    // The guard reads the EFFECTIVE servesCriterionId (post-patch), so a combined
+    // "set edge + approve" call in one update passes (line coupling constraint).
     const newlyApproved = approvedAt != null && existing.approvedAt == null;
-    if (newlyApproved && isEpic(existing) && !existing.servesCriterionId) {
-      const parent = existing.parentId ? getTodo(project, existing.parentId) : null;
-      if (parent && isMission(parent)) {
-        throw new MissingCriterionEdgeError(id, parent.id);
+    if (newlyApproved && isEpic(existing)) {
+      const effectiveServesCriterion = patch.servesCriterionId !== undefined ? patch.servesCriterionId : existing.servesCriterionId;
+      if (!effectiveServesCriterion) {
+        const parent = existing.parentId ? getTodo(project, existing.parentId) : null;
+        if (parent && isMission(parent)) {
+          throw new MissingCriterionEdgeError(id, parent.id);
+        }
       }
     }
 
@@ -1070,6 +1078,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
       targetProject: patch.targetProject !== undefined ? patch.targetProject : existing.targetProject,
       acceptanceStatus: patch.acceptanceStatus !== undefined ? patch.acceptanceStatus : existing.acceptanceStatus,
       objectRef: patch.objectRef !== undefined ? patch.objectRef : existing.objectRef,
+      servesCriterionId: patch.servesCriterionId !== undefined ? patch.servesCriterionId : existing.servesCriterionId,
       decisionRef: patch.decisionRef !== undefined ? patch.decisionRef : existing.decisionRef,
       claimProbe: patch.claimProbe !== undefined ? patch.claimProbe : existing.claimProbe,
       inheritedBlueprintFrom: patch.inheritedBlueprintFrom !== undefined ? patch.inheritedBlueprintFrom : existing.inheritedBlueprintFrom,
@@ -1091,13 +1100,13 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
     db.transaction(() => {
       db.prepare(
         `UPDATE todos SET title=?, description=?, status=?, priority=?, dueDate=?, parentId=?,
-          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, decisionRef=?, claimProbe=?,
+          dependsOn=?, assigneeSession=?, assigneeKind=?, link=?, asanaGid=?, sessionName=?, executedBySession=?, blueprintId=?, type=?, targetProject=?, acceptanceStatus=?, objectRef=?, servesCriterionId=?, decisionRef=?, claimProbe=?,
           approvedAt=?, approvedBy=?, heldAt=?, heldReason=?,
           completedAt=?, completedBy=?, updatedAt=?, inheritedBlueprintFrom=?, inheritedFiles=?${clearClaim ? ', ' + CLAIM_CLEAR_SQL : ''} WHERE id=?`
       ).run(
         next.title, next.description, next.status, next.priority, next.dueDate, next.parentId,
         JSON.stringify(next.dependsOn), next.assigneeSession, next.assigneeKind, next.link ? JSON.stringify(next.link) : null,
-        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.decisionRef, next.claimProbe,
+        next.asanaGid, next.sessionName, next.executedBySession, next.blueprintId, next.type, next.targetProject, next.acceptanceStatus, next.objectRef, next.servesCriterionId, next.decisionRef, next.claimProbe,
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), id
       );
