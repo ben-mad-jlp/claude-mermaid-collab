@@ -40,6 +40,7 @@ function base(): Omit<Todo, 'kind'> {
     retryCount: 0,
     completedBy: null,
     objectRef: null,
+    servesCriterionId: null,
     decisionRef: null,
     claimProbe: null,
     inheritedBlueprintFrom: null,
