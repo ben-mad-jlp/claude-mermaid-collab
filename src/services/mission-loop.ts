@@ -20,6 +20,7 @@ import type { MissionStatus, MissionSummary } from './mission-store.ts';
 import { listMissions, stampMissionNudge, isMissionTerminal } from './mission-store.ts';
 import { getStatus } from './session-status-store.ts';
 import { nudgeSession } from './claude-launch.ts';
+import { fireStamp } from './nudge-stamp.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
 
@@ -39,19 +40,6 @@ export interface MissionLoopStepInput {
 
 function goalOf(title: string): string {
   return title.replace(/^\s*\[MISSION\]\s*/i, '').trim() || 'mission';
-}
-
-/** Format an epoch (ms) as a compact local wall-clock stamp, e.g. "[14:32 CDT]".
- *  Prefixed to every nudge so the human can see WHEN a prompt fired in the steward's
- *  transcript. `now` is passed in (kept out of the pure planner) — no Date.now() here. */
-function fireStamp(now: number): string {
-  try {
-    return `[${new Date(now).toLocaleTimeString('en-US', {
-      hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short',
-    })}]`;
-  } catch {
-    return `[t=${now}]`;
-  }
 }
 
 /** The standing CONDUCTOR discipline, prepended to every nudge (lever #1). A mission
