@@ -2345,6 +2345,18 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // the slot isn't wedged busy on a vanished session.
       for (const t of listTodos(project, { status: 'in_progress' })) {
         if (t.assigneeKind === 'human') continue; // human-owned (e.g. a [SESSION] note) — never reclaim
+        // DUP-DISPATCH FIX (claim-lost churn root, audit c11df7d3): a headless leaf-exec
+        // lane has NO tmux — so THIS reaper's death signal (tmux/harness absence at the
+        // probes below) is meaningless for it, and its ONLY shield here is isRunLive, an
+        // in-memory Set wiped on every restart/hot-swap. A leaf that was in_progress across
+        // a restart (or a soft reload) therefore reads as a "dead claim", gets its claim
+        // re-minted (audit-SILENTLY — this loop records nothing), and the claim loop launches
+        // a DUPLICATE run → the still-live run's launchToken mismatches → claim-lost → repeat
+        // to retry-exhausted/held. Headless-leaf reclamation is covered durably elsewhere,
+        // each with a real staleness/epoch test rather than a volatile liveness bit:
+        // prior-epoch reap (restart), pulse-reap (stale pulse), grace-fallback (null/aged
+        // pulse), and the lease. So exclude headless leaves from this non-durable path.
+        if (isHeadlessLeaf(t, project)) continue;
         // Identity is the persisted pool lane. No sessionName → the todo was never
         // spawned under a lane (or its persist raced); treat as dead and reclaim,
         // rather than fabricating a `worker-<id8>` name that points at no real tmux.
