@@ -1507,17 +1507,15 @@ export interface CreateGateResult { gate: Todo; workTodo: Todo; }
 export async function createGate(project: string, input: CreateGateInput): Promise<CreateGateResult> {
   const work = getTodo(project, input.workTodoId);
   if (!work) throw new Error(`work todo not found: ${input.workTodoId}`);
-  const label = input.gateKind ? `[GATE:${input.gateKind}]` : '[GATE]';
-  const title = input.title.startsWith('[GATE') ? input.title : `${label} ${input.title}`;
   const gate = await createTodo(project, {
     ownerSession: work.ownerSession,
     assigneeKind: 'human',
     parentId: input.parentId ?? null,
     status: 'ready',
-    title,
+    title: input.title,
     description: input.description ?? null,
     decisionRef: input.decisionRef ?? null,
-    kind: 'leaf',  // a gate is a human leaf, never a container
+    kind: 'gate',  // a gate is a human decision node; label renders from kind via labelFor('gate')
     // A [GATE] is a dependency PRIMITIVE, not a work todo: when the caller leaves it
     // unparented it attaches to the work-todo via dependsOn, so don't orphan-reject it.
     allowOrphan: input.parentId == null,
