@@ -13,7 +13,7 @@
  * import it directly to prove server/UI agreement.
  */
 
-export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf';
+export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf' | 'gate';
 
 /** Structural shape the predicates below need. Deliberately NOT bound to
  *  `SessionTodo` — sibling readers pass narrower shapes and the shared
@@ -27,7 +27,7 @@ export interface KindBearing {
 /** @deprecated legacy name for {@link KindBearing}; kept so existing imports compile. */
 export type TodoLike = KindBearing;
 
-const KINDS = ['mission', 'epic', 'land', 'leaf'] as const;
+const KINDS = ['mission', 'epic', 'land', 'leaf', 'gate'] as const;
 const isTodoKind = (v: unknown): v is TodoKind =>
   typeof v === 'string' && (KINDS as readonly string[]).includes(v);
 
@@ -60,6 +60,7 @@ export const isLand = (t: KindBearing | null | undefined): boolean => kindOf(t) 
  *  work. Anything that today means "any executable node" must say
  *  `!isEpic(t) && !isMission(t)`, not `isLeaf(t)`. */
 export const isLeaf = (t: KindBearing | null | undefined): boolean => kindOf(t) === 'leaf';
+export const isGate = (t: KindBearing | null | undefined): boolean => kindOf(t) === 'gate';
 
 /** A `KindBearing` that also has identity. Both the server `Todo` and the UI
  *  `SessionTodo` satisfy it. `parentId` is STRUCTURE, and structure is never a role:
@@ -74,6 +75,7 @@ export const KIND_LABEL: Readonly<Record<TodoKind, string>> = {
   epic: '[EPIC]',
   land: '[LAND]',
   leaf: '',
+  gate: '[GATE]',
 };
 
 /** Human-facing bracket label, for RENDER only. Nothing stores this; it is display

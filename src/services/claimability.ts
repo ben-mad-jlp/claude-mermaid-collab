@@ -36,7 +36,7 @@ export const isInboxEpicTitle = (title: string | null | undefined): boolean =>
 /** The role a work-graph node plays. This is the stored `kind` column's domain —
  *  the type-only pivot that lets `todo-kind.ts` import `TodoKind` from this module
  *  without forming a runtime edge (the import is erased at compile time). */
-export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf';
+export type TodoKind = 'mission' | 'epic' | 'land' | 'leaf' | 'gate';
 
 /** True iff this todo IS the Inbox epic itself (a top-level root, not a child).
  *  ROLE comes from `kind`; the title compare is an IDENTITY check on a named

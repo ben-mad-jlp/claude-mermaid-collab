@@ -470,6 +470,17 @@ function openDb(project: string): Database {
   db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
   db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
   db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
+  // EPIC 532c48fb GAP 1 (step 1, DATA FIRST): [GATE] rows carry no role prefix, so the
+  // leaf catch-all above stamped them kind='leaf'. Re-stamp them kind='gate'. Covers BOTH
+  // forms create_gate emits (todo-store.ts:1499): the bare '[GATE] …' and the labelled
+  // '[GATE:<gateKind>] …'. Idempotent (kind!='gate' guard). Titles are NOT modified — the
+  // [GATE] title predicates (coordinator-live.ts / epic-land-readiness.ts) still read them
+  // until leaf 2 of this epic deletes them.
+  db.exec(
+    `UPDATE todos SET kind='gate'
+     WHERE (kind IS NULL OR kind != 'gate')
+       AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
+  );
   // Stage C (decision e852fb0c): the role prefix is now redundant with `kind`.
   // Strip EXACTLY the three role prefixes, keyed on the already-backfilled `kind`
   // column, never on a generic `title LIKE '[%]%'` — most bracketed titles are
