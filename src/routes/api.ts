@@ -3646,9 +3646,10 @@ export async function handleAPI(
         inbox?: boolean;
         kind?: TodoKind;
         missionId?: string | null;
+        servesCriterionId?: string | null;
       };
 
-      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, kind, missionId } = body;
+      const { project, session, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, kind, missionId, servesCriterionId } = body;
       const title = body.title ?? body.text;
 
       if (!project || !session || !title) {
@@ -3671,7 +3672,7 @@ export async function handleAPI(
       // todo-store.createTodo requires an explicit kind and must never infer one from title.
       // Omitting `missionId` on an epic create is what makes mission homing the DEFAULT
       // (createTodo homes it to the caller's active mission), not an opt-in.
-      const todo = await createTodo(project, { ownerSession: session, title, kind: effectiveKind, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, missionId });
+      const todo = await createTodo(project, { ownerSession: session, title, kind: effectiveKind, link, status, assigneeSession, priority, dueDate, description, parentId, inbox, missionId, servesCriterionId });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
@@ -3820,9 +3821,10 @@ export async function handleAPI(
         dueDate?: string | null;
         description?: string | null;
         link?: SessionTodoLink | null;
+        servesCriterionId?: string | null;
       };
 
-      const { project, session, completed, status, assigneeSession, priority, dueDate, description, link } = body;
+      const { project, session, completed, status, assigneeSession, priority, dueDate, description, link, servesCriterionId } = body;
       const title = body.title ?? body.text;
 
       if (!project || !session) {
@@ -3834,7 +3836,7 @@ export async function handleAPI(
 
       const id = sessionTodosPatchMatch[1];
       const prev = getTodo(project, id); // snapshot the prior assignee for broadcast targeting
-      const todo = await updateTodo(project, id, { title, completed, status, assigneeSession, priority, dueDate, description, link });
+      const todo = await updateTodo(project, id, { title, completed, status, assigneeSession, priority, dueDate, description, link, servesCriterionId });
 
       wsHandler.broadcast({
         type: 'session_todos_updated',
