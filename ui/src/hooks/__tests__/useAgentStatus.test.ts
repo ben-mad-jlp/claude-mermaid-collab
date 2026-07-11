@@ -48,10 +48,12 @@ describe('useAgentStatus', () => {
         )
       );
 
-      renderHook(() => useAgentStatus());
+      const { result } = renderHook(() => useAgentStatus());
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalled();
+        expect(result.current.agentStatus).toBe('working');
+        expect(result.current.agentIsLoading).toBe(false);
       }, { timeout: 3000 });
     });
 
@@ -62,10 +64,12 @@ describe('useAgentStatus', () => {
         )
       );
 
-      renderHook(() => useAgentStatus(5000));
+      const { result } = renderHook(() => useAgentStatus(5000));
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalled();
+        expect(result.current.agentStatus).toBe('working');
+        expect(result.current.agentIsLoading).toBe(false);
       }, { timeout: 3000 });
     });
   });
@@ -193,10 +197,11 @@ describe('useAgentStatus', () => {
         )
       );
 
-      const { unmount } = renderHook(() => useAgentStatus(2000));
+      const { result, unmount } = renderHook(() => useAgentStatus(2000));
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalled();
+        expect(result.current.agentStatus).toBe('working');
       }, { timeout: 3000 });
 
       unmount();
@@ -313,16 +318,21 @@ describe('useAgentStatus', () => {
         )
       );
 
-      const { unmount } = renderHook(() => useAgentStatus(2000));
+      const { result, unmount } = renderHook(() => useAgentStatus(50));
 
+      // State only reachable AFTER the fetch resolves (not the initial 'idle').
       await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalled();
+        expect(result.current.agentStatus).toBe('working');
       }, { timeout: 3000 });
 
       unmount();
+      const callsAtUnmount = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
 
-      // Should not throw
-      expect(true).toBe(true);
+      // The 50ms interval, if not cleared, would fire several times in 200ms.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Observable post-unmount fact: cleanup stopped the poll — no new fetches.
+      expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAtUnmount);
     });
   });
 });
