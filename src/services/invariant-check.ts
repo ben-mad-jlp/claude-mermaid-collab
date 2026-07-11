@@ -1,7 +1,6 @@
 import type { Todo, TodoStatus } from './todo-store';
 import { listTodos } from './todo-store';
 import { recordSupervisorAudit } from './supervisor-store';
-import { isClaimable } from './claimability';
 import { isEpic, isLand, isMission } from './todo-kind.ts';
 
 /**
@@ -17,7 +16,6 @@ import { isEpic, isLand, isMission } from './todo-kind.ts';
  *                            every work todo must belong to an epic).
  *  - stranded-epic           [EPIC] with no [LAND] leaf among its descendants
  *                            (a383bc2c — every epic ends with a land leaf).
- *  - epic-planned-ready-child an [EPIC] still 'planned' that has a 'ready' child.
  *  - broken-depends-on       dependsOn points at a missing or dropped todo.
  *
  * Epics and land leaves are identified by the `kind` column via the shared predicate
@@ -28,7 +26,6 @@ import { isEpic, isLand, isMission } from './todo-kind.ts';
 export type InvariantKind =
   | 'orphan'
   | 'stranded-epic'
-  | 'epic-planned-ready-child'
   | 'broken-depends-on';
 
 export interface InvariantViolation {
@@ -124,22 +121,7 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
       });
     }
 
-    // 3. epic-planned-ready-child — epic still 'planned' but has a CLAIMABLE child.
-    // De-conflate (b2c858d4): "ready" is derived now, so test the child via isClaimable
-    // (the single predicate) rather than the legacy materialized status enum.
-    if (isEpicTodo(t) && t.status === 'planned') {
-      const readyChild = (childrenOf.get(t.id) ?? []).find((c) => isClaimable(c, byId));
-      if (readyChild) {
-        violations.push({
-          kind: 'epic-planned-ready-child',
-          todoId: t.id,
-          title: t.title,
-          reason: `epic is 'planned' but child ${readyChild.id} is 'ready'`,
-        });
-      }
-    }
-
-    // 4. broken-depends-on — a dep points at a missing or dropped todo.
+    // 3. broken-depends-on — a dep points at a missing or dropped todo.
     for (const depId of t.dependsOn ?? []) {
       const dep = byId.get(depId);
       if (!dep) {
@@ -159,7 +141,7 @@ export function findViolations(todos: Todo[]): InvariantViolation[] {
       }
     }
 
-    // 5. (S4, epic b2c858d4) blocked-on-nothing — REMOVED. 'blocked' is no longer a
+    // 4. (S4, epic b2c858d4) blocked-on-nothing — REMOVED. 'blocked' is no longer a
     // materialized readiness state; readiness is derived by claimability, so a 'blocked' enum
     // value whose deps are all done is just legacy noise the predicate ignores, not a violation.
   }

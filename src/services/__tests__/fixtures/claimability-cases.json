@@ -96,8 +96,8 @@
       "why": "SELF-HEAL PROOF: identical graph to dep-dropped-strands-outside-dependent with D reset off `dropped`. T falls straight back to deps-pending, so `dep-dropped` is DERIVED — no column, nothing to migrate.",
       "subject": "T",
       "todos": [
-        { "id": "E1", "kind": "epic", "title": "Live epic", "status": "planned" },
-        { "id": "E2", "kind": "epic", "title": "Un-dropped epic", "status": "planned" },
+        { "id": "E1", "kind": "epic", "title": "Live epic", "status": "planned", "approvedAt": "2026-06-17T00:00:00Z" },
+        { "id": "E2", "kind": "epic", "title": "Un-dropped epic", "status": "planned", "approvedAt": "2026-06-17T00:00:00Z" },
         { "id": "D", "kind": "leaf", "parentId": "E2", "status": "planned" },
         { "id": "T", "kind": "leaf", "parentId": "E1", "status": "planned", "dependsOn": ["D"], "approvedAt": "2026-06-17T00:00:00Z" }
       ],

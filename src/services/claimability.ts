@@ -49,6 +49,32 @@ export const isInboxEpic = (t: Todo | undefined): boolean =>
 export const parentIsInbox = (t: Todo, byId: Map<string, Todo>): boolean =>
   t.parentId != null && isInboxEpic(byId.get(t.parentId));
 
+/**
+ * True iff some EPIC ancestor on this todo's PARENT chain has approvedAt == null.
+ * Walks parentId to the root (never dependsOn); a `seen` guard makes a malformed
+ * parent cycle terminate instead of spinning.
+ *
+ * GATES ON kind==='epic' ANCESTORS ONLY — NEVER on has-children. A split leaf HAS
+ * children yet is a leaf (live proof 82f1011a: 12 split children, still not-headless:
+ * has-children). If has-children gated, every auto-split child would demand its parent
+ * LEAF be released and the splitter would wedge every split silently (the da865ab7
+ * failure). Role is the `kind` column, read via isEpic — the rule cannot be a title regex.
+ *
+ * MISSION ancestors do NOT gate: a mission is driven by its phase, never closes, and is
+ * not a build container. We keep walking PAST a mission (only epic-ness gates), so a
+ * mission never releases and never blocks.
+ */
+export function hasUnreleasedEpicAncestor(t: Todo, byId: Map<string, Todo>): boolean {
+  const seen = new Set<string>();
+  let cur = t.parentId != null ? byId.get(t.parentId) : undefined;
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    if (isEpic(cur) && cur.approvedAt == null) return true;
+    cur = cur.parentId != null ? byId.get(cur.parentId) : undefined;
+  }
+  return false;
+}
+
 export type ClaimReason =
   | 'claimable'       // fully unblocked, approved, agent → daemon-claimable
   | 'terminal'        // status done|dropped
@@ -60,6 +86,7 @@ export type ClaimReason =
   | 'held'            // heldAt != null
   | 'dep-rejected'    // a dep is acceptanceStatus==='rejected' (DISTINCT, recoverable by reset)
   | 'dep-dropped'     // a dep was DROPPED — permanently unsatisfiable; needs a human (re-point the edge, reset the dep, or drop this todo)
+  | 'parent-unreleased' // an EPIC ancestor on the parent chain has approvedAt == null — release the epic (status='ready')
   | 'deps-pending';   // a dep is not yet terminal — recoverable by waiting
   // 'probe-failing' is NOT decided here — the daemon layers the live probe on top at claim time.
 
@@ -143,6 +170,18 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   // catches any approvedAt path the primary approval block didn't intercept). The
   // Inbox epic ITSELF is a top-level root (parentId null) → unaffected; only its
   // CHILDREN are gated. Re-home to a real epic to make it claimable.
+  //
+  // WHY THIS GATE IS DISTINCT FROM 'parent-unreleased' (and both must coexist):
+  //   1. Buckets are NEVER released: the Inbox epic has no owner; releasing it
+  //      would auto-run all triage children, defeating the planning-only rule
+  //      (constraint 373a2d52). If deleted, 'parent-unreleased' would surface the
+  //      wrong remediation ("release the Inbox") instead of the right one ("re-home").
+  //   2. This gate sits ABOVE the approval/release gates (before 'unapproved'). If
+  //      an Inbox ever gets approvedAt set (stray approve, replayed frame),
+  //      hasUnreleasedEpicAncestor returns false → 'parent-unreleased' does NOT fire
+  //      → children would become claimable. This gate still fires and keeps them
+  //      gated, so it covers an accidentally-approved bucket that 'parent-unreleased'
+  //      cannot (the approved-bucket backstop).
   if (parentIsInbox(t, byId)) return 'inbox-planning';
   if (t.approvedAt == null) return 'unapproved';
   if (t.heldAt != null) return 'held';
@@ -157,6 +196,12 @@ export function claimReason(t: Todo, byId: Map<string, Todo>): ClaimReason {
   if ((t.dependsOn ?? []).some((id) => depDropped(byId.get(id)))) {
     return 'dep-dropped';
   }
+  // An EPIC ancestor that has not been released (status='ready' → approvedAt) gates the
+  // whole subtree: nothing under a `planned` epic can be claimed until a planner releases
+  // it. Ancestors ONLY — a todo's own approval is the `unapproved` gate above. In-flight
+  // work is protected: the `t.claim != null` check at the top returns 'in-flight' before
+  // control ever reaches here, so releasing/un-releasing an epic never revokes a running leaf.
+  if (hasUnreleasedEpicAncestor(t, byId)) return 'parent-unreleased';
   if (!(t.dependsOn ?? []).every((id) => depSatisfied(byId.get(id)))) {
     return 'deps-pending';
   }
