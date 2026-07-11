@@ -868,9 +868,9 @@ export function listTodos(project: string, filter: TodoFilter = {}): Todo[] {
  *  static edge would close a cycle. Any failure (no mission.db yet) → null, never throw. */
 async function resolveActiveMissionId(project: string, ownerSession?: string | null): Promise<string | null> {
   try {
-    const { listMissions, isTerminalPhase } = await import('./mission-store.ts');
+    const { listMissions, isMissionTerminal } = await import('./mission-store.ts');
     const live = listMissions(project).filter(
-      (m) => m.mission.active && !isTerminalPhase(m.mission.phase) &&
+      (m) => m.mission.active && !isMissionTerminal(m.mission) &&
              m.node.status !== 'done' && m.node.status !== 'dropped',
     );
     if (live.length === 0) return null;

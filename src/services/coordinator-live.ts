@@ -29,7 +29,7 @@ import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner'
 import { validateStewardProof } from './steward-proof';
 import { runEpicLandGate, landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
 import { landReadiness, findOwningMission, type LandReadinessVerdict, type LandBlocker } from './land-authority';
-import { getMission, isTerminalPhase } from './mission-store';
+import { getMission, isMissionTerminal } from './mission-store';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
@@ -1339,7 +1339,7 @@ function isMissionEpic(project: string, epicId: string, todos: Todo[]): boolean 
   const { mission } = findOwningMission(todos, epicId);
   if (!mission) return false;
   const row = getMission(project, mission.id);
-  return !!row?.active && !isTerminalPhase(row.phase);
+  return !!row?.active && !isMissionTerminal(row);
 }
 
 /**

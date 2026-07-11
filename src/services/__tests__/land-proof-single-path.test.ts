@@ -17,8 +17,9 @@ process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
 
 import { landReadiness, landAuthority, landedByTrailer, type LandActor, type LandProbes } from '../land-authority';
 import { createTodo, getTodo, listTodos, _closeProject, type Todo } from '../todo-store';
-import { upsertMission, setMissionPhase } from '../mission-store';
+import { upsertMission } from '../mission-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
+import { _closeLedgerDb } from '../worker-ledger';
 import type { EpicLandGateResult, EpicLandGateOpts } from '../epic-land-gate';
 
 beforeAll(() => { _closeSupervisorDb(); });
@@ -131,11 +132,11 @@ describe('land-proof-single-path — topology verification', () => {
 
     // Activate the mission
     upsertMission(project, m1.id);
-    setMissionPhase(project, m1.id, 'discover');
   });
 
   afterEach(() => {
     _closeProject(project);
+    _closeLedgerDb();
     try { rmSync(project, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
