@@ -1,4 +1,4 @@
-import type { MissionSummary, MissionPhase } from '@/stores/supervisorStore';
+import type { MissionSummary, MissionPhase, MissionStatus } from '@/stores/supervisorStore';
 import { stripKindPrefix } from '@/lib/todoKind';
 
 /**
@@ -22,6 +22,7 @@ export type ConductorTurn = 'daemon' | 'conductor';
 export interface ConductingView {
   turn: ConductorTurn;
   phase: MissionPhase;
+  status: MissionStatus;
   goal: string;
   /** Compact micro-label for the card, e.g. "daemon building 2/3" or "your move · plan". */
   label: string;
@@ -45,21 +46,30 @@ export function conductingView(m?: MissionSummary | null): ConductingView | null
   const phase = (m.rollup?.phase ?? mi.phase) as MissionPhase | undefined;
   if (!phase || TERMINAL_PHASES.has(phase)) return null;
 
+  const status = (m.rollup?.status ?? 'needs-discovery') as MissionStatus;
   const capability = m.rollup?.capability ?? { met: 0, total: 0 };
   const mechanical = m.rollup?.mechanical ?? { done: 0, total: 0 };
   const goal = goalOf(m.node?.title ?? 'mission');
 
-  // EXECUTE with epics still in flight = the daemon is building; the conductor waits.
+  // Prefer status for turn decision when available.
+  if (status === 'building') {
+    const label = `daemon building ${mechanical.done}/${mechanical.total}`;
+    return { turn: 'daemon', phase, status, goal, label, capability, mechanical };
+  }
+
+  // EXECUTE with epics still in flight = the daemon is building; the conductor waits (fallback for payloads without status).
   if (phase === 'execute' && mechanical.total > 0 && mechanical.done < mechanical.total) {
-    return { turn: 'daemon', phase, goal, label: `daemon building ${mechanical.done}/${mechanical.total}`, capability, mechanical };
+    return { turn: 'daemon', phase, status, goal, label: `daemon building ${mechanical.done}/${mechanical.total}`, capability, mechanical };
   }
 
   // Otherwise it's the conductor's move (judgment, or execute with nothing to build).
   const label =
-    phase === 'discover' ? 'your move · discover'
+    status === 'needs-verify' ? 'your move · verify'
+    : status === 'needs-discovery' ? 'your move · discover'
+    : phase === 'discover' ? 'your move · discover'
     : phase === 'plan' ? 'your move · plan'
     : phase === 'verify' ? 'your move · verify'
     : phase === 'execute' && mechanical.total > 0 ? 'wrapping up · verify next'
     : 'your move · needs an epic';
-  return { turn: 'conductor', phase, goal, label, capability, mechanical };
+  return { turn: 'conductor', phase, status, goal, label, capability, mechanical };
 }
