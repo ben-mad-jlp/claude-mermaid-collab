@@ -1719,6 +1719,13 @@ export async function landEpic(
       }
 
       resolveEscalation(escalationId, 'resolved', 'ai');
+      try {
+        const { unverifyCriteriaForLandedPaths } = await import('./mission-store.ts');
+        const affected = unverifyCriteriaForLandedPaths(project, land.landedPaths ?? [], { landedSha: land.masterSha });
+        if (affected.length > 0) {
+          recordSupervisorAudit({ kind: 'reconcile', project, session: esc.session, detail: JSON.stringify({ escalationId, epicId, epicBranch, unverified: affected.length, criteria: affected.map((a) => a.criterionId) }) });
+        }
+      } catch { /* best-effort — never fail a completed land on the un-verify */ }
       const selfLand = isSelfProject(targetProject);
       // Stamp the self-land so the deploy-status surface can flag the running
       // binary as stale even when the version string didn't change.
