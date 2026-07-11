@@ -192,6 +192,18 @@ describe('Inbox = planning-only (inbox-planning gate)', () => {
     expect(() => kindOf(mk({ kind: null }))).toThrow(MissingKindError);
     expect(() => isInboxEpic(mk({ id: 'X', title: INBOX_EPIC_TITLE, kind: null }))).toThrow(MissingKindError);
   });
+
+  it("released Inbox child → 'inbox-planning', not 'parent-unreleased' (distinct-reason coexistence)", () => {
+    // A released Inbox (approvedAt set). The 'parent-unreleased' gate fires when
+    // an epic ancestor has approvedAt == null; a released Inbox has approvedAt set,
+    // so hasUnreleasedEpicAncestor returns false. Yet the child must STILL be gated
+    // by 'inbox-planning' (re-home reason, not release reason), proving the two are
+    // distinct and both necessary.
+    const releasedInbox = mk({ id: 'IB', title: INBOX_EPIC_TITLE, parentId: null, kind: 'epic', approvedAt: APPROVED });
+    const child = mk({ id: 'C', parentId: 'IB', approvedAt: APPROVED });
+    expect(claimReason(child, map(releasedInbox))).toBe('inbox-planning');
+    expect(isClaimable(child, map(releasedInbox))).toBe(false);
+  });
 });
 
 describe('isClaimable', () => {
