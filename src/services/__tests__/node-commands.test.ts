@@ -228,6 +228,20 @@ describe('node-commands', () => {
       expect(result.escapes[0]!.cmd).toContain('npm run test:ci');
     });
 
+    it('does NOT reject an escaped verification when in-worktree verification ALSO ran (master-baseline comparison)', () => {
+      // The subset-of-baseline verdict REQUIRES running the suite in the master checkout to collect
+      // the baseline failing-name set. When the leaf ALSO verified in the worktree, that master run
+      // is a baseline, not a false-green — the in-worktree run is the authoritative evidence.
+      const commands: RecordedCommand[] = [
+        { cmd: 'bun test ./src/services', cwd: worktreeRoot, exitCode: 0 }, // in-worktree verification (authoritative)
+        { cmd: 'cd /repo && bun test ./src/services', cwd: mainCheckout, exitCode: 0 }, // master baseline (escaped, non-fatal)
+      ];
+      const result = evaluateCommandEvidence({ commands, claims: [], worktreeRoot });
+      expect(result.reject).toBe(false);
+      expect(result.escapes).toHaveLength(0);
+      expect(result.reasons.some((r) => r.includes('baseline'))).toBe(true);
+    });
+
     it('warns on unbacked claim (policy="warn")', () => {
       const commands: RecordedCommand[] = [];
       const result = evaluateCommandEvidence({

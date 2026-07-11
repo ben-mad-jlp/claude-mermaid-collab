@@ -58,13 +58,16 @@ describe('findViolations', () => {
     expect(findViolations([epic, sub, land]).filter((x) => x.kind === 'stranded-epic')).toEqual([]);
   });
 
-  test('epic still planned with a CLAIMABLE child is flagged', () => {
-    const epic = todo({ id: 'e1', title: '[EPIC] x', status: 'planned', kind: 'epic' });
-    // De-conflate (b2c858d4): "ready" = derived isClaimable → the child must be approved+unblocked.
-    const child = todo({ id: 'c1', title: 'c', parentId: 'e1', status: 'ready', approvedAt: '2026-01-01T00:00:00Z', kind: 'leaf' });
+  test('epic-planned-ready-child: RETIRED — released epic with claimable child yields no violation', () => {
+    // A released epic (approvedAt set, status still 'planned') with a claimable child.
+    // The old check would have fired; it is now dead and must not appear.
+    const epic = todo({ id: 'e1', title: '[EPIC] x', status: 'planned', approvedAt: '2026-01-01T00:00:00Z', kind: 'epic' });
+    const child = todo({ id: 'c1', title: 'c', parentId: 'e1', approvedAt: '2026-01-01T00:00:00Z', kind: 'leaf' });
     const land = todo({ id: 'l1', title: '[LAND] x → master', parentId: 'e1', kind: 'land' });
     const v = findViolations([epic, child, land]);
-    expect(v.find((x) => x.kind === 'epic-planned-ready-child' && x.todoId === 'e1')).toBeTruthy();
+    // Retirement proof: a released epic with a claimable child produces no violations
+    // (the old check would have fired here). The kind is no longer in the enum.
+    expect(v).toEqual([]);
   });
 
   test('broken dependsOn: missing and dropped targets', () => {

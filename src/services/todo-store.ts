@@ -496,6 +496,10 @@ function openDb(project: string): Database {
     backfillDeconflateV1(db);
     db.exec(`PRAGMA user_version = ${TODO_DECONFLATE_V1}`);
   }
+  if (ver < TODO_PARENT_RELEASE_V2) {
+    backfillParentReleaseV2(db);
+    db.exec(`PRAGMA user_version = ${TODO_PARENT_RELEASE_V2}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -534,6 +538,9 @@ export async function migrateAllRegisteredProjects(
 
 /** user_version marker for the de-conflate S1 backfill (approvedAt/heldAt/claim). */
 export const TODO_DECONFLATE_V1 = 1;
+
+/** user_version marker for the parent-release backfill (epic approvedAt from approved children). */
+export const TODO_PARENT_RELEASE_V2 = 2;
 
 /**
  * One-shot, idempotent de-conflate S1 backfill (design-todo-model-refactor §S1).
@@ -620,6 +627,32 @@ export function backfillDeconflateV1(db: Database): void {
   if (orphanApprovals !== 0) {
     throw new Error(`de-conflate backfill assertion failed: ${orphanApprovals} row(s) have approvedAt IS NULL but a non-pre-approval status`);
   }
+}
+
+/**
+ * One-shot, idempotent parent-release backfill (EPIC 1052bacd). Runs in the SAME schema
+ * migration as the `parent-unreleased` claim gate — the gate WITHOUT this backfill instantly
+ * un-claims every approved child of a still-`planned` epic (~every open leaf) and wedges the
+ * daemon. This stamps `approvedAt` on every epic that ALREADY has an approved child, so the
+ * live graph does not wedge the moment the gate turns on.
+ *
+ * By construction this only ADDS approvedAt to epics (makes subtrees MORE claimable, never
+ * less), so it can never revoke work. An in-flight leaf is additionally protected by the
+ * in-flight rung in claimReason — releasing is a CLAIM-TIME gate, not a revocation.
+ *
+ * Idempotent: `approvedAt IS NULL` guard makes a second run touch zero rows.
+ */
+export function backfillParentReleaseV2(db: Database): void {
+  db.transaction(() => {
+    db.exec(
+      `UPDATE todos SET approvedAt = updatedAt
+       WHERE kind = 'epic' AND approvedAt IS NULL
+         AND id IN (
+           SELECT parentId FROM todos
+           WHERE parentId IS NOT NULL AND approvedAt IS NOT NULL
+         )`
+    );
+  })();
 }
 
 /** For tests: drop the cached handle so a fresh dir opens a fresh DB. */
