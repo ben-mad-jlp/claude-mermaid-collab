@@ -28,7 +28,7 @@ import { loadProjectManifest, type ProjectManifest } from '../config/project-man
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { runEpicLandGate, landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, findOwningMission, type LandReadinessVerdict, type LandBlocker } from './land-authority';
+import { landReadiness, findOwningMission, checkLandDeps, type LandReadinessVerdict, type LandBlocker } from './land-authority';
 import { getMission, isMissionTerminal } from './mission-store';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
@@ -1348,6 +1348,87 @@ function isMissionEpic(project: string, epicId: string, todos: Todo[]): boolean 
   if (!mission) return false;
   const row = getMission(project, mission.id);
   return !!row?.active && !isMissionTerminal(row);
+}
+
+/** Store-truth decision: should the daemon settle this epic's [LAND] leaf so the
+ *  MISSION_AUTOLAND_ARMED path can land it? PURE — structural checks only (no DB,
+ *  no git). The mission/active gate and the real tsc/merge/gate proof are applied
+ *  by the impure driver below; this only encodes the work-graph shape. */
+export function missionLandLeafPromotion(
+  allTodos: Todo[],
+  epicId: string,
+): { promote: boolean; reason: string; landLeafId?: string; buildChildIds: string[] } {
+  const epic = allTodos.find((t) => t.id === epicId);
+  if (!epic || epic.status === 'done' || epic.status === 'dropped' || epic.heldAt != null) {
+    return { promote: false, reason: 'epic-terminal-or-held', buildChildIds: [] };
+  }
+  const children = allTodos.filter((t) => t.parentId === epicId && t.status !== 'dropped');
+  const landLeaf = children.find((c) => isLand(c));
+  if (!landLeaf) return { promote: false, reason: 'no-land-leaf', buildChildIds: [] };
+  if (landLeaf.status === 'done') {
+    return { promote: false, reason: 'land-leaf-already-done', landLeafId: landLeaf.id, buildChildIds: [] };
+  }
+  const buildChildren = children.filter((c) => c.id !== landLeaf.id);
+  const buildChildIds = buildChildren.map((c) => c.id);
+  if (buildChildren.length === 0) return { promote: false, reason: 'no-build-children', buildChildIds };
+  const allGreen = buildChildren.every(
+    (c) => c.status === 'done' && c.acceptanceStatus === 'accepted',
+  );
+  if (!allGreen) return { promote: false, reason: 'build-not-green', landLeafId: landLeaf.id, buildChildIds };
+  const depBlocker = checkLandDeps(allTodos, epicId);
+  if (depBlocker) return { promote: false, reason: 'land-deps-unsatisfied', landLeafId: landLeaf.id, buildChildIds };
+  return { promote: true, reason: 'ok', landLeafId: landLeaf.id, buildChildIds };
+}
+
+/** MISSION_AUTOLAND_ARMED reachability fix: rollup can never fire for a mission
+ *  epic whose [LAND] leaf is still unapproved (the land leaf is a non-done child),
+ *  so surfaceEpicLand is never reached. This sweep evaluates build-green mission
+ *  epics DIRECTLY every reconcile tick: on a GREEN build proof (land leaf EXCLUDED
+ *  from the child set) it completes the land leaf (accepted, daemon:auto) so the
+ *  epic rolls up and the existing surfaceEpicLand → landEpic armed path lands it.
+ *  Best-effort; never throws. */
+export async function autoLandArmedMissionEpics(project: string): Promise<void> {
+  if (!MISSION_AUTOLAND_ARMED) return;
+  const allTodos = listTodos(project, { includeCompleted: true });
+  const missionEpics = allTodos.filter(
+    (t) => isEpic(t) && t.status !== 'done' && t.status !== 'dropped'
+      && t.heldAt == null && isMissionEpic(project, t.id, allTodos),
+  );
+  for (const epic of missionEpics) {
+    try {
+      const decision = missionLandLeafPromotion(allTodos, epic.id);
+      if (!decision.promote || !decision.landLeafId) continue;
+
+      const buildChildren = allTodos.filter((t) => decision.buildChildIds.includes(t.id));
+      const { byRepo } = partitionEpicChildrenByRepo(buildChildren, project);
+      if (byRepo.size !== 1) {
+        recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+          detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'skip', reason: 'multi-repo-mission' }) });
+        continue;
+      }
+      const [[repo, buildIds]] = [...byRepo];
+      const wm = getWorktreeManager(repo);
+      const epicBranch = wm.epicBranchName(epic.id);
+      const epicWt = await wm.ensureEpic(epic.id).catch(() => null);
+      const proof = await deriveEpicLandProof({
+        project, repo, epicId: epic.id, epicBranch,
+        epicChildIds: buildIds, epicWorktreeCwd: epicWt?.path ?? repo,
+      });
+      const proofGreen = proof.ok && proof.gate.status === 'pass';
+      if (!proofGreen) {
+        recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+          detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'skip', reason: `build-proof-red:${proof.reason}` }) });
+        continue;
+      }
+      await completeTodo(project, decision.landLeafId, 'accepted', 'daemon:auto');
+      recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+        detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'land-leaf-promoted', landLeafId: decision.landLeafId, armed: true }) });
+      await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator', preferLinkTodoId: buildIds[0] });
+    } catch (e) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
+        detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'error', reason: e instanceof Error ? e.message : String(e) }) });
+    }
+  }
 }
 
 /**

@@ -32,7 +32,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
 import { getTodo, sweepEpicRollups } from './todo-store.ts';
-import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND } from './coordinator-live.ts';
+import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
 
 // ---------------------------------------------------------------------------
@@ -123,6 +123,22 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] epic-rollup sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3c. MISSION AUTO-LAND (armed): a mission epic whose BUILD leaves are all
+  // green but whose [LAND] leaf is still unapproved can never roll up (the land
+  // leaf is a non-done child), so the rollup-gated land surface never reaches it.
+  // This sweep evaluates such epics directly and, on a green build proof,
+  // promotes the land leaf so the armed surfaceEpicLand → landEpic path lands it.
+  // -------------------------------------------------------------------------
+  try {
+    await autoLandArmedMissionEpics(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] mission auto-land sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
