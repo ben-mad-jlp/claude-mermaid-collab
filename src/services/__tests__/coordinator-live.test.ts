@@ -142,6 +142,39 @@ describe('makeCoordinatorDeps', () => {
   });
 });
 
+describe('reapDeadClaims — dup-dispatch / claim-lost guard (audit c11df7d3)', () => {
+  afterEach(() => { mockListTodosImpl = () => []; });
+
+  it('does NOT reclaim a headless leaf (its liveness shield isRunLive is wiped on restart → would re-mint the claim audit-silently and dup-dispatch)', async () => {
+    // in_progress headless code leaf, no live run registered (simulates the post-restart
+    // liveRuns wipe), a persisted lane name, and a tmux that is not alive.
+    const leaf = {
+      id: 'headless-leaf-1', kind: 'leaf', type: 'backend', title: '[UI] refresh plan list',
+      assigneeKind: 'agent', status: 'in_progress', parentId: 'epic-1',
+      sessionName: 'worker-headless-1', claimedBy: 'coordinator', claimToken: 'tok-A',
+    } as unknown as Todo;
+    mockListTodosImpl = (_p, opts) => (opts?.status === 'in_progress' ? [leaf] : [leaf]);
+    const deps = makeCoordinatorDeps();
+    const res = await deps.reapDeadClaims!(TEST_ROOT);
+    // Excluded before any probe/reclaim → not reclaimed, not exhausted.
+    expect(res.reclaimed).not.toContain('headless-leaf-1');
+    expect(res.exhausted).not.toContain('headless-leaf-1');
+  });
+
+  it('STILL reclaims a genuinely dead non-headless claim (land leaf) — the reaper keeps its coverage', async () => {
+    const land = {
+      id: 'land-leaf-1', kind: 'land', type: 'backend', title: 'merge epic to master',
+      assigneeKind: 'agent', status: 'in_progress', parentId: 'epic-1',
+      sessionName: 'worker-dead-lane', claimedBy: 'coordinator', claimToken: 'tok-B',
+    } as unknown as Todo;
+    mockListTodosImpl = () => [land];
+    const deps = makeCoordinatorDeps();
+    const res = await deps.reapDeadClaims!(TEST_ROOT);
+    // isHeadlessLeaf(land) === false → not skipped → dead-lane reclaim proceeds (mock → 'ready').
+    expect(res.reclaimed).toContain('land-leaf-1');
+  });
+});
+
 describe('resolveWorkerProfile', () => {
   it('makes the worker autonomous: invokeSkill targets the worker skill with the todo id', () => {
     const todo = { id: 'abc12345-dead-beef-0000-000000000000' } as Todo;
