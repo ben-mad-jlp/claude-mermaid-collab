@@ -48,6 +48,7 @@ import { invokeNode } from '../agent/node-invoker.js';
 import { NODE_PROFILE } from './leaf-executor.js';
 import { listNodeProfileOverrides, getProjectEffort } from './orchestrator-config.js';
 import { nudgeSession } from './claude-launch.js';
+import { fireStamp } from './nudge-stamp.js';
 import { isZenActivelyViewed } from './zen-presence.js';
 import type { EffortLevel } from '../agent/contracts.js';
 
@@ -1176,8 +1177,9 @@ export interface SelfSummaryNudgeDeps {
   now?: () => number;
 }
 
-const SELF_SUMMARY_NUDGE_TEXT =
-  '🪞 You\'ve gone quiet — please call the update_zen_summary MCP tool to self-report your current Zen summary (a short paragraph + status so your card stays fresh).';
+function selfSummaryNudgeText(now: number): string {
+  return `${fireStamp(now)} 🪞 You've gone quiet — please call the update_zen_summary MCP tool to self-report your current Zen summary (a short paragraph + status so your card stays fresh).`;
+}
 
 /**
  * Periodic daemon pass: nudge QUIET interactive claude sessions to self-report their Zen
@@ -1205,7 +1207,7 @@ export async function runSelfSummaryNudgePass(
     const key = `${e.project}::${e.session}`;
     if (!shouldSelfNudge(e, lastSelfNudgeAt.get(key) ?? -Infinity, nowMs, cfg.intervalMs)) continue;
     eligible++;
-    const res = await nudge(e.project, e.session, SELF_SUMMARY_NUDGE_TEXT);
+    const res = await nudge(e.project, e.session, selfSummaryNudgeText(nowMs));
     if (res === 'sent') { lastSelfNudgeAt.set(key, now()); nudged.push(e.session); }
   }
   return { scanned: list.length, eligible, nudged };

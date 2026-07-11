@@ -17,6 +17,7 @@ import {
   type ContextRecycleMode,
 } from './supervisor-store';
 import { nudgeSession } from './claude-launch';
+import { fireStamp } from './nudge-stamp';
 
 /**
  * Context-auto-recycle DRIVER (Phase 1 of the convergence-loop work).
@@ -97,9 +98,9 @@ export function planRecycleStep(
 }
 
 /** The advisory line injected in 'notify' mode — a heads-up, not a slash command. */
-export function advisoryText(row: Pick<SessionStatusRow, 'contextPercent'>): string {
+export function advisoryText(row: Pick<SessionStatusRow, 'contextPercent'>, now: number): string {
   const pct = row.contextPercent != null ? `${row.contextPercent}%` : 'high';
-  return `⚠️ Context ${pct} — run /vibe-checkpoint to recycle; I'll /clear and reload once it's saved.`;
+  return `${fireStamp(now)} ⚠️ Context ${pct} — run /vibe-checkpoint to recycle; I'll /clear and reload once it's saved.`;
 }
 
 /** Injectable seams so the runner is unit-testable without a real tmux/DB. */
@@ -154,7 +155,7 @@ export async function runContextRecyclePass(project: string, deps: RecycleDeps =
           break;
         case 'inject-advisory':
           if (tryEmitWatchdogAction(project, row.session, 'recycle-advisory', RECYCLE_ADVISORY_COOLDOWN_MS, now)) {
-            if ((await nudge(project, row.session, advisoryText(row))) !== 'sent') {
+            if ((await nudge(project, row.session, advisoryText(row, now))) !== 'sent') {
               resetWatchdogDebounce(project, row.session);
             }
           }
