@@ -138,6 +138,10 @@ export interface Todo {
   inheritedBlueprintFrom: string | null;
   /** SR-7: the files this split child owns (its slice of the parent plan). */
   inheritedFiles: string[];
+  /** EPIC 532c48fb GAP 2: bucket-ness, ORTHOGONAL to `kind`. A bucket IS an epic that
+   *  never lands / has no branch / no mission / is not conductor-landable. Backfilled by
+   *  id for the 5 known buckets; predicates migrate to consult this in leaf 4. */
+  isBucket: boolean;
 }
 
 export interface TodoFilter {
@@ -340,6 +344,7 @@ interface TodoRow {
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
   inheritedFiles: string | null;
+  isBucket: number;
 }
 
 const DDL = `
@@ -378,7 +383,8 @@ CREATE TABLE IF NOT EXISTS todos (
   decisionRef TEXT,
   claimProbe TEXT,
   inheritedBlueprintFrom TEXT,
-  inheritedFiles TEXT
+  inheritedFiles TEXT,
+  isBucket INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
 CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);
@@ -392,7 +398,7 @@ function addColumnIfMissing(db: Database, table: string, col: string, ddl: strin
 
 const dbCache = new Map<string, Database>();
 
-function openDb(project: string): Database {
+export function openDb(project: string): Database {
   // A worker whose cwd is its isolation worktree (<repo>/.collab/agent-sessions/...)
   // must resolve to the TRACKING repo's todos.db, never a worktree-local one — else
   // it opens an empty/absent db (silent 'no such table', or SQLITE_IOERR creating it
@@ -450,6 +456,11 @@ function openDb(project: string): Database {
   // their slice of files. Both nullable; present iff a split child.
   addColumnIfMissing(db, 'todos', 'inheritedBlueprintFrom', 'inheritedBlueprintFrom TEXT');
   addColumnIfMissing(db, 'todos', 'inheritedFiles', 'inheritedFiles TEXT');
+  // EPIC 532c48fb GAP 2 (step 3, DATA FIRST): bucket-ness is ORTHOGONAL to `kind`.
+  // A bucket IS an epic that never lands / has no branch / no mission. Additive,
+  // NOT NULL DEFAULT 0 so every existing row reads false until the backfill below
+  // flips the 5 known bucket ids. Predicates keep reading titles until leaf 4.
+  addColumnIfMissing(db, 'todos', 'isBucket', 'isBucket INTEGER NOT NULL DEFAULT 0');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -500,6 +511,20 @@ function openDb(project: string): Database {
     backfillParentReleaseV2(db);
     db.exec(`PRAGMA user_version = ${TODO_PARENT_RELEASE_V2}`);
   }
+  if (ver < TODO_BUCKET_COLUMN_V3) {
+    // EPIC 532c48fb GAP 2: flip the 5 KNOWN bucket epics to isBucket=1 BY ID (never by
+    // title regex — a41c8051 has a title suffix the fail-open title predicate C misses).
+    //   bb4a9a5d = [EPIC] Inbox
+    //   a41c8051, 98a779a1, 9759e36f, 3a6023e9 = the four [EPIC] Bugfix inbox rows
+    // Real deliverables that MUST stay isBucket=0 (regression setup for leaf 4):
+    //   d3e2a341 ("... human inbox"), and "[EPIC] Inbox rendering bugs".
+    // Real todo ids are full UUIDs; match via substr(id,1,8) for the leading 8 hex.
+    db.exec(
+      `UPDATE todos SET isBucket=1 WHERE substr(id,1,8) IN
+       ('bb4a9a5d','a41c8051','98a779a1','9759e36f','3a6023e9')`
+    );
+    db.exec(`PRAGMA user_version = ${TODO_BUCKET_COLUMN_V3}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -541,6 +566,9 @@ export const TODO_DECONFLATE_V1 = 1;
 
 /** user_version marker for the parent-release backfill (epic approvedAt from approved children). */
 export const TODO_PARENT_RELEASE_V2 = 2;
+
+/** user_version marker for the isBucket backfill (5 known bucket rows, by id). */
+export const TODO_BUCKET_COLUMN_V3 = 3;
 
 /**
  * One-shot, idempotent de-conflate S1 backfill (design-todo-model-refactor §S1).
@@ -878,6 +906,7 @@ function rowToTodo(row: TodoRow): Todo {
     claimProbe: row.claimProbe ?? null,
     inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
     inheritedFiles,
+    isBucket: row.isBucket === 1,
   };
 }
 
