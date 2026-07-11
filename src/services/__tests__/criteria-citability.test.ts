@@ -3,7 +3,37 @@ import {
   parseBlueprintCriteria,
   classifyCriterion,
   validateCriteriaCitability,
+  uncitedCriteriaAreAllCommandResults,
 } from '../criteria-citability';
+
+// FLOOR-PATH FIX: an uncited command-result criterion defers to the command-evidence gate
+// (not review-vacuous); an uncited absence does NOT (reviewer must mark it [N/A]).
+const cr = (text: string) => ({ text, outcome: 'met', citations: [] as unknown[] });
+const cited = (text: string) => ({ text, outcome: 'met', citations: [{}] });
+
+test('uncitedCriteriaAreAllCommandResults: true when every uncited criterion is a command-result', () => {
+  const criteria = [
+    cited('landedDiffPaths returns merge diff — src/agent/worktree-manager.ts:625'),
+    cr('`npx tsc --noEmit -p tsconfig.json` compiles clean; `bun test` passes'),
+  ];
+  expect(uncitedCriteriaAreAllCommandResults(criteria, ['src/agent/worktree-manager.ts'])).toBe(true);
+});
+
+test('uncitedCriteriaAreAllCommandResults: false when an uncited criterion is an ABSENCE (not a command)', () => {
+  // "No regression in auth" is a real check no command verifies — must NOT auto-defer.
+  const criteria = [cited('feature added — src/a.ts:1'), cr('No regression in the auth flow')];
+  expect(uncitedCriteriaAreAllCommandResults(criteria, ['src/a.ts'])).toBe(false);
+});
+
+test('uncitedCriteriaAreAllCommandResults: false when uncited set mixes command-result and absence', () => {
+  const criteria = [cr('tests pass'), cr('createTodo left untouched')];
+  expect(uncitedCriteriaAreAllCommandResults(criteria, [])).toBe(false);
+});
+
+test('uncitedCriteriaAreAllCommandResults: false when there are no uncited criteria', () => {
+  const criteria = [cited('typo fixed — src/a.ts:3')];
+  expect(uncitedCriteriaAreAllCommandResults(criteria, ['src/a.ts'])).toBe(false);
+});
 
 test('parseBlueprintCriteria: reads NUMBERED lists, not only bullets (the real spec format)', () => {
   // Regression: leaf specs write criteria as "1. … 2. …" and blueprints copy that. The

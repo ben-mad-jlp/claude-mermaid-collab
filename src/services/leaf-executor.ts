@@ -46,7 +46,7 @@ import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
 import { validateReviewGrounding } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
-import { validateCriteriaCitability } from './criteria-citability';
+import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { loadManifestSource } from '../config/project-manifest';
 import { listUntrackedPaths, parseDeclaredScope } from './leaf-commit-scope';
 import { ScopeIncidentError } from '../agent/worktree-manager';
@@ -547,6 +547,11 @@ export function buildNodePrompt(
         'Read the relevant code (Read/Grep/Glob and Bash for inspection ONLY — no mutations).',
         `Produce a precise, self-contained implementation blueprint and WRITE it to \`${bp}\`.`,
         'The blueprint must cite the real files/symbols to touch and the exact change shape.',
+        'ACCEPTANCE CRITERIA must be POSITIVE and CITABLE: each names a concrete change a reviewer can',
+        'point a `file:line` at. NEVER write an absence or non-goal as an acceptance criterion ("no X',
+        'changes", "X untouched/unchanged", "Y not modified") — a negative cannot be cited and will',
+        'strand the leaf at review. When the spec constrains scope with a "do not touch X", record it as',
+        'a NON-GOALS note in the prose, kept OUT of the acceptance-criteria list — not as a criterion.',
         '',
         'FINISH the blueprint file with EXACTLY ONE trailing fenced ```json block (the',
         'machine-readable size manifest — the prose blueprint goes above it). It MUST be',
@@ -605,6 +610,14 @@ export function buildNodePrompt(
         'Every MET/UNMET line MUST carry at least one `file:line` citation into a file THIS leaf changed —',
         'the line you actually read to decide. Cite both sides when a criterion spans two files.',
         'A citation is not a formality: a criterion you cannot cite, you did not check.',
+        'ABSENCE / NON-GOAL criteria are inherently uncitable — no changed line can prove a negative.',
+        'A criterion that asserts something was NOT done, left unchanged, or untouched (e.g. "no phase',
+        'changes", "X unchanged", "Y not modified", "non-goal respected") MUST be marked',
+        '`- [N/A] <criterion> — <why it is a non-goal>`, NEVER `[MET]`. Reserve MET/UNMET for criteria',
+        'that name a POSITIVE change you can point a `file:line` at. (Marking such an absence [MET] with',
+        'no citation strands the whole leaf as review-vacuous even when the code is correct; [N/A] is the',
+        'honest, non-vacuous outcome. A positive claim with no citation is still a failure — this narrow',
+        'exemption is only for criteria that NObody could cite.)',
         'Be as TERSE as the change deserves — a one-line diff earns a one-line review. There is no',
         'length requirement and none will be inferred; only the citations are checked.',
         'End your reply with EXACTLY one line, nothing after it:',
@@ -2252,8 +2265,17 @@ export async function runLeaf(
           const cs = (await deps.changeSet?.(sessionKey)) ?? null;
           const grounding = validateReviewGrounding(review.text ?? '', cs);
           if (grounding.status === 'vacuous') {
-            try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-            return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+            // FLOOR-PATH FIX: a COMMAND-RESULT criterion (tsc/test/build/lint/grep) cannot be
+            // cited to a diff line — verifying it is the command-evidence gate's job below, not
+            // grounding's. When the ONLY uncited criteria are structural command-results, defer to
+            // that gate rather than discard a correct leaf (the class that stranded floor-path
+            // leaves B1/A*). Absence/non-goal criteria are NOT deferred — the reviewer marks those
+            // [N/A]; auto-exempting them would false-pass a real negative check ("no regression").
+            const deferToEvidence = uncitedCriteriaAreAllCommandResults(grounding.criteria, cs ?? []);
+            if (!deferToEvidence) {
+              try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+              return parkBlocked(`review-vacuous: ${grounding.reasons.join('; ')}`);
+            }
           }
           // C2: evidence gate — the claim must be a fact the executor holds.
           const evidence = evaluateCommandEvidence({

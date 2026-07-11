@@ -268,3 +268,19 @@ export function validateCriteriaCitability(
 
   return { status: 'uncitable', verdicts, offenders, reasons };
 }
+
+/** DEFER-TO-EVIDENCE predicate (floor-path fix). An uncited PASS-criterion set is NOT
+ *  review-vacuous when EVERY uncited criterion is a structural COMMAND-RESULT. Those name a
+ *  command (tsc/test/build/lint/grep) that the command-evidence gate verifies against the
+ *  RECORDED exit codes — they cannot be cited to a diff line, so grounding must defer them to
+ *  that gate rather than discard a correct leaf. ABSENCE / non-goal criteria are deliberately
+ *  NOT deferred here: no recorded command verifies a negative, so the reviewer must mark those
+ *  `[N/A]` (a judgment the classifier must not make — "No regression in auth" is a real check). */
+export function uncitedCriteriaAreAllCommandResults(
+  criteria: ReadonlyArray<{ text: string; outcome: string; citations: ReadonlyArray<unknown> }>,
+  declaredFiles: readonly string[],
+): boolean {
+  const uncited = criteria.filter((c) => c.outcome !== 'not-applicable' && c.citations.length === 0);
+  if (uncited.length === 0) return false;
+  return uncited.every((c) => classifyCriterion(c.text, declaredFiles).kind === 'command-result');
+}
