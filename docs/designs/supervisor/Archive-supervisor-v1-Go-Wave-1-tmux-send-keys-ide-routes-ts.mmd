@@ -1,0 +1,22 @@
+flowchart TB
+  subgraph Before["BEFORE — no such route"]
+    direction TB
+    B1["POST /api/ide/tmux-send-keys"] --> B2["no matching if-block"]
+    B2 --> B3["handleIdeRoutes returns null"]
+    B3 --> B4["request unhandled / falls through to 404"]
+  end
+
+  subgraph After["AFTER — new route"]
+    direction TB
+    A1["POST /api/ide/tmux-send-keys"] --> A2{"project, session, text present & strings?"}
+    A2 -->|no / empty text| A3["400 jsonError"]
+    A2 -->|yes| A4["tmuxBaseName(project, session)"]
+    A4 --> A5["tmux has-session -t name"]
+    A5 -->|exit != 0| A6["404 session not found (no create)"]
+    A5 -->|exists| A7["tmux send-keys -t name text Enter (argv, no shell)"]
+    A7 --> A8["await exited -> { success:true, tmux:true }"]
+    A5 -->|spawn ENOENT| A9["graceful degrade -> { success:true, tmux:false }"]
+  end
+
+  style Before fill:#ffdddd,stroke:#ffaaaa
+  style After fill:#ddffdd,stroke:#aaffaa

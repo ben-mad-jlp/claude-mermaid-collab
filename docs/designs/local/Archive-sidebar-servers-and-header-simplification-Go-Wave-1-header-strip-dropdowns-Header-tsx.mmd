@@ -1,0 +1,21 @@
+flowchart TD
+  subgraph before["Before"]
+    h1[Header]
+    sp[project select]
+    ss[session select]
+    sw[ServerSwitcher]
+    h1 --> sp
+    h1 --> ss
+    h1 --> sw
+  end
+  subgraph after["After"]
+    h2[Header]
+    lp[project label]
+    ls[session label]
+    sw2[ServerSwitcher kept]
+    h2 --> lp
+    h2 --> ls
+    h2 --> sw2
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

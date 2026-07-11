@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant Client as HTTP Client (sidecar)
+    participant DC as DesktopControl (http.Server)
+    participant BPM as BrowserPaneManager
+    DC->>DC: start() — getFreePort() + listen(127.0.0.1)
+    DC-->>Client: {url, token}
+    Client->>DC: POST /panes/ensure {session} + Authorization: Bearer token
+    DC->>DC: verify token
+    alt valid token
+        DC->>BPM: ensureSessionTab(session)
+        BPM-->>DC: {id}
+        DC-->>Client: 200 {ok:true}
+    else bad/missing token
+        DC-->>Client: 401
+    else bad body
+        DC-->>Client: 400
+    else other route
+        DC-->>Client: 404
+    else manager throws
+        DC-->>Client: 500
+    end

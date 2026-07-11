@@ -1,0 +1,23 @@
+graph TB
+    subgraph DataFlow["Data Flow on Session Load"]
+        DL["useDataLoader.ts\n+ api.getSnippets()"]
+        API["api.ts\n+ getSnippets()\n+ getSnippet()\n+ updateSnippet()\n+ deleteSnippet()"]
+        Store["sessionStore.ts\n+ snippets[]\n+ selectedSnippetId\n+ setSnippets/add/update/remove/select"]
+        Sidebar["Sidebar.tsx\n+ snippet entries\n+ code icon"]
+    end
+
+    subgraph WebSocketFlow["WebSocket Updates"]
+        WS["WebSocket handler\n+ snippet_created\n+ snippet_updated\n+ snippet_deleted"]
+    end
+
+    subgraph Types["Types"]
+        Item["item.ts\ntype: ... | 'snippet'"]
+    end
+
+    DL -->|"fetch"| API
+    API -->|"HTTP"| Backend["Backend API"]
+    DL -->|"setSnippets"| Store
+    Store -->|"read"| Sidebar
+    WS -->|"addSnippet/updateSnippet/removeSnippet"| Store
+    Item -.->|"used by"| Store
+    Item -.->|"used by"| Sidebar

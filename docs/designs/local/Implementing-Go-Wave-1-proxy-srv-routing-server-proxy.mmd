@@ -1,0 +1,27 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[Request /api/...]
+    B2{Active upstream?}
+    B3[Forward to active upstream]
+    B1 --> B2 --> B3
+    B4[Request /_per-server/id/...]
+    B5[Forward to upstream id WS]
+    B4 --> B5
+  end
+  subgraph after["After"]
+    A1[Request /srv/id/api/...]
+    A2{Upstream id exists?}
+    A3[Forward to upstream id]
+    A4[404 unknown]
+    A1 --> A2
+    A2 -->|yes| A3
+    A2 -->|no| A4
+    A5[Request /api/... legacy]
+    A6[Forward to local sidecar]
+    A5 --> A6
+    A7[Request /_per-server/id/...]
+    A8[Existing WS handler]
+    A7 --> A8
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

@@ -1,0 +1,17 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[useDataLoader fetches /api/diagrams etc]
+    B2[Hits proxy active upstream]
+    B3[Active server is single source]
+    B1 --> B2 --> B3
+  end
+  subgraph after["After"]
+    A1[useDataLoader keyed off currentSession.serverId]
+    A2[mc.invokeOnServer or /srv/serverId/api/...]
+    A3[Multi-server aware]
+    A1 --> A2 --> A3
+    A4[currentSession null no fetch]
+    A1 -.-> A4
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

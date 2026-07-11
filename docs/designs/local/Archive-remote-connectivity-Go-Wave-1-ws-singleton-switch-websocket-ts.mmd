@@ -1,0 +1,21 @@
+flowchart TD
+    subgraph BEFORE["BEFORE (current)"]
+        direction TB
+        B1["getWebSocketClient(url)"] --> B2{"sharedClient exists?"}
+        B2 -- yes --> B3["return existing sharedClient"]
+        B2 -- no --> B4["new WebSocketClient(url)\nurl baked-in at first call"]
+        B4 --> B3
+        B5["resetWebSocketClient()"] --> B6["sharedClient.disconnect()\n- sets isIntentionallyClosed=true\n- clears reconnectTimeout\n- closes socket\n- NULLs socket"] --> B7["sharedClient = null"]
+        B8["onboarding buildUrl()"] --> B9["new URL('/api/onboarding...', window.location.origin)\n→ absolute URL with origin baked in"]
+    end
+
+    subgraph AFTER["AFTER (goal — confirm already works or patch)"]
+        direction TB
+        A1["resetWebSocketClient()"] --> A2["disconnect() clears socket + reconnectTimeout\n+ sets isIntentionallyClosed=true"] --> A3["sharedClient = null\n(handlers on old instance are orphaned/GC'd)"]
+        A3 --> A4["next getWebSocketClient() call\ndefault arg = getDefaultWebSocketURL()\ncalled fresh → reads window.location.host NOW\n= current proxy origin"]
+        A4 --> A5["new WebSocketClient(fresh URL)\nno stale subscriptions: old Set&lt;Handler&gt; is gone"]
+        A6["onboarding buildUrl() PATCHED"] --> A7["fetch('/api/onboarding...' + params)\nrelative URL → resolves against document origin\n= proxy, like all other API calls"]
+    end
+
+    style BEFORE fill:#ffdddd,stroke:#ffaaaa
+    style AFTER fill:#ddffdd,stroke:#aaffaa

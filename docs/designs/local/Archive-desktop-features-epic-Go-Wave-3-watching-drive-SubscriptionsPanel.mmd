@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant User
+    participant Row as SubscriptionRow onClick
+    participant Navigate as handleNavigate
+    participant SessionStore as sessionStore.setCurrentSession
+    participant FetchTerminal as fetch /api/ide/create-terminal
+    participant FetchBrowser as fetch /api/browser/focus-tab
+    participant BrowserStore as useBrowserStore.activateSession
+    participant TerminalStore as useTerminalStore.openFor
+
+    Note over Row,TerminalStore: BEFORE — drive via raw fetch calls only
+    User->>Row: click
+    Row->>Navigate: onNavigate(project, session)
+    Navigate->>SessionStore: setCurrentSession(target)
+    Row->>FetchTerminal: POST /api/ide/create-terminal
+    Row->>FetchBrowser: POST /api/browser/focus-tab
+
+    Note over Row,TerminalStore: AFTER — drive via store methods (+ keep fetches)
+    User->>Row: click
+    Row->>Navigate: onNavigate(project, session)
+    Navigate->>SessionStore: setCurrentSession(target)
+    Row->>BrowserStore: useBrowserStore.getState().activateSession(sub.session)
+    Row->>TerminalStore: useTerminalStore.getState().openFor(sub.project, sub.session)
+    Row->>FetchTerminal: POST /api/ide/create-terminal (kept)
+    Row->>FetchBrowser: POST /api/browser/focus-tab (kept)

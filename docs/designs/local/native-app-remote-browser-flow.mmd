@@ -1,0 +1,36 @@
+flowchart TB
+  subgraph laptop["Laptop — native app (viewer)"]
+    win["App window + ServerSwitcher"]
+    proxy["main-process proxy"]
+    win --- proxy
+  end
+
+  subgraph remote["Remote / headless machine (code + server + Claude)"]
+    claudeR["Claude Code (remote)"]
+    srv["Collab server<br/>MC_BROWSER_TARGET=owned-chrome"]
+    cm["ChromeManager (server-side)<br/>spawn chrome --remote-debugging-port=CDP_PORT<br/>--headless=new, ephemeral --user-data-dir"]
+    chrome["Chrome on 127.0.0.1:CDP_PORT"]
+    tools["browser_* tools<br/>(cdp-session default path:<br/>Target.createTarget @ 127.0.0.1:CDP_PORT)"]
+    imgs[".collab/sessions/&lt;s&gt;/images/<br/>screenshot-*.png"]
+    claudeR -- "MCP (local)" --> srv
+    srv --- tools
+    srv -- "on startup" --> cm
+    cm -- "spawns + owns" --> chrome
+    tools -- "CDP (loopback)" --> chrome
+    tools -- "captureScreenshot → writes" --> imgs
+  end
+
+  proxy -. "HTTP/WS over LAN (+token)" .-> srv
+  imgs -. "synced as session artifacts (collab WS)" .-> win
+
+  noteA["Local 'This Mac' instead uses MC_BROWSER_TARGET=electron-view<br/>(embedded WebContentsView). Same browser_* tools,<br/>only the CDP target differs (per-ServerContext)."]
+  noteB["Screenshots return as ARTIFACTS over the collab channel —<br/>NO cross-network CDP. The laptop never speaks CDP to remote Chrome."]
+
+  win -.-> noteA
+  imgs -.-> noteB
+
+  style laptop fill:#e8f0ff,stroke:#6688cc
+  style remote fill:#f0f0f0,stroke:#999
+  style chrome fill:#ddffdd,stroke:#66bb66
+  style noteA fill:#fff6dd,stroke:#ccaa44
+  style noteB fill:#ddffdd,stroke:#66bb66

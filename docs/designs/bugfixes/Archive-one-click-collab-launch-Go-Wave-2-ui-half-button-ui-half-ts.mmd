@@ -1,0 +1,43 @@
+flowchart TB
+  subgraph Before["BEFORE: ui-half.ts"]
+    B1[activateUi]
+    B2[create statusBarItem + chromeDebugBar only]
+    B3[register CDP + onInstanceUp + onInstanceDown + openUi]
+    B4[one-shot readLocalInstances scan if extensionKind UI]
+    B5[write serverUrl from scanned instances]
+    B6[no collab-server button]
+    B7[no server spawn / no delegate]
+    B1 --> B2 --> B3 --> B4 --> B5
+    B1 -.absent.-> B6
+    B1 -.absent.-> B7
+  end
+
+  subgraph After["AFTER: ui-half.ts"]
+    A1[activateUi]
+    A2[create collabServerBar Right 98 + collabServerOutput channel]
+    A3[updateCollabServerBar: 5 states stopped/starting/ready/skew/failed]
+    A4[click -> mermaidCollab.toggleCollabServer]
+    A5{state ready or skew?}
+    A6[executeCommand mermaidCollab.openUi]
+    A7{vscode.env.remoteName?}
+    A8[startCollabServerRemote: executeCommand workspace.startServer + version skew compare]
+    A9[startCollabServerLocal: resolveServerSource + spawnCollabServer]
+    A10[awaitInstanceUp sessionId via pendingInstanceUp Map]
+    A11[onInstanceUp handler resolves pending resolver]
+    A12[set state ready/skew/failed -> updateCollabServerBar]
+    A13[live fsSync.watch dir + initial scan + 30s poll fallback + dispose]
+    A14[stopCollabServer: SIGTERM collabServerChild]
+    A15[ctx.subscriptions disposable SIGTERMs child on shutdown]
+
+    A1 --> A2 --> A3 --> A4 --> A5
+    A5 -- yes --> A6
+    A5 -- no --> A7
+    A7 -- yes --> A8 --> A10
+    A7 -- no --> A9 --> A10
+    A10 --> A11 --> A12
+    A1 --> A13 --> A11
+    A4 --> A14
+    A1 --> A15
+  end
+
+  Before ==> After

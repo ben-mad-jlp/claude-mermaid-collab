@@ -1,0 +1,12 @@
+flowchart TD
+  subgraph before["Before"]
+    b1["POST create-terminal {session}"] --> b2["tmux new-session -s {session}"]
+    b2 --> b3["broadcast ide_open_terminal {session}"]
+  end
+  subgraph after["After"]
+    a1["POST create-terminal {session, project}"] --> a2["name = tmuxBaseName(project, session)"]
+    a2 --> a3["tmux new-session -s {name}"]
+    a3 --> a4["broadcast ide_open_terminal {session, project, tmuxSession: name}"]
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

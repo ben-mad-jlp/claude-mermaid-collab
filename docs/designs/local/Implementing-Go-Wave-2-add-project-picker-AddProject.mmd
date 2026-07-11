@@ -1,0 +1,16 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[Add Project dialog]
+    B2[Path input only]
+    B3[Registers on active server]
+    B1 --> B2 --> B3
+  end
+  subgraph after["After"]
+    A1[Add Project dialog]
+    A2[Server picker - default local]
+    A3[Path input]
+    A4["Registers via mc.invokeOnServer(serverId)"]
+    A1 --> A2 --> A3 --> A4
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

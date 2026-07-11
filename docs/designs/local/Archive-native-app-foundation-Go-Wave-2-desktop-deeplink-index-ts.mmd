@@ -1,0 +1,22 @@
+flowchart TD
+  subgraph before["BEFORE (single-instance lock only)"]
+    style before fill:#ffdddd,stroke:#ffaaaa
+    A[app.requestSingleInstanceLock] --> B{gotLock?}
+    B -- No --> C[app.quit]
+    B -- Yes --> D[createWindow on ready]
+    D --> E[activate handler]
+    E --> F[window-all-closed handler]
+  end
+
+  subgraph after["AFTER (lock + protocol + second-instance + open-url)"]
+    style after fill:#ddffdd,stroke:#aaffaa
+    G[app.requestSingleInstanceLock] --> H{gotLock?}
+    H -- No --> I[app.quit]
+    H -- Yes --> J[app.setAsDefaultProtocolClient mermaid-collab]
+    J --> K[second-instance handler: focus mainWindow + parseDeepLink from argv]
+    K --> L[open-url handler macOS: parseDeepLink from event url]
+    L --> M[createWindow on ready]
+    M --> N[activate handler]
+    N --> O[window-all-closed handler]
+    P[parseDeepLink helper: extracts project/session from mermaid-collab:// URL, logs it]
+  end

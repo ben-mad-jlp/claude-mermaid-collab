@@ -1,0 +1,25 @@
+graph TB
+    subgraph New["New Files"]
+        SM["src/services/snippet-manager.ts\nSnippetManager class\n- CRUD for .snippet.json files\n- File index (Map)"]
+    end
+
+    subgraph Modified["Modified Files"]
+        Types["src/types.ts\n+ Snippet\n+ SnippetMeta\n+ SnippetListItem"]
+        SR["src/services/session-registry.ts\n+ mkdir snippets/"]
+        API["src/routes/api.ts\n+ GET /api/snippets\n+ GET /api/snippet/:id\n+ POST /api/snippet\n+ POST /api/snippet/:id\n+ DELETE /api/snippet/:id"]
+        MCP["src/mcp/setup.ts\n+ create_snippet\n+ get_snippet\n+ list_snippets\n+ update_snippet\n+ delete_snippet\n+ snippet_history\n+ revert_snippet"]
+        WS["src/websocket/handler.ts\n+ snippet_created\n+ snippet_updated\n+ snippet_deleted"]
+        Archive["src/mcp/tools/collab-state.ts\n+ copy snippets/ on archive"]
+    end
+
+    subgraph Storage["Storage"]
+        Dir[".collab/sessions/name/snippets/\nfoo.snippet.json\nbar.snippet.json"]
+    end
+
+    MCP -->|"HTTP calls"| API
+    API --> SM
+    SM --> Dir
+    API -->|"broadcast"| WS
+    SR -->|"creates"| Dir
+    Archive -->|"copies"| Dir
+    Types --> SM

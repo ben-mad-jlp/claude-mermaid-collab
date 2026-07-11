@@ -1,0 +1,24 @@
+flowchart TD
+  subgraph before["Before - silent dead-end"]
+    b1["window loads index.html = 'Phase 0 placeholder'"] --> b2["bootstrap via 'void bootstrap'"]
+    b2 --> b3["supervisor.start spawns mc-server.exe (stdout/stderr discarded)"]
+    b3 --> b4{"health OK within 25s?"}
+    b4 -- yes --> b5["loadURL real UI"]
+    b4 -- no --> b6["throw 'server health timeout' - swallowed by void"]
+    b6 --> b7["window stuck on placeholder, looks unfinished, no reason captured"]
+  end
+
+  subgraph after["After - loading screen + observable + recoverable"]
+    a1["window loads index.html = branded loading screen (spinner + 'Starting Mermaid Collab')"] --> a2["bootstrap try/catch; sidecar-start refactored to retryable fn"]
+    a2 --> a3["supervisor.start spawns mc-server.exe"]
+    a3 -->|"stdout+stderr to userData/logs/sidecar.log"| aLog[("sidecar.log")]
+    a3 --> a4{"health OK within 25s?"}
+    a4 -- yes --> a5["loadURL real UI (replaces loading screen)"]
+    a4 -- no --> a6["throw Error incl. stderr tail + log path"]
+    a6 --> a7["catch sends IPC mc:bootstrap-error"]
+    a7 --> a8["loading screen flips to error panel: message + log path + Retry"]
+    a8 -.->|"Retry -> ipc mc:retry-bootstrap"| a2
+  end
+
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

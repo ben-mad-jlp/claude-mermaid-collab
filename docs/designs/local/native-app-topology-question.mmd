@@ -1,0 +1,34 @@
+flowchart TB
+  subgraph hub["Hub machine (runs the collab servers + native app windows)"]
+    direction TB
+    codeA["Project A code + .collab/"]
+    codeB["Project B code + .collab/"]
+    srvA["Collab server A<br/>(project A, port 9002)"]
+    srvB["Collab server B<br/>(project B, port 9003)"]
+    winA["Native app window A<br/>→ connects to server A"]
+    winB["Native app window B<br/>→ connects to server B"]
+    codeA --- srvA
+    codeB --- srvB
+    srvA --- winA
+    srvB --- winB
+  end
+
+  subgraph m1["Other machine 1"]
+    claude1["Claude Code"]
+  end
+  subgraph m2["Other machine 2"]
+    claude2["Claude Code"]
+  end
+
+  claude1 -. "MCP over HTTP<br/>(network-reachable, 0.0.0.0)" .-> srvA
+  claude2 -. "MCP over HTTP" .-> srvB
+
+  note1["⚠️ PROBLEM: server A edits/stores files<br/>on the HUB's disk, but Claude on machine 1<br/>edits code on MACHINE 1's disk.<br/>They operate on different filesystems."]
+
+  claude1 -.-> note1
+  note1 -.-> codeA
+
+  style note1 fill:#ffdddd,stroke:#ff6666
+  style hub fill:#e8f0ff,stroke:#6688cc
+  style m1 fill:#f0f0f0,stroke:#999
+  style m2 fill:#f0f0f0,stroke:#999

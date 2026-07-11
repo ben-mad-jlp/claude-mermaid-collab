@@ -1,0 +1,21 @@
+flowchart TD
+  subgraph before["BEFORE (pseudo-powered nav)"]
+    direction TB
+    B1["CodeEditor: Pseudo toggle btn"]
+    B2["PseudoSideBySideView render"]
+    B3["FunctionJumpDropdown via fetchFunctionsForSource (Tier1 pseudo-db)"]
+    B4["symbol click to fetchPseudoReferences to ReferencesPopover"]
+    B5["go-to-def via fetchSourceLink to DefinitionPicker / LinkAndNavigate"]
+    B6["CodeFileView: Prose tab to PseudoViewer + peekPseudoFile drift badge"]
+    B7["GlobalSearch: code + pseudo result kinds (KindIconPseudo)"]
+  end
+  subgraph after["AFTER (plain file view + core search)"]
+    direction TB
+    A1["CodeEditor: plain MonacoWrapper, save/sync/copy + Tier2 extractFunctions jump only"]
+    A2["CodeFileView: core file view via code-file-api (Prose/PseudoViewer removed)"]
+    A3["GlobalSearch: code-search-api results, LinkAndNavigate kept (SourceLinkCandidate type rehomed)"]
+    A4["PaneContent: code-file always to CodeEditor/CodeFileView (PseudoViewer fallback removed)"]
+  end
+  before --> after
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

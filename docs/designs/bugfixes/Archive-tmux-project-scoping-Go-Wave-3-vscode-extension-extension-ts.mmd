@@ -1,0 +1,11 @@
+flowchart TD
+  subgraph before["Before — keyed by session name"]
+    b1["reattach/open {session}"] --> b2["terminal name = session"]
+    b2 --> b3["base = session; grouped = vscode-collab-{session}"]
+  end
+  subgraph after["After — project-scoped"]
+    a1["reattach/open {session, project, tmuxSession}"] --> a2["terminal name = '{session} · {projectBasename}'"]
+    a2 --> a3["base = tmuxSession ?? session; grouped = vscode-collab-{base}"]
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

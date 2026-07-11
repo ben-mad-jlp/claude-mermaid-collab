@@ -1,0 +1,24 @@
+flowchart TD
+  B_imports["pseudo imports: pseudo-db getPseudoDb/initPseudoDbV6/ProseData plus 9 tool modules plus marker fs/os/path helpers lines 38-53, 195-215"]
+  B_init["setupMCPServer startup: initPseudoDbV6 cwd plus SessionStart marker retryScan lines 1011-1041"]
+  B_defs["27 pseudo_ tool definitions lines 2210-2603"]
+  B_handlers["27 case pseudo_ handlers lines 4227-4498"]
+  B_imports --> B_init --> B_defs --> B_handlers
+  A_core["Core MCP server: diagram/design/doc/snippet/browser tools intact"]
+  A_init["setupMCPServer starts directly at new Server() with no pseudo init"]
+  A_note["pseudo imports, 27 tool defs, 27 handlers, marker logic all removed"]
+  A_core --> A_init --> A_note
+  subgraph before["Before"]
+    B_imports
+    B_init
+    B_defs
+    B_handlers
+  end
+  subgraph after["After"]
+    A_core
+    A_init
+    A_note
+  end
+  before --> after
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

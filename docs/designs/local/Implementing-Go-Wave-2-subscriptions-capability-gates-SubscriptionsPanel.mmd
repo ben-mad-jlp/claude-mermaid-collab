@@ -1,0 +1,20 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[sub.serverId === activeServerId?]
+    B2{yes}
+    B3[POST /api/ide/create-terminal]
+    B4[no, skip]
+    B1 --> B2 --> B3
+    B1 --> B4
+  end
+  subgraph after["After"]
+    A1[mc.getServerCapabilities sub.serverId]
+    A2{tmux capable?}
+    A3[POST /api/ide/create-terminal via mc.invokeOnServer]
+    A4[skip - server has no tmux]
+    A1 --> A2
+    A2 -->|yes| A3
+    A2 -->|no| A4
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

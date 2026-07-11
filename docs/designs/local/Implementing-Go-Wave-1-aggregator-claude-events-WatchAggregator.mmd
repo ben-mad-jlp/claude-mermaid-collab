@@ -1,0 +1,15 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[WatchAggregator in desktop/src/main]
+    B2["WATCHED_TYPES: claude_session_registered, claude_session_status, claude_context_update"]
+    B3[Forwards with serverId tag via IPC mc:watch-event]
+    B4["App.tsx ALSO listens on proxy WS, tags with activeServerId (duplicate path)"]
+  end
+  subgraph after["After"]
+    A1[WatchAggregator unchanged - already covers all three types]
+    A2[Single source of truth via useWatchEvents hook]
+    A3[App.tsx proxy-WS handlers for claude_* removed]
+    A4[Consumers read msg.serverId from aggregator stream]
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

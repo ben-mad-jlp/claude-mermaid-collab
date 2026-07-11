@@ -1,0 +1,31 @@
+flowchart TD
+  B_imp["import handlePseudoAPI from ./routes/pseudo-api line 28"]
+  B_req["HTTP request dispatch"]
+  B_pseudo["/api/pseudo to handlePseudoAPI()"]
+  B_files["/api/files/content"]
+  B_other["other /api routes"]
+  B_req --> B_pseudo
+  B_req --> B_files
+  B_req --> B_other
+  A_req["HTTP request dispatch"]
+  A_files["/api/files/content"]
+  A_other["other /api routes"]
+  A_note["pseudo import and /api/pseudo block removed; 404 for /api/pseudo"]
+  A_req --> A_files
+  A_req --> A_other
+  subgraph before["Before"]
+    B_imp
+    B_req
+    B_pseudo
+    B_files
+    B_other
+  end
+  subgraph after["After"]
+    A_req
+    A_files
+    A_other
+    A_note
+  end
+  before --> after
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

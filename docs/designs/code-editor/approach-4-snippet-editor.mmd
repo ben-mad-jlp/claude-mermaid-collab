@@ -1,0 +1,30 @@
+graph TB
+    subgraph SnippetEditor["SnippetEditor.tsx - Full Width Layout"]
+        subgraph Toolbar["Toolbar Bar"]
+            Lang["Language Dropdown\n[TypeScript ▾]"]
+            FilePath["File Path Badge\nsrc/types.ts"]
+            Spacer["···"]
+            DiffBtn["Toggle: Code | Diff"]
+            CopyBtn["Copy ⎘"]
+        end
+
+        subgraph CodeMode["Code Mode (default)"]
+            CM["CodeMirror\n- language-aware syntax highlighting\n- line numbers always on\n- editable\n- highlighted lines = subtle bg color\n- full width, full height"]
+        end
+
+        subgraph DiffMode["Diff Mode (toggled)"]
+            DV["DiffView component\n- originalCode vs current code\n- unified diff format\n- read-only\n- reuses existing DiffView from ai-ui"]
+        end
+    end
+
+    Toolbar --> CodeMode
+    Toolbar --> DiffMode
+
+    subgraph DataFlow["Data Flow"]
+        Store["sessionStore\nsnippet.content = JSON"]
+        Parse["Parse JSON → language, code,\nfilePath, highlightLines, originalCode"]
+        Editor["SnippetEditor renders\nCodeMirror with parsed fields"]
+        Save["On edit: serialize back to JSON\n→ updateSnippet store action\n→ API call"]
+    end
+
+    Store --> Parse --> Editor --> Save --> Store

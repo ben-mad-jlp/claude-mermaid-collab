@@ -1,0 +1,29 @@
+flowchart TD
+    subgraph BEFORE["BEFORE — createOrReplaceTab (always Target.createTarget)"]
+        style BEFORE fill:#ffdddd,stroke:#ffaaaa
+        B1([createOrReplaceTab called]) --> B2{existing tab in registry?}
+        B2 -->|yes| B3[CDP.Close existing tab]
+        B2 -->|no| B4[connect CDP client]
+        B3 --> B4
+        B4 --> B5[Target.createTarget url:about:blank]
+        B5 --> B6[store targetId in tabRegistry]
+        B6 --> B7([return targetId])
+    end
+
+    subgraph AFTER["AFTER — createOrReplaceTab (electron-view branch OR existing)"]
+        style AFTER fill:#ddffdd,stroke:#aaffaa
+        A1([createOrReplaceTab called]) --> A2{MC_BROWSER_TARGET === electron-view?}
+        A2 -->|yes - electron-view mode| A3[CDP.List all targets]
+        A3 --> A4{find t where type=page AND url includes ELECTRON_VIEW_MARKER OR title===ELECTRON_VIEW_MARKER}
+        A4 -->|found| A5[tabRegistry.set sessionName, view.id]
+        A4 -->|not found| A6([throw: embedded view target not found])
+        A5 --> A7[persistTabRegistry]
+        A7 --> A8([return view.id — NO Target.createTarget])
+        A2 -->|no - default path| A9{existing tab in registry?}
+        A9 -->|yes| A10[CDP.Close existing tab]
+        A9 -->|no| A11[connect CDP client]
+        A10 --> A11
+        A11 --> A12[Target.createTarget url:about:blank]
+        A12 --> A13[store targetId in tabRegistry]
+        A13 --> A14([return targetId])
+    end

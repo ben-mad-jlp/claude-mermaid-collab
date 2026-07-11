@@ -1,0 +1,18 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[CreateSessionDialog]
+    B2[Name input + browser UI toggle only]
+    B3[onConfirm name useRenderUI]
+    B4[App uses activeServerId implicitly]
+    B1 --> B2 --> B3 --> B4
+  end
+  subgraph after["After"]
+    A1[CreateSessionDialog]
+    A2[Server select - default = activeServerId or local]
+    A3[Name input + browser UI toggle]
+    A4[onConfirm name useRenderUI serverId]
+    A5[App routes createSession to chosen serverId]
+    A1 --> A2 --> A3 --> A4 --> A5
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

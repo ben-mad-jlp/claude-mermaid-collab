@@ -1,0 +1,15 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[+ button click]
+    B2[openFor with implicit active server]
+    B1 --> B2
+  end
+  subgraph after["After"]
+    A1[+ button → dropdown]
+    A2[Server list: Local / trimaxion / ...]
+    A3[Default highlight: currentSession.serverId]
+    A4[On select: openFor with chosen serverId]
+    A1 --> A2 --> A3 --> A4
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

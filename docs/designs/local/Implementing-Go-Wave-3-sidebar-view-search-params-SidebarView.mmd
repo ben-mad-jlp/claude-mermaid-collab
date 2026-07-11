@@ -1,0 +1,9 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[setCurrentSession serverId = activeServerId ?? local]
+  end
+  subgraph after["After"]
+    A1[setCurrentSession serverId = ?srv ?? activeServerId ?? local]
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa

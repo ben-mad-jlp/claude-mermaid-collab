@@ -1,0 +1,35 @@
+flowchart LR
+  subgraph Before
+    direction TB
+    none["(no module exists)"]
+  end
+  subgraph After
+    direction TB
+    gp[getDiscoveryPaths]
+    dsi[deriveSessionId]
+    wi[writeInstance]
+    ri[removeInstance]
+    rd[readInstances]
+    fi[findInstance]
+    ish[installSignalHandlers]
+    flock[(proper-lockfile flock)]
+    sweep[/sweep stale/]
+    fi --> rd
+    rd --> sweep
+    sweep --> flock
+    wi --> flock
+    wi --> dsi
+    wi --> gp
+    ri --> flock
+    ish --> ri
+  end
+  style none fill:#ffdddd,stroke:#ffaaaa
+  style gp fill:#ddffdd,stroke:#aaffaa
+  style dsi fill:#ddffdd,stroke:#aaffaa
+  style wi fill:#ddffdd,stroke:#aaffaa
+  style ri fill:#ddffdd,stroke:#aaffaa
+  style rd fill:#ddffdd,stroke:#aaffaa
+  style fi fill:#ddffdd,stroke:#aaffaa
+  style ish fill:#ddffdd,stroke:#aaffaa
+  style flock fill:#ddffdd,stroke:#aaffaa
+  style sweep fill:#ddffdd,stroke:#aaffaa

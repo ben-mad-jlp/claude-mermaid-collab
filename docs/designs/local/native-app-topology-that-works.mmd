@@ -1,0 +1,35 @@
+flowchart TB
+  subgraph m1["Machine 1 (has Project A code)"]
+    codeA["Project A code + .collab/"]
+    srvA["Collab server A"]
+    claudeA["Claude Code A"]
+    codeA --- srvA
+    claudeA -- "edits files" --> codeA
+    claudeA -- "MCP / HTTP (localhost)" --> srvA
+  end
+
+  subgraph m2["Machine 2 (has Project B code)"]
+    codeB["Project B code + .collab/"]
+    srvB["Collab server B"]
+    claudeB["Claude Code B"]
+    codeB --- srvB
+    claudeB -- "edits files" --> codeB
+    claudeB -- "MCP / HTTP (localhost)" --> srvB
+  end
+
+  subgraph laptop["Your laptop (native app — the roaming viewer)"]
+    win["Native app window"]
+    switcher["Server switcher / tabs"]
+    win --- switcher
+  end
+
+  switcher -. "connect to A (host:port)" .-> srvA
+  switcher -. "connect to B (host:port)" .-> srvB
+
+  noteOK["✅ Server + code + Claude stay co-located<br/>on each machine. The ONLY thing that<br/>roams across the network is the UI window.<br/>(Multi-server-in-one-window = the<br/>federation piece not built yet.)"]
+  switcher -.-> noteOK
+
+  style laptop fill:#ddffdd,stroke:#66bb66
+  style noteOK fill:#ddffdd,stroke:#66bb66
+  style m1 fill:#e8f0ff,stroke:#6688cc
+  style m2 fill:#e8f0ff,stroke:#6688cc

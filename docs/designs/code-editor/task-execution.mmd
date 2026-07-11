@@ -1,0 +1,50 @@
+graph TD
+    types["types"]
+    websocket["websocket"]
+    session-registry["session-registry"]
+    collab-state["collab-state"]
+    item-type["item-type"]
+    api-client["api-client"]
+    snippet-editor["snippet-editor"]
+    
+    snippet-manager["snippet-manager"]
+    session-store["session-store"]
+    unified-editor["unified-editor"]
+    
+    api-routes["api-routes"]
+    data-loader["data-loader"]
+    sidebar["sidebar"]
+    
+    mcp-tools["mcp-tools"]
+
+    types --> snippet-manager
+    item-type --> session-store
+    snippet-editor --> unified-editor
+    
+    websocket --> api-routes
+    session-registry --> api-routes
+    snippet-manager --> api-routes
+    
+    api-client --> data-loader
+    session-store --> data-loader
+    session-store --> sidebar
+    
+    api-routes --> mcp-tools
+
+    style types fill:#c8e6c9,stroke:#2e7d32
+    style websocket fill:#c8e6c9,stroke:#2e7d32
+    style session-registry fill:#c8e6c9,stroke:#2e7d32
+    style collab-state fill:#c8e6c9,stroke:#2e7d32
+    style item-type fill:#c8e6c9,stroke:#2e7d32
+    style api-client fill:#c8e6c9,stroke:#2e7d32
+    style snippet-editor fill:#c8e6c9,stroke:#2e7d32
+    
+    style snippet-manager fill:#c8e6c9,stroke:#2e7d32
+    style session-store fill:#c8e6c9,stroke:#2e7d32
+    style unified-editor fill:#c8e6c9,stroke:#2e7d32
+    
+    style api-routes fill:#c8e6c9,stroke:#2e7d32
+    style data-loader fill:#c8e6c9,stroke:#2e7d32
+    style sidebar fill:#c8e6c9,stroke:#2e7d32
+    
+    style mcp-tools fill:#c8e6c9,stroke:#2e7d32

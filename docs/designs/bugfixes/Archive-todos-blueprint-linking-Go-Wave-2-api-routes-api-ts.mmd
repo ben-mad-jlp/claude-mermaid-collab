@@ -1,0 +1,21 @@
+flowchart TD
+  subgraph BEFORE["BEFORE (current)"]
+    B1["POST /api/session-todos\nparsed: { project, session, text }"]:::before
+    B2["addSessionTodo(project, session, text)"]:::before
+    B3["PATCH /api/session-todos/:id\nparsed: { project, session, text, completed, order }"]:::before
+    B4["updateSessionTodo(project, session, id,\n{ text, completed, order })"]:::before
+    B1 --> B2
+    B3 --> B4
+  end
+
+  subgraph AFTER["AFTER (proposed)"]
+    A1["POST /api/session-todos\nparsed: { project, session, text, link? }"]:::after
+    A2["addSessionTodo(project, session, text, link)"]:::after
+    A3["PATCH /api/session-todos/:id\nparsed: { project, session, text, completed, order, link? }"]:::after
+    A4["updateSessionTodo(project, session, id,\n{ text, completed, order, link })"]:::after
+    A1 --> A2
+    A3 --> A4
+  end
+
+  classDef before fill:#ffdddd,stroke:#ffaaaa
+  classDef after fill:#ddffdd,stroke:#aaffaa

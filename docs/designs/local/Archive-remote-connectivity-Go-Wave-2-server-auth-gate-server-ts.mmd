@@ -1,0 +1,30 @@
+flowchart TD
+    subgraph BEFORE["BEFORE: fetch() — no auth gate"]
+        direction TB
+        B1["fetch(req, server)"] --> B2["const url = new URL(req.url)"]
+        B2 --> B3{"/ws?"}
+        B3 -->|yes| B4["WS upgrade (collab)"]
+        B3 -->|no| B5{"/terminal/:id?"}
+        B5 -->|yes| B6["WS upgrade (terminal)"]
+        B5 -->|no| B7{"/mcp?"}
+        B7 -->|yes| B8["handleMCPRequest"]
+        B7 -->|no| B9["/api/* dispatch — no auth check"]
+    end
+
+    subgraph AFTER["AFTER: fetch() — checkAuth gate added"]
+        direction TB
+        A1["fetch(req, server)"] --> A2["const url = new URL(req.url)"]
+        A2 --> A3["checkAuth(req, url)"]
+        A3 -->|"token unset OR path exempt\n(/api/health, /mcp*)"| A4["null — proceed"]
+        A3 -->|"token set &amp; non-exempt &amp;\nbad/missing Bearer"| A5["401 Unauthorized"]
+        A4 --> A6{"/ws?"}
+        A6 -->|yes| A7["WS upgrade (collab)"]
+        A6 -->|no| A8{"/terminal/:id?"}
+        A8 -->|yes| A9["WS upgrade (terminal)"]
+        A8 -->|no| A10{"/mcp?"}
+        A10 -->|yes| A11["handleMCPRequest"]
+        A10 -->|no| A12["/api/* dispatch — auth already verified"]
+    end
+
+    style BEFORE fill:#ffdddd,stroke:#ffaaaa
+    style AFTER fill:#ddffdd,stroke:#aaffaa

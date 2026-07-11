@@ -1,0 +1,13 @@
+flowchart TD
+  subgraph before["Before"]
+    B1[WS onMessage]
+    B2[Tag with activeServerId]
+    B1 --> B2
+  end
+  subgraph after["After"]
+    A1[VS Code webview: read ?srv= query param]
+    A2[Prefer message.serverId, fallback to query param srv, then activeId]
+    A1 --> A2
+  end
+  style before fill:#ffdddd,stroke:#ffaaaa
+  style after fill:#ddffdd,stroke:#aaffaa
