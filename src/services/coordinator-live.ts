@@ -506,9 +506,6 @@ export function workerIsolationEnabled(): boolean {
 }
 
 
-/** `[GATE]` is NOT a role prefix — it has no `kind` value and the stage-C strip does not
- *  remove it (see claimability.ts: gates are human-assignee). It stays a title marker. */
-const GATE_TITLE_RE = /^\s*\[GATE\]/i;
 
 /** Human-facing label for a todo: role label from `kind`, never from the title.
  *  `stripLabel` first so this is idempotent against not-yet-migrated stored titles;
@@ -550,7 +547,7 @@ export function isHeadlessLeaf(todo: Todo, project: string): boolean {
   // (assigneeKind 'agent'), the human check above stops shielding it, and the
   // executor would run blueprint -> implement -> review against a git merge.
   if (isLand(todo)) return false;
-  if (GATE_TITLE_RE.test(todo.title ?? '')) return false;
+  if (kindOf(todo) === 'gate') return false;
   // NOTE: 'reviewer' leaves USED to be excluded here (a review's deliverable is a judgment,
   // not a commit, so the code path's work-committed re-verify wrongly reversed accept→ready —
   // the L7 case). That exclusion stranded every epic that ends with a completeness-review leaf
@@ -571,7 +568,7 @@ export function headlessExclusionReason(todo: Todo, project: string): string | n
   if (todo.assigneeKind === 'human') return 'human';
   if (isEpic(todo) || isMission(todo)) return 'epic-or-mission';
   if (isLand(todo)) return 'land';
-  if (GATE_TITLE_RE.test(todo.title ?? '')) return 'gate';
+  if (kindOf(todo) === 'gate') return 'gate';
   // 'reviewer' is no longer excluded — it runs the 'review' execution shape (epic d8ac1a18).
   if (hasOpenChildren(project, todo.id)) return 'has-children';
   return null;

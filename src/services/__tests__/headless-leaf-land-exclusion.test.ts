@@ -62,7 +62,7 @@ describe('land leaves are never headless-built (the merge-by-LLM trap)', () => {
   it('epic, mission and [GATE] remain excluded alongside land', () => {
     expect(isHeadlessLeaf(leaf({ kind: 'epic', title: 'some epic' }), PROJECT)).toBe(false);
     expect(isHeadlessLeaf(leaf({ kind: 'mission', title: 'some mission' }), PROJECT)).toBe(false);
-    expect(isHeadlessLeaf(leaf({ kind: 'leaf', title: '[GATE] some gate' }), PROJECT)).toBe(false);
+    expect(isHeadlessLeaf(leaf({ kind: 'gate', title: 'some gate' }), PROJECT)).toBe(false);
   });
 
   it('an ordinary agent code leaf with no children is STILL admitted', () => {
@@ -73,7 +73,7 @@ describe('land leaves are never headless-built (the merge-by-LLM trap)', () => {
     expect(headlessExclusionReason(leaf({ kind: 'land', title: 'merge' }), PROJECT)).toBe('land');
     expect(headlessExclusionReason(leaf({ kind: 'epic', title: 'e' }), PROJECT)).toBe('epic-or-mission');
     expect(headlessExclusionReason(leaf({ kind: 'mission', title: 'm' }), PROJECT)).toBe('epic-or-mission');
-    expect(headlessExclusionReason(leaf({ kind: 'leaf', title: '[GATE] g' }), PROJECT)).toBe('gate');
+    expect(headlessExclusionReason(leaf({ kind: 'gate', title: 'g' }), PROJECT)).toBe('gate');
   });
 
   it('headlessExclusionReason returns "human" for human-assigned leaves before checking kind', () => {
@@ -91,7 +91,7 @@ describe('land leaves are never headless-built (the merge-by-LLM trap)', () => {
       leaf({ kind: 'land', title: 'merge epic to master' }),
       leaf({ kind: 'epic', title: 'some epic' }),
       leaf({ kind: 'mission', title: 'some mission' }),
-      leaf({ kind: 'leaf', title: '[GATE] some gate' }),
+      leaf({ kind: 'gate', title: 'some gate' }),
       leaf({ kind: 'leaf', title: 'fix: code change' }),
       leaf({ kind: 'leaf', title: 'Fix the landing page copy' }),
       leaf({ kind: 'leaf', title: '[FEAT] land the parachute' }),

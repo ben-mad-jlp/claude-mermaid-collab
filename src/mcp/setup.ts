@@ -64,6 +64,7 @@ import { specHealth, syncShortlist } from '../services/cartographer.js';
 import { lastAssistantTurn } from '../services/transcript-reader.js';
 import { listTodos, getTodo, resetTodo, overrideAcceptTodo, createGate, completeGatesForDecision, deriveTodoViews } from '../services/todo-store.js';
 import type { TodoKind } from '../services/todo-kind.js';
+import { isGate } from '../services/todo-kind.js';
 import { MISSION_TOOL_DEFS, handleMissionTool } from './mission-tools.js';
 import { SNIPPET_TOOL_DEFS, handleSnippetTool } from './snippet-tools.js';
 import { EMBED_TOOL_DEFS, handleEmbedTool } from './embed-tools.js';
@@ -2050,7 +2051,10 @@ export async function setupMCPServer(): Promise<Server> {
               if (todoId && supervisorStore.shouldAutoGate(kind, Boolean(operatorGated))) {
                 try {
                   const work = getTodo(project, todoId);
-                  const alreadyGated = work?.dependsOn?.some((d) => getTodo(project, d)?.title?.startsWith('[GATE'));
+                  const alreadyGated = work?.dependsOn?.some((d) => {
+                    const dep = getTodo(project, d);
+                    return !!dep && isGate(dep);
+                  });
                   if (work && work.assigneeKind !== 'human' && !alreadyGated) {
                     await createGate(project, { workTodoId: todoId, title: questionText, gateKind: kind });
                   }
