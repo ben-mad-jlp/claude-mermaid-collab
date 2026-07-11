@@ -1329,8 +1329,16 @@ export async function autoLandReadiness(
  * 0949289b Part 2 (post-land stale-checkout tree corruption) is fully fixed — CONSTRAINT
  * 020b7ab1: build the new autonomy path, do not enable it unattended while that P0 is open.
  * Flip to true (with the P0 closed) to arm; no other change required.
+ *
+ * ARMED 2026-07-11 (v6.17.15): P0 0949289b Part 2 is fixed at the SOURCE (worktree-manager land
+ * self-syncs the on-master checkout after the ref advance) AND confirmed live via a throwaway
+ * proof-land — the 13th land and the first that self-healed (post-land write-tree == HEAD^tree,
+ * zero manual tripwire). The daemon now auto-lands a mission epic that reaches a GREEN land proof
+ * (children accepted + tsc-clean + dry-merge-clean + subset verify). DEPLOY stays human-gated and
+ * STRICTLY SEPARATE (deploy_self). Disarm by flipping back to false, or via steward_pause /
+ * orchestrator off.
  */
-const MISSION_AUTOLAND_ARMED = false;
+const MISSION_AUTOLAND_ARMED = true;
 
 /** An epic is a "mission epic" when it has an owning mission that is active and non-terminal.
  *  Mirrors land-authority Rules 3-4 (findOwningMission + active/non-terminal), minus the
