@@ -229,12 +229,25 @@ export function evaluateCommandEvidence(opts: {
   const escapes: RecordedCommand[] = [];
   const reasons: string[] = [];
 
-  // Check for cwd escapes — only a verification-command escape can fake evidence and is fatal.
+  // A verification escape only fakes evidence if the work was NEVER verified in the worktree.
+  // The subset-of-baseline verdict REQUIRES running the suite in the base (master) checkout to
+  // collect the baseline failing-name set — a legitimate outside-worktree verification run. When
+  // the leaf ALSO ran verification INSIDE the worktree, the outside run is a baseline, not a
+  // false-green: the in-worktree run is the authoritative evidence and the escape cannot fake it.
+  // So downgrade escaped verifications to non-fatal iff an in-worktree verification exists.
+  const hasInWorktreeVerification = commands.some(
+    (c) => !isCwdEscape(c.cwd, worktreeRoot) && escapeIsFatal(c.cmd),
+  );
+
+  // Check for cwd escapes — a verification-command escape is fatal ONLY when nothing verified the
+  // work in the worktree (otherwise it is a baseline run beside real in-worktree verification).
   for (const cmd of commands) {
     if (isCwdEscape(cmd.cwd, worktreeRoot)) {
-      if (escapeIsFatal(cmd.cmd)) {
+      if (escapeIsFatal(cmd.cmd) && !hasInWorktreeVerification) {
         escapes.push(cmd);
-        reasons.push(`verification command "${cmd.cmd}" ran outside worktree: ${cmd.cwd}`);
+        reasons.push(`verification command "${cmd.cmd}" ran outside worktree with NO in-worktree verification: ${cmd.cwd}`);
+      } else if (escapeIsFatal(cmd.cmd)) {
+        reasons.push(`note: verification ran outside worktree but in-worktree verification exists (baseline, non-fatal): ${cmd.cwd}`);
       } else {
         reasons.push(`note: read-only command ran outside worktree (non-fatal): ${cmd.cwd}`);
       }
