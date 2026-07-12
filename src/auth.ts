@@ -16,6 +16,34 @@ export function isLoopbackPeer(address: string | undefined | null): boolean {
   );
 }
 
+/** True when `address` is a loopback OR a private/local-network peer — the set of
+ *  addresses that can legitimately reach a LAN-scoped (0.0.0.0 / tailnet) bind:
+ *  RFC1918 IPv4 (10/8, 172.16/12, 192.168/16), link-local (169.254/16, fe80::/10),
+ *  IPv6 unique-local (fc00::/7), plus the IPv4-mapped-IPv6 forms Bun reports on a
+ *  dual-stack listener (`::ffff:10.x` …). A null/unresolved address is NOT private
+ *  (fail safe → treated as a remote/public peer). */
+export function isPrivatePeer(address: string | undefined | null): boolean {
+  if (!address) return false;
+  const a = address.toLowerCase();
+  if (isLoopbackPeer(a)) return true;
+  // Strip an IPv4-mapped-IPv6 prefix so `::ffff:192.168.1.1` classifies as its IPv4.
+  const v4 = a.startsWith('::ffff:') ? a.slice('::ffff:'.length) : a;
+  // RFC1918 + link-local IPv4
+  if (v4.startsWith('10.')) return true;
+  if (v4.startsWith('192.168.')) return true;
+  if (v4.startsWith('169.254.')) return true; // link-local
+  // 172.16.0.0 – 172.31.255.255
+  const m = v4.match(/^172\.(\d{1,3})\./);
+  if (m) {
+    const second = Number(m[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  // IPv6 link-local fe80::/10  and unique-local fc00::/7 (fc.. / fd..)
+  if (a.startsWith('fe8') || a.startsWith('fe9') || a.startsWith('fea') || a.startsWith('feb')) return true;
+  if (a.startsWith('fc') || a.startsWith('fd')) return true;
+  return false;
+}
+
 /**
  * Token gate for all HTTP/WS endpoints. Reads MERMAID_AUTH_TOKEN at call-time
  * (so it reflects the live env and is unit-testable without module resets).
@@ -43,6 +71,10 @@ export function checkAuth(req: Request, url: URL, peerAddress?: string | null): 
   if (!token) return null; // auth disabled — today's open-localhost behavior
   if (url.pathname === '/api/health' || url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) return null;
   if (isLoopbackPeer(peerAddress)) return null; // desktop UI / local MCP — tokenless
+  // LAN-only enforcement: a peer that is neither loopback nor private-LAN can never
+  // legitimately reach even a 0.0.0.0-bound sidecar — reject outright, before the
+  // token gate, so a leaked token cannot admit a public/routable peer.
+  if (!isPrivatePeer(peerAddress)) return new Response('Forbidden', { status: 403 });
   const header = req.headers.get('authorization');
   if (header === `Bearer ${token}`) return null;
   return new Response('Unauthorized', { status: 401 });
