@@ -9,6 +9,7 @@ import { existsSync } from 'fs';
 import { config } from './config';
 import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
 import { checkAuth } from './auth';
+import { isAllowedOrigin } from './services/origin-guard.ts';
 import { handlePairRoutes } from './routes/pair-routes.js';
 import { migrateEnvAuthToken } from './services/config-file.js';
 import { killAllLeafSubtrees } from './services/leaf-subprocess-registry.js';
@@ -55,6 +56,7 @@ import {
 } from './routes/websocket';
 import { BindingSweeper } from './services/binding-sweeper.ts';
 import { BindingReconciler } from './services/binding-reconciler.ts';
+import { startBonjourAdvertiser, stopBonjourAdvertiser } from './services/bonjour-advertiser.ts';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -471,6 +473,12 @@ const server = Bun.serve<WsData>({
     const denied = checkAuth(req, url, server.requestIP(req)?.address);
     if (denied) return denied;
 
+    // Cross-origin drive-by guard — a browser page on a foreign origin must not
+    // drive this API/WS once the port is LAN-reachable. Native clients send no
+    // Origin and pass; same-origin (desktop UI) passes; a foreign Origin is 403'd
+    // BEFORE any WS upgrade or /api route. Health + /mcp* stay exempt (parity).
+    if (!isAllowedOrigin(req, url)) return new Response('Forbidden', { status: 403 });
+
     // WebSocket upgrade for collaboration
     if (url.pathname === '/ws') {
       const upgraded = server.upgrade(req, {
@@ -686,6 +694,14 @@ if (typeof server.port !== 'number' || server.port === 0) {
 const actualPort = server.port;
 const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 
+// Best-effort LAN discovery: publish _mermaidcollab._tcp so the iOS app auto-discovers
+// this Mac (design §3). No-op on a loopback-only bind. Never throws.
+try {
+  startBonjourAdvertiser({ port: actualPort, host: config.HOST });
+} catch (err) {
+  console.warn(`[bonjour] advertiser start failed (ignored): ${String(err)}`);
+}
+
 // Canonical :9002 ownership lockfile (design-ubuntu-native §4b). Record who owns
 // the port so any other starter can read it and run the take-over-or-refuse
 // handshake instead of silently shadowing us. Best-effort — never block startup.
@@ -740,6 +756,7 @@ process.on('SIGINT', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
@@ -758,6 +775,7 @@ process.on('SIGTERM', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
