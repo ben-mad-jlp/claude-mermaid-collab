@@ -21,9 +21,17 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        # Dev only: allow ws://localhost (cleartext) to the sidecar from the simulator.
+        # LAN-local (v1): cleartext only to local-network endpoints — the Apple-sanctioned
+        # exception for local-network apps, NOT the red-flag NSAllowsArbitraryLoads. The
+        # bearer token is the gate; v2 adds self-signed TLS + cert pinning (fingerprint slot
+        # reserved in Credentials). Covers the sim (localhost) and a device (192.168.x LAN).
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        # Bonjour discovery of the desktop server (design §3). NWBrowser on iOS 14+ requires
+        # both the usage description (Local Network permission prompt) and the service list.
+        NSLocalNetworkUsageDescription: "Zen finds your Mac on your wifi to show your collab sessions. Nothing leaves your local network."
+        NSBonjourServices:
+          - _mermaidcollab._tcp
         # Pairing deep link: the desktop "Phone access" QR encodes
         # mermaidcollab://pair?host=…&token=… — scanning it in Camera opens the app.
         CFBundleURLTypes:
