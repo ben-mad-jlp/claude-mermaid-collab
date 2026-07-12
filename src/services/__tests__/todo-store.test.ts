@@ -1174,7 +1174,9 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
   test("approving via status:'ready' surfaces derivedStatus:'ready' while storedStatus stays 'planned'", async () => {
     // This is the exact planner scenario: write status:'ready' (translated to an
     // approval — stamps approvedAt, keeps stored status 'planned'), then READ it back.
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E', kind: 'epic' });
+    // Epic RELEASED (status:'ready' stamps approvedAt) so the parent-unreleased claimability
+    // rung doesn't gate the child — this test isolates the approve-verb derivation, not release.
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E', kind: 'epic', status: 'ready' });
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'C0', parentId: epic.id, status: 'planned' });
     expect(t.status).toBe('planned');
     expect(t.approvedAt).toBeNull();
@@ -1193,7 +1195,8 @@ describe('deriveTodoViews — the client-facing derived view (MCP surface)', () 
   });
 
   test('unapproved todo derives planned + unapproved; blocked dep derives deps-pending', async () => {
-    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E2', kind: 'epic' });
+    // Epic RELEASED so the parent-unreleased rung doesn't mask the deps-pending derivation.
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E2', kind: 'epic', status: 'ready' });
     const dep = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'dep', parentId: epic.id });
     const child = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'child', parentId: epic.id, dependsOn: [dep.id] });
     await updateTodo(project, child.id, { status: 'ready' }); // approve, but dep not done
