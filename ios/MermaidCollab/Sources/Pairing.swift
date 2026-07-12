@@ -73,8 +73,10 @@ final class AppModel: ObservableObject {
 /// mermaidcollab:// deep link, so this is the manual fallback).
 struct PairingView: View {
     @EnvironmentObject var app: AppModel
+    @StateObject private var discovery = Discovery()
     @State private var host = ""
     @State private var token = ""
+    @State private var resolving: String? = nil
 
     private var canPair: Bool {
         !host.trimmingCharacters(in: .whitespaces).isEmpty &&
@@ -90,12 +92,14 @@ struct PairingView: View {
                             .font(.largeTitle).foregroundStyle(.tint)
                         Text("Pair with your Mac")
                             .font(.title2).fontWeight(.semibold)
-                        Text("Open the desktop app → Settings → Phone access. Scan the QR with the Camera app, or type the host and token below.")
+                        Text("Open the desktop app → Settings → Phone access. Scan the QR with the Camera app, or pick your Mac below and paste the token.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
 
+                    discoverySection
+
                     VStack(alignment: .leading, spacing: 12) {
-                        field("Host", text: $host, placeholder: "100.x.y.z:9002", keyboard: .URL)
+                        field("Host", text: $host, placeholder: "192.168.x.y:9002", keyboard: .URL)
                         field("Token", text: $token, placeholder: "paste the bearer token", keyboard: .asciiCapable)
                     }
 
@@ -112,6 +116,48 @@ struct PairingView: View {
                 .padding(20)
             }
             .navigationTitle("Zen")
+        }
+        .onAppear { discovery.start() }
+        .onDisappear { discovery.stop() }
+    }
+
+    /// "Found on your wifi" — the AirPlay-picker moment (design §3). Tapping a Mac resolves
+    /// it and fills the Host field; the token still comes from the QR/manual entry (v1).
+    @ViewBuilder private var discoverySection: some View {
+        if !discovery.services.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ON YOUR WIFI").font(.caption2).fontWeight(.semibold).foregroundStyle(.secondary)
+                ForEach(discovery.services) { svc in
+                    Button {
+                        resolving = svc.id
+                        discovery.resolve(svc) { hp in
+                            resolving = nil
+                            if let hp { host = hp }
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "desktopcomputer").foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(svc.name).fontWeight(.medium)
+                                if let hp = svc.hostPort { Text(hp).font(.caption2).foregroundStyle(.secondary) }
+                            }
+                            Spacer()
+                            if resolving == svc.id { ProgressView() }
+                            else { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
+                        }
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else if discovery.browsing {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text(discovery.permissionLikelyDenied ? "Allow Local Network access to find your Mac"
+                                                       : "Looking for your Mac on this wifi…")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
     }
 
