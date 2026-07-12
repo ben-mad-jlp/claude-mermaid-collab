@@ -1,9 +1,13 @@
 import SwiftUI
 
 /// The pairing credentials: which sidecar (host:port) + the bearer token.
+/// `certFingerprint` is RESERVED for v2 (self-signed TLS + cert pinning): the app
+/// will pin the SHA-256 of the cert it saw at pairing. Optional + defaulted so creds
+/// persisted before v2 still decode (v1 is cleartext-over-LAN + token).
 struct Credentials: Codable, Equatable {
-    var host: String   // e.g. "100.88.1.2:9002"
+    var host: String   // e.g. "192.168.1.10:9002" (LAN) or "Bens-Mac.local:9002"
     var token: String
+    var certFingerprint: String? = nil
 }
 
 /// Top-level app state: holds the pairing credentials and drives the gate
