@@ -290,15 +290,24 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     const laneCwd = lane.cwd ? join(o.epicWorktreeCwd, lane.cwd) : o.epicWorktreeCwd;
     const commands = expandLaneCommands(lane, files);
 
-    for (const command of commands) {
-      const key = `${laneIdx}:${files.join(',')}`;
+    // A per-file lane emits one command PER file (commands[i] ↔ files[i]); a batch lane
+    // emits ONE command over all files. Key each unit by the file(s) ITS command actually
+    // covers — NOT by the whole lane — so the baseline pass can classify each file
+    // independently. Keying the whole lane as one unit meant a single NEW file (baseline
+    // 'absent') forced the ENTIRE lane to 'regression', masking that the real failure was
+    // an INHERITED one in an existing file (audit c11df7d3 / epic 532c48fb).
+    const perFile = lane.mode === 'per-file';
+    for (let ci = 0; ci < commands.length; ci++) {
+      const command = commands[ci];
+      const unitFiles = perFile ? [files[ci]] : [...files];
+      const key = `${laneIdx}:${unitFiles.join(',')}`;
       let unit = unitsByKey.get(key);
       if (!unit) {
         unit = {
           key,
           command,
           laneCwd: lane.cwd ?? '',
-          files: [...files],
+          files: unitFiles,
           branch: 'pass',
           classification: 'ok',
         };
