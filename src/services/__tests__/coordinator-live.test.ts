@@ -46,7 +46,7 @@ mock.module('../todo-store', () => ({
   reclaimOrphan: async () => null,
 }));
 
-import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, displayTitle } from '../coordinator-live';
+import { makeCoordinatorDeps, resolveWorkerProfile, detectPermissionPrompt, extractRequestedTool, claudeAliveInSubtree, isClaudeTuiPresent, partitionEpicChildrenByRepo, getColdStartsInFlight, getWorktreeManager, isHeadlessLeaf, headlessExclusionReason, displayTitle, strandedEpicCandidates } from '../coordinator-live';
 import { isSupervised, removeSupervised, listSupervised } from '../supervisor-store';
 import { resetPool, listPool, markBusy, markIdle, removeSlot, getOrCreateSlot } from '../worker-pool';
 import { promises as fsp } from 'node:fs';
@@ -93,6 +93,23 @@ describe('isHeadlessLeaf — non-code leaf exclusion', () => {
     // plain leaf whose title merely mentions landing is still admitted.
     expect(isHeadlessLeaf(base({ kind: 'land', title: 'no bracket in sight' }), TEST_ROOT)).toBe(false);
     expect(isHeadlessLeaf(base({ kind: 'leaf', title: 'fix the landing page copy' }), TEST_ROOT)).toBe(true);
+  });
+});
+
+describe('strandedEpicCandidates — the done+accepted epics the land-self-heal sweep considers', () => {
+  const t = (over: Partial<Todo>): Todo => ({ id: 'x', title: 't', kind: 'leaf', status: 'planned', acceptanceStatus: null, ...(over as any) }) as Todo;
+  it('picks ONLY done+accepted epics (a stranded epic could be ahead of master)', () => {
+    const epicStranded = t({ id: 'e1', kind: 'epic', status: 'done', acceptanceStatus: 'accepted' });
+    const ids = strandedEpicCandidates([
+      epicStranded,
+      t({ id: 'e2', kind: 'epic', status: 'done', acceptanceStatus: null }),   // done but not accepted → the OTHER sweep's flag
+      t({ id: 'e3', kind: 'epic', status: 'ready', acceptanceStatus: null }),   // not done
+      t({ id: 'l1', kind: 'leaf', status: 'done', acceptanceStatus: 'accepted' }), // a leaf, not an epic
+    ]).map((x) => x.id);
+    expect(ids).toEqual(['e1']);
+  });
+  it('is empty when nothing is a done+accepted epic', () => {
+    expect(strandedEpicCandidates([t({ kind: 'leaf', status: 'done', acceptanceStatus: 'accepted' })])).toEqual([]);
   });
 });
 

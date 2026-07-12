@@ -1156,6 +1156,64 @@ export async function sweepStrandedAccepted(
   return flagged;
 }
 
+// --- Stranded-EPIC self-heal (accepted ⇒ landed, at the epic level) --------------
+// sweepStrandedAccepted (above) SKIPS epics ("epics carry no commit of their own").
+// But a done+accepted EPIC whose accumulation branch is still AHEAD of master is a
+// real strand — surfaceEpicLand only runs for epics that roll up THIS reconcile pass
+// (sweepEpicRollups.rolledUp), so an epic that rolled up OUT OF BAND (e.g. its land
+// leaf was override-accepted), or whose land was refused-then-cleared (dirty-tree),
+// never re-surfaces. It sits done-but-unlanded forever. This closes that hole:
+// re-run surfaceEpicLand for each done+accepted epic still `epicAheadOfMaster > 0`.
+// surfaceEpicLand is idempotent — it dedups the land card and, at level 'auto',
+// re-derives the proof and lands via the safe landEpic path. Bounded + throttled
+// (one `git rev-list --count` per candidate). Never throws.
+export const STRANDED_EPIC_SWEEP_INTERVAL_MS = 90 * 1000; // ~3 ticks — prompt but not per-tick
+export const STRANDED_EPIC_MAX_GIT_CHECKS = 30;
+const lastStrandedEpicSweepAt = new Map<string, number>();
+
+/** Pure: the done+accepted epics that are stranded-acceptance CANDIDATES. The git
+ *  ahead-of-master filter (the impure part) is applied by the sweep. Exported for test. */
+export function strandedEpicCandidates(todos: Todo[]): Todo[] {
+  return todos.filter((t) => t.kind === 'epic' && t.status === 'done' && t.acceptanceStatus === 'accepted');
+}
+
+export async function sweepStrandedEpics(
+  project: string,
+  opts?: { force?: boolean; now?: number },
+): Promise<string[]> {
+  const now = opts?.now ?? Date.now();
+  const last = lastStrandedEpicSweepAt.get(project) ?? 0;
+  if (!opts?.force && now - last < STRANDED_EPIC_SWEEP_INTERVAL_MS) return [];
+  lastStrandedEpicSweepAt.set(project, now);
+
+  const resurfaced: string[] = [];
+  const candidates = strandedEpicCandidates(listTodos(project, { includeCompleted: true }));
+  let gitChecks = 0;
+  for (const epic of candidates) {
+    if (gitChecks >= STRANDED_EPIC_MAX_GIT_CHECKS) break;
+    try {
+      const wm = getWorktreeManager(epic.targetProject ?? project);
+      if (!(await wm.isGitRepoPublic())) continue;
+      gitChecks++;
+      const ahead = await wm.epicAheadOfMaster(epic.id);
+      if (ahead <= 0) continue; // landed / branch gone → nothing to do
+      // Done+accepted but still ahead of master → re-surface. Idempotent (dedups the
+      // card; auto-lands at level 'auto' via the same safe path the rollup uses).
+      await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator' });
+      resurfaced.push(epic.id);
+    } catch { /* one bad epic never aborts the sweep */ }
+  }
+  if (resurfaced.length > 0) {
+    recordSupervisorAudit({
+      kind: 'reconcile',
+      project,
+      session: 'coordinator',
+      detail: JSON.stringify({ source: 'reconcile-pass', strandedEpicResurface: resurfaced }),
+    });
+  }
+  return resurfaced;
+}
+
 // --- FBPE P5: cross-repo epics --------------------------------------------------
 // An epic whose children span repos gets ONE accumulation branch PER target repo
 // (git can't merge across repos), so the land surface raises one card per repo and

@@ -1726,7 +1726,7 @@ export async function setupMCPServer(): Promise<Server> {
           }
 
           case 'add_session_todo': {
-            const { project, session, text, title, kind, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox } = args as {
+            const { project, session, text, title, kind, link, assigneeSession, assigneeKind, description, status, priority, dueDate, dependsOn, parentId, sessionName, type, files, inbox, servesCriterionId } = args as {
               project: string;
               session: string;
               text?: string;
@@ -1745,6 +1745,7 @@ export async function setupMCPServer(): Promise<Server> {
               type?: string | null;
               files?: string[];
               inbox?: boolean;
+              servesCriterionId?: string | null;
             };
             if (!project || !session || !(title ?? text)) throw new Error('Missing required: project, session, text');
             // `kind` is the ONLY role signal (stage C, decision e852fb0c). It is never inferred from the
@@ -1757,14 +1758,14 @@ export async function setupMCPServer(): Promise<Server> {
             const result = await addSessionTodo(project, session, title ?? text!, link, {
               kind: kind ?? 'leaf',
               assigneeSession, assigneeKind, description, status, priority, dueDate,
-              dependsOn, parentId, sessionName, type, files, inbox,
+              dependsOn, parentId, sessionName, type, files, inbox, servesCriterionId,
             });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined });
             return JSON.stringify({ ...deriveTodoViews(project, [result])[0] }, null, 2);
           }
 
           case 'update_session_todo': {
-            const { project, session, id, text, title, completed, order, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName, targetProject } = args as {
+            const { project, session, id, text, title, completed, order, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName, targetProject, servesCriterionId } = args as {
               project: string;
               session: string;
               id: string;
@@ -1784,9 +1785,10 @@ export async function setupMCPServer(): Promise<Server> {
               parentId?: string | null;
               sessionName?: string | null;
               targetProject?: string | null;
+              servesCriterionId?: string | null;
             };
             if (!project || !session || id === undefined) throw new Error('Missing required: project, session, id');
-            const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName, targetProject });
+            const result = await updateSessionTodo(project, session, id, { text, title, completed, link, assigneeSession, assigneeKind, completedBy, description, status, priority, dueDate, dependsOn, parentId, sessionName, targetProject, servesCriterionId });
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session, ownerSession: result.ownerSession, assigneeSession: result.assigneeSession ?? undefined, previousAssigneeSession: result.previousAssigneeSession ?? undefined });
             return JSON.stringify({ ...deriveTodoViews(project, [result])[0], previousAssigneeSession: result.previousAssigneeSession ?? undefined }, null, 2);
           }

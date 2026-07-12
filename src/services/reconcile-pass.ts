@@ -32,7 +32,7 @@ import {
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
 import { getTodo, sweepEpicRollups } from './todo-store.ts';
-import { surfaceEpicLand, sweepStrandedAccepted, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
+import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariants } from './invariant-check.ts';
 
 // ---------------------------------------------------------------------------
@@ -139,6 +139,21 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] mission auto-land sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3d. STRANDED-EPIC self-heal: a done+accepted epic still AHEAD of master
+  // (rolled up out-of-band, or a land refused-then-cleared) is caught by nothing
+  // above — surfaceEpicLand only fires for epics that roll up THIS pass. Re-surface
+  // each such epic (idempotent; auto-lands at level 'auto'). Bounded + throttled.
+  // -------------------------------------------------------------------------
+  try {
+    await sweepStrandedEpics(project);
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] stranded-epic sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }
