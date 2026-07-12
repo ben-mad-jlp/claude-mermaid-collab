@@ -22,9 +22,12 @@
  * Ships on today's code, ZERO durable schema: a plugin's appliesTo/run read only
  * what already exists (the todo, the manifest, on-disk artifacts a worker wrote).
  */
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { Todo } from './todo-store';
 import type { ProjectManifest } from '../config/project-manifest';
 import type { GateVerdict } from './coordinator-daemon';
+import { resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
 
 /** Resolution tiers, most-specific-LAST in number but resolved core-first. A
  *  core plugin (collab-shipped, domain-free) is considered before a domain plugin
@@ -379,6 +382,83 @@ export function specFilesInChangeSet(
   return [...new Set(out)];
 }
 
+/** Select the impacted spec set: the change-set's own specs UNION every spec that
+ *  consumes a changed non-test module. A spec "consumes" a module when the spec's
+ *  source contains an import/require of that module's path. Fallback to the FULL
+ *  candidate spec list when the import scan is unavailable (robust superset). */
+async function selectImpactedSpecs(
+  changeSet: readonly string[],
+  candidateSpecs: readonly string[],
+  exec: GateExec,
+  cwd: string,
+): Promise<string[]> {
+  const ownSpecs = new Set<string>();
+  const changedModules = new Set<string>();
+
+  // Partition change-set into spec files and non-test modules.
+  for (const file of changeSet) {
+    if (SPEC_FILE_RE.test(file)) {
+      ownSpecs.add(normPath(file));
+    } else {
+      // Non-test file — a potential module dependency.
+      const p = normPath(file);
+      changedModules.add(p);
+      // Also track by basename for simpler requires (e.g. a file `foo.ts` can be
+      // imported as `foo` or `./foo`).
+      const parts = p.split('/');
+      if (parts.length > 0) {
+        const base = parts[parts.length - 1];
+        changedModules.add(base);
+      }
+    }
+  }
+
+  if (changedModules.size === 0) {
+    // No non-test modules changed — impacted set is just the own specs.
+    return [...ownSpecs];
+  }
+
+  // Scan each candidate spec: if it imports/requires a changed module, include it.
+  const impacted = new Set(ownSpecs);
+  for (const spec of candidateSpecs) {
+    if (impacted.has(spec)) continue; // Already included.
+    try {
+      // Read the spec file to check for imports of changed modules.
+      const readRes = await exec(['cat', spec], { cwd, capture: true });
+      if (readRes.code !== 0) {
+        // Can't read the spec — include it in the superset for safety.
+        impacted.add(spec);
+        continue;
+      }
+      const content = readRes.stdout;
+      // Check if the content references any of the changed modules.
+      for (const module of changedModules) {
+        // Simple heuristic: look for the module name in import/require statements.
+        // Match patterns like: import "module", import 'module', require("module"), etc.
+        // Also match relative paths: import from "./module" or "./path/to/module".
+        const patterns = [
+          new RegExp(`\\b(?:import|require)\\s*\\(\\s*['".]${escapeRegex(module)}`),
+          new RegExp(`\\bfrom\\s+['".]${escapeRegex(module)}`),
+        ];
+        if (patterns.some((p) => p.test(content))) {
+          impacted.add(spec);
+          break;
+        }
+      }
+    } catch {
+      // Scan error — include in superset to be conservative.
+      impacted.add(spec);
+    }
+  }
+
+  return [...impacted];
+}
+
+/** Escape a string for use in a RegExp. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export const frontendSuiteGatePlugin: GatePlugin = {
   id: 'frontend-suite',
   tier: 'project',
@@ -476,8 +556,182 @@ export const changeSetTestGatePlugin: GatePlugin = {
 
 registerGatePlugin(changeSetTestGatePlugin);
 
+export const impactedSuiteGatePlugin: GatePlugin = {
+  id: 'impacted-suite',
+  tier: 'project',
+  appliesTo: (obj) => {
+    // Apply to any leaf when test lanes are declared (reuse leaf-gate's helpers).
+    // This applies to BACKEND leaves primarily (the manifestCommandGatePlugin is for all).
+    const gateConfig = obj.manifest?.gate;
+    if (!gateConfig) return false;
+    const lanes = resolveLanes(gateConfig as any);
+    return lanes !== null;
+  },
+  run: async (ctx): Promise<GateVerdict | null> => {
+    const cfg = ctx.manifest?.gate;
+    if (!cfg) return null;
+
+    // 1. tsc first (shared helper). A tsc failure rejects before we bother with tests.
+    const tscVerdict = await runManifestCommand(ctx);
+    if (tscVerdict && !tscVerdict.passed) return tscVerdict;
+
+    // 2. Fetch the change-set.
+    const changeSet = await fetchChangeSet(ctx);
+    if (!changeSet) {
+      return { passed: false, reasons: ['impacted-suite gate: could not read change-set'] };
+    }
+
+    // 3. Resolve test lanes.
+    const lanes = resolveLanes(cfg as any);
+    if (!lanes || lanes.length === 0) return null;
+
+    // 4. Select impacted specs: own specs + specs consuming changed modules.
+    const allSpecs = changeSet
+      .map((p) => normPath(p))
+      .filter((p) => SPEC_FILE_RE.test(p));
+    if (allSpecs.length === 0) {
+      // No spec files in change-set — test gate abstains.
+      return { passed: true, reasons: [], metrics: { impactedSuiteGate: true, ranSpecs: [] } };
+    }
+
+    const impactedSpecs = await selectImpactedSpecs(changeSet, allSpecs, ctx.exec, ctx.laneCwd ?? ctx.gateProject);
+    if (impactedSpecs.length === 0) {
+      return { passed: true, reasons: [], metrics: { impactedSuiteGate: true, ranSpecs: [] } };
+    }
+
+    // 5. Route to lanes and run on the branch.
+    const { byLane, unmatched } = routeSpecsToLanes(impactedSpecs, lanes);
+    if (unmatched.length > 0) {
+      return {
+        passed: false,
+        reasons: [`impacted-suite gate: ${unmatched.length} spec(s) match NO test lane`, ...unmatched.slice(0, 20)],
+        metrics: { impactedSuiteGate: true },
+      };
+    }
+
+    const branchFailures: string[] = [];
+    const root = ctx.laneCwd ?? ctx.gateProject;
+
+    for (const lane of lanes) {
+      const files = byLane.get(lane);
+      if (!files?.length) continue;
+
+      const laneCwd = lane.cwd ? join(root, lane.cwd) : root;
+      const commands = expandLaneCommands(lane, files);
+
+      for (const command of commands) {
+        try {
+          const proc = await ctx.exec(['sh', '-c', command], { cwd: laneCwd, capture: true });
+          const out = proc.stdout + '\n' + proc.stderr;
+          if (proc.code !== 0) {
+            const failing = extractFailingTests(out);
+            branchFailures.push(...failing);
+          }
+        } catch (e) {
+          return {
+            passed: false,
+            reasons: [`impacted-suite gate could not run: ${e instanceof Error ? e.message : String(e)}`],
+            metrics: { impactedSuiteGate: true },
+          };
+        }
+      }
+    }
+
+    // If no branch failures, gate passes.
+    if (branchFailures.length === 0) {
+      return { passed: true, reasons: [], metrics: { impactedSuiteGate: true, ranSpecs: impactedSpecs } };
+    }
+
+    // 6. Branch failed — compute baseline. All git/fs operations driven through ctx.exec
+    // so they can be tested/mocked.
+    const trial = join(tmpdir(), `collab-impacted-gate-${process.pid}-${Date.now()}`);
+
+    const teardown = async () => {
+      try { await ctx.exec(['git', '-C', ctx.gateProject, 'worktree', 'remove', '--force', trial], { cwd: ctx.gateProject, capture: true }); } catch {}
+      try { await ctx.exec(['git', '-C', ctx.gateProject, 'worktree', 'prune'], { cwd: ctx.gateProject, capture: true }); } catch {}
+    };
+
+    const baseRef = 'master';
+    const addRes = await ctx.exec(['git', '-C', ctx.gateProject, 'worktree', 'add', '--detach', trial, baseRef], { cwd: ctx.gateProject, capture: true });
+    if (addRes.code !== 0) {
+      await teardown();
+      return {
+        passed: false,
+        reasons: ['impacted-suite gate: baseline worktree setup failed'],
+        metrics: { impactedSuiteGate: true },
+      };
+    }
+
+    try {
+      // Symlink node_modules if it exists. Check existence via git ls-files or stat.
+      const checkModulesRes = await ctx.exec(['test', '-d', join(ctx.gateProject, 'node_modules')], { cwd: ctx.gateProject, capture: true });
+      if (checkModulesRes.code === 0) {
+        // node_modules exists in source — symlink it to baseline.
+        const srcModules = join(ctx.gateProject, 'node_modules');
+        const trialModules = join(trial, 'node_modules');
+        // Check if target already exists.
+        const checkTargetRes = await ctx.exec(['test', '-e', trialModules], { cwd: trial, capture: true });
+        if (checkTargetRes.code !== 0) {
+          // Target doesn't exist — create symlink via ln -s.
+          const symlinkRes = await ctx.exec(['ln', '-s', srcModules, trialModules], { cwd: trial, capture: true });
+          if (symlinkRes.code !== 0) {
+            // Symlink failed — continue anyway, baseline will error if needed.
+          }
+        }
+      }
+
+      // Run the identical impacted specs on the baseline.
+      const baselineFailures: string[] = [];
+
+      for (const lane of lanes) {
+        const files = byLane.get(lane);
+        if (!files?.length) continue;
+
+        const laneCwd = lane.cwd ? join(trial, lane.cwd) : trial;
+        const commands = expandLaneCommands(lane, files);
+
+        for (const command of commands) {
+          try {
+            const proc = await ctx.exec(['sh', '-c', command], { cwd: laneCwd, capture: true });
+            const out = proc.stdout + '\n' + proc.stderr;
+            if (proc.code !== 0) {
+              const failing = extractFailingTests(out);
+              baselineFailures.push(...failing);
+            }
+          } catch {
+            // Baseline run error — treat as a test error, not fatal.
+          }
+        }
+      }
+
+      // Compare: net-new failures are those in branch but not baseline.
+      const netNew = netNewFailures(branchFailures, baselineFailures);
+      if (netNew.length === 0) {
+        return {
+          passed: true,
+          reasons: [],
+          metrics: { impactedSuiteGate: true, ranSpecs: impactedSpecs, baselineOnly: branchFailures },
+        };
+      }
+
+      return {
+        passed: false,
+        reasons: [
+          `impacted-suite gate: ${netNew.length} net-new failing test(s) vs master baseline`,
+          ...netNew.slice(0, 20),
+        ],
+        metrics: { impactedSuiteGate: true, ranSpecs: impactedSpecs, netNewFailures: netNew },
+      };
+    } finally {
+      await teardown();
+    }
+  },
+};
+
+registerGatePlugin(impactedSuiteGatePlugin);
+
 /** Run the project's generic `gateCommand` (e.g. `npx tsc --noEmit`) with
- *  change-set narrowing on failure. Returns null when no gateCommand is declared
+ *  change-set narrowing on failure (unless in an isolated lane). Returns null when no gateCommand is declared
  *  (caller treats as "nothing to run"). Shared by manifestCommandGatePlugin and
  *  changeSetTestGatePlugin so the tsc gate runs exactly once, identically. */
 export async function runManifestCommand(ctx: GateSubject): Promise<GateVerdict | null> {
@@ -490,8 +744,19 @@ export async function runManifestCommand(ctx: GateSubject): Promise<GateVerdict 
     const structured = parseTrailingVerdict(out);
     if (structured) return structured;
     if (proc.code === 0) return { passed: true, reasons: [] };
-    const scoped = scopeFailureToChangeSet(out, await fetchChangeSet(ctx));
-    if (scoped) return scoped;
+    if (proc.code !== 0) {
+      // tsc is WHOLE-PROGRAM: a leaf-caused break can surface in an UNEDITED file (a union
+      // widened here, an exhaustive Record consumed there). Under worker isolation the gate
+      // runs in THIS lane's own worktree (only this leaf's work atop the epic base), so a
+      // non-zero exit is this leaf's own — reject UN-NARROWED, exact parity with the land gate
+      // (epic-land-gate.ts typecheck). Narrowing (below) is kept ONLY for the legacy shared tree.
+      if (ctx.laneCwd) {
+        return { passed: false, reasons: [`typecheck failed (${cmd}): ${lastLines(out, 20)}`],
+                 metrics: { unNarrowedTypecheck: true } };
+      }
+      const scoped = scopeFailureToChangeSet(out, await fetchChangeSet(ctx));
+      if (scoped) return scoped;
+    }
     return { passed: false, reasons: [`gate command exited ${proc.code}: ${lastLines(out, 20)}`] };
   } catch (e) {
     return { passed: false, reasons: [`gate could not run (${cmd}): ${e instanceof Error ? e.message : String(e)}`] };
