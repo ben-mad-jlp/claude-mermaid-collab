@@ -9,6 +9,7 @@ import { existsSync } from 'fs';
 import { config } from './config';
 import { PORT_REQUEST, MERMAID_PROJECT, MERMAID_SESSION, MC_BROWSER_TARGET, MERMAID_CHROME_PATH, MERMAID_BROWSER_HEADLESS, MERMAID_IDLE_SHUTDOWN_MS, MERMAID_AUTO_START_COORDINATOR } from './config';
 import { checkAuth } from './auth';
+import { isAllowedOrigin } from './services/origin-guard.ts';
 import { handlePairRoutes } from './routes/pair-routes.js';
 import { migrateEnvAuthToken } from './services/config-file.js';
 import { killAllLeafSubtrees } from './services/leaf-subprocess-registry.js';
@@ -470,6 +471,12 @@ const server = Bun.serve<WsData>({
     // token once MERMAID_AUTH_TOKEN is set and the server is bound beyond loopback.
     const denied = checkAuth(req, url, server.requestIP(req)?.address);
     if (denied) return denied;
+
+    // Cross-origin drive-by guard — a browser page on a foreign origin must not
+    // drive this API/WS once the port is LAN-reachable. Native clients send no
+    // Origin and pass; same-origin (desktop UI) passes; a foreign Origin is 403'd
+    // BEFORE any WS upgrade or /api route. Health + /mcp* stay exempt (parity).
+    if (!isAllowedOrigin(req, url)) return new Response('Forbidden', { status: 403 });
 
     // WebSocket upgrade for collaboration
     if (url.pathname === '/ws') {
