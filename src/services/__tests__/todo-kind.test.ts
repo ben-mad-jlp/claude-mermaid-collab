@@ -11,6 +11,7 @@ import {
   isEpic,
   isLand,
   isLeaf,
+  isGate,
   labelFor,
   stripLabel,
   KIND_LABEL,
@@ -49,6 +50,7 @@ describe('predicates', () => {
     epic: isEpic,
     land: isLand,
     leaf: isLeaf,
+    gate: isGate,
   };
 
   for (const { input, expect: want } of KIND_FIXTURE) {

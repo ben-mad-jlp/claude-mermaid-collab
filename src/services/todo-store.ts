@@ -138,6 +138,10 @@ export interface Todo {
   inheritedBlueprintFrom: string | null;
   /** SR-7: the files this split child owns (its slice of the parent plan). */
   inheritedFiles: string[];
+  /** EPIC 532c48fb GAP 2: bucket-ness, ORTHOGONAL to `kind`. A bucket IS an epic that
+   *  never lands / has no branch / no mission / is not conductor-landable. Backfilled by
+   *  id for the 5 known buckets; predicates migrate to consult this in leaf 4. */
+  isBucket: boolean;
 }
 
 export interface TodoFilter {
@@ -196,6 +200,9 @@ export interface CreateTodoInput {
    *  `servesCriterionId` column. Optional at create; the approval-time check
    *  (updateTodo) REQUIRES it for a mission-homed epic. */
   servesCriterionId?: string | null;
+  /** Explicit bucket declaration for an epic create (default false; only meaningful
+   *  with `kind:'epic'`). When omitted, bucket-ness is inferred from `isBucketEpicTitle`. */
+  isBucket?: boolean;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -210,6 +217,21 @@ export class OrphanTodoError extends Error {
       `under the Inbox epic.`,
     );
     this.name = 'OrphanTodoError';
+  }
+}
+
+/** Thrown by resolveTodoParent when a bucket epic create attempts to mint a second bucket
+ *  of the same kind (e.g., a second "Bugfix inbox"). Carries a `code` so HTTP/MCP callers
+ *  can map it to a 4xx. Decision: DR-bugfix-bucket-dedupe. */
+export class DuplicateBucketError extends Error {
+  readonly code = 'duplicate-bucket';
+  constructor(title: string, existingId: string) {
+    super(
+      `Exactly one bucket epic of each kind is allowed per project — a live bucket ` +
+      `matching "${title}" already exists (${existingId.slice(0, 8)}). Re-home under it ` +
+      `instead of creating a second. (decision DR-bugfix-bucket-dedupe)`,
+    );
+    this.name = 'DuplicateBucketError';
   }
 }
 
@@ -340,6 +362,7 @@ interface TodoRow {
   claimProbe: string | null;
   inheritedBlueprintFrom: string | null;
   inheritedFiles: string | null;
+  isBucket: number;
 }
 
 const DDL = `
@@ -378,7 +401,8 @@ CREATE TABLE IF NOT EXISTS todos (
   decisionRef TEXT,
   claimProbe TEXT,
   inheritedBlueprintFrom TEXT,
-  inheritedFiles TEXT
+  inheritedFiles TEXT,
+  isBucket INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_todos_owner ON todos(ownerSession);
 CREATE INDEX IF NOT EXISTS idx_todos_assignee ON todos(assigneeSession);
@@ -392,7 +416,7 @@ function addColumnIfMissing(db: Database, table: string, col: string, ddl: strin
 
 const dbCache = new Map<string, Database>();
 
-function openDb(project: string): Database {
+export function openDb(project: string): Database {
   // A worker whose cwd is its isolation worktree (<repo>/.collab/agent-sessions/...)
   // must resolve to the TRACKING repo's todos.db, never a worktree-local one — else
   // it opens an empty/absent db (silent 'no such table', or SQLITE_IOERR creating it
@@ -450,6 +474,11 @@ function openDb(project: string): Database {
   // their slice of files. Both nullable; present iff a split child.
   addColumnIfMissing(db, 'todos', 'inheritedBlueprintFrom', 'inheritedBlueprintFrom TEXT');
   addColumnIfMissing(db, 'todos', 'inheritedFiles', 'inheritedFiles TEXT');
+  // EPIC 532c48fb GAP 2 (step 3, DATA FIRST): bucket-ness is ORTHOGONAL to `kind`.
+  // A bucket IS an epic that never lands / has no branch / no mission. Additive,
+  // NOT NULL DEFAULT 0 so every existing row reads false until the backfill below
+  // flips the 5 known bucket ids. Predicates keep reading titles until leaf 4.
+  addColumnIfMissing(db, 'todos', 'isBucket', 'isBucket INTEGER NOT NULL DEFAULT 0');
   // One-shot backfill: enforce the claim invariant (claim fields non-null IFF
   // status==='in_progress') on rows written before the invariant was enforced.
   db.exec(
@@ -470,6 +499,17 @@ function openDb(project: string): Database {
   db.exec(`UPDATE todos SET kind='epic'    WHERE kind IS NULL AND TRIM(title) LIKE '[EPIC]%'`);
   db.exec(`UPDATE todos SET kind='land'    WHERE kind IS NULL AND TRIM(title) LIKE '[LAND]%'`);
   db.exec(`UPDATE todos SET kind='leaf'    WHERE kind IS NULL`);
+  // EPIC 532c48fb GAP 1 (step 1, DATA FIRST): [GATE] rows carry no role prefix, so the
+  // leaf catch-all above stamped them kind='leaf'. Re-stamp them kind='gate'. Covers BOTH
+  // forms create_gate emits (todo-store.ts:1499): the bare '[GATE] …' and the labelled
+  // '[GATE:<gateKind>] …'. Idempotent (kind!='gate' guard). Titles are NOT modified — the
+  // [GATE] title predicates (coordinator-live.ts / epic-land-readiness.ts) still read them
+  // until leaf 2 of this epic deletes them.
+  db.exec(
+    `UPDATE todos SET kind='gate'
+     WHERE (kind IS NULL OR kind != 'gate')
+       AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
+  );
   // Stage C (decision e852fb0c): the role prefix is now redundant with `kind`.
   // Strip EXACTLY the three role prefixes, keyed on the already-backfilled `kind`
   // column, never on a generic `title LIKE '[%]%'` — most bracketed titles are
@@ -478,6 +518,10 @@ function openDb(project: string): Database {
   db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), 10)) WHERE kind='mission' AND TRIM(title) LIKE '[MISSION]%'`);
   db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='epic'    AND TRIM(title) LIKE '[EPIC]%'`);
   db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='land'    AND TRIM(title) LIKE '[LAND]%'`);
+  // EPIC 532c48fb GAP 3 (Part B residual): strip [GATE]/[GATE:…] titles keyed on
+  // kind='gate' so topic tags survive. Idempotent via the LIKE guard. INSTR…']'
+  // handles both [GATE] and the labelled [GATE:<kind>] form.
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), INSTR(title, ']') + 1)) WHERE kind='gate' AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`);
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
   const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -488,6 +532,40 @@ function openDb(project: string): Database {
   if (ver < TODO_PARENT_RELEASE_V2) {
     backfillParentReleaseV2(db);
     db.exec(`PRAGMA user_version = ${TODO_PARENT_RELEASE_V2}`);
+  }
+  if (ver < TODO_BUCKET_COLUMN_V3) {
+    // EPIC 532c48fb GAP 2: flip the 5 KNOWN bucket epics to isBucket=1 BY ID (never by
+    // title regex — a41c8051 has a title suffix the fail-open title predicate C misses).
+    //   bb4a9a5d = [EPIC] Inbox
+    //   a41c8051, 98a779a1, 9759e36f, 3a6023e9 = the four [EPIC] Bugfix inbox rows
+    // Real deliverables that MUST stay isBucket=0 (regression setup for leaf 4):
+    //   d3e2a341 ("... human inbox"), and "[EPIC] Inbox rendering bugs".
+    // Real todo ids are full UUIDs; match via substr(id,1,8) for the leading 8 hex.
+    db.exec(
+      `UPDATE todos SET isBucket=1 WHERE substr(id,1,8) IN
+       ('bb4a9a5d','a41c8051','98a779a1','9759e36f','3a6023e9')`
+    );
+    db.exec(`PRAGMA user_version = ${TODO_BUCKET_COLUMN_V3}`);
+  }
+  if (ver < TODO_BUCKET_DEDUPE_V4) {
+    // decision DR-bugfix-bucket-dedupe: merge the 3 non-canonical Bugfix buckets
+    // (98a779a1, 9759e36f, 3a6023e9) into canonical a41c8051, THEN retire them.
+    // Re-home children FIRST (SR-4: never drop a row with live dependents) —
+    // buckets are roots so nothing dependsOn them; only parentId edges point in.
+    const canonical = db.query(
+      `SELECT id FROM todos WHERE substr(id,1,8)='a41c8051' LIMIT 1`,
+    ).get() as { id: string } | null;
+    if (canonical) {
+      db.prepare(
+        `UPDATE todos SET parentId=? WHERE parentId IN
+          (SELECT id FROM todos WHERE substr(id,1,8) IN ('98a779a1','9759e36f','3a6023e9'))`,
+      ).run(canonical.id);
+      db.exec(
+        `UPDATE todos SET isBucket=0, status='dropped' WHERE substr(id,1,8) IN
+          ('98a779a1','9759e36f','3a6023e9')`,
+      );
+    }
+    db.exec(`PRAGMA user_version = ${TODO_BUCKET_DEDUPE_V4}`);
   }
   dbCache.set(project, db);
   return db;
@@ -530,6 +608,12 @@ export const TODO_DECONFLATE_V1 = 1;
 
 /** user_version marker for the parent-release backfill (epic approvedAt from approved children). */
 export const TODO_PARENT_RELEASE_V2 = 2;
+
+/** user_version marker for the isBucket backfill (5 known bucket rows, by id). */
+export const TODO_BUCKET_COLUMN_V3 = 3;
+
+/** user_version marker for the bugfix bucket deduplication (merge 3 non-canonical rows to a41c8051, retire them). */
+export const TODO_BUCKET_DEDUPE_V4 = 4;
 
 /**
  * One-shot, idempotent de-conflate S1 backfill (design-todo-model-refactor §S1).
@@ -867,6 +951,7 @@ function rowToTodo(row: TodoRow): Todo {
     claimProbe: row.claimProbe ?? null,
     inheritedBlueprintFrom: row.inheritedBlueprintFrom ?? null,
     inheritedFiles,
+    isBucket: row.isBucket === 1,
   };
 }
 
@@ -934,7 +1019,19 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
     // §4d: DELIVERABLE epics are mission children by DEFAULT; BUCKET epics stay roots.
     if (input.missionId === null) return null;              // explicit opt-out
     if (input.missionId) return input.missionId;            // explicit homing
-    if (isBucketEpicTitle(input.title)) return null;        // Inbox / Bugfix inbox
+    const isBucketCreate = input.isBucket === true || isBucketEpicTitle(input.title);
+    if (isBucketCreate) {
+      // DR-bugfix-bucket-dedupe: enforce exactly one bucket per project. Compare on
+      // NORMALIZED title (stripLabel().toLowerCase()) so a second "Bugfix inbox" is refused
+      // while "Inbox" and "Bugfix inbox" stay distinct buckets.
+      const norm = stripLabel(input.title).toLowerCase();
+      const dup = listTodos(project, { includeCompleted: true }).find(
+        (t) => isEpic(t) && t.isBucket && t.status !== 'dropped' &&
+               stripLabel(t.title).toLowerCase() === norm,
+      );
+      if (dup) throw new DuplicateBucketError(input.title, dup.id);
+      return null;        // Inbox / Bugfix inbox
+    }
     return await resolveActiveMissionId(project, input.ownerSession);
   }
   if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
@@ -948,7 +1045,7 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
   const existing = listTodos(project, { includeCompleted: true })
     .find((t) => isEpic(t) && stripLabel(t.title) === inboxTitle && t.status !== 'dropped');
   if (existing) return existing.id;
-  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned', kind: 'epic' });
+  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned', kind: 'epic', isBucket: true });
   return inbox.id;
 }
 
@@ -970,12 +1067,13 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
     const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
     const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
+    const isBucket = isEpicInput(input) && (input.isBucket === true || isBucketEpicTitle(input.title)) ? 1 : 0;
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -986,7 +1084,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.servesCriterionId ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? [])
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -1529,17 +1627,15 @@ export interface CreateGateResult { gate: Todo; workTodo: Todo; }
 export async function createGate(project: string, input: CreateGateInput): Promise<CreateGateResult> {
   const work = getTodo(project, input.workTodoId);
   if (!work) throw new Error(`work todo not found: ${input.workTodoId}`);
-  const label = input.gateKind ? `[GATE:${input.gateKind}]` : '[GATE]';
-  const title = input.title.startsWith('[GATE') ? input.title : `${label} ${input.title}`;
   const gate = await createTodo(project, {
     ownerSession: work.ownerSession,
     assigneeKind: 'human',
     parentId: input.parentId ?? null,
     status: 'ready',
-    title,
+    title: input.title,
     description: input.description ?? null,
     decisionRef: input.decisionRef ?? null,
-    kind: 'leaf',  // a gate is a human leaf, never a container
+    kind: 'gate',  // a gate is a human decision node; label renders from kind via labelFor('gate')
     // A [GATE] is a dependency PRIMITIVE, not a work todo: when the caller leaves it
     // unparented it attaches to the work-todo via dependsOn, so don't orphan-reject it.
     allowOrphan: input.parentId == null,
@@ -2194,7 +2290,7 @@ export async function backfillEpicsUnderMission(
       result.skipped.push({ id, reason: 'not-an-epic' });
       continue;
     }
-    if (isBucketEpicTitle(epic.title)) {
+    if (epic.isBucket) {
       result.skipped.push({ id, reason: 'bucket-epic' });
       continue;
     }

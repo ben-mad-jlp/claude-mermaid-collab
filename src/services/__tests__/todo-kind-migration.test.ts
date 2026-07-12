@@ -75,6 +75,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string; status?: To
     claimProbe: null,
     inheritedBlueprintFrom: null,
     inheritedFiles: [],
+    isBucket: false,
     ...partial,
     id: partial.id ?? `t${++seq}`,
     status,

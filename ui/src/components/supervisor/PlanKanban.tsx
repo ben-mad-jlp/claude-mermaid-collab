@@ -21,7 +21,6 @@ import type { SessionTodo } from '@/types/sessionTodo';
 import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
 import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
-import { isBucketEpic } from './bucketEpic';
 import { CopyId } from '@/components/CopyId';
 import { buildTodoHierarchy } from '@/lib/todoHierarchy';
 
@@ -252,7 +251,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
           // A cohesive ACTIVE epic always shows its completed children (progress) —
           // never trimmed. The orphan ("No epic") group AND catch-all BUCKET epics
           // (Inbox) instead obey Show completed: their done items are just history.
-          if (l.epic && !l.completed && !isBucketEpic(l.epic.title)) return l;
+          if (l.epic && !l.completed && !l.epic.isBucket) return l;
           if (showCompleted) return l;
           return { ...l, items: l.items.filter((t) => !TERMINAL.has(t.status)) };
         })
@@ -322,7 +321,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   the synthetic orphan ("No epic") lane. Cohesive epics are not clearable. */}
               {(() => {
                 const clearableEpicId =
-                  lane.epic && isBucketEpic(lane.epic.title) ? lane.epic.id
+                  lane.epic && lane.epic.isBucket ? lane.epic.id
                   : lane.epic === null ? null
                   : undefined;
                 const canClear = onClearCompleted && clearableEpicId !== undefined && lane.counts.done > 0;

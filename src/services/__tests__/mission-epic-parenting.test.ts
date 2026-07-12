@@ -204,6 +204,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         claimProbe: null,
       inheritedBlueprintFrom: null,
       inheritedFiles: [],
+      isBucket: false,
       },
       {
         id: 'e1',
@@ -248,6 +249,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         claimProbe: null,
       inheritedBlueprintFrom: null,
       inheritedFiles: [],
+      isBucket: false,
       },
       {
         id: 'land1',
@@ -292,6 +294,7 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
         claimProbe: null,
       inheritedBlueprintFrom: null,
       inheritedFiles: [],
+      isBucket: false,
       },
     ];
 
@@ -311,14 +314,20 @@ describe('land_epic / epic_branch_status resolve the branch for mission-parented
 
 describe('bucket epics stay roots', () => {
   test('bucket epic titles never adopt a mission parent, even with an active mission present', async () => {
-    const m = await mission();
-    setMissionActive(project, m.id, true);
-
-    // All bucket titles must stay as roots.
+    // Each title in ITS OWN project: one-bucket enforcement (DR-bugfix-bucket-dedupe) rejects a
+    // second bucket whose normalized title collides — 'Inbox' / 'inbox' / '[EPIC] Inbox' all
+    // normalize to 'inbox'. This test only asserts each bucket title stays a ROOT under an
+    // active mission, so isolate per title to avoid the (correct) duplicate rejection.
+    const created: string[] = [];
     for (const title of ['Inbox', 'Bugfix inbox', 'inbox', '[EPIC] Inbox']) {
+      project = mkdtempSync(join(tmpdir(), 'mission-parent-bucket-'));
+      created.push(project);
+      const m = await mission();
+      setMissionActive(project, m.id, true);
       const e = await createTodo(project, { ownerSession: 's1', title, kind: 'epic' });
       expect(e.parentId).toBeNull();
     }
+    for (const p of created) rmSync(p, { recursive: true, force: true });
   });
 
   test('deliverable epic with active mission is homed under it', async () => {

@@ -58,6 +58,7 @@ function makeLeaf(over: Partial<Todo> = {}): Todo {
     claimProbe: null,
     inheritedBlueprintFrom: null,
     inheritedFiles: [],
+    isBucket: false,
     ...over,
   };
 }

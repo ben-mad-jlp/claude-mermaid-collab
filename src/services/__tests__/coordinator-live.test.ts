@@ -78,7 +78,7 @@ describe('isHeadlessLeaf — non-code leaf exclusion', () => {
     expect(isHeadlessLeaf(base({ assigneeKind: 'human' }), TEST_ROOT)).toBe(false);
     expect(isHeadlessLeaf(base({ kind: 'epic', title: 'Bugfix inbox' }), TEST_ROOT)).toBe(false);
     expect(isHeadlessLeaf(base({ kind: 'mission', title: 'Converge X' }), TEST_ROOT)).toBe(false);
-    expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[GATE] x' }), TEST_ROOT)).toBe(false);
+    expect(isHeadlessLeaf(base({ kind: 'gate', title: 'x' }), TEST_ROOT)).toBe(false);
     // topic tag ≠ role prefix: a bare-titled leaf that merely starts with a bracket is claimable
     expect(isHeadlessLeaf(base({ kind: 'leaf', title: '[UI] Plan list refresh' }), TEST_ROOT)).toBe(true);
   });

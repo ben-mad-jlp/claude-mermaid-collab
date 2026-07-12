@@ -907,7 +907,8 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
     expect(workTodo.approvedAt).not.toBeNull();
     expect(workTodo.dependsOn).toContain(gate.id);
     expect(gate.assigneeKind).toBe('human');
-    expect(gate.title).toBe('[GATE:spec-review] review the spec');
+    expect(gate.title).toBe('review the spec');
+    expect(gate.kind).toBe('gate');
     // Coordinator can't claim it while the gate is open.
     expect(listReadyTodos(project).map((t) => t.id)).not.toContain(work.id);
     // Human clears the gate → the SAME completeTodo tick makes the work-todo claimable.
@@ -975,7 +976,7 @@ describe('readiness gates (createGate — design-readiness-gates P1)', () => {
       decisionRef: undefined,
     });
     expect(gate.parentId).toBeNull();
-    expect(gate.kind).toBe('leaf');
+    expect(gate.kind).toBe('gate');
     expect(gate.assigneeKind).toBe('human');
     expect(workTodo.dependsOn).toContain(gate.id);
   });

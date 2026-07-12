@@ -5,7 +5,6 @@ import type { PlanItem } from '@/types/planItem';
 import { computeWaveMap } from './roadmapToMermaid';
 import { PlanKanban } from './PlanKanban';
 import { PlanTotalsBar } from './PlanTotals';
-import { isBucketEpic } from './bucketEpic';
 import { FleetGraph } from './bridge/fleet/FleetGraph';
 import { liveBucketTodo, STATUS_STYLE } from './bridge/funnel';
 import { useInflightLeafIds } from './bridge/useInflightLeafIds';
@@ -175,7 +174,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
       // lane. Only an epic whose every child is terminal is gated by Show completed.
       const epicCompleted = allKids.length > 0 && allKids.every((k) => TERMINAL.has(k.status));
       if (epicCompleted && !showCompleted) continue;
-      const kids = isBucketEpic(epic.title) && !showCompleted ? allKids.filter(keep) : allKids;
+      const kids = epic.isBucket && !showCompleted ? allKids.filter(keep) : allKids;
       rows.push({ todo: epic, depth: 0 });
       for (const k of [...kids].sort(sort)) {
         rows.push({ todo: k, depth: 1 });
@@ -206,7 +205,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ serverId, project, onSelec
       .map((epic) => {
         const desc = descendantsOf(epic.id, hierarchy);
         const visibleDesc =
-          isBucketEpic(epic.title) && !showCompleted ? desc.filter((t) => !TERMINAL.has(t.status)) : desc;
+          epic.isBucket && !showCompleted ? desc.filter((t) => !TERMINAL.has(t.status)) : desc;
         const completed = desc.length > 0 && desc.every((t) => TERMINAL.has(t.status));
         return { epic, todos: [epic, ...visibleDesc], completed };
       })

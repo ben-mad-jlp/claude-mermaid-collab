@@ -12,9 +12,13 @@ export type { TodoKind };
 export interface KindBearing {
   kind?: TodoKind | null;
   title?: string | null;
+  /** Bucket-ness is a per-todo marker ORTHOGONAL to `kind`; predicates in
+   *  mission-parenting/land-authority read it to exclude bucket epics
+   *  (Inbox, Bugfix inbox) from convergence work and mission parenting. */
+  isBucket?: boolean;
 }
 
-const KINDS = ['mission', 'epic', 'land', 'leaf'] as const;
+const KINDS = ['mission', 'epic', 'land', 'leaf', 'gate'] as const;
 const isTodoKind = (v: unknown): v is TodoKind =>
   typeof v === 'string' && (KINDS as readonly string[]).includes(v);
 
@@ -59,6 +63,10 @@ export function isLeaf(t: KindBearing | null | undefined): boolean {
   return kindOf(t) === 'leaf';
 }
 
+export function isGate(t: KindBearing | null | undefined): boolean {
+  return kindOf(t) === 'gate';
+}
+
 /** A `KindBearing` that also has identity. Both the server `Todo` and the UI
  *  `SessionTodo` satisfy it. `parentId` is STRUCTURE, and structure is never a role:
  *  it is read only to answer "who is my parent", never "am I an epic". */
@@ -92,6 +100,7 @@ export const KIND_LABEL: Readonly<Record<TodoKind, string>> = {
   epic: '[EPIC]',
   land: '[LAND]',
   leaf: '',
+  gate: '[GATE]',
 } as const;
 
 export const labelFor = (kind: TodoKind): string => KIND_LABEL[kind] ?? '';
@@ -114,6 +123,7 @@ export const KIND_FIXTURE: ReadonlyArray<{ input: KindBearing; expect: TodoKind 
   { input: { kind: 'land', title: 'Land X → master' }, expect: 'land' },
   { input: { kind: 'leaf', title: '[UI] topic tag is not a role' }, expect: 'leaf' },
   { input: { kind: 'leaf', title: null }, expect: 'leaf' },
+  { input: { kind: 'gate', title: '[GATE] Decide: what is a leaf' }, expect: 'gate' },
 ];
 
 /** Payloads that MUST THROW (BOMB 2). A missing/garbage `kind` is a producer bug; it must
