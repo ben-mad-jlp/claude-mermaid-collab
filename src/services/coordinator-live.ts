@@ -33,6 +33,9 @@ import { getMission, isMissionTerminal } from './mission-store';
 // Import for side-effect: registers the CAD gate plugin (domain tier) into the
 // gate registry so a CAD step artifact is gated deterministically (Phase 1 #1).
 import './cad-gate-plugin';
+// Import for side-effect: registers the iOS Swift gate plugin (domain tier) so a
+// type:'ios' leaf is gated by a strict swift build/test, not the tsc manifest command.
+import './ios-gate-plugin';
 import { deriveBsyncSessionId, isCadTodo, bsyncSessionContextNote } from './bsync-session';
 import { runLeaf, makeLeafExecutorDeps, parseSizeManifest } from './leaf-executor';
 import { leafAbortReason } from './leaf-abort';
