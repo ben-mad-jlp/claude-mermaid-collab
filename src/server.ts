@@ -56,6 +56,7 @@ import {
 } from './routes/websocket';
 import { BindingSweeper } from './services/binding-sweeper.ts';
 import { BindingReconciler } from './services/binding-reconciler.ts';
+import { startBonjourAdvertiser, stopBonjourAdvertiser } from './services/bonjour-advertiser.ts';
 
 // Scratch session - a default workspace for casual use
 const SCRATCH_PROJECT = join(homedir(), '.mermaid-collab');
@@ -693,6 +694,14 @@ if (typeof server.port !== 'number' || server.port === 0) {
 const actualPort = server.port;
 const sessionId = deriveSessionId(MERMAID_PROJECT, MERMAID_SESSION);
 
+// Best-effort LAN discovery: publish _mermaidcollab._tcp so the iOS app auto-discovers
+// this Mac (design §3). No-op on a loopback-only bind. Never throws.
+try {
+  startBonjourAdvertiser({ port: actualPort, host: config.HOST });
+} catch (err) {
+  console.warn(`[bonjour] advertiser start failed (ignored): ${String(err)}`);
+}
+
 // Canonical :9002 ownership lockfile (design-ubuntu-native §4b). Record who owns
 // the port so any other starter can read it and run the take-over-or-refuse
 // handshake instead of silently shadowing us. Best-effort — never block startup.
@@ -747,6 +756,7 @@ process.on('SIGINT', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
@@ -765,6 +775,7 @@ process.on('SIGTERM', () => {
   screencastService?.stop();
   chromeManager?.stop();
   try { releaseLock(); } catch {}
+  try { stopBonjourAdvertiser(); } catch {}
   try { killAllLeafSubtrees(); } catch {} // E1: don't orphan live leaf subprocesses
   removeInstance(sessionId).catch(() => {}).finally(() => {
     ptyManager.killAll();
