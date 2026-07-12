@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject var store: ZenStore
@@ -61,6 +62,8 @@ struct ZenCardView: View {
     private var paneOptions: [ZenOption] { summary.structured?.options ?? [] }
     private var questionText: String? { escalation?.questionText ?? summary.structured?.question }
     private var showQuestion: Bool { !escOptions.isEmpty || !paneOptions.isEmpty }
+    /// A "green" card = a session actively working (design: green card = approve & push).
+    private var isGreen: Bool { summary.statusKey == "working" || summary.statusKey == "active" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -100,7 +103,7 @@ struct ZenCardView: View {
             }
             .padding(16).frame(maxWidth: .infinity)
             .contentShape(Rectangle())
-            .onTapGesture { if summary.hasMore { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } } }
+            .onTapGesture { if summary.hasMore { Haptics.tick(); withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) { expanded.toggle() } } }
 
             // Question + answers (only when the session is asking)
             if showQuestion {
@@ -111,6 +114,15 @@ struct ZenCardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     answerButtons
+                }
+                .padding(16)
+            }
+
+            // Green, not asking → the one act: approve & push (hold to confirm). design §2 Q1.
+            if isGreen && !showQuestion {
+                Divider()
+                ApprovePushButton {
+                    store.approvePush(project: summary.project, session: summary.session)
                 }
                 .padding(16)
             }
@@ -134,12 +146,14 @@ struct ZenCardView: View {
             if !escOptions.isEmpty {
                 ForEach(escOptions) { opt in
                     answerPill(opt.label, recommended: escalation?.recommended == opt.id) {
+                        Haptics.tick()
                         if let id = escalation?.id { store.decide(id, optionId: opt.id) }
                     }
                 }
             } else {
                 ForEach(Array(paneOptions.enumerated()), id: \.offset) { i, opt in
                     answerPill(opt.label, recommended: i == summary.structured?.recommended) {
+                        Haptics.tick()
                         store.answer(project: summary.project, session: summary.session, text: opt.valueToSend)
                     }
                 }
@@ -187,5 +201,72 @@ struct FlowLayout: Layout {
             v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
             x += s.width + spacing; rowH = max(rowH, s.height)
         }
+    }
+}
+
+/// Deliberate, intentional haptics (Emil's craft §7): a soft tick for light acts, a
+/// firmer success for the consequential approve/push. No-op is fine on the simulator.
+enum Haptics {
+    static func tick() {
+        let g = UIImpactFeedbackGenerator(style: .light); g.prepare(); g.impactOccurred()
+    }
+    static func success() {
+        let g = UINotificationFeedbackGenerator(); g.prepare(); g.notificationOccurred(.success)
+    }
+}
+
+/// The green card's single 'act': hold-to-confirm approve & push (design §2 Q1 — a push is
+/// consequential, so it is guarded by a hold, not a tap). Fills over ~0.6s; completing the
+/// hold fires `action` with a success haptic. Honors Reduce Motion (the fill still tracks
+/// the press, just without the spring flourish).
+struct ApprovePushButton: View {
+    var action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var progress: CGFloat = 0
+    @State private var firing = false
+    private let holdDuration: Double = 0.6
+
+    var body: some View {
+        ZStack {
+            Capsule().fill(Color.green.opacity(0.14))
+            GeometryReader { geo in
+                Capsule().fill(Color.green.opacity(0.28))
+                    .frame(width: geo.size.width * progress)
+            }
+            .clipShape(Capsule())
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                Text(firing ? "Pushing…" : "Hold to approve & push").font(.subheadline).fontWeight(.semibold)
+            }
+            .foregroundStyle(Color.green)
+        }
+        .frame(height: 44)
+        .overlay(Capsule().strokeBorder(Color.green.opacity(0.5)))
+        .contentShape(Capsule())
+        .gesture(
+            LongPressGesture(minimumDuration: holdDuration)
+                .onChanged { _ in
+                    withAnimation(reduceMotion ? .linear(duration: holdDuration) : .easeIn(duration: holdDuration)) {
+                        progress = 1
+                    }
+                }
+                .onEnded { _ in
+                    firing = true
+                    Haptics.success()
+                    action()
+                    // brief confirmation, then reset
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        withAnimation(.easeOut(duration: 0.25)) { progress = 0 }
+                        firing = false
+                    }
+                }
+        )
+        .simultaneousGesture(
+            // Reset the fill if the press is released before completing.
+            DragGesture(minimumDistance: 0).onEnded { _ in
+                if !firing { withAnimation(.easeOut(duration: 0.2)) { progress = 0 } }
+            }
+        )
+        .accessibilityLabel("Approve and push. Double tap and hold to confirm.")
     }
 }

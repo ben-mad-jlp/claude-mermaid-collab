@@ -171,4 +171,13 @@ final class ZenStore: ObservableObject {
             await send(request("/api/supervisor/nudge", method: "POST", body: ["project": project, "session": session, "text": text]))
         }
     }
+
+    /// Approve & proceed — the single 'act' verb for a green Zen card (design §2 Q1):
+    /// tell the session to push/land its current green work. Fire-and-forget; the
+    /// resulting state change arrives over the WS like any other update.
+    func approvePush(project: String, session: String) {
+        Task {
+            await send(request("/api/supervisor/approve-push", method: "POST", body: ["project": project, "session": session]))
+        }
+    }
 }
