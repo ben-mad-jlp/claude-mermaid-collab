@@ -112,9 +112,9 @@ export function nextUp(todos: SessionTodo[]): NextUp {
 }
 
 /** Is this the special Inbox epic (planning-only parent)? The role half comes from
- *  `kind`; the `inbox` half is a TOPIC match on the title, deliberately kept as a
- *  title convention (there is no inbox marker column) — it is not a role decision. */
-const isInboxEpic = (t: SessionTodo): boolean => isEpic(t) && /inbox/i.test(t.title ?? '');
+ *  `kind`; the `bucket` half is now the `isBucket` column — curated buckets (Inbox,
+ *  Bugfix inbox) are roots, not mission children. */
+const isInboxEpic = (t: SessionTodo): boolean => isEpic(t) && !!t.isBucket;
 
 /** A filed epic plus its single next-ready child leaf (the startable thing) + a ready count.
  *  Tapping an epic resolves to starting that child — an epic itself isn't claimable. */

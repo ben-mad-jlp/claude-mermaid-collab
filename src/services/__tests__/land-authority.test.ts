@@ -83,6 +83,11 @@ function inferKind(title: string): Todo['kind'] {
   return 'leaf';
 }
 
+function inferBucket(title: string): boolean {
+  // Bucket epics have "inbox" in their title (case-insensitive, word boundary)
+  return /\binbox\b/i.test(title);
+}
+
 function todo(partial: Partial<Todo> & { id?: string; title: string }): Todo {
   const { title, id, status: statusOverride, ...rest } = partial;
   const status = statusOverride ?? ('ready' as const);
@@ -90,6 +95,7 @@ function todo(partial: Partial<Todo> & { id?: string; title: string }): Todo {
     id: id ?? `t${++seq}`,
     title,
     kind: inferKind(title),
+    isBucket: inferBucket(title),
     ownerSession: 's',
     assigneeSession: null,
     assigneeKind: 'agent',
@@ -218,8 +224,10 @@ describe('isBucketEpic', () => {
     expect(isBucketEpic(todo({ title: '[EPIC] Bugfix inbox' }))).toBe(true);
   });
 
-  it('[EPIC] Collab gaps → true', () => {
-    expect(isBucketEpic(todo({ title: '[EPIC] Collab gaps' }))).toBe(true);
+  it('[EPIC] Collab gaps with isBucket=true → true (curated bucket)', () => {
+    const collab = todo({ title: '[EPIC] Collab gaps' });
+    collab.isBucket = true; // explicit bucket marker
+    expect(isBucketEpic(collab)).toBe(true);
   });
 
   it('case-insensitive: [epic] inbox → true', () => {
@@ -862,5 +870,77 @@ describe('landAuthority — three actors, one proof', () => {
     });
     expect(presenceCallCount).toBe(1);
     expect(gateCallCount).toBe(1);
+  });
+});
+
+describe('GAP-0 integration — strip titles then assert landReadiness still works', () => {
+  beforeEach(() => {
+    seq = 0;
+    missions.clear();
+  });
+
+  it('stripped titles + deliverable epic → landReadiness identifies by kind, passes', async () => {
+    // Build graph with prefixed titles
+    const m1 = todo({ id: 'm1', title: '[MISSION] converge', ownerSession: SESSION, status: 'ready' });
+    const e1 = todo({ id: 'e1', title: '[EPIC] the work', parentId: 'm1', status: 'ready' });
+    const l1 = todo({
+      id: 'l1',
+      title: 'leaf: code',
+      parentId: 'e1',
+      status: 'done',
+      acceptanceStatus: 'accepted',
+    });
+    const d1 = todo({
+      id: 'd1',
+      title: '[LAND] merge e1',
+      parentId: 'e1',
+      dependsOn: ['l1'],
+      assigneeKind: 'human',
+      status: 'ready',
+    });
+
+    missions.set('m1', { status: 'needs-discovery', active: true, abandonedAt: null });
+
+    // Strip the titles (remove role prefixes)
+    const stripped = [
+      { ...m1, title: 'converge' },
+      { ...e1, title: 'the work' },
+      { ...l1, title: 'leaf: code' },
+      { ...d1, title: 'merge e1' },
+    ];
+
+    // Verify kind was inferred correctly (from the original title prefix)
+    expect(stripped[0].kind).toBe('mission');
+    expect(stripped[1].kind).toBe('epic');
+    expect(stripped[3].kind).toBe('land');
+
+    // landReadiness should STILL work — it uses `kind`, not title
+    const verdict = await landReadiness(PROJECT, 'e1', {
+      probes: probes(),
+      todos: stripped,
+    });
+    expect(verdict.green).toBe(true);
+    expect(verdict.blockers).toHaveLength(0);
+  });
+
+  it('stripped titles + bucket epic with isBucket=true → landReadiness refuses it', async () => {
+    // Build graph with stripped titles but isBucket marker
+    const m1 = todo({ id: 'm1', title: 'converge', ownerSession: SESSION, status: 'ready' });
+    m1.kind = 'mission';
+
+    const bucketEpic = todo({ id: 'b1', title: 'stray bugfixes', status: 'ready' });
+    bucketEpic.kind = 'epic';
+    bucketEpic.parentId = 'm1';
+    bucketEpic.isBucket = true; // The column marker
+
+    missions.set('m1', { status: 'needs-discovery', active: true, abandonedAt: null });
+
+    const conductorActor: LandActor = { kind: 'conductor', session: SESSION };
+
+    // checkOwnership should refuse the bucket, regardless of its stripped title
+    const ownership = checkOwnership(PROJECT, 'b1', conductorActor, [m1, bucketEpic]);
+    expect(ownership.ok).toBe(false);
+    expect(ownership.ownership).toBe('bucket');
+    expect(ownership.blocker?.code).toBe('bucket-epic');
   });
 });

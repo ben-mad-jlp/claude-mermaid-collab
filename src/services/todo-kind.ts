@@ -12,6 +12,10 @@ export type { TodoKind };
 export interface KindBearing {
   kind?: TodoKind | null;
   title?: string | null;
+  /** Bucket-ness is a per-todo marker ORTHOGONAL to `kind`; predicates in
+   *  mission-parenting/land-authority read it to exclude bucket epics
+   *  (Inbox, Bugfix inbox) from convergence work and mission parenting. */
+  isBucket?: boolean;
 }
 
 const KINDS = ['mission', 'epic', 'land', 'leaf', 'gate'] as const;

@@ -20,11 +20,11 @@ export const BUCKET_EPIC_TITLES: readonly string[] = [INBOX_EPIC_TITLE, BUGFIX_I
 export const isBucketEpicTitle = (title: string | null | undefined): boolean =>
   BUCKET_EPIC_TITLES.some((b) => stripLabel(title ?? '').toLowerCase() === b.toLowerCase());
 
-/** kind:'epic' AND a bucket title. Throws MissingKindError via kindOf on a kind-less payload. */
-export const isBucketEpic = (t: KindBearing): boolean => isEpic(t) && isBucketEpicTitle(t.title);
+/** kind:'epic' AND isBucket=true — bucket epics are roots, not mission children. */
+export const isBucketEpic = (t: KindBearing): boolean => isEpic(t) && !!t.isBucket;
 
-/** kind:'epic' AND not a bucket → the epics that belong under a mission. */
-export const isDeliverableEpic = (t: KindBearing): boolean => isEpic(t) && !isBucketEpicTitle(t.title);
+/** kind:'epic' AND isBucket=false → the epics that belong under a mission. */
+export const isDeliverableEpic = (t: KindBearing): boolean => isEpic(t) && !t.isBucket;
 
 /** Missions are always roots. */
 export const missionParentId = (): null => null;
@@ -46,7 +46,7 @@ export function resolveEpicParent(input: EpicParentInput, activeMissionId: strin
   }
   if (input.missionId === null) return null;       // explicit opt-out
   if (input.missionId) return input.missionId;      // explicit homing (wins over bucket check)
-  if (isBucketEpicTitle(input.title)) return null;  // Inbox / Bugfix inbox
+  if (input.isBucket) return null;  // Inbox / Bugfix inbox
   return activeMissionId ?? null;
 }
 
@@ -58,7 +58,7 @@ export function epicBackfillSkipReason(
   epic: KindBearing & { parentId?: string | null },
 ): EpicBackfillSkipReason | null {
   if (!isEpic(epic)) return 'not-an-epic';
-  if (isBucketEpicTitle(epic.title)) return 'bucket-epic';
+  if (epic.isBucket) return 'bucket-epic';
   if (epic.parentId != null) return 'already-parented';
   return null;
 }
@@ -74,14 +74,14 @@ export const MISSION_PARENTING_FIXTURE: ReadonlyArray<{
   expect: string | null;
 }> = [
   { input: { kind: 'mission', title: 'Converge on X' }, activeMissionId: 'M1', expect: null },
-  { input: { kind: 'epic', title: 'Deliverable' }, activeMissionId: 'M1', expect: 'M1' },
-  { input: { kind: 'epic', title: 'Deliverable' }, activeMissionId: null, expect: null },
-  { input: { kind: 'epic', title: 'Deliverable', missionId: null }, activeMissionId: 'M1', expect: null },
-  { input: { kind: 'epic', title: 'Deliverable', missionId: 'M2' }, activeMissionId: 'M1', expect: 'M2' },
-  { input: { kind: 'epic', title: 'Inbox', missionId: 'M2' }, activeMissionId: 'M1', expect: 'M2' },
-  { input: { kind: 'epic', title: 'Inbox' }, activeMissionId: 'M1', expect: null },
-  { input: { kind: 'epic', title: 'Bugfix inbox' }, activeMissionId: 'M1', expect: null },
-  { input: { kind: 'epic', title: '[EPIC] Inbox' }, activeMissionId: 'M1', expect: null },
-  { input: { kind: 'epic', title: 'inbox' }, activeMissionId: 'M1', expect: null },
-  { input: { kind: 'epic', title: '[MISSION] deliverable, column wins' }, activeMissionId: 'M1', expect: 'M1' },
+  { input: { kind: 'epic', title: 'Deliverable', isBucket: false }, activeMissionId: 'M1', expect: 'M1' },
+  { input: { kind: 'epic', title: 'Deliverable', isBucket: false }, activeMissionId: null, expect: null },
+  { input: { kind: 'epic', title: 'Deliverable', isBucket: false, missionId: null }, activeMissionId: 'M1', expect: null },
+  { input: { kind: 'epic', title: 'Deliverable', isBucket: false, missionId: 'M2' }, activeMissionId: 'M1', expect: 'M2' },
+  { input: { kind: 'epic', title: 'Inbox', isBucket: true, missionId: 'M2' }, activeMissionId: 'M1', expect: 'M2' },
+  { input: { kind: 'epic', title: 'Inbox', isBucket: true }, activeMissionId: 'M1', expect: null },
+  { input: { kind: 'epic', title: 'Bugfix inbox', isBucket: true }, activeMissionId: 'M1', expect: null },
+  { input: { kind: 'epic', title: 'Inbox', isBucket: true }, activeMissionId: 'M1', expect: null },
+  { input: { kind: 'epic', title: 'Inbox', isBucket: true }, activeMissionId: 'M1', expect: null },
+  { input: { kind: 'epic', title: 'deliverable, column wins', isBucket: false }, activeMissionId: 'M1', expect: 'M1' },
 ];
