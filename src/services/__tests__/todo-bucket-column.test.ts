@@ -125,7 +125,7 @@ describe('isBucket column and backfill', () => {
     expect(getTodo(projectPath, 'cafe1234-0000-0000-0000-000000000007')?.isBucket).toBe(false);
   });
 
-  test('create-path defaults to isBucket=0', async () => {
+  test('create-path defaults to isBucket=0 for leaf', async () => {
     // Create a fresh todo via the store's create path
     const newTodo = await createTodo(projectPath, {
       ownerSession: 'test-session',
@@ -137,6 +137,53 @@ describe('isBucket column and backfill', () => {
     expect(newTodo.isBucket).toBe(false);
   });
 
+  test('create-time stamp: epic with bucket-titled name gets isBucket=1', async () => {
+    const todo1 = await createTodo(projectPath, {
+      ownerSession: 'test-session',
+      title: 'Bugfix inbox',
+      kind: 'epic',
+      allowOrphan: true,
+    });
+    expect(todo1.isBucket).toBe(true);
+
+    const todo2 = await createTodo(projectPath, {
+      ownerSession: 'test-session',
+      title: 'Inbox',
+      kind: 'epic',
+      allowOrphan: true,
+    });
+    expect(todo2.isBucket).toBe(true);
+  });
+
+  test('create-time stamp: epic with non-bucket title gets isBucket=0', async () => {
+    const todo1 = await createTodo(projectPath, {
+      ownerSession: 'test-session',
+      title: 'Inbox rendering bugs',
+      kind: 'epic',
+      allowOrphan: true,
+    });
+    expect(todo1.isBucket).toBe(false);
+
+    const todo2 = await createTodo(projectPath, {
+      ownerSession: 'test-session',
+      title: 'The work',
+      kind: 'epic',
+      allowOrphan: true,
+    });
+    expect(todo2.isBucket).toBe(false);
+  });
+
+  test('create-time stamp: explicit isBucket=true on create input overrides title', async () => {
+    const todo1 = await createTodo(projectPath, {
+      ownerSession: 'test-session',
+      title: 'Arbitrary epic title',
+      kind: 'epic',
+      isBucket: true,
+      allowOrphan: true,
+    });
+    expect(todo1.isBucket).toBe(true);
+  });
+
   test('user_version is set to TODO_BUCKET_COLUMN_V3 after backfill', () => {
     const db = new Database(dbPath);
     const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -145,15 +192,57 @@ describe('isBucket column and backfill', () => {
   });
 
   test('backfill is idempotent — second open changes nothing', async () => {
+    // Get initial bucket count after all previous tests
+    _closeProject(projectPath);
+
+    const openedDb1 = openDb(projectPath);
+    const bucketCount1 = (openedDb1.query('SELECT COUNT(*) AS n FROM todos WHERE isBucket=1').get() as { n: number }).n;
+
     // Close and reopen the DB — the backfill should not run again
     _closeProject(projectPath);
 
-    const openedDb = openDb(projectPath);
-    const bucketCount = (openedDb.query('SELECT COUNT(*) AS n FROM todos WHERE isBucket=1').get() as { n: number }).n;
-    expect(bucketCount).toBe(5);
+    const openedDb2 = openDb(projectPath);
+    const bucketCount2 = (openedDb2.query('SELECT COUNT(*) AS n FROM todos WHERE isBucket=1').get() as { n: number }).n;
+
+    // The count should be identical — idempotent
+    expect(bucketCount2).toBe(bucketCount1);
 
     // Verify the 5 known bucket ids are still isBucket=1
     expect(getTodo(projectPath, 'bb4a9a5d-0000-0000-0000-000000000001')?.isBucket).toBe(true);
     expect(getTodo(projectPath, 'a41c8051-0000-0000-0000-000000000002')?.isBucket).toBe(true);
+  });
+
+  test('inverse-consistency: land-authority and mission-parenting bucket predicates agree', async () => {
+    const { isBucketEpic: isBucketFromLandAuth } = await import('../land-authority');
+    const { isBucketEpic: isBucketFromMissionParent } = await import('../mission-parenting');
+
+    // Create a table of test epics with varying isBucket values and titles
+    const testCases = [
+      { title: 'Bugfix inbox', isBucket: true, desc: 'bucket-titled, isBucket=1' },
+      { title: 'Inbox rendering bugs', isBucket: false, desc: 'bucket-titled-but-phrase, isBucket=0' },
+      { title: 'The work', isBucket: false, desc: 'normal epic, isBucket=0' },
+      { title: 'Inbox', isBucket: true, desc: 'simple inbox, isBucket=1' },
+    ];
+
+    for (const { title, isBucket, desc } of testCases) {
+      const todo = await createTodo(projectPath, {
+        ownerSession: 'test-session',
+        title,
+        kind: 'epic',
+        isBucket,
+        allowOrphan: true,
+      });
+
+      const retrieved = getTodo(projectPath, todo.id);
+      expect(retrieved).toBeDefined();
+      if (!retrieved) continue;
+
+      // Both predicates must return the same verdict
+      const fromLandAuth = isBucketFromLandAuth(retrieved);
+      const fromMissionParent = isBucketFromMissionParent(retrieved);
+
+      expect(fromLandAuth).toBe(fromMissionParent);
+      expect(fromLandAuth).toBe(isBucket);
+    }
   });
 });

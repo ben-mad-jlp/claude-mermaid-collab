@@ -62,4 +62,7 @@ export interface SessionTodo {
    * in" — which combined cross-project todos into one diagram.
    */
   targetProject?: string | null;
+  /** Bucket-ness marker for epics (Inbox, Bugfix inbox) that are curated intake
+   *  containers and stay roots, never mission children. Read from the server column. */
+  isBucket?: boolean;
 }

@@ -200,6 +200,9 @@ export interface CreateTodoInput {
    *  `servesCriterionId` column. Optional at create; the approval-time check
    *  (updateTodo) REQUIRES it for a mission-homed epic. */
   servesCriterionId?: string | null;
+  /** Explicit bucket declaration for an epic create (default false; only meaningful
+   *  with `kind:'epic'`). When omitted, bucket-ness is inferred from `isBucketEpicTitle`. */
+  isBucket?: boolean;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
@@ -500,6 +503,10 @@ export function openDb(project: string): Database {
   db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), 10)) WHERE kind='mission' AND TRIM(title) LIKE '[MISSION]%'`);
   db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='epic'    AND TRIM(title) LIKE '[EPIC]%'`);
   db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title),  7)) WHERE kind='land'    AND TRIM(title) LIKE '[LAND]%'`);
+  // EPIC 532c48fb GAP 3 (Part B residual): strip [GATE]/[GATE:…] titles keyed on
+  // kind='gate' so topic tags survive. Idempotent via the LIKE guard. INSTR…']'
+  // handles both [GATE] and the labelled [GATE:<kind>] form.
+  db.exec(`UPDATE todos SET title=TRIM(SUBSTR(TRIM(title), INSTR(title, ']') + 1)) WHERE kind='gate' AND (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`);
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
   // once per DB and is a no-op on every subsequent open (idempotent).
   const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -974,7 +981,8 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
     // §4d: DELIVERABLE epics are mission children by DEFAULT; BUCKET epics stay roots.
     if (input.missionId === null) return null;              // explicit opt-out
     if (input.missionId) return input.missionId;            // explicit homing
-    if (isBucketEpicTitle(input.title)) return null;        // Inbox / Bugfix inbox
+    const isBucketCreate = input.isBucket === true || isBucketEpicTitle(input.title);
+    if (isBucketCreate) return null;        // Inbox / Bugfix inbox
     return await resolveActiveMissionId(project, input.ownerSession);
   }
   if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
@@ -988,7 +996,7 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
   const existing = listTodos(project, { includeCompleted: true })
     .find((t) => isEpic(t) && stripLabel(t.title) === inboxTitle && t.status !== 'dropped');
   if (existing) return existing.id;
-  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned', kind: 'epic' });
+  const inbox = await createTodo(project, { ownerSession: input.ownerSession, title: INBOX_EPIC_TITLE, status: 'planned', kind: 'epic', isBucket: true });
   return inbox.id;
 }
 
@@ -1010,12 +1018,13 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
     const approvedBy = tr.approvedBy !== undefined ? tr.approvedBy : null;
     const heldAt = tr.heldAt !== undefined ? tr.heldAt : null;
     const heldReason = tr.heldReason !== undefined ? tr.heldReason : null;
+    const isBucket = isEpicInput(input) && (input.isBucket === true || isBucketEpicTitle(input.title)) ? 1 : 0;
     db.prepare(
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, isBucket)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -1026,7 +1035,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // targetProject is total: default to this todo's tracking project (normalized
       // off any worktree path) so it's never written NULL. null === "same project".
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), input.targetProject ?? trackingProjectRoot(project), null, null, null, null, null, 0, null, input.objectRef ?? null, input.servesCriterionId ?? null, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? [])
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), isBucket
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -2232,7 +2241,7 @@ export async function backfillEpicsUnderMission(
       result.skipped.push({ id, reason: 'not-an-epic' });
       continue;
     }
-    if (isBucketEpicTitle(epic.title)) {
+    if (epic.isBucket) {
       result.skipped.push({ id, reason: 'bucket-epic' });
       continue;
     }

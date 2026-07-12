@@ -205,3 +205,108 @@ describe('stage-C strip migration — relative invariants', () => {
     expect(existsSync(join(project, '.collab', 'todos.db'))).toBe(true);
   });
 });
+
+describe('[GATE] strip migration (Part B residual)', () => {
+  beforeEach(() => {
+    project = mkdtempSync(join(tmpdir(), 'todo-gate-strip-'));
+  });
+
+  afterEach(() => {
+    _closeProject(project);
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  test('[GATE] prefixes are stripped for kind=gate; count=0 after migration with non-zero before', () => {
+    mkdirSync(join(project, '.collab'), { recursive: true });
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    db.exec(LEGACY_DDL);
+
+    // Seed gate rows with GATE prefixes in the legacy schema (no kind column yet)
+    // The titles are prefixed, which will be stripped during migration
+    const gateSeeds = [
+      { id: 'gate1', title: '[GATE] Gate 1' },
+      { id: 'gate2', title: '[GATE:approval] Gate 2 with label' },
+      { id: 'gate3', title: '[GATE] [UI] gate with topic tag' },
+      { id: 'gate4', title: '[GATE:ci] [BUG] CI gate with bug tag' },
+    ];
+
+    const insert = db.prepare(
+      `INSERT INTO todos (id, ownerSession, title, status, dependsOn, ord, createdAt, updatedAt)
+       VALUES (?,?,?,?,'[]',?, ?, ?)`
+    );
+    const ts = new Date().toISOString();
+
+    gateSeeds.forEach((seed, i) => {
+      insert.run(seed.id, 'test-session', seed.title, 'planned', i * 10, ts, ts);
+    });
+
+    db.close();
+
+    // Count GATE prefixes BEFORE migration
+    const beforeDb = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
+    const beforeGate = (beforeDb.query(
+      `SELECT COUNT(*) AS c FROM todos WHERE (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
+    ).get() as { c: number }).c;
+    beforeDb.close();
+
+    expect(beforeGate).toBeGreaterThan(0);
+
+    // Trigger migration
+    listTodos(project);
+
+    // Count GATE prefixes AFTER migration — should be zero
+    const afterDb = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
+    const afterGate = (afterDb.query(
+      `SELECT COUNT(*) AS c FROM todos WHERE (TRIM(title) LIKE '[GATE]%' OR TRIM(title) LIKE '[GATE:%')`
+    ).get() as { c: number }).c;
+    afterDb.close();
+
+    expect(afterGate).toBe(0);
+
+    // Verify topic tags survived by checking the stripped rows
+    const afterDbRead = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
+    const rows = afterDbRead.query('SELECT id, title FROM todos ORDER BY id').all() as Array<{ id: string; title: string }>;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    // gate1: [GATE] Gate 1 → "Gate 1"
+    expect(byId.get('gate1')?.title).toBe('Gate 1');
+
+    // gate2: [GATE:approval] Gate 2 with label → "Gate 2 with label"
+    expect(byId.get('gate2')?.title).toBe('Gate 2 with label');
+
+    // gate3: [GATE] [UI] gate with topic tag → "[UI] gate with topic tag" (topic tag survives)
+    expect(byId.get('gate3')?.title).toBe('[UI] gate with topic tag');
+
+    // gate4: [GATE:ci] [BUG] CI gate with bug tag → "[BUG] CI gate with bug tag" (topic tag survives)
+    expect(byId.get('gate4')?.title).toBe('[BUG] CI gate with bug tag');
+
+    afterDbRead.close();
+  });
+
+  test('[GATE] strip is idempotent — second run changes nothing', () => {
+    mkdirSync(join(project, '.collab'), { recursive: true });
+    const db = new Database(join(project, '.collab', 'todos.db'));
+    db.exec(LEGACY_DDL);
+
+    const insert = db.prepare(
+      `INSERT INTO todos (id, ownerSession, title, status, dependsOn, ord, createdAt, updatedAt)
+       VALUES (?,?,?,?,'[]',?, ?, ?)`
+    );
+    const ts = new Date().toISOString();
+    insert.run('gate1', 'test', '[GATE] Check 1', 'planned', 10, ts, ts);
+    db.close();
+
+    listTodos(project);
+    const after1Db = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
+    const rows1 = after1Db.query('SELECT id, title FROM todos').all() as Array<{ id: string; title: string }>;
+    after1Db.close();
+
+    _closeProject(project);
+    listTodos(project);
+    const after2Db = new Database(join(project, '.collab', 'todos.db'), { readonly: true });
+    const rows2 = after2Db.query('SELECT id, title FROM todos').all() as Array<{ id: string; title: string }>;
+    after2Db.close();
+
+    expect(rows2).toEqual(rows1);
+  });
+});
