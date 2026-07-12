@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { rmSync } from 'node:fs';
 import { parseSplitDecision, hasCycle, topoSortSplitItems, type LeafSplitDecision, type LeafSplitItem } from '../split-decision';
 import { parseSizeManifest, type LeafSizeManifest } from '../leaf-executor';
-import { createTodo, getTodo, listTodos, splitLeafInto, type Todo } from '../todo-store';
+import { createTodo, getTodo, listTodos, splitLeafInto, _closeProject, type Todo } from '../todo-store';
 import type { ClaimStruct } from '../todo-store';
 
 describe('parseSplitDecision (validation)', () => {
@@ -269,6 +270,14 @@ describe('parseSizeManifest with splitDecision', () => {
 });
 
 describe('splitLeafInto with items', () => {
+  // These tests split leaves into a PERSISTENT on-disk 'proj-test' DB. Without a reset, a
+  // prior run's accumulated children inflate childIds counts (Received > Expected) — a
+  // test-isolation flake. Clear the DB before each test so counts are deterministic.
+  beforeEach(() => {
+    _closeProject('proj-test');
+    rmSync('proj-test', { recursive: true, force: true });
+  });
+
   // Helper to create a leaf with minimal setup.
   function makeLeaf(overrides: Partial<Todo> = {}): Todo {
     return {
