@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
-import { openDb, getTodo, createTodo, TODO_BUCKET_COLUMN_V3, _closeProject } from '../todo-store';
+import { openDb, getTodo, createTodo, TODO_BUCKET_COLUMN_V3, TODO_BUCKET_DEDUPE_V4, _closeProject } from '../todo-store';
 
 describe('isBucket column and backfill', () => {
   let tmpDir: string;
@@ -109,16 +109,19 @@ describe('isBucket column and backfill', () => {
     const cols = openedDb.query('PRAGMA table_info(todos)').all() as Array<{ name: string }>;
     expect(cols.some((c) => c.name === 'isBucket')).toBe(true);
 
-    // Verify count=5 on isBucket=1
+    // The V3 backfill marks all 5, then the V4 dedup (DR-bugfix-bucket-dedupe) re-homes +
+    // retires the 3 non-canonical Bugfix buckets (98a779a1, 9759e36f, 3a6023e9), leaving
+    // Inbox (bb4a9a5d) + canonical Bugfix (a41c8051) → count=2.
     const bucketCount = (openedDb.query('SELECT COUNT(*) AS n FROM todos WHERE isBucket=1').get() as { n: number }).n;
-    expect(bucketCount).toBe(5);
+    expect(bucketCount).toBe(2);
 
-    // Verify the 5 known bucket ids are isBucket=1
+    // Inbox + canonical Bugfix survive as live buckets
     expect(getTodo(projectPath, 'bb4a9a5d-0000-0000-0000-000000000001')?.isBucket).toBe(true);
     expect(getTodo(projectPath, 'a41c8051-0000-0000-0000-000000000002')?.isBucket).toBe(true);
-    expect(getTodo(projectPath, '98a779a1-0000-0000-0000-000000000003')?.isBucket).toBe(true);
-    expect(getTodo(projectPath, '9759e36f-0000-0000-0000-000000000004')?.isBucket).toBe(true);
-    expect(getTodo(projectPath, '3a6023e9-0000-0000-0000-000000000005')?.isBucket).toBe(true);
+    // The 3 non-canonical Bugfix buckets are retired by the V4 dedup: isBucket=0 + dropped
+    expect(getTodo(projectPath, '98a779a1-0000-0000-0000-000000000003')?.isBucket).toBe(false);
+    expect(getTodo(projectPath, '9759e36f-0000-0000-0000-000000000004')?.isBucket).toBe(false);
+    expect(getTodo(projectPath, '3a6023e9-0000-0000-0000-000000000005')?.isBucket).toBe(false);
 
     // Verify regression-guard rows stay isBucket=0
     expect(getTodo(projectPath, 'd3e2a341-0000-0000-0000-000000000006')?.isBucket).toBe(false);
@@ -138,21 +141,29 @@ describe('isBucket column and backfill', () => {
   });
 
   test('create-time stamp: epic with bucket-titled name gets isBucket=1', async () => {
-    const todo1 = await createTodo(projectPath, {
-      ownerSession: 'test-session',
-      title: 'Bugfix inbox',
-      kind: 'epic',
-      allowOrphan: true,
-    });
-    expect(todo1.isBucket).toBe(true);
+    // Fresh project: the shared DB already holds the Inbox + Bugfix buckets, and one-bucket
+    // enforcement (DR-bugfix-bucket-dedupe) rejects a duplicate — isolate to test the stamp.
+    const fresh = mkdtempSync(join(os.tmpdir(), 'bucket-col-stamp-'));
+    try {
+      const todo1 = await createTodo(fresh, {
+        ownerSession: 'test-session',
+        title: 'Bugfix inbox',
+        kind: 'epic',
+        allowOrphan: true,
+      });
+      expect(todo1.isBucket).toBe(true);
 
-    const todo2 = await createTodo(projectPath, {
-      ownerSession: 'test-session',
-      title: 'Inbox',
-      kind: 'epic',
-      allowOrphan: true,
-    });
-    expect(todo2.isBucket).toBe(true);
+      const todo2 = await createTodo(fresh, {
+        ownerSession: 'test-session',
+        title: 'Inbox',
+        kind: 'epic',
+        allowOrphan: true,
+      });
+      expect(todo2.isBucket).toBe(true);
+    } finally {
+      _closeProject(fresh);
+      rmSync(fresh, { recursive: true, force: true });
+    }
   });
 
   test('create-time stamp: epic with non-bucket title gets isBucket=0', async () => {
@@ -184,10 +195,13 @@ describe('isBucket column and backfill', () => {
     expect(todo1.isBucket).toBe(true);
   });
 
-  test('user_version is set to TODO_BUCKET_COLUMN_V3 after backfill', () => {
+  test('user_version is set to the latest bucket migration (V4 dedup) after backfill', () => {
+    // openDb runs ALL pending migrations, so after the V3 column backfill the V4 dedup also
+    // runs and bumps user_version to V4 — assert the latest, not the intermediate V3.
     const db = new Database(dbPath);
     const ver = (db.query('PRAGMA user_version').get() as { user_version: number }).user_version;
-    expect(ver).toBe(TODO_BUCKET_COLUMN_V3);
+    expect(ver).toBe(TODO_BUCKET_DEDUPE_V4);
+    expect(ver).toBeGreaterThanOrEqual(TODO_BUCKET_COLUMN_V3);
     db.close();
   });
 
@@ -225,24 +239,32 @@ describe('isBucket column and backfill', () => {
     ];
 
     for (const { title, isBucket, desc } of testCases) {
-      const todo = await createTodo(projectPath, {
-        ownerSession: 'test-session',
-        title,
-        kind: 'epic',
-        isBucket,
-        allowOrphan: true,
-      });
+      // Fresh project per case: the shared DB's live buckets would trip one-bucket enforcement
+      // on the bucket-titled cases. Here we only assert the two predicates AGREE on the row.
+      const fresh = mkdtempSync(join(os.tmpdir(), 'bucket-col-inv-'));
+      try {
+        const todo = await createTodo(fresh, {
+          ownerSession: 'test-session',
+          title,
+          kind: 'epic',
+          isBucket,
+          allowOrphan: true,
+        });
 
-      const retrieved = getTodo(projectPath, todo.id);
-      expect(retrieved).toBeDefined();
-      if (!retrieved) continue;
+        const retrieved = getTodo(fresh, todo.id);
+        expect(retrieved).toBeDefined();
+        if (!retrieved) continue;
 
-      // Both predicates must return the same verdict
-      const fromLandAuth = isBucketFromLandAuth(retrieved);
-      const fromMissionParent = isBucketFromMissionParent(retrieved);
+        // Both predicates must return the same verdict
+        const fromLandAuth = isBucketFromLandAuth(retrieved);
+        const fromMissionParent = isBucketFromMissionParent(retrieved);
 
-      expect(fromLandAuth).toBe(fromMissionParent);
-      expect(fromLandAuth).toBe(isBucket);
+        expect(fromLandAuth).toBe(fromMissionParent);
+        expect(fromLandAuth).toBe(isBucket);
+      } finally {
+        _closeProject(fresh);
+        rmSync(fresh, { recursive: true, force: true });
+      }
     }
   });
 });
