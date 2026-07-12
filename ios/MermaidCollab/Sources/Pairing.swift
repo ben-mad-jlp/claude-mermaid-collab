@@ -21,6 +21,14 @@ final class AppModel: ObservableObject {
     init() {
         self.store = ZenStore()
         self.credentials = Keychain.loadCredentials()
+        #if targetEnvironment(simulator)
+        // v1 dev path: the Simulator shares the Mac's loopback, and the sidecar exempts
+        // loopback peers from the token gate — so connect straight to :9002 without pairing.
+        // (A real device must pair: Bonjour-discover the Mac + the bearer token.)
+        if self.credentials == nil {
+            self.credentials = Credentials(host: "localhost:9002", token: "")
+        }
+        #endif
         // The store fires this when any authenticated HTTP call returns 401
         // (a stale/rotated token). Drop creds → SwiftUI swaps back to PairingView.
         store.onUnauthorized = { [weak self] in self?.unpair() }
