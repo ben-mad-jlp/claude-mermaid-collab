@@ -220,6 +220,21 @@ export class OrphanTodoError extends Error {
   }
 }
 
+/** Thrown by resolveTodoParent when a bucket epic create attempts to mint a second bucket
+ *  of the same kind (e.g., a second "Bugfix inbox"). Carries a `code` so HTTP/MCP callers
+ *  can map it to a 4xx. Decision: DR-bugfix-bucket-dedupe. */
+export class DuplicateBucketError extends Error {
+  readonly code = 'duplicate-bucket';
+  constructor(title: string, existingId: string) {
+    super(
+      `Exactly one bucket epic of each kind is allowed per project — a live bucket ` +
+      `matching "${title}" already exists (${existingId.slice(0, 8)}). Re-home under it ` +
+      `instead of creating a second. (decision DR-bugfix-bucket-dedupe)`,
+    );
+    this.name = 'DuplicateBucketError';
+  }
+}
+
 /** Thrown by updateTodo when a mission-homed `kind:'epic'` is APPROVED (status→ready)
  *  without a servesCriterionId — the A3 epic→criterion edge. Carries a `code` so
  *  HTTP/MCP callers can map it to a 4xx. Models the create-time OrphanTodoError. */
@@ -532,6 +547,26 @@ export function openDb(project: string): Database {
     );
     db.exec(`PRAGMA user_version = ${TODO_BUCKET_COLUMN_V3}`);
   }
+  if (ver < TODO_BUCKET_DEDUPE_V4) {
+    // decision DR-bugfix-bucket-dedupe: merge the 3 non-canonical Bugfix buckets
+    // (98a779a1, 9759e36f, 3a6023e9) into canonical a41c8051, THEN retire them.
+    // Re-home children FIRST (SR-4: never drop a row with live dependents) —
+    // buckets are roots so nothing dependsOn them; only parentId edges point in.
+    const canonical = db.query(
+      `SELECT id FROM todos WHERE substr(id,1,8)='a41c8051' LIMIT 1`,
+    ).get() as { id: string } | null;
+    if (canonical) {
+      db.prepare(
+        `UPDATE todos SET parentId=? WHERE parentId IN
+          (SELECT id FROM todos WHERE substr(id,1,8) IN ('98a779a1','9759e36f','3a6023e9'))`,
+      ).run(canonical.id);
+      db.exec(
+        `UPDATE todos SET isBucket=0, status='dropped' WHERE substr(id,1,8) IN
+          ('98a779a1','9759e36f','3a6023e9')`,
+      );
+    }
+    db.exec(`PRAGMA user_version = ${TODO_BUCKET_DEDUPE_V4}`);
+  }
   dbCache.set(project, db);
   return db;
 }
@@ -576,6 +611,9 @@ export const TODO_PARENT_RELEASE_V2 = 2;
 
 /** user_version marker for the isBucket backfill (5 known bucket rows, by id). */
 export const TODO_BUCKET_COLUMN_V3 = 3;
+
+/** user_version marker for the bugfix bucket deduplication (merge 3 non-canonical rows to a41c8051, retire them). */
+export const TODO_BUCKET_DEDUPE_V4 = 4;
 
 /**
  * One-shot, idempotent de-conflate S1 backfill (design-todo-model-refactor §S1).
@@ -982,7 +1020,18 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
     if (input.missionId === null) return null;              // explicit opt-out
     if (input.missionId) return input.missionId;            // explicit homing
     const isBucketCreate = input.isBucket === true || isBucketEpicTitle(input.title);
-    if (isBucketCreate) return null;        // Inbox / Bugfix inbox
+    if (isBucketCreate) {
+      // DR-bugfix-bucket-dedupe: enforce exactly one bucket per project. Compare on
+      // NORMALIZED title (stripLabel().toLowerCase()) so a second "Bugfix inbox" is refused
+      // while "Inbox" and "Bugfix inbox" stay distinct buckets.
+      const norm = stripLabel(input.title).toLowerCase();
+      const dup = listTodos(project, { includeCompleted: true }).find(
+        (t) => isEpic(t) && t.isBucket && t.status !== 'dropped' &&
+               stripLabel(t.title).toLowerCase() === norm,
+      );
+      if (dup) throw new DuplicateBucketError(input.title, dup.id);
+      return null;        // Inbox / Bugfix inbox
+    }
     return await resolveActiveMissionId(project, input.ownerSession);
   }
   if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
