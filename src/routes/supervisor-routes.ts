@@ -45,6 +45,7 @@ import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION, STEWARD_PROJECT, STEWARD_SESSIO
 import { sendTmuxKeys, sendTmuxSelection } from '../services/tmux-send.ts';
 import { getWebSocketHandler } from '../services/ws-handler-manager.ts';
 import { capturePaneText } from '../services/tmux-capture.ts';
+import { fireStamp } from '../services/nudge-stamp.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -68,6 +69,29 @@ function resolveLandActor(raw: unknown): { actor: LandActor } | { error: string 
   }
   if (kind === 'daemon') return { error: 'daemon:auto is never accepted over the wire' };
   return { error: `unknown actor kind: ${kind}` };
+}
+
+/** Deliver a text injection to a watched session (peer-forward or local tmux) and
+ *  broadcast a supervisor_nudge so UIs reflect it. Shared by the /nudge and
+ *  /approve-push routes — the single owner of the inject+broadcast primitive. */
+async function deliverNudge(project: string, session: string, serverId: string | undefined, text: string): Promise<{ result: any; sent: boolean }> {
+  let result: any;
+  let sent: boolean;
+  if (serverId && getPeer(serverId)) {
+    const peer = getPeer(serverId)!;
+    const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, session, text }),
+    });
+    result = await res.json();
+    sent = !!(result?.sent ?? result?.tmux ?? result?.success);
+  } else {
+    result = await sendTmuxKeys(project, session, text);
+    sent = !!result?.sent;
+  }
+  getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
+  return { result, sent };
 }
 
 export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Response | null> {
@@ -851,25 +875,27 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         text?: string;
       };
       if (!project || !session || !text) return jsonError('project, session, and text are required', 400);
-      let result: any;
-      let sent: boolean;
-      if (serverId && getPeer(serverId)) {
-        const peer = getPeer(serverId)!;
-        // Tokenless direct nudge (P1 §2): peers carry no token. A token-enforcing
-        // peer 401s here and the nudge degrades to desktop-brokered routing.
-        const res = await fetch(peer.baseUrl + '/api/ide/tmux-send-keys', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project, session, text }),
-        });
-        result = await res.json();
-        sent = !!(result?.sent ?? result?.tmux ?? result?.success);
-      } else {
-        result = await sendTmuxKeys(project, session, text);
-        sent = !!result?.sent;
-      }
-      getWebSocketHandler()?.broadcast({ type: 'supervisor_nudge', project, session, serverId: serverId ?? '', text, sent });
+      const { result } = await deliverNudge(project, session, serverId, text);
       return Response.json(result);
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
+  // POST /api/supervisor/approve-push { project, session, serverId? } — the phone's single
+  // "act" verb (BE3). Composes a canonical, stamped APPROVAL/PROCEED instruction and injects
+  // it into the watched session via the SAME deliverNudge primitive the /nudge route uses (no
+  // duplicated tmux logic). The session decides how to act (commit/push/land) per its own loop.
+  // Token-gated by the server's checkAuth like every other /api/supervisor route.
+  if (url.pathname === '/api/supervisor/approve-push' && req.method === 'POST') {
+    try {
+      const { project, session, serverId } = (await req.json()) as {
+        project?: string; session?: string; serverId?: string;
+      };
+      if (!project || !session) return jsonError('project and session are required', 400);
+      const text = `${fireStamp(Date.now())} ✅ Approved — proceed: push/land your current green work.`;
+      const { result, sent } = await deliverNudge(project, session, serverId, text);
+      return Response.json({ ok: true, session, sent, text, result });
     } catch (err) {
       return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
     }
