@@ -353,3 +353,15 @@ export function writeProjectDigest(project: string): ProjectDigest {
 
   return digest;
 }
+
+/**
+ * Read the cached project digest (.collab/project-digest.md). Returns the file
+ * contents, or null if absent/unreadable. Never regenerates — read-only.
+ */
+export function readProjectDigest(project: string): string | null {
+  try {
+    return readFileSync(join(project, '.collab', 'project-digest.md'), 'utf-8');
+  } catch {
+    return null;
+  }
+}
