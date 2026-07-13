@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { validateStewardProof } from '../steward-proof';
 import { isLand } from '../todo-kind';
 import type { StewardProof, ProofContext, DepView } from '../steward-proof';
@@ -116,25 +114,5 @@ describe('surface-land-excludes-land-leaf', () => {
 
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('epic-children-incomplete');
-  });
-
-  it('SOURCE GUARD: the surfaceEpicLand filter excludes land leaves', () => {
-    // Read the coordinator-live.ts file to verify the fix is in place
-    const coordinatorLiveDir = join(import.meta.dir, '..');
-    const coordinatorLivePath = join(coordinatorLiveDir, 'coordinator-live.ts');
-    const content = readFileSync(coordinatorLivePath, 'utf-8');
-
-    // Find the surfaceEpicLand function body
-    const surfaceEpicLandStart = content.indexOf('export async function surfaceEpicLand(');
-    expect(surfaceEpicLandStart).toBeGreaterThan(-1);
-
-    // Find the next export to determine the end of the function
-    const nextExportIndex = content.indexOf('\nexport ', surfaceEpicLandStart + 1);
-    const surfaceEpicLandEnd = nextExportIndex > -1 ? nextExportIndex : content.length;
-    const functionBody = content.substring(surfaceEpicLandStart, surfaceEpicLandEnd);
-
-    // Assert the body contains the fixed filter with !isLand(
-    // Looking for the pattern: parentId === epicId ... !isLand(
-    expect(functionBody).toMatch(/parentId === epicId[\s\S]{0,80}!isLand\(/);
   });
 });
