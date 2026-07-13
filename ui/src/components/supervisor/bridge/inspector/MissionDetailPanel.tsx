@@ -39,7 +39,7 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
     .sort((a, b) => Number(b.mission?.active !== false) - Number(a.mission?.active !== false));
 
   return (
-    <div data-testid="inspector-missions" className="flex flex-col gap-3 p-3">
+    <div data-testid="inspector-missions" className="flex flex-col gap-3 p-3 h-full min-h-0 overflow-y-auto">
       {/* Header: title + New mission */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">Missions</span>

@@ -50,6 +50,7 @@ import { ProjectFooter } from './rail/ProjectFooter';
 import { WorkPanel } from './rail/panels/WorkPanel';
 import { BridgeStage } from './stage/BridgeStage';
 import { BridgeInspector } from './inspector/BridgeInspector';
+import { MissionDetailPanel } from './inspector/MissionDetailPanel';
 import { MissionStrip } from './MissionStrip';
 import { UnlandedStrip } from './UnlandedStrip';
 
@@ -449,38 +450,36 @@ export const BridgeDashboard: React.FC = () => {
   // surfaces its escalation + decision history in Column 2 (taking precedence over
   // the todo detail). Cleared on close or when a todo is clicked.
   const [selectedEpic, setSelectedEpic] = useState<{ id: string; label: string } | null>(null);
-  // Mission detail reuses the same on-demand inspector pane (design 2026-07-13):
-  // clicking the MissionStrip opens the MissionDetailPanel here.
-  const [showMissions, setShowMissions] = useState(false);
+  // Mission detail renders in the STAGE (like a rail panel), not the inspector
+  // drawer (design 2026-07-13): clicking the MissionStrip swaps the stage to the
+  // MissionDetailPanel, the same window where Plan/Stream/Escalations render.
+  const [missionInStage, setMissionInStage] = useState(false);
   const [railPanel, setRailPanel] = useState<RailKey | null>('escalations');
   const handleSelectTodo = (todo: SessionTodo) => {
     upsertSessionTodo(todo);
     setSelectedTodoId(todo.id);
     setSelectedEpic(null);
-    setShowMissions(false);
   };
   const handleSelectEpic = (epic: { id: string; label: string }) => {
     setSelectedEpic(epic);
     setSelectedTodoId(null);
-    setShowMissions(false);
   };
+  // Clicking the mission bar shows the mission detail in the stage; a subsequent
+  // rail click swaps it back out (handleRailSelect clears missionInStage).
   const handleOpenMissions = useCallback(() => {
-    setShowMissions(true);
-    setSelectedEpic(null);
-    setSelectedTodoId(null);
+    setMissionInStage(true);
   }, []);
 
   // crit 4: single dismiss path shared by the drawer's close button, a backdrop
-  // click, and the Escape key. Clears every selection → inspectorOpen goes false.
+  // click, and the Escape key. Clears both selections → inspectorOpen goes false.
   const closeInspector = useCallback(() => {
     setSelectedEpic(null);
     setSelectedTodoId(null);
-    setShowMissions(false);
   }, []);
 
   // crit 4: Esc closes the inspector drawer (only wired while open so it doesn't
   // swallow Escape used elsewhere).
-  const inspectorOpen = Boolean(selectedEpic || selectedTodoId || showMissions);
+  const inspectorOpen = Boolean(selectedEpic || selectedTodoId);
   useEffect(() => {
     if (!inspectorOpen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeInspector(); };
@@ -502,9 +501,15 @@ export const BridgeDashboard: React.FC = () => {
     [blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump],
   );
 
-  const activePanel = railPanel ? panels[railPanel] : undefined;
+  // Mission detail is a stage view (design 2026-07-13): when the mission strip is
+  // clicked it takes over the stage, just like a rail panel does.
+  const missionStagePanel = (
+    <MissionDetailPanel serverId={serverScope} project={project} session={currentSession?.name} />
+  );
+  const activePanel = missionInStage ? missionStagePanel : railPanel ? panels[railPanel] : undefined;
 
   const handleRailSelect = (k: RailKey | null) => {
+    setMissionInStage(false);
     setRailPanel(k === 'plan' ? null : k);
   };
 
@@ -602,12 +607,10 @@ export const BridgeDashboard: React.FC = () => {
         }
         inspector={
           <BridgeInspector
-            missionsOpen={showMissions}
             selectedEpic={selectedEpic}
             selectedTodoId={selectedTodoId}
             project={project}
             serverScope={serverScope}
-            session={currentSession?.name}
           />
         }
         inspectorOpen={inspectorOpen}
