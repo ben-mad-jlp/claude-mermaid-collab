@@ -334,3 +334,32 @@ test('classifyCriterion: absence patterns trigger absence verdict', () => {
     expect(v.kind).toBe('absence');
   }
 });
+
+test('classifyCriterion: xcode/swift invocations + BUILD SUCCEEDED trigger command-result', () => {
+  const patterns = [
+    'xcodebuild -scheme App build',
+    'swift build --configuration release',
+    'xcrun simctl boot',
+    'BUILD SUCCEEDED',
+    'The build succeeded on CI',
+  ];
+  for (const pattern of patterns) {
+    const v = classifyCriterion(pattern, ['src/some/file.ts']);
+    expect(v.citable).toBe(false);
+    expect(v.kind).toBe('command-result');
+  }
+});
+
+test('classifyCriterion: no-longer/references-nothing/nothing-external/self-contained trigger absence', () => {
+  const patterns = [
+    'The module no longer imports the legacy helper',
+    'The criterion references nothing outside the diff',
+    'The output references nothing external',
+    'The generated file is self-contained',
+  ];
+  for (const pattern of patterns) {
+    const v = classifyCriterion(pattern, ['src/some/file.ts']);
+    expect(v.citable).toBe(false);
+    expect(v.kind).toBe('absence');
+  }
+});

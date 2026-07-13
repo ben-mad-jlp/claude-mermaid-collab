@@ -135,11 +135,14 @@ export function validateReviewGrounding(
     }
   }
 
+  // Per-criterion grounding: a non-N/A criterion is grounded iff ≥1 of its citations
+  // resolves into the change-set. Extra out-of-change-set citations on an already-grounded
+  // criterion are TOLERATED. A criterion whose citations ALL fail to resolve is the offender.
   const offenders: Citation[] = [];
   for (const c of criteria) {
-    for (const cite of c.citations) {
-      if (!citationResolves(cite.path, changeSet)) offenders.push(cite);
-    }
+    if (c.outcome === 'not-applicable') continue; // N/A citations are tolerated, never offenders
+    const grounded = c.citations.some((cite) => citationResolves(cite.path, changeSet));
+    if (!grounded) offenders.push(...c.citations);
   }
   if (offenders.length > 0) {
     const named = offenders.slice(0, MAX_NAMED_OFFENDERS).map((o) => `${o.raw}:${o.line}`);
