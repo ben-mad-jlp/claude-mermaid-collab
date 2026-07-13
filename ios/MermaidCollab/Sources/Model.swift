@@ -101,6 +101,20 @@ struct MissionEpic: Codable, Identifiable {
     let acceptanceStatus: String?
 }
 
+// MARK: Transcript peek (recent turns) — read-only.
+// Extra JSON fields are ignored by Codable — decode only what the viewer reads.
+
+struct TranscriptTurn: Codable, Identifiable {
+    let role: String   // "user" | "assistant"
+    let text: String
+    var id: String { role + text.prefix(24) }
+}
+
+struct TranscriptResponse: Codable {
+    let turns: [TranscriptTurn]
+    let found: Bool
+}
+
 // MARK: Artifact drill-in (documents + images) — read-only.
 // Extra JSON fields are ignored by Codable — decode only what the viewer reads.
 
