@@ -5,6 +5,7 @@ import { listLeafInflight, isLeafInflightLive } from './worker-ledger.js';
 import { isRunLive } from './leaf-subprocess-registry.js';
 import { getTodo, listTodos } from './todo-store.js';
 import { recordSupervisorAudit } from './supervisor-store.js';
+import { recordFriction } from './friction-store.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
@@ -19,6 +20,7 @@ const GC_THROTTLE_MS = 30 * 60_000;
  *  session. The inflight set alone is a TOCTOU; require the worktree to have been QUIET for
  *  the grace window (its tree is actively written during build + merge) before reaping. */
 const REAP_GRACE_MS = 5 * 60_000;
+const ORPHAN_WORKTREE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const lastReapMs = new Map<string, number>();
 
@@ -158,6 +160,67 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+/** Minimal read-only git runner for the GC pass — never mutates, so it does NOT go
+ *  through WorktreeManager's mutation lock. stderr is discarded; a non-zero exit yields
+ *  an empty stdout. */
+async function gcGitRead(cwd: string, args: string[]): Promise<{ code: number; stdout: string }> {
+  try {
+    const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
+      cwd,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'ignore',
+    });
+    const [stdout, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      proc.exited,
+    ]);
+    return { code: code ?? 0, stdout };
+  } catch {
+    return { code: 1, stdout: '' };
+  }
+}
+
+/** Parse `git worktree list --porcelain` into per-worktree metadata keyed by the dir's
+ *  BASENAME (git prints OS-resolved paths — e.g. /private/tmp on macOS — so a basename key
+ *  is the only reliable join back to a dir under baseDir; basenames are unique there). */
+async function listRegisteredWorktreeMeta(
+  projectRoot: string,
+): Promise<Map<string, { branch: string | null; locked: boolean }>> {
+  const out = new Map<string, { branch: string | null; locked: boolean }>();
+  const res = await gcGitRead(projectRoot, ['worktree', 'list', '--porcelain']);
+  if (res.code !== 0) return out;
+  for (const block of res.stdout.split('\n\n')) {
+    let base = '';
+    let branch: string | null = null;
+    let locked = false;
+    for (const raw of block.split('\n')) {
+      const ln = raw.trim();
+      if (ln.startsWith('worktree ')) base = path.basename(ln.slice('worktree '.length));
+      else if (ln.startsWith('branch ')) branch = ln.slice('branch '.length).replace(/^refs\/heads\//, '');
+      else if (ln === 'locked' || ln.startsWith('locked ')) locked = true;
+    }
+    if (base) out.set(base, { branch, locked });
+  }
+  return out;
+}
+
+/** Age in ms of a worktree's HEAD commit (now − committer time). null when git can't read
+ *  it (dangling / no commits) — caller treats null as "unknown" ⇒ flag, never remove. */
+async function headCommitAgeMs(dir: string, now: number): Promise<number | null> {
+  const res = await gcGitRead(dir, ['log', '-1', '--format=%ct']);
+  if (res.code !== 0 || !res.stdout.trim()) return null;
+  const ct = parseInt(res.stdout.trim(), 10);
+  if (!Number.isFinite(ct)) return null;
+  return now - ct * 1000;
+}
+
+/** `__epic-<id8>__` → id8, else null. */
+function epicWorktreeId8(name: string): string | null {
+  const m = /^__epic-(.+)__$/.exec(name);
+  return m ? m[1] : null;
+}
+
 /**
  * Directory-driven GC pass for leaf-exec-* worktrees (kill-the-running-build epic,
  * HALF 2). `reapOrphanedLeafWorktrees` above is record-driven (`wm.list()`, which reads
@@ -170,8 +233,17 @@ async function pathExists(p: string): Promise<boolean> {
  * unknown todo, uncommitted tracked changes, or an untracked file with no counterpart in
  * the main checkout), never force one. `dryRun` skips the actual `removePath` call but
  * still computes the full report.
+ *
+ * Extended to handle a second candidate class: non-`leaf-exec-*` worktrees under
+ * baseDir (abandoned interactive-session *lane* checkouts and *terminal-epic* accumulation
+ * worktrees). An orphan that is provably safe — old, pristine, unlocked, unowned, not a
+ * live epic — is removed; anything dirty / locked / unclassifiable is flagged only
+ * (a friction note + a report.refused entry) and left untouched.
  */
-export async function gcLeafWorktrees(project: string, opts?: { dryRun?: boolean }): Promise<GcReport> {
+export async function gcLeafWorktrees(
+  project: string,
+  opts?: { dryRun?: boolean; orphanMaxAgeMs?: number },
+): Promise<GcReport> {
   const wm = getWorktreeManager(project);
   const report: GcReport = { removed: [], refused: [], prunedRegistrations: 0, scanned: 0 };
 
@@ -181,68 +253,160 @@ export async function gcLeafWorktrees(project: string, opts?: { dryRun?: boolean
   } catch {
     return report;
   }
-  const now = Date.now();
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith(LEAF_EXEC_PREFIX)) continue;
-    report.scanned += 1;
-    const dir = path.join(wm.baseDir(), entry.name);
-    const id8 = entry.name.slice(LEAF_EXEC_PREFIX.length, LEAF_EXEC_PREFIX.length + 8);
 
-    const todo = id8.length === 8 ? findLeafTodoByShortId(project, id8) : null;
-    if (!todo) {
-      report.refused.push({ path: dir, reason: 'unknown-todo', sample: [] });
+  const now = Date.now();
+  const orphanMaxAgeMs = opts?.orphanMaxAgeMs ?? ORPHAN_WORKTREE_MAX_AGE_MS;
+
+  // Pre-compute the two reconcile inputs once: what git knows about + what the durable
+  // wm records own. The reaper treats "a durable record claims this path" ⇒ bound ⇒
+  // refuse to remove — this is deliberately over-cautious because the only queryable
+  // ownership signal is a persisted record (the in-memory AgentSessionRegistry is
+  // unreachable here). A live session ALWAYS has a record; a record-gone orphan is
+  // fair game for GC.
+  const registered = await listRegisteredWorktreeMeta(project);
+  const recordBasenames = new Set((await wm.list()).map((r) => path.basename(r.path)));
+
+  const flagOrphan = async (
+    dir: string,
+    reason: string,
+    sample: string[] = [],
+  ): Promise<void> => {
+    report.refused.push({ path: dir, reason, sample });
+    await recordFriction(project, {
+      layer: 'operational',
+      retryReason: reason,
+      detail: `orphan non-leaf worktree left in place: ${dir}`,
+    }).catch(() => {});
+  };
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(wm.baseDir(), entry.name);
+
+    if (entry.name.startsWith(LEAF_EXEC_PREFIX)) {
+      // ── Candidate class 1: leaf-exec-* worktree (existing path, unchanged) ────────
+      report.scanned += 1;
+      const id8 = entry.name.slice(LEAF_EXEC_PREFIX.length, LEAF_EXEC_PREFIX.length + 8);
+
+      const todo = id8.length === 8 ? findLeafTodoByShortId(project, id8) : null;
+      if (!todo) {
+        report.refused.push({ path: dir, reason: 'unknown-todo', sample: [] });
+        continue;
+      }
+      if (todo.status !== 'done' && todo.status !== 'dropped') continue; // live leaf — skip silently
+
+      if (isLeafInflightLive(todo.id) || isRunLive(todo.id)) continue; // executor still running
+
+      // Grace window — mirrors isReapable's merge-race guard: a leaf just finished its
+      // self-merge may still be settling on disk.
+      let mtimeMs: number | null = null;
+      try { mtimeMs = (await stat(dir)).mtimeMs; } catch { mtimeMs = null; }
+      if (mtimeMs != null && now - mtimeMs < REAP_GRACE_MS) continue;
+
+      const status = await wm.statusAt(dir);
+      if (status === null) {
+        // Dangling (unregistered) checkout — git itself is unusable here. Nothing
+        // COMMITTED is at risk (the branch, if any, still lives in the main repo); the
+        // only risk is a file that exists ONLY in this dir. Bounded-walk compare against
+        // the main checkout.
+        const files = await listFilesBounded(dir);
+        const unique: string[] = [];
+        for (const f of files) {
+          if (!(await pathExists(path.join(project, f)))) unique.push(f);
+        }
+        if (unique.length > 0) {
+          report.refused.push({ path: dir, reason: 'dangling-with-unique-files', sample: unique.slice(0, 5) });
+          continue;
+        }
+      } else {
+        const tracked = status.filter((l) => !l.startsWith('??'));
+        if (tracked.length > 0) {
+          report.refused.push({
+            path: dir,
+            reason: 'uncommitted-tracked-changes',
+            sample: tracked.slice(0, 5).map((l) => l.slice(3)),
+          });
+          continue;
+        }
+        const untracked = status.filter((l) => l.startsWith('??')).map((l) => l.slice(3));
+        const uniqueUntracked: string[] = [];
+        for (const f of untracked) {
+          if (!(await pathExists(path.join(project, f)))) uniqueUntracked.push(f);
+        }
+        if (uniqueUntracked.length > 0) {
+          report.refused.push({ path: dir, reason: 'untracked-unique-files', sample: uniqueUntracked.slice(0, 5) });
+          continue;
+        }
+      }
+
+      if (!opts?.dryRun) {
+        try {
+          await wm.removePath(dir);
+          console.log(`[worktree-gc] removed orphaned worktree dir ${dir} (todo=${todo.id.slice(0, 8)} status=${todo.status})`);
+        } catch {
+          report.refused.push({ path: dir, reason: 'remove-failed', sample: [] });
+          continue;
+        }
+      }
+      report.removed.push(dir);
       continue;
     }
-    if (todo.status !== 'done' && todo.status !== 'dropped') continue; // live leaf — skip silently
 
-    if (isLeafInflightLive(todo.id) || isRunLive(todo.id)) continue; // executor still running
+    // ── Candidate class 2: orphan non-leaf / lane worktree ──────────────────────────
+    report.scanned += 1;
 
-    // Grace window — mirrors isReapable's merge-race guard: a leaf just finished its
-    // self-merge may still be settling on disk.
+    // 1. Live epic — silent skip.
+    const epicId8 = epicWorktreeId8(entry.name);
+    if (epicId8) {
+      const epicTodo = findLeafTodoByShortId(project, epicId8);
+      if (epicTodo && epicTodo.status !== 'done' && epicTodo.status !== 'dropped') continue;
+    }
+
+    // 2. Bound (owned by a session) — silent skip.
+    if (recordBasenames.has(entry.name)) continue;
+
+    // 3. Unregistered / unusable — FLAG.
+    const meta = registered.get(entry.name);
+    if (!meta) {
+      await flagOrphan(dir, 'orphan-unregistered');
+      continue;
+    }
+
+    // 4. Locked — FLAG (must precede any removal).
+    if (meta.locked) {
+      await flagOrphan(dir, 'orphan-locked');
+      continue;
+    }
+
+    // 5. Too young — silent skip.
+    const ageMs = await headCommitAgeMs(dir, now);
+    if (ageMs === null) {
+      await flagOrphan(dir, 'orphan-unknown-head');
+      continue;
+    }
+    if (ageMs <= orphanMaxAgeMs) continue;
+
+    // 6. Recently touched (merge-race quiet window) — silent skip.
     let mtimeMs: number | null = null;
     try { mtimeMs = (await stat(dir)).mtimeMs; } catch { mtimeMs = null; }
     if (mtimeMs != null && now - mtimeMs < REAP_GRACE_MS) continue;
 
+    // 7. Dirty / not-a-worktree — FLAG.
     const status = await wm.statusAt(dir);
     if (status === null) {
-      // Dangling (unregistered) checkout — git itself is unusable here. Nothing
-      // COMMITTED is at risk (the branch, if any, still lives in the main repo); the
-      // only risk is a file that exists ONLY in this dir. Bounded-walk compare against
-      // the main checkout.
-      const files = await listFilesBounded(dir);
-      const unique: string[] = [];
-      for (const f of files) {
-        if (!(await pathExists(path.join(project, f)))) unique.push(f);
-      }
-      if (unique.length > 0) {
-        report.refused.push({ path: dir, reason: 'dangling-with-unique-files', sample: unique.slice(0, 5) });
-        continue;
-      }
-    } else {
-      const tracked = status.filter((l) => !l.startsWith('??'));
-      if (tracked.length > 0) {
-        report.refused.push({
-          path: dir,
-          reason: 'uncommitted-tracked-changes',
-          sample: tracked.slice(0, 5).map((l) => l.slice(3)),
-        });
-        continue;
-      }
-      const untracked = status.filter((l) => l.startsWith('??')).map((l) => l.slice(3));
-      const uniqueUntracked: string[] = [];
-      for (const f of untracked) {
-        if (!(await pathExists(path.join(project, f)))) uniqueUntracked.push(f);
-      }
-      if (uniqueUntracked.length > 0) {
-        report.refused.push({ path: dir, reason: 'untracked-unique-files', sample: uniqueUntracked.slice(0, 5) });
-        continue;
-      }
+      await flagOrphan(dir, 'orphan-unusable');
+      continue;
+    }
+    if (status.length > 0) {
+      await flagOrphan(dir, 'orphan-dirty', status.slice(0, 5).map((l) => l.slice(3)));
+      continue;
     }
 
+    // 8. Remove.
     if (!opts?.dryRun) {
       try {
         await wm.removePath(dir);
-        console.log(`[worktree-gc] removed orphaned worktree dir ${dir} (todo=${todo.id.slice(0, 8)} status=${todo.status})`);
+        console.log(`[worktree-gc] removed orphan non-leaf worktree ${dir}`);
       } catch {
         report.refused.push({ path: dir, reason: 'remove-failed', sample: [] });
         continue;

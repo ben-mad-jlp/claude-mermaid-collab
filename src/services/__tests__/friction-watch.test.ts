@@ -131,7 +131,7 @@ describe('friction-watch: stale-worktree dedup', () => {
       { path: '/tmp/wt-a', branch: 'epic/old', reason: 'stale', ageMs: 8 * 86_400_000 },
       { path: '/tmp/wt-b', branch: null, reason: 'branch-gone', ageMs: 0 },
     ]);
-    await runFrictionWatchPass(project, wm);
+    await runFrictionWatchPass(project, wm, { force: true });
 
     const notes = listFriction(project, { layer: 'operational' });
     expect(notes.filter((n) => n.retryReason === 'stale-worktree').length).toBe(2);
@@ -146,7 +146,7 @@ describe('friction-watch: stale-worktree dedup', () => {
 
     // reason changes from 'stale' to 'branch-gone' → new edge
     wm._setStale([{ path: '/tmp/wt-a', branch: 'epic/old', reason: 'branch-gone', ageMs: 8 * 86_400_000 }]);
-    await runFrictionWatchPass(project, wm);
+    await runFrictionWatchPass(project, wm, { force: true });
 
     const notes = listFriction(project, { layer: 'operational' });
     expect(notes.filter((n) => n.retryReason === 'stale-worktree').length).toBe(2);

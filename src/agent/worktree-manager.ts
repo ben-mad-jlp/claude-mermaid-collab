@@ -1842,6 +1842,56 @@ export class WorktreeManager {
     }));
   }
 
+  // ---------------------------------------------------------------------------
+  // epicWorktreePath — public accessor for an epic's accumulation worktree path
+  // ---------------------------------------------------------------------------
+  /** Absolute path of an epic's accumulation worktree dir (`.../__epic-<id8>__`).
+   *  Public read-only accessor — the same path removeEpic / ensureEpic compute. */
+  epicWorktreePath(epicId: string): string {
+    return path.join(this.opts.baseDir, `__epic-${this.epicId8(epicId)}__`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // removeEpicWorktree — tear down an epic's accumulation WORKTREE only, leaving
+  // the branch ref intact (H6a). Used when an epic is DROPPED: the branch may hold
+  // unlanded commits a human still wants, so unlike removeEpic we never `branch -D`.
+  // Idempotent + best-effort: a missing worktree is fine. Serialised behind the
+  // per-project worktree lock (same shared-admin hazard removeEpic guards against).
+  // ---------------------------------------------------------------------------
+  async removeEpicWorktree(
+    epicId: string,
+    opts: { keepBranch: boolean },
+  ): Promise<{ removed: boolean; wtPath: string }> {
+    return this.withWorktreeLock(() => this._removeEpicWorktreeInner(epicId, opts));
+  }
+
+  private async _removeEpicWorktreeInner(
+    epicId: string,
+    opts: { keepBranch: boolean },
+  ): Promise<{ removed: boolean; wtPath: string }> {
+    const wtPath = this.epicWorktreePath(epicId);
+    if (!(await this.isGitRepo())) return { removed: false, wtPath };
+    await this.runGit(this.opts.projectRoot, ['worktree', 'remove', '--force', wtPath], QUICK_TIMEOUT_MS).catch(
+      () => ({ code: 0, stdout: '', stderr: '' }),
+    );
+    await this.runGit(this.opts.projectRoot, ['worktree', 'prune'], QUICK_TIMEOUT_MS).catch(() => ({
+      code: 0,
+      stdout: '',
+      stderr: '',
+    }));
+    // opts.keepBranch === true (H6a's only caller) → we deliberately issue NO
+    // `git branch -D`; the epic branch survives so its unlanded commits are recoverable.
+    if (!opts.keepBranch) {
+      const branch = this.epicBranchName(epicId);
+      await this.runGit(this.opts.projectRoot, ['branch', '-D', branch], QUICK_TIMEOUT_MS).catch(() => ({
+        code: 0,
+        stdout: '',
+        stderr: '',
+      }));
+    }
+    return { removed: true, wtPath };
+  }
+
   // ===========================================================================
   // Private helpers
   // ===========================================================================
