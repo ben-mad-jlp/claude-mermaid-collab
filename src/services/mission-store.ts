@@ -15,12 +15,13 @@
  * lives HERE in a SEPARATE `.collab/mission.db`, keyed by the node's todo id.
  */
 import Database from 'bun:sqlite';
-import { join } from 'node:path';
+import { join, isAbsolute, relative } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { listTodos } from './todo-store.ts';
 import { isEpic, isMission } from './todo-kind.ts';
 import { listLeafRuns } from './ledger-stats.ts';
 import { derivedStatus } from './claimability.ts';
+import { createEscalation } from './supervisor-store.ts';
 
 /** Derived-on-read capability status of a mission (never stored; computed from the
  *  work-graph + criteria + leaf-run ledger each read). Precedence is first-match-wins in
@@ -79,6 +80,10 @@ export interface MissionCriterion {
   /** File paths the verdict cited (JSON array). A later leaf's land-diff ∩ evidencePaths
    *  re-opens this criterion when one of these files changes. Empty until verified. */
   evidencePaths: string[];
+  /** Count of land-driven reopens (H7b churn bound). 0 until a land clears it. */
+  reopenCount: number;
+  /** The landedSha of the most recent land-driven reopen, or null. */
+  lastReopenSha: string | null;
 }
 
 export interface MissionRecheck {
@@ -123,7 +128,9 @@ CREATE TABLE IF NOT EXISTS mission_criterion (
   "order" INTEGER NOT NULL DEFAULT 0,
   updatedAt INTEGER NOT NULL,
   verifiedAtSha TEXT,
-  evidencePaths TEXT
+  evidencePaths TEXT,
+  reopenCount INTEGER NOT NULL DEFAULT 0,
+  lastReopenSha TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mission_criterion_todo ON mission_criterion(todoId);
 CREATE TABLE IF NOT EXISTS mission_recheck (
@@ -174,6 +181,8 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
   addColumnIfMissing(db, 'mission_criterion', 'verifiedAtSha', 'verifiedAtSha TEXT');
   addColumnIfMissing(db, 'mission_criterion', 'evidencePaths', 'evidencePaths TEXT');
+  addColumnIfMissing(db, 'mission_criterion', 'reopenCount', 'reopenCount INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'mission_criterion', 'lastReopenSha', 'lastReopenSha TEXT');
   migrateDropPhaseMachine(db);
   dbCache.set(project, db);
   return db;
@@ -344,6 +353,8 @@ export function listCriteria(project: string, todoId: string): MissionCriterion[
     verifiedAt: (r.verifiedAt as number | null) ?? null,
     verifiedAtSha: (r.verifiedAtSha as string | null) ?? null,
     evidencePaths: r.evidencePaths ? (JSON.parse(r.evidencePaths as string) as string[]) : [],
+    reopenCount: (r.reopenCount as number | null) ?? 0,
+    lastReopenSha: (r.lastReopenSha as string | null) ?? null,
   }));
 }
 
@@ -358,7 +369,7 @@ export function addCriterion(project: string, todoId: string, text: string): Mis
   openDb(project)
     .prepare('INSERT INTO mission_criterion (id, todoId, text, met, "order", updatedAt) VALUES (?, ?, ?, 0, ?, ?)')
     .run(id, todoId, trimmed, order, ts);
-  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [] };
+  return { id, todoId, text: trimmed, met: false, order, updatedAt: ts, evidence: null, verifiedBy: null, verifiedAt: null, verifiedAtSha: null, evidencePaths: [], reopenCount: 0, lastReopenSha: null };
 }
 
 /** Mark a criterion met / unmet (bare — no verify provenance). Prefer
@@ -368,6 +379,25 @@ export function setCriterionMet(project: string, criterionId: string, met: boole
     .prepare('UPDATE mission_criterion SET met = ?, updatedAt = ? WHERE id = ?')
     .run(met ? 1 : 0, nowMs(), criterionId);
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+}
+
+/** Normalize an evidence path to the repo-relative namespace that git diff --name-only emits.
+ *  Returns null to DROP a path outside the repo, empty, or otherwise invalid. */
+function normalizeEvidencePath(project: string, p: string): string | null {
+  const trimmed = p.trim();
+  if (!trimmed) return null;
+
+  let normalized = trimmed;
+  if (isAbsolute(trimmed)) {
+    const rel = relative(project, trimmed);
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null;
+    normalized = rel;
+  }
+
+  if (normalized.startsWith('./')) normalized = normalized.slice(2);
+  normalized = normalized.split('\\').join('/');
+
+  return normalized === '' ? null : normalized;
 }
 
 /**
@@ -381,6 +411,14 @@ export function setCriterionVerdict(
   criterionId: string,
   verdict: { met: boolean; evidence?: string | null; verifiedBy?: string | null; verifiedAtSha?: string | null; evidencePaths?: string[] },
 ): void {
+  const normalizedPaths = verdict.evidencePaths
+    ? Array.from(new Set(
+        verdict.evidencePaths
+          .map((p) => normalizeEvidencePath(project, p))
+          .filter((p): p is string => p != null),
+      ))
+    : null;
+
   const res = openDb(project)
     .prepare('UPDATE mission_criterion SET met = ?, evidence = ?, verifiedBy = ?, verifiedAt = ?, verifiedAtSha = ?, evidencePaths = ?, updatedAt = ? WHERE id = ?')
     .run(
@@ -389,7 +427,7 @@ export function setCriterionVerdict(
       verdict.verifiedBy ?? null,
       nowMs(),
       verdict.verifiedAtSha ?? null,
-      verdict.evidencePaths ? JSON.stringify(verdict.evidencePaths) : null,
+      normalizedPaths ? JSON.stringify(normalizedPaths) : null,
       nowMs(),
       criterionId,
     );
@@ -413,11 +451,30 @@ export function removeCriterion(project: string, criterionId: string): void {
 /** Un-verify a criterion: null its entire VERIFY verdict so an independent re-check
  *  must re-judge it (met=false, verifiedAt/evidence/verifiedBy/verifiedAtSha → null).
  *  evidencePaths is PRESERVED so a subsequent land can still match it before re-verify. */
-export function clearCriterionVerdict(project: string, criterionId: string): void {
-  const res = openDb(project)
-    .prepare('UPDATE mission_criterion SET met = 0, evidence = NULL, verifiedBy = NULL, verifiedAt = NULL, verifiedAtSha = NULL, updatedAt = ? WHERE id = ?')
-    .run(nowMs(), criterionId);
+export function clearCriterionVerdict(
+  project: string,
+  criterionId: string,
+  opts: { countReopen?: boolean; reopenSha?: string | null } = {},
+): number {
+  const setClause: string[] = ['met = 0', 'evidence = NULL', 'verifiedBy = NULL', 'verifiedAt = NULL', 'verifiedAtSha = NULL', 'updatedAt = ?'];
+  const params: (string | number | null)[] = [nowMs()];
+
+  if (opts.countReopen) {
+    setClause.push('reopenCount = reopenCount + 1');
+    setClause.push('lastReopenSha = ?');
+    params.push(opts.reopenSha ?? null);
+  }
+
+  params.push(criterionId);
+
+  const query = `UPDATE mission_criterion SET ${setClause.join(', ')} WHERE id = ?`;
+  const res = openDb(project).prepare(query).run(...params);
   if (res.changes === 0) throw new Error(`criterion not found: ${criterionId}`);
+
+  const row = openDb(project)
+    .query('SELECT reopenCount FROM mission_criterion WHERE id = ?')
+    .get(criterionId) as Record<string, unknown> | null;
+  return (row?.reopenCount as number) ?? 0;
 }
 
 export function enqueueRecheck(project: string, r: { criterionId: string; todoId: string; reason: string; landedSha?: string | null }): void {
@@ -443,6 +500,27 @@ export function clearRecheck(project: string, criterionId: string): void {
   openDb(project).prepare('DELETE FROM mission_recheck WHERE criterionId = ?').run(criterionId);
 }
 
+// ── Reopen churn management ─────────────────────────────────────────────────
+
+const REOPEN_CARD_THRESHOLD = 5;
+
+function raiseReopenChurnCard(
+  project: string, session: string, c: MissionCriterion,
+): void {
+  const text = c.text.length > 80 ? `${c.text.slice(0, 77)}...` : c.text;
+  const questionText =
+    `Mission criterion "${text}" (${c.id}) has been re-opened by ${REOPEN_CARD_THRESHOLD}+ lands ` +
+    `invalidating its evidence — its evidencePaths pin may be too broad; review/narrow it.`;
+  try {
+    createEscalation({
+      project, session, kind: 'mission-criterion-churn',
+      questionText, todoId: c.todoId, operatorGated: false,
+    });
+  } catch {
+    // The card is advisory. A supervisor-db hiccup must NEVER break the safety clear.
+  }
+}
+
 /** Verification-as-event: given the paths a land touched, un-verify every MET criterion
  *  whose evidencePaths intersect them and enqueue a per-criterion re-check. Pure path-set
  *  intersection — NO LLM. Returns the affected {criterionId, todoId} list (for audit). */
@@ -458,9 +536,13 @@ export function unverifyCriteriaForLandedPaths(
     for (const c of listCriteria(project, m.node.id)) {
       if (!c.met) continue;
       if (!c.evidencePaths.some((p) => landed.has(p))) continue;
-      clearCriterionVerdict(project, c.id);
+      const session = m.ownerSession ?? m.assigneeSession ?? 'mission-loop';
+      const reopenCount = clearCriterionVerdict(project, c.id, {
+        countReopen: true, reopenSha: opts.landedSha ?? null,
+      });
       enqueueRecheck(project, { criterionId: c.id, todoId: c.todoId, reason: 'land-diff-intersects-evidence', landedSha: opts.landedSha ?? null });
       affected.push({ criterionId: c.id, todoId: c.todoId });
+      if (reopenCount >= REOPEN_CARD_THRESHOLD) raiseReopenChurnCard(project, session, { ...c, reopenCount });
     }
   }
   return affected;
