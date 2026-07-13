@@ -169,7 +169,7 @@ export function memoizedTscClean(deps: {
   return pass;
 }
 
-const realRunners: ProofRunners = {
+export const realRunners: ProofRunners = {
   commitsBehindMaster(cwd, baseRef = 'master') {
     const out = execFileSync('git', ['rev-list', '--count', `HEAD..${baseRef}`], { cwd, encoding: 'utf8' });
     return parseInt(out.trim(), 10) || 0;
