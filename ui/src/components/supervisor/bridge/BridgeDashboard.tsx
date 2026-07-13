@@ -460,6 +460,23 @@ export const BridgeDashboard: React.FC = () => {
     setSelectedTodoId(null);
   };
 
+  // crit 4: single dismiss path shared by the drawer's close button, a backdrop
+  // click, and the Escape key. Clears both selections → inspectorOpen goes false.
+  const closeInspector = useCallback(() => {
+    setSelectedEpic(null);
+    setSelectedTodoId(null);
+  }, []);
+
+  // crit 4: Esc closes the inspector drawer (only wired while open so it doesn't
+  // swallow Escape used elsewhere).
+  const inspectorOpen = Boolean(selectedEpic || selectedTodoId);
+  useEffect(() => {
+    if (!inspectorOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeInspector(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [inspectorOpen, closeInspector]);
+
   const panels = useMemo<Partial<Record<RailKey, React.ReactNode>>>(
     () => ({
       escalations: <div className="p-2"><NeedsYouZone embedded escalations={blockerEscalations} project={project} serverScope={serverScope} onJump={handleJump} onSelectTodo={handleSelectTodo} /></div>,
@@ -579,8 +596,8 @@ export const BridgeDashboard: React.FC = () => {
             serverScope={serverScope}
           />
         }
-        inspectorOpen={Boolean(selectedEpic || selectedTodoId)}
-        onInspectorClose={() => { setSelectedEpic(null); setSelectedTodoId(null); }}
+        inspectorOpen={inspectorOpen}
+        onInspectorClose={closeInspector}
       />
 
       {flags.jsonRenderDecisionCard && focalEscalation && (
