@@ -146,6 +146,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   inlineControls,
 }) => {
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
+  const [nameCopied, setNameCopied] = useState(false);
   const overflowRef = useRef<HTMLDivElement>(null);
 
   // Close overflow menu when clicking outside
@@ -184,6 +185,18 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     action.onClick();
     setIsOverflowOpen(false);
   }, []);
+
+  const handleCopyName = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    void navigator.clipboard
+      ?.writeText(itemName)
+      .then(() => {
+        setNameCopied(true);
+        setTimeout(() => setNameCopied(false), 1200);
+      })
+      .catch(() => { /* clipboard blocked — no-op */ });
+  }, [itemName]);
 
   // Format timestamp to relative time for history banner
   const formatRelativeTime = useCallback((timestamp: string): string => {
@@ -559,6 +572,20 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         >
           {itemName}
         </span>
+        <button
+          type="button"
+          data-testid="copy-name"
+          onClick={handleCopyName}
+          title={nameCopied ? 'Copied!' : `Copy name: ${itemName}`}
+          aria-label="Copy name to clipboard"
+          className={`cursor-pointer leading-none text-sm transition-opacity ${
+            nameCopied
+              ? 'opacity-100 text-success-600 dark:text-success-400'
+              : 'opacity-50 hover:opacity-100 text-gray-500 dark:text-gray-400'
+          }`}
+        >
+          {nameCopied ? '✓' : '⧉'}
+        </button>
         {hasUnsavedChanges && (
           <span
             data-testid="unsaved-indicator"
