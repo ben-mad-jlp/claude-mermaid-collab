@@ -1262,6 +1262,67 @@ export async function sweepCorruptEpics(
   return reopened;
 }
 
+// --- Dropped-epic worktree release (H6a) -----------------------------------------------
+// A DROPPED epic leaves its accumulation worktree on disk. Reclaim the checkout dir
+// but KEEP the branch (it may hold unlanded commits). A DIRTY worktree is never
+// destroyed — we skip it and record a friction note so the uncommitted work is visible.
+export const DROPPED_EPIC_SWEEP_INTERVAL_MS = 90 * 1000; // ~3 ticks — prompt but throttled
+const lastDroppedEpicSweepAt = new Map<string, number>();
+
+/** Exported for tests: reset the dropped-epic throttle so the next sweep runs now. */
+export function _resetDroppedEpicSweepState(): void {
+  lastDroppedEpicSweepAt.clear();
+}
+
+/** Pure: the epics currently in status 'dropped' — worktree-release candidates. */
+export function droppedEpicCandidates(todos: Todo[]): Todo[] {
+  return todos.filter((t) => t.kind === 'epic' && t.status === 'dropped');
+}
+
+export async function releaseDroppedEpicWorktrees(
+  project: string,
+  opts?: { force?: boolean; now?: number },
+): Promise<string[]> {
+  const now = opts?.now ?? Date.now();
+  const last = lastDroppedEpicSweepAt.get(project) ?? 0;
+  if (!opts?.force && now - last < DROPPED_EPIC_SWEEP_INTERVAL_MS) return [];
+  lastDroppedEpicSweepAt.set(project, now);
+
+  const released: string[] = [];
+  const candidates = droppedEpicCandidates(listTodos(project, { includeCompleted: true }));
+  for (const epic of candidates) {
+    try {
+      const wm = getWorktreeManager(epic.targetProject ?? project);
+      if (!(await wm.isGitRepoPublic())) continue;
+      const wtPath = wm.epicWorktreePath(epic.id);
+      const status = await wm.statusAt(wtPath);
+      if (status === null) continue; // worktree already gone / not a usable checkout
+      if (status.length > 0) {
+        // DIRTY — never destroy uncommitted work; record friction and move on.
+        await recordFriction(project, {
+          todoId: epic.id,
+          layer: 'operational',
+          retryReason: 'dropped-epic-worktree-dirty',
+          detail: `Dropped epic ${epic.id.slice(0, 8)} worktree is dirty (${status.length} change(s)); ` +
+            `skipped removal to preserve uncommitted work. Sample: ${status.slice(0, 5).join('; ')}`,
+        });
+        continue;
+      }
+      await wm.removeEpicWorktree(epic.id, { keepBranch: true });
+      released.push(epic.id);
+    } catch { /* one bad epic never aborts the sweep */ }
+  }
+  if (released.length > 0) {
+    recordSupervisorAudit({
+      kind: 'reconcile',
+      project,
+      session: 'coordinator',
+      detail: JSON.stringify({ source: 'reconcile-pass', droppedEpicWorktreeRelease: released }),
+    });
+  }
+  return released;
+}
+
 // --- FBPE P5: cross-repo epics --------------------------------------------------
 // An epic whose children span repos gets ONE accumulation branch PER target repo
 // (git can't merge across repos), so the land surface raises one card per repo and
