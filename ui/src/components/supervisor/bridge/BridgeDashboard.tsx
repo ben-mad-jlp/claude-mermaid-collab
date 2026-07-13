@@ -46,7 +46,6 @@ import { epicIdSet, isEpic } from '@/lib/todoKind';
 import { SignalsStrip } from './SignalsStrip';
 import { BridgeRail } from './rail/BridgeRail';
 import type { RailKey } from './rail/RailNav';
-import { MissionBlock } from './rail/MissionBlock';
 import { ProjectFooter } from './rail/ProjectFooter';
 import { WorkPanel } from './rail/panels/WorkPanel';
 import { BridgeStage } from './stage/BridgeStage';
@@ -536,7 +535,6 @@ export const BridgeDashboard: React.FC = () => {
               ready: daemonCounts.claimable ?? readyCount,
               stranded: strandedCount,
             }}
-            header={<MissionBlock serverId={serverScope} project={project} session={currentSession?.name} />}
             footer={
               <ProjectFooter
                 unlandedEpics={unlandedEpicsByProject[project]}
