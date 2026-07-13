@@ -101,6 +101,30 @@ struct MissionEpic: Codable, Identifiable {
     let acceptanceStatus: String?
 }
 
+// MARK: Artifact drill-in (documents + images) — read-only.
+// Extra JSON fields are ignored by Codable — decode only what the viewer reads.
+
+struct DocumentsResponse: Codable { let documents: [DocRef] }
+
+struct DocRef: Codable, Identifiable {
+    let id: String
+    let name: String
+}
+
+struct DocumentContent: Codable, Identifiable {
+    let id: String
+    let name: String
+    let content: String
+}
+
+struct ImagesResponse: Codable { let images: [ImageRef] }
+
+struct ImageRef: Codable, Identifiable {
+    let id: String
+    let name: String
+    let mimeType: String
+}
+
 /// One `session_summary_updated` message (also the hydrate snapshot shape).
 struct ZenSummary: Codable, Equatable, Identifiable {
     let type: String

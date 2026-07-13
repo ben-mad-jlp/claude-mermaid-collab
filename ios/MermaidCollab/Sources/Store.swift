@@ -165,6 +165,35 @@ final class ZenStore: ObservableObject {
         return resp.missions.first(where: { $0.mission.active }) ?? resp.missions.first
     }
 
+    func fetchDocuments(project: String, session: String) async -> [DocRef] {
+        func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
+        let path = "/api/documents?project=\(enc(project))&session=\(enc(session))"
+        guard let data = await send(request(path)) else { return [] }
+        guard let resp = try? JSONDecoder().decode(DocumentsResponse.self, from: data) else { return [] }
+        return resp.documents
+    }
+
+    func fetchDocument(id: String, project: String, session: String) async -> DocumentContent? {
+        func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
+        let path = "/api/document/\(enc(id))?project=\(enc(project))&session=\(enc(session))"
+        guard let data = await send(request(path)) else { return nil }
+        return try? JSONDecoder().decode(DocumentContent.self, from: data)
+    }
+
+    func fetchImages(project: String, session: String) async -> [ImageRef] {
+        func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
+        let path = "/api/images?project=\(enc(project))&session=\(enc(session))"
+        guard let data = await send(request(path)) else { return [] }
+        guard let resp = try? JSONDecoder().decode(ImagesResponse.self, from: data) else { return [] }
+        return resp.images
+    }
+
+    func fetchImageData(id: String, project: String, session: String) async -> Data? {
+        func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
+        let path = "/api/image/\(enc(id))/content?project=\(enc(project))&session=\(enc(session))"
+        return await send(request(path))
+    }
+
     // MARK: Actions
 
     /// Decide a structured escalation. Optimistically clears it.
