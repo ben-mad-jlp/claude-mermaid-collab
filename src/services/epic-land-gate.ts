@@ -50,6 +50,26 @@ export interface EpicLandGateResult {
   specFiles: string[];
   epicTipSha: string | null;
   baseSha: string | null;
+  sweep?: SourceGuardSweepResult;
+}
+
+/** Spec paths whose assertions guard shared, out-of-change-set symbols. Matched against the
+ *  full spec path so `.../source-guard.test.ts`, `...snapshot.test.ts`, `...invariant.test.ts`
+ *  all qualify. */
+export const SOURCE_GUARD_SWEEP_RE = /source[-_]?guard|snapshot|invariant/i;
+
+export interface SweepUnit {
+  file: string;
+  command: string;
+  laneCwd: string;
+  status: 'pass' | 'fail' | 'error';
+  output?: string;
+}
+
+export interface SourceGuardSweepResult {
+  status: 'pass' | 'fail' | 'error';
+  specFiles: string[];
+  units: SweepUnit[];
 }
 
 export interface EpicLandGateOpts {
@@ -81,6 +101,73 @@ const defaultFs = {
   exists: (p: string) => existsSync(p),
   symlink: (target: string, path: string) => symlinkSync(target, path),
 };
+
+export async function runSourceGuardSweep(o: {
+  epicWorktreeCwd: string;
+  cfg: LeafGateConfig;
+  spawn: GateSpawn;
+  git: (cwd: string, args: string[]) => { code: number; stdout: string };
+  excludeFiles?: string[];
+}): Promise<SourceGuardSweepResult> {
+  const lsRes = o.git(o.epicWorktreeCwd, ['ls-files']);
+  const exclude = new Set(o.excludeFiles ?? []);
+  const specFiles = lsRes.stdout
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((p) => p && SPEC_FILE_RE.test(p) && SOURCE_GUARD_SWEEP_RE.test(p) && !exclude.has(p));
+
+  if (specFiles.length === 0) return { status: 'pass', specFiles: [], units: [] };
+
+  const lanes = resolveLanes(o.cfg);
+  if (!lanes) return { status: 'pass', specFiles, units: [] };
+
+  const { byLane } = routeSpecsToLanes(specFiles, lanes);
+  const units: SweepUnit[] = [];
+  let status: 'pass' | 'fail' | 'error' = 'pass';
+
+  for (let laneIdx = 0; laneIdx < lanes.length; laneIdx++) {
+    const lane = lanes[laneIdx];
+    const files = byLane.get(lane);
+    if (!files?.length) continue;
+    const laneCwd = lane.cwd ? join(o.epicWorktreeCwd, lane.cwd) : o.epicWorktreeCwd;
+
+    // SEQUENTIAL, one file per spawn — never a batch command — to dodge the shared-SQLite
+    // flakiness that per-leaf change-set scoping was built to avoid.
+    for (const file of files) {
+      const command = expandLaneCommands({ ...lane, mode: 'per-file' }, [file])[0];
+      const r = await o.spawn(laneCwd, command);
+      const u: SweepUnit = { file, command, laneCwd: lane.cwd ?? '', status: 'pass' };
+      if (!r.ran) {
+        u.status = 'error';
+        u.output = lastLines(r.output, 50);
+        if (status === 'pass') status = 'error';
+      } else if (r.code !== 0) {
+        u.status = 'fail';
+        u.output = lastLines(r.output, 50);
+        status = 'fail';
+      }
+      units.push(u);
+    }
+  }
+
+  return { status, specFiles, units };
+}
+
+function foldSweepIntoResult(res: EpicLandGateResult, sweep: SourceGuardSweepResult): EpicLandGateResult {
+  res.sweep = sweep;
+  if (sweep.status === 'pass') {
+    res.reasons.push(`source-guard sweep: green (${sweep.specFiles.length} guard spec(s))`);
+    return res;
+  }
+  if (res.status === 'pass') {
+    res.status = sweep.status; // 'fail' or 'error'
+  }
+  for (const u of sweep.units.filter((x) => x.status !== 'pass')) {
+    res.reasons.push(`SOURCE-GUARD SWEEP ${u.status.toUpperCase()}: ${u.file}`);
+    if (u.output) res.reasons.push(lastLines(u.output, 20));
+  }
+  return res;
+}
 
 export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGateResult> {
   const baseRef = o.baseRef ?? 'master';
@@ -210,6 +297,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     .filter((p) => p && SPEC_FILE_RE.test(p));
 
   if (specFiles.length === 0) {
+    const sweep = await runSourceGuardSweep({ epicWorktreeCwd: o.epicWorktreeCwd, cfg, spawn, git });
     const res: EpicLandGateResult = {
       status: 'pass',
       declared: true,
@@ -224,7 +312,10 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       epicTipSha,
       baseSha,
     };
-    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'pass', result: JSON.stringify(res) });
+    foldSweepIntoResult(res, sweep);
+    if (res.status !== 'error') {
+      recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: res.status as 'pass' | 'fail' | 'abstain', result: JSON.stringify(res) });
+    }
     return res;
   }
 
@@ -454,8 +545,19 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     baseSha,
   };
 
-  if (status !== 'error') {
-    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status, result: JSON.stringify(res) });
+  if (res.status === 'pass') {
+    const sweep = await runSourceGuardSweep({
+      epicWorktreeCwd: o.epicWorktreeCwd,
+      cfg,
+      spawn,
+      git,
+      excludeFiles: specFiles,
+    });
+    foldSweepIntoResult(res, sweep);
+  }
+
+  if (res.status !== 'error') {
+    recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: res.status as 'pass' | 'fail' | 'abstain', result: JSON.stringify(res) });
   }
 
   return res;
@@ -471,6 +573,9 @@ export function landGateTrailer(r: EpicLandGateResult): string {
     trailer += `\nLand-Gate-Command: ${r.typecheck.command}`;
   }
   trailer += `\nLand-Gate-Specs: ${r.specFiles.length}`;
+  if (r.sweep && r.sweep.specFiles.length > 0) {
+    trailer += `\nLand-Gate-Sweep: ${r.sweep.specFiles.length}`;
+  }
   if (r.inherited.length > 0) {
     trailer += `\nLand-Gate-Inherited: ${r.inherited.map((u) => u.files.join(', ')).join(', ')}`;
   }
