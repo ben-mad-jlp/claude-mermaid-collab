@@ -1467,6 +1467,13 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
       const [[repo, buildIds]] = [...byRepo];
       const wm = getWorktreeManager(repo);
       const epicBranch = wm.epicBranchName(epic.id);
+      // CONVERGENT STAMP (F1 leaf B): close the crash-between-merge-and-stamp window.
+      // If the epic branch already merged (ahead==0) while the land leaf is still pending,
+      // a crash killed us between landEpic's merge and completeTodo — converge it here.
+      const converged = await convergeObservedMerge(
+        project, epic.id, decision.landLeafId, () => wm.epicAheadOfMaster(epic.id),
+      );
+      if (converged.stamped) continue; // land converged from git ground truth; done this epic
       const epicWt = await wm.ensureEpic(epic.id).catch(() => null);
       const proof = await deriveEpicLandProof({
         project, repo, epicId: epic.id, epicBranch,
@@ -1478,15 +1485,60 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
           detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'skip', reason: `build-proof-red:${proof.reason}` }) });
         continue;
       }
-      await completeTodo(project, decision.landLeafId, 'accepted', 'daemon:auto');
       recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
-        detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'land-leaf-promoted', landLeafId: decision.landLeafId, armed: true }) });
-      await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator', preferLinkTodoId: buildIds[0] });
+        detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'land-leaf-land-decided', landLeafId: decision.landLeafId, stamped: false, armed: true }) });
+      await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator', preferLinkTodoId: buildIds[0], landLeafId: decision.landLeafId });
     } catch (e) {
       recordSupervisorAudit({ kind: 'reconcile', project, session: 'coordinator',
         detail: JSON.stringify({ epicId: epic.id, missionAutoLand: 'error', reason: e instanceof Error ? e.message : String(e) }) });
     }
   }
+}
+
+/** Stamp the epic's [LAND] leaf done ONLY on an observed merge. Guarded: a missing
+ *  landLeafId or a non-landed outcome is a no-op — the leaf stays not-done and the
+ *  next reconcile tick retries. Best-effort; the caller already wraps in try/catch. */
+export async function stampLandLeafOnMerge(
+  project: string, landLeafId: string | undefined, landed: boolean,
+): Promise<boolean> {
+  if (!landed || !landLeafId) return false;
+  await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
+  return true;
+}
+
+/** Convergent (crash-window) land-leaf stamp — the inverse-direction sibling of
+ *  stampLandLeafOnMerge. A process killed AFTER landEpic merges the epic branch but
+ *  BEFORE completeTodo runs leaves the land leaf pending while git already carries the
+ *  merge. Git is ground truth: if the epic branch is already merged (ahead==0, tip IS an
+ *  ancestor of base) AND the land leaf is still pending, stamp it done with reason
+ *  'observed-merged'. GUARDED to ahead==0 only — never stamps while ahead>0 (that is the
+ *  inverse of the Finding-2 corrupt case, so the check is git-derived, not stamp-derived).
+ *  A probe error is treated as "unknown", NOT as merged — we never stamp on doubt.
+ *  Re-run on an already-done leaf is a no-op (not an error). Best-effort; never throws
+ *  beyond the injected probe. */
+export async function convergeObservedMerge(
+  project: string,
+  epicId: string,
+  landLeafId: string | undefined,
+  probeAhead: () => Promise<number>,
+): Promise<{ stamped: boolean; reason: string; ahead?: number }> {
+  if (!landLeafId) return { stamped: false, reason: 'no-land-leaf' };
+  const leaf = getTodo(project, landLeafId);
+  if (!leaf) return { stamped: false, reason: 'land-leaf-missing' };
+  if (leaf.status === 'done') return { stamped: false, reason: 'land-leaf-already-done' };
+  const ahead = await probeAhead().catch(() => -1);
+  // GUARD: stamp ONLY when git confirms ahead==0 (tip is an ancestor of base). ahead>0
+  // (unlanded work) and ahead<0 (probe error/unknown) both refuse — git-derived, not
+  // stamp-derived.
+  if (ahead !== 0) {
+    return { stamped: false, reason: ahead > 0 ? 'epic-ahead' : 'ahead-unknown', ahead };
+  }
+  await completeTodo(project, landLeafId, 'accepted', 'daemon:auto');
+  recordSupervisorAudit({
+    kind: 'reconcile', project, session: 'coordinator',
+    detail: JSON.stringify({ epicId, landLeafId, convergentStamp: 'observed-merged', ahead: 0 }),
+  });
+  return { stamped: true, reason: 'observed-merged', ahead: 0 };
 }
 
 /**
@@ -1506,7 +1558,7 @@ export async function autoLandArmedMissionEpics(project: string): Promise<void> 
 export async function surfaceEpicLand(
   project: string,
   epicId: string,
-  opts: { sessionHint?: string; preferLinkTodoId?: string } = {},
+  opts: { sessionHint?: string; preferLinkTodoId?: string; landLeafId?: string } = {},
 ): Promise<void> {
   const session = opts.sessionHint || 'coordinator';
   const id = opts.preferLinkTodoId;
@@ -1594,7 +1646,16 @@ export async function surfaceEpicLand(
           continue; // card is already surfaced above — a human lands it
         }
         const outcome = await landEpic(project, escalation.id);
-        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason }) });
+        const stamped = await stampLandLeafOnMerge(project, opts.landLeafId, outcome.landed);
+        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ epicId, epicBranch, autoLand: true, landed: outcome.landed, conflict: outcome.conflict ?? false, reason: outcome.reason, landLeafId: opts.landLeafId ?? null, stamped }) });
+      } else {
+        recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({
+          epicId, epicBranch, landSurface: 'land-skipped',
+          proofGreen, landAuthorized, escalationId: escalation?.id ?? null,
+          failedConjunct: !proofGreen ? 'proof-red'
+            : !landAuthorized ? 'land-unauthorized'
+            : 'escalation-id-missing',
+        }) });
       }
     }
   } catch (e) {
