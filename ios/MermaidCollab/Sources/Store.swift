@@ -155,6 +155,16 @@ final class ZenStore: ObservableObject {
         for e in resp.escalations { escalations[e.id] = e }
     }
 
+    func fetchMission(project: String, session: String) async -> MissionSummary? {
+        func enc(_ s: String) -> String {
+            s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        }
+        let path = "/api/supervisor/missions?project=\(enc(project))&session=\(enc(session))"
+        guard let data = await send(request(path)) else { return nil }
+        guard let resp = try? JSONDecoder().decode(MissionsResponse.self, from: data) else { return nil }
+        return resp.missions.first(where: { $0.mission.active }) ?? resp.missions.first
+    }
+
     // MARK: Actions
 
     /// Decide a structured escalation. Optimistically clears it.
