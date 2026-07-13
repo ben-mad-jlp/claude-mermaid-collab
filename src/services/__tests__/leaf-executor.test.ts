@@ -1962,6 +1962,18 @@ describe('runLeaf resume consumption (slice 2)', () => {
     expect(res.reason).toBe('gate-pending');
   });
 
+  it('skip-to-gate: a gate-rejected completion resolves rejected, never a free accepted', async () => {
+    const { deps, spies } = makeDeps({ gateEffective: 'rejected' });
+    deps.resumePlan = { mode: 'skip-to-gate', reason: 'work-merged' };
+    const res = await runLeaf('/p', makeLeaf(), deps);
+    // The 'accepted' argument is only a REQUEST; the authoritative gate verdict wins.
+    expect(res.outcome).toBe('rejected');
+    expect(res.outcome).not.toBe('accepted');
+    expect(res.reason).toBe('gate-rejected');
+    // It still went through the SAME deps.complete gate as the fresh path.
+    expect(spies.completeCalls).toEqual([{ acceptance: 'accepted' }]);
+  });
+
   it('reattach-blueprint: reuses the durable plan (no blueprint node), runs implement+review', async () => {
     const { deps, spies } = makeDeps({ reviewVerdicts: ['VERDICT: PASS'], gateEffective: 'accepted' });
     deps.resumePlan = { mode: 'reattach-blueprint', reason: 'blueprint-reusable' };
