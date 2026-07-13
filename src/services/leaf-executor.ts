@@ -1934,6 +1934,14 @@ export async function runLeaf(
   // Re-running the whole leaf would be pure waste — just run the gate, which
   // re-verifies the already-committed work. Safe regardless of further epic advance.
   if (deps.resumePlan?.mode === 'skip-to-gate') {
+    // GATE EQUIVALENCE (crit3): `deps.complete(...,'accepted')` is only a REQUEST —
+    // it routes through handleWorkerComplete → resolveCompletion({runGate,
+    // verifyWorkCommitted}), the SAME authoritative mechanical+llm gate the fresh
+    // completion path (:2384) and the report-leaf path (:1705) use. So skip-to-gate
+    // still resolves to `gate.effective` 'rejected'/'pending' on a red gate and never
+    // grants a free 'accepted'. The fresh path's separate `deps.runGate` (:2234) only
+    // feeds the REVIEW node, which skip-to-gate deliberately skips — it is NOT the
+    // authoritative gate and its absence here changes no verdict.
     const gate = await deps.complete(project, leaf.id, 'accepted');
     const effective = gate.effective ?? 'accepted';
     const reason =
