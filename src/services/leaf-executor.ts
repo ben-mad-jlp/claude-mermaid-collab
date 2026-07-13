@@ -36,6 +36,8 @@ import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, gr
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation } from './supervisor-store';
+import { composeInjectedContext } from './prompt-injection';
+import { getInjectionFlags } from './runtime-config';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-proposal';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
@@ -1613,22 +1615,26 @@ export async function runLeaf(
     cwd: string,
     blueprintText?: string,
     reviewFindings?: string,
-  ): NodeSpec => ({
-    prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
-    model: nodeModel(kind),
-    effort: nodeEffort(kind),
-    allowedTools: NODE_PROFILE[kind].allowedTools,
-    // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
-    // tool — build nodes use only built-ins, so the ~200-tool surface is dead context.
-    strictMcpConfig: !NODE_PROFILE[kind].allowedTools.includes('mcp__'),
-    cwd,
-    leafId: leaf.id,
-    epicId,
-    project, // E1: recorded in the leaf-subprocess registry for per-project brake
-    permissionMode: 'bypassPermissions',
-    transcriptPath: leafTranscriptPath(project, leaf.id),
-    transcriptLabel: kind,
-  });
+  ): NodeSpec => {
+    const injected = composeInjectedContext({ kind, project, epicId, flags: getInjectionFlags(project) });
+    return {
+      prompt: buildNodePrompt(kind, leaf, blueprintText, reviewFindings),
+      model: nodeModel(kind),
+      effort: nodeEffort(kind),
+      allowedTools: NODE_PROFILE[kind].allowedTools,
+      // Strip the project's MCP server (.mcp.json) from any node that can't call an mcp__
+      // tool — build nodes use only built-ins, so the ~200-tool surface is dead context.
+      strictMcpConfig: !NODE_PROFILE[kind].allowedTools.includes('mcp__'),
+      cwd,
+      leafId: leaf.id,
+      epicId,
+      project, // E1: recorded in the leaf-subprocess registry for per-project brake
+      permissionMode: 'bypassPermissions',
+      transcriptPath: leafTranscriptPath(project, leaf.id),
+      transcriptLabel: kind,
+      appendSystemPrompt: injected || undefined,
+    };
+  };
 
   /** SR-7: blueprint refresh spec for split children. Honors per-project overrides exactly
    *  like buildSpec, just uses a different (cheaper) model/effort default and the refresh prompt. */
@@ -1744,6 +1750,7 @@ export async function runLeaf(
     // The review node needs add_session_todo (file gap todos) on top of the read-only set;
     // NO Write (the executor commits the report — a node Write resolves to the project root).
     const reviewTools = `${NODE_PROFILE.review.allowedTools} mcp__mermaid__add_session_todo`;
+    const reviewInjected = composeInjectedContext({ kind: 'review', project, epicId, flags: getInjectionFlags(project) });
     const buildReviewSpec = (): NodeSpec => ({
       prompt: buildReviewPrompt(leaf, baseRef),
       model: nodeModel('review', reviewTools),
@@ -1755,6 +1762,7 @@ export async function runLeaf(
       permissionMode: 'bypassPermissions',
       transcriptPath: leafTranscriptPath(project, leaf.id),
       transcriptLabel: 'review',
+      appendSystemPrompt: reviewInjected || undefined,
     });
 
     let rev = await runNode('review', buildReviewSpec());

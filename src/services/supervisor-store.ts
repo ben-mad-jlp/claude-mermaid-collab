@@ -22,6 +22,12 @@ export interface WatchedProject {
   /** Per-project context-auto-recycle mode, or null (== 'off'). Gates the
    *  deterministic checkpoint→clear→collab driver (context-recycle.ts). */
   contextRecycleMode?: string | null;
+  /** Per-project project-digest injection flag (default OFF). */
+  projectDigestEnabled?: number | null;
+  /** Per-project retry-context injection flag (default OFF). */
+  promptInjectRetryContext?: number | null;
+  /** Per-project active-constraints injection flag (default OFF). */
+  promptInjectActiveConstraints?: number | null;
 }
 
 /** Context-auto-recycle mode for a watched project:
@@ -188,7 +194,10 @@ CREATE TABLE IF NOT EXISTS watched_project (
   addedAt INTEGER NOT NULL,
   watchdogThresholdPercent INTEGER,
   contextRecycleMode TEXT,
-  missionLoopMode TEXT
+  missionLoopMode TEXT,
+  projectDigestEnabled INTEGER,
+  promptInjectRetryContext INTEGER,
+  promptInjectActiveConstraints INTEGER
 );
 CREATE TABLE IF NOT EXISTS supervised_session (
   project TEXT NOT NULL,
@@ -306,6 +315,9 @@ function openDb(): Database {
   addColumnIfMissing(db, 'watched_project', 'watchdogThresholdPercent', 'watchdogThresholdPercent INTEGER');
   addColumnIfMissing(db, 'watched_project', 'contextRecycleMode', 'contextRecycleMode TEXT');
   addColumnIfMissing(db, 'watched_project', 'missionLoopMode', 'missionLoopMode TEXT');
+  addColumnIfMissing(db, 'watched_project', 'projectDigestEnabled', 'projectDigestEnabled INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'promptInjectRetryContext', 'promptInjectRetryContext INTEGER');
+  addColumnIfMissing(db, 'watched_project', 'promptInjectActiveConstraints', 'promptInjectActiveConstraints INTEGER');
   addColumnIfMissing(db, 'escalation', 'todoId', 'todoId TEXT');
   addColumnIfMissing(db, 'escalation', 'optionsJson', 'optionsJson TEXT');
   addColumnIfMissing(db, 'escalation', 'recommended', 'recommended TEXT');
@@ -427,6 +439,51 @@ export function setContextRecycleMode(project: string, mode: ContextRecycleMode)
     `INSERT INTO watched_project (project, addedAt, contextRecycleMode) VALUES (?, ?, ?)
      ON CONFLICT(project) DO UPDATE SET contextRecycleMode = excluded.contextRecycleMode`,
   ).run(project, Date.now(), mode);
+}
+
+/** Per-project project-digest injection flag (default OFF). */
+export function getProjectDigestEnabled(project: string): boolean {
+  const d = openDb();
+  const row = d.query('SELECT projectDigestEnabled FROM watched_project WHERE project = ?')
+    .get(project) as { projectDigestEnabled: number | null } | undefined;
+  return !!row?.projectDigestEnabled;
+}
+export function setProjectDigestEnabled(project: string, on: boolean): void {
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO watched_project (project, addedAt, projectDigestEnabled) VALUES (?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET projectDigestEnabled = excluded.projectDigestEnabled`,
+  ).run(project, Date.now(), on ? 1 : 0);
+}
+
+/** Per-project retry-context injection flag (default OFF). */
+export function getPromptInjectRetryContext(project: string): boolean {
+  const d = openDb();
+  const row = d.query('SELECT promptInjectRetryContext FROM watched_project WHERE project = ?')
+    .get(project) as { promptInjectRetryContext: number | null } | undefined;
+  return !!row?.promptInjectRetryContext;
+}
+export function setPromptInjectRetryContext(project: string, on: boolean): void {
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO watched_project (project, addedAt, promptInjectRetryContext) VALUES (?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET promptInjectRetryContext = excluded.promptInjectRetryContext`,
+  ).run(project, Date.now(), on ? 1 : 0);
+}
+
+/** Per-project active-constraints injection flag (default OFF). */
+export function getPromptInjectActiveConstraints(project: string): boolean {
+  const d = openDb();
+  const row = d.query('SELECT promptInjectActiveConstraints FROM watched_project WHERE project = ?')
+    .get(project) as { promptInjectActiveConstraints: number | null } | undefined;
+  return !!row?.promptInjectActiveConstraints;
+}
+export function setPromptInjectActiveConstraints(project: string, on: boolean): void {
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO watched_project (project, addedAt, promptInjectActiveConstraints) VALUES (?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET promptInjectActiveConstraints = excluded.promptInjectActiveConstraints`,
+  ).run(project, Date.now(), on ? 1 : 0);
 }
 
 // Phase-2b mission-loop driving is no longer a per-project mode. It's governed by
