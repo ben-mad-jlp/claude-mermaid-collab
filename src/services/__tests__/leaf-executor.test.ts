@@ -116,6 +116,7 @@ interface Spies {
   removeCalls: string[];
   markRejectingCalls: string[];
   bumpRetryCalls: Array<{ project: string; leafId: string }>;
+  releaseClaimCalls: Array<{ project: string; leafId: string }>;
   /** Ordered log of 'mark' (markRejecting) vs 'complete:<acceptance>' to assert the
    *  reject pre-stamp lands BEFORE the slow gate. */
   seq: string[];
@@ -150,6 +151,7 @@ function makeDeps(opts: {
     removeCalls: [],
     markRejectingCalls: [],
     bumpRetryCalls: [],
+    releaseClaimCalls: [],
     seq: [],
     inflightSeq: [],
     nodeRows: [],
@@ -205,6 +207,10 @@ function makeDeps(opts: {
     },
     async bumpRetry(p, leafId) {
       spies.bumpRetryCalls.push({ project: p, leafId });
+      return true;
+    },
+    async releaseClaim(p, leafId) {
+      spies.releaseClaimCalls.push({ project: p, leafId });
       return true;
     },
     async mergeToEpic() {
@@ -1636,6 +1642,7 @@ function makeVerifyDeps(opts: {
     removeCalls: [] as Spies['removeCalls'],
     markRejectingCalls: [] as Spies['markRejectingCalls'],
     bumpRetryCalls: [] as Spies['bumpRetryCalls'],
+    releaseClaimCalls: [] as Spies['releaseClaimCalls'],
     seq: [] as Spies['seq'],
     inflightSeq: [] as Spies['inflightSeq'],
     nodeRows: [] as Spies['nodeRows'],
@@ -2298,6 +2305,63 @@ describe('parkNodeStartFailure integration (node start-failure through runLeaf)'
 
     // complete() was called with 'accepted' (the normal verdict path)
     expect(spies.completeCalls.some((c) => c.acceptance === 'accepted')).toBe(true);
+  });
+
+  it('repeated deterministic start-failures bump retry (age to retry-exhausted) and keep a STABLE questionText (one dedup card)', async () => {
+    const startFailureResult: NodeResult = {
+      ok: false,
+      exitCode: 1,
+      stdout: '',
+      durationMs: 2000,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      rateLimited: false,
+      authMode: 'subscription',
+      text: "There's an issue with the selected model (grok-4.3) — it's not available",
+      parseError: "There's an issue with the selected model (grok-4.3) — it's not available",
+    };
+    const texts: string[] = [];
+    for (let run = 0; run < 3; run++) {
+      // vary a per-run value to prove it is NOT in the dedup key
+      const sfr = { ...startFailureResult, durationMs: 1000 + run * 777 };
+      const { deps, spies } = makeDeps({});
+
+      // Wrap bumpRetry and releaseClaim to track ordering
+      const opSeq: string[] = [];
+      const originalBumpRetry = deps.bumpRetry;
+      const originalReleaseClaim = deps.releaseClaim;
+      if (originalBumpRetry) {
+        deps.bumpRetry = async (p, leafId) => {
+          opSeq.push('bumpRetry');
+          return originalBumpRetry(p, leafId);
+        };
+      }
+      if (originalReleaseClaim) {
+        deps.releaseClaim = async (p, leafId) => {
+          opSeq.push('releaseClaim');
+          return originalReleaseClaim(p, leafId);
+        };
+      }
+
+      const originalInvoke = deps.invoker.invoke;
+      let n = 0;
+      deps.invoker.invoke = async (spec: NodeSpec): Promise<NodeResult> => {
+        n += 1;
+        const isBlueprint = (spec.allowedTools ?? '').includes('Write');
+        if (isBlueprint && n === 1) return sfr;
+        return originalInvoke(spec);
+      };
+      await runLeaf('proj', makeLeaf(), deps);
+      // retry bumped once, BEFORE the claim is released
+      expect(spies.bumpRetryCalls.length).toBe(1);
+      expect(spies.releaseClaimCalls.length).toBe(1);
+      expect(opSeq.indexOf('bumpRetry')).toBeGreaterThanOrEqual(0);
+      expect(opSeq.indexOf('releaseClaim')).toBeGreaterThan(opSeq.indexOf('bumpRetry'));
+      const qt = spies.escalations.find(e => e.kind === 'blocker')!.questionText;
+      expect(qt).not.toMatch(/\d+ms/);   // no per-run duration token
+      texts.push(qt);
+    }
+    // stable dedup key: identical across all runs despite varying durationMs
+    expect(new Set(texts).size).toBe(1);
   });
 });
 
