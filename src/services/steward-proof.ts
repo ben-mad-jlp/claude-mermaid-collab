@@ -106,6 +106,39 @@ export interface ProofResult {
   detail?: string;
 }
 
+/**
+ * Memo for the epic dry-merge trial. The trial (`git worktree add` + merge + remove +
+ * prune) is a PURE function of the two commit trees being merged, so it is safe to key
+ * on `${masterSha}:${epicBranchSha}` — any real change to either branch changes a sha and
+ * misses. Without this memo, every validateStewardProof('land_epic') re-runs the trial;
+ * the daemon calls that 3× per epic per reconcile tick (autoLandArmed → surfaceEpicLand →
+ * landEpic), so a handful of unlanded mission epics spins up ~a-worktree-per-few-seconds
+ * — which pegs the server (worse with leaked worktrees). `compute` reports `cacheable`
+ * so a TRANSIENT setup failure (worktree lock) is never cached, only a real clean/conflict.
+ */
+export const MERGE_CLEAN_TTL_MS = 10 * 60 * 1000;
+const mergeCleanCache = new Map<string, { clean: boolean; at: number }>();
+/** Test seam: clear the dry-merge memo so the next call recomputes. */
+export function _resetMergeCleanCache(): void {
+  mergeCleanCache.clear();
+}
+/** Pure memo wrapper (injectable clock) — unit-testable without a live repo. */
+export function memoizedMergeClean(deps: {
+  resolveKey: () => string; // '' → skip the cache entirely (couldn't resolve shas)
+  compute: () => { clean: boolean; cacheable: boolean };
+  now?: () => number;
+}): boolean {
+  const now = deps.now ?? Date.now;
+  const key = deps.resolveKey();
+  if (key) {
+    const hit = mergeCleanCache.get(key);
+    if (hit && now() - hit.at < MERGE_CLEAN_TTL_MS) return hit.clean;
+  }
+  const { clean, cacheable } = deps.compute();
+  if (key && cacheable) mergeCleanCache.set(key, { clean, at: now() });
+  return clean;
+}
+
 const realRunners: ProofRunners = {
   commitsBehindMaster(cwd, baseRef = 'master') {
     const out = execFileSync('git', ['rev-list', '--count', `HEAD..${baseRef}`], { cwd, encoding: 'utf8' });
@@ -126,36 +159,52 @@ const realRunners: ProofRunners = {
     }
   },
   epicMergeClean(masterCwd, epicBranch) {
-    // Isolated trial: create a detached worktree pinned at master HEAD and run the
-    // dry merge THERE — never in the main checkout (masterCwd). Mirrors the
-    // __land-master__ lifecycle (worktree-manager.landEpicToMaster). Setup failure
-    // is treated as not-clean (safe-refuse).
-    const trial = join(tmpdir(), `collab-land-trial-${process.pid}-${process.hrtime.bigint()}`);
-    const sh = (args: string[], cwd: string) =>
-      execFileSync('git', ['-C', cwd, ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
-    const teardown = () => {
-      try { execFileSync('git', ['-C', masterCwd, 'worktree', 'remove', '--force', trial], { stdio: 'pipe' }); } catch { /* gone */ }
-      try { execFileSync('git', ['-C', masterCwd, 'worktree', 'prune'], { stdio: 'pipe' }); } catch { /* best-effort */ }
-    };
-    try {
-      // Detached worktree off master HEAD (do NOT check out the `master` branch — it is
-      // live in the main tree; `git worktree add master` would fail "already checked out").
-      execFileSync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, 'master'], { stdio: 'pipe' });
-    } catch {
-      teardown(); // path may have been partially created
-      return false; // cannot set up an isolated trial → refuse (do not fall back to masterCwd)
-    }
-    try {
-      sh(['merge', '--no-commit', '--no-ff', epicBranch], trial);
-      // Clean (or already-up-to-date). Abort to leave the trial pristine before teardown.
-      try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
-      return true;
-    } catch {
-      try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
-      return false; // conflict
-    } finally {
-      teardown();
-    }
+    // MEMOIZED on (masterSha, epicBranchSha): the trial below is a pure function of the
+    // two commit trees, so identical shas always merge to the same result. The cheap
+    // rev-parse keys the memo; the expensive worktree trial only runs on a real change.
+    return memoizedMergeClean({
+      resolveKey: () => {
+        try {
+          const m = execFileSync('git', ['-C', masterCwd, 'rev-parse', 'master'], { encoding: 'utf8', stdio: 'pipe' }).trim();
+          const e = execFileSync('git', ['-C', masterCwd, 'rev-parse', epicBranch], { encoding: 'utf8', stdio: 'pipe' }).trim();
+          return m && e ? `${m}:${e}` : '';
+        } catch {
+          return ''; // rev-parse failed → run the trial uncached (safe-refuse semantics unchanged)
+        }
+      },
+      compute: () => {
+        // Isolated trial: create a detached worktree pinned at master HEAD and run the
+        // dry merge THERE — never in the main checkout (masterCwd). Mirrors the
+        // __land-master__ lifecycle (worktree-manager.landEpicToMaster). Setup failure
+        // is treated as not-clean (safe-refuse) AND NOT cached (transient).
+        const trial = join(tmpdir(), `collab-land-trial-${process.pid}-${process.hrtime.bigint()}`);
+        const sh = (args: string[], cwd: string) =>
+          execFileSync('git', ['-C', cwd, ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
+        const teardown = () => {
+          try { execFileSync('git', ['-C', masterCwd, 'worktree', 'remove', '--force', trial], { stdio: 'pipe' }); } catch { /* gone */ }
+          try { execFileSync('git', ['-C', masterCwd, 'worktree', 'prune'], { stdio: 'pipe' }); } catch { /* best-effort */ }
+        };
+        try {
+          // Detached worktree off master HEAD (do NOT check out the `master` branch — it is
+          // live in the main tree; `git worktree add master` would fail "already checked out").
+          execFileSync('git', ['-C', masterCwd, 'worktree', 'add', '--detach', trial, 'master'], { stdio: 'pipe' });
+        } catch {
+          teardown(); // path may have been partially created
+          return { clean: false, cacheable: false }; // setup failure is TRANSIENT — never cache it
+        }
+        try {
+          sh(['merge', '--no-commit', '--no-ff', epicBranch], trial);
+          // Clean (or already-up-to-date). Abort to leave the trial pristine before teardown.
+          try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
+          return { clean: true, cacheable: true };
+        } catch {
+          try { sh(['merge', '--abort'], trial); } catch { /* nothing to abort */ }
+          return { clean: false, cacheable: true }; // genuine conflict for these two shas — deterministic
+        } finally {
+          teardown();
+        }
+      },
+    });
   },
   grepPresent(project, symbol) {
     try {
