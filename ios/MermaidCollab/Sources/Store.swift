@@ -165,6 +165,16 @@ final class ZenStore: ObservableObject {
         return resp.missions.first(where: { $0.mission.active }) ?? resp.missions.first
     }
 
+    func fetchTranscript(project: String, session: String, limit: Int = 20) async -> TranscriptResponse? {
+        func enc(_ s: String) -> String {
+            s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        }
+        let path = "/api/transcript/recent?project=\(enc(project))&session=\(enc(session))&limit=\(limit)"
+        guard let data = await send(request(path)) else { return nil }
+        guard let resp = try? JSONDecoder().decode(TranscriptResponse.self, from: data) else { return nil }
+        return resp
+    }
+
     func fetchDocuments(project: String, session: String) async -> [DocRef] {
         func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
         let path = "/api/documents?project=\(enc(project))&session=\(enc(session))"
