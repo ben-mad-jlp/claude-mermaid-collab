@@ -125,8 +125,8 @@ function convictOnOutOfDiffLocation(
 
 /** Rule 2 — CONVICT on command-result: invocation token or result predicate. */
 function convictOnCommandResult(text: string): { uncitable: boolean; reason?: string } {
-  // Invocation token: npm, npx, bun, pnpm, yarn, make, tsc, vitest, jest, eslint, cargo, go
-  if (/(?:^|[\s`(])(?:npm|npx|bun|pnpm|yarn|make|tsc|vitest|jest|eslint|cargo|go)\s+(?:run|test|--noEmit|-b|\S)/.test(text)) {
+  // Invocation token: npm, npx, bun, pnpm, yarn, make, tsc, vitest, jest, eslint, cargo, go, xcodebuild, swift, xcrun
+  if (/(?:^|[\s`(])(?:npm|npx|bun|pnpm|yarn|make|tsc|vitest|jest|eslint|cargo|go|xcodebuild|swift|xcrun)\s+(?:run|test|--noEmit|-b|\S)/.test(text)) {
     return {
       uncitable: true,
       reason: "criterion asserts a command's result (a test, build, or lint invocation), which is uncitable",
@@ -136,7 +136,7 @@ function convictOnCommandResult(text: string): { uncitable: boolean; reason?: st
   // Result predicate: pass/green/clean over a suite/test/build noun, or inverse
   // Match patterns like "tests pass", "build passes", "suite succeeds", "results match master", etc.
   if (
-    /\b(suite|tests?|build|typecheck|type-check|compile|gate|lint|ci|results?|files?)\b[^.]{0,40}\b(pass(?:es|ed)?|green|clean|succeed(?:s)?|exits?\s+0|match(?:es)?\s+master)\b/i.test(
+    /\b(suite|tests?|build|typecheck|type-check|compile|gate|lint|ci|results?|files?)\b[^.]{0,40}\b(pass(?:es|ed)?|green|clean|succeed(?:s|ed)?|exits?\s+0|match(?:es)?\s+master)\b/i.test(
       text,
     )
   ) {
@@ -195,6 +195,14 @@ function convictOnAbsence(text: string): { uncitable: boolean; reason?: string }
 
   // "unchanged" or "untouched"
   if (/\b(unchanged|untouched)\b/i.test(text)) {
+    return {
+      uncitable: true,
+      reason: 'criterion asserts an absence, which is uncitable',
+    };
+  }
+
+  // "no longer", "references nothing", "nothing external", "self-contained"
+  if (/\b(?:no longer|references nothing|nothing external|self[-\s]?contained)\b/i.test(text)) {
     return {
       uncitable: true,
       reason: 'criterion asserts an absence, which is uncitable',
