@@ -38,6 +38,7 @@ import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation } from './supervisor-store';
 import { composeInjectedContext } from './prompt-injection';
 import { getInjectionFlags } from './runtime-config';
+import { getActiveConstraints } from './decision-record-store';
 import { LeafAborted, leafAbortReason, type AbortReason } from './leaf-abort';
 import { proposeSplit, awaitSplitDecision, raisedNodeBudget } from './split-proposal';
 import { recordNode, setLeafInflight, clearLeafInflight, recordLeafResume, markLeafMerged, getLatestNodeOutput, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision } from './worker-ledger';
@@ -46,7 +47,7 @@ import { COMPILE_CHECK_INSTRUCTION } from './compile-gate';
 import { snapshotMainCheckout, sweepLeakedWrites, type RootSnapshot } from './worktree-write-leak';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, type LeafGateResult } from './leaf-gate';
-import { validateReviewGrounding } from './review-citations';
+import { validateReviewGrounding, checkConstraintCitations } from './review-citations';
 import { evaluateCommandEvidence, parseVerificationClaims, type RecordedCommand } from './node-commands';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
 import { loadManifestSource } from '../config/project-manifest';
@@ -1974,6 +1975,8 @@ export async function runLeaf(
   let carriedBlueprint: string | null = null;
   // C2: non-fatal unbacked-claim warning from the review pass — carried forward for recordOutcome.
   let unbackedNote: string | undefined;
+  // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive constraint id.
+  let constraintCiteNote: string | undefined;
   for (state.attempt = 0; state.attempt < ATTEMPT_CAP; ) {
     state.attempt += 1; // 1-based count for telemetry/escalation
     const isLastAttempt = state.attempt >= ATTEMPT_CAP;
@@ -2335,6 +2338,18 @@ export async function runLeaf(
             : undefined;
         }
         findings = (review.text ?? '').trim();
+        // ADVISORY cite-check (never gates): flag a review citing an unknown/inactive
+        // constraint id. Pairs Payload C's injected ACTIVE CONSTRAINTS block with a
+        // warn-only enforcement half. Result is surfaced/recorded ONLY — it does not
+        // touch `llm`, `reviewVerdict`, or composeVerdict.
+        const activeConstraintIds = getActiveConstraints(project, epicId).map((c) => c.id);
+        const citeCheck = checkConstraintCitations(review.text ?? '', activeConstraintIds);
+        if (citeCheck.fabricated.length > 0) {
+          constraintCiteNote =
+            `constraint-cite (advisory): review cites unknown/inactive constraint id(s): ` +
+            citeCheck.fabricated.join(', ');
+          console.warn(`[leaf-executor] ${constraintCiteNote}`);
+        }
       }
 
       // final = mechanical AND llm. Never "whichever spoke last": a review's bare
@@ -2408,7 +2423,7 @@ export async function runLeaf(
         : effective === 'rejected' ? 'gate-rejected'
         : undefined;
       recordOutcome(outcome, reviewVerdict, {
-        reason: reason ?? unbackedNote,
+        reason: reason ?? ([unbackedNote, constraintCiteNote].filter(Boolean).join('; ') || undefined),
         pendingReason: gate.pendingReason,
         gateReasons: gate.gateReasons,
       });

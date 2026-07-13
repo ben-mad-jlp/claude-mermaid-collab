@@ -186,3 +186,48 @@ export function validateReviewGrounding(
 
   return { status: 'ok', reasons: [], criteria };
 }
+
+/** Canonical-UUID-shaped token, boundary-anchored so it never matches mid-word. This is the
+ *  exact shape Payload C injects for a constraint id (`- <uuid>: <title>`), so a review that
+ *  cites a constraint echoes this shape. */
+const CONSTRAINT_ID_RE =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+/** Two ids match if equal (case-insensitive) OR share a leading-8-hex short id (the
+ *  repo-wide short-id convention). */
+function constraintIdMatches(cited: string, active: string): boolean {
+  const a = cited.toLowerCase();
+  const b = active.toLowerCase();
+  return a === b || a.slice(0, 8) === b.slice(0, 8);
+}
+
+export interface ConstraintCiteCheck {
+  /** Constraint-id-shaped tokens in the review that match NO active constraint id. Advisory. */
+  fabricated: string[];
+}
+
+/**
+ * ADVISORY cite-check (never a gate). Extract constraint-id-shaped tokens from `reviewText`
+ * and return those that correspond to no existing ACTIVE constraint id. A review that cites
+ * nothing constraint-shaped ⇒ empty `fabricated` (NOT a finding). Pure: no I/O, no verdict.
+ * Callers surface the result as a logged/recorded note ONLY — it must never feed a pass/fail.
+ */
+export function checkConstraintCitations(
+  reviewText: string,
+  activeConstraintIds: readonly string[],
+): ConstraintCiteCheck {
+  CONSTRAINT_ID_RE.lastIndex = 0;
+  const fabricated: string[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = CONSTRAINT_ID_RE.exec(reviewText)) !== null) {
+    const token = m[0];
+    const key = token.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!activeConstraintIds.some((id) => constraintIdMatches(token, id))) {
+      fabricated.push(token);
+    }
+  }
+  return { fabricated };
+}
