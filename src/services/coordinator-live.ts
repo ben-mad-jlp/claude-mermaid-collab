@@ -1816,8 +1816,11 @@ export async function landEpic(
 
       // Fail-fast: RE-DERIVE steward predicates (cheap check, fail immediately on storev
       // truth failure). Skip deriveEpicLandProof here; we'll run it after forward-integration.
+      // Exclude the epic's own [LAND] leaf: it is stamped done AFTER the merge lands
+      // (stampLandLeafOnMerge), so counting it as a required-done child would deadlock every
+      // auto-land (epic-children-incomplete). Mirrors surfaceEpicLand's pre-check filter.
       const epicChildren = listTodos(project, { includeCompleted: true })
-        .filter((t) => t.parentId === epicId && t.status !== 'dropped');
+        .filter((t) => t.parentId === epicId && t.status !== 'dropped' && !isLand(t));
       const { byRepo } = partitionEpicChildrenByRepo(epicChildren, project);
       const epicChildIds = byRepo.get(targetProject) ?? epicChildren.map((t) => t.id);
       const epic = await wm.ensureEpic(epicId).catch(() => null);
