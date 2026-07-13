@@ -1598,7 +1598,7 @@ export async function surfaceEpicLand(
     const allTodos = listTodos(project, { includeCompleted: true });
     const missionEpic = isMissionEpic(project, epicId, allTodos);
     const children = allTodos
-      .filter((t) => t.parentId === epicId && t.status !== 'dropped');
+      .filter((t) => t.parentId === epicId && t.status !== 'dropped' && !isLand(t));
     const { byRepo, ambiguous } = partitionEpicChildrenByRepo(children, project);
 
     // Can't cleanly partition (cross-repo epic with repo-less children) → escalate a
