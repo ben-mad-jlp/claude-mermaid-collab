@@ -1577,9 +1577,13 @@ export async function runLeaf(
     const sf = res.startFailure!;
     const reason = `node-could-not-start: ${kind} node failed in ${res.durationMs}ms with zero tokens — provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
     recordOutcome('blocked', null, { reason });
+    try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
     try { await deps.releaseClaim?.(project, leaf.id); } catch { /* best-effort */ }
+    const stableFacts =
+      `node-could-not-start: ${kind} node failed with zero tokens — ` +
+      `provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
     deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id,
-      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${reason} Check the node-profile row for this project/kind: the model does not belong to the provider.` });
+      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${stableFacts} Check the node-profile row for this project/kind: the model does not belong to the provider.` });
     return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   };
 
