@@ -50,11 +50,20 @@ export interface EpicBranchStatus {
   mergeable: boolean | null;
   /** Whether the epic's land leaf is done. null when the epic has no land leaf. */
   landLeafDone: boolean | null;
+  /** Id of the epic's land leaf, if any — the reopen target for a corrupt epic. */
+  landLeafId: string | null;
   /**
-   * True when the branch carries unlanded commits (ahead>0) yet the land leaf is
-   * not done — the BP0 stranding: "done on the graph, unlanded on master".
+   * True when the branch carries unlanded commits (ahead>0) — the git fact of
+   * "work not on master". Independent of the land-leaf stamp (a falsely-stamped
+   * done land leaf does NOT clear this).
    */
   stranded: boolean;
+  /**
+   * True when the land leaf claims done (landLeafDone===true) YET the branch is
+   * still ahead>0 — a FALSELY-STAMPED land leaf. Strictly git-derived; the
+   * reconcile pass reopens the land leaf on this flag.
+   */
+  corrupt: boolean;
 }
 
 export interface EpicBranchStatusReport {
@@ -63,6 +72,8 @@ export interface EpicBranchStatusReport {
   epics: EpicBranchStatus[];
   /** Count of epics flagged `stranded` — the one-glance "unlanded work" signal. */
   strandedCount: number;
+  /** Count of epics flagged `corrupt` (land leaf done yet branch ahead>0). */
+  corruptCount: number;
 }
 
 /** First-8 slug of an epic id — the branch token. Mirrors worktree-manager.epicId8
@@ -122,7 +133,8 @@ export function buildEpicBranchStatus(
     const p = probe(branch, baseRef);
     const land = landLeafOf(t);
     const landLeafDone = land ? land.status === 'done' : null;
-    const stranded = p.exists && (p.ahead ?? 0) > 0 && landLeafDone !== true;
+    const stranded = p.exists && (p.ahead ?? 0) > 0;
+    const corrupt = p.exists && (p.ahead ?? 0) > 0 && landLeafDone === true;
     epics.push({
       epicId: t.id,
       title: t.title,
@@ -133,11 +145,13 @@ export function buildEpicBranchStatus(
       behind: p.behind,
       mergeable: p.mergeable,
       landLeafDone,
+      landLeafId: land ? land.id : null,
       stranded,
+      corrupt,
     });
   }
 
-  return { project, baseRef, epics, strandedCount: epics.filter((e) => e.stranded).length };
+  return { project, baseRef, epics, strandedCount: epics.filter((e) => e.stranded).length, corruptCount: epics.filter((e) => e.corrupt).length };
 }
 
 /** Hard cap on any single git probe. `git merge-tree` on a badly-conflicted /

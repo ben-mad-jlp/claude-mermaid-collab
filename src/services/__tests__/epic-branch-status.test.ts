@@ -67,6 +67,7 @@ describe('buildEpicBranchStatus', () => {
     expect(e.ahead).toBe(3);
     expect(e.landLeafDone).toBe(false);
     expect(e.stranded).toBe(true);
+    expect(e.corrupt).toBe(false);
     expect(report.strandedCount).toBe(1);
   });
 
@@ -88,7 +89,9 @@ describe('buildEpicBranchStatus', () => {
     expect(e.ahead).toBe(0);
     expect(e.landLeafDone).toBe(true);
     expect(e.stranded).toBe(false);
+    expect(e.corrupt).toBe(false);
     expect(report.strandedCount).toBe(0);
+    expect(report.corruptCount).toBe(0);
   });
 
   test('no branch yet: exists false, counts null, not stranded', () => {
@@ -114,7 +117,8 @@ describe('buildEpicBranchStatus', () => {
     expect(e.landLeafDone).toBe(true);
     expect(e.behind).toBe(2);
     expect(e.mergeable).toBe(false);
-    expect(e.stranded).toBe(false); // land leaf done ⇒ not stranded even with ahead>0
+    expect(e.stranded).toBe(true); // land leaf done yet ahead>0 ⇒ stranded (falsely-stamped)
+    expect(e.corrupt).toBe(true); // land leaf done + ahead>0 = falsely-stamped land leaf
   });
 
   test('lists a mission-parented epic by kind, with no title prefix', () => {
