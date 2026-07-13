@@ -337,6 +337,15 @@ describe('buildNodePrompt per-node specs', () => {
     // review prompt asks for the VERDICT contract
     expect(buildNodePrompt('review', makeLeaf())).toContain('VERDICT: PASS');
   });
+
+  it('blueprint prompt forbids command-result and absence acceptance criteria', () => {
+    const bp = buildNodePrompt('blueprint', makeLeaf());
+    // no build/command/gate-result criteria
+    expect(bp).toMatch(/gate result is NOT a citation/);
+    expect(bp).toContain('BUILD SUCCEEDED');
+    // no absence / non-goal criteria (existing guidance, asserted for completeness)
+    expect(bp).toMatch(/NEVER write an absence or non-goal as an acceptance criterion/);
+  });
 });
 
 describe('runLeaf state machine', () => {
