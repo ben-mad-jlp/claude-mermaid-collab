@@ -60,6 +60,10 @@ struct MissionDetailView: View {
                 NavigationLink("Artifacts") {
                     ArtifactListView(project: project, session: session)
                 }
+
+                NavigationLink("Recent transcript") {
+                    TranscriptPeekView(project: project, session: session)
+                }
             }
             .padding(Space.l)
         }
