@@ -37,6 +37,9 @@ import {
   isStewardEnabled,
   isSupervisorPaused,
   listSupervisorPauses,
+  getProjectDigestEnabled,
+  getPromptInjectRetryContext,
+  getPromptInjectActiveConstraints,
 } from './supervisor-store';
 
 export interface RuntimeConfig {
@@ -185,4 +188,20 @@ export function runtimeConfig(project: string, now: number = Date.now()): Runtim
     selfSummaryNudgeEnabled: selfNudge.enabled,
     selfSummaryNudgeIntervalMs: selfNudge.intervalMs,
   });
+}
+
+/** Per-project prompt-injection flags — ALL default OFF (no config ⇒ all false). */
+export interface InjectionFlags {
+  digest: boolean;
+  retryContext: boolean;
+  activeConstraints: boolean;
+}
+
+/** Resolve a project's injection flags. A project with no config ⇒ all three false. */
+export function getInjectionFlags(project: string): InjectionFlags {
+  return {
+    digest: getProjectDigestEnabled(project),
+    retryContext: getPromptInjectRetryContext(project),
+    activeConstraints: getPromptInjectActiveConstraints(project),
+  };
 }
