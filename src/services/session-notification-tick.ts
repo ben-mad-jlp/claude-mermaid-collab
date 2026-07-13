@@ -14,6 +14,7 @@ import {
   listAllSubscriptions,
   enqueueNotification,
   pendingCount,
+  listPending,
   expireSubscriptionsForTarget,
 } from './session-subscriptions';
 import { snapshotTodos, diffTodos, planNotifications, type SnapshotMap } from './session-notification-router';
@@ -22,6 +23,10 @@ import { fireStamp } from './nudge-stamp';
 
 /** Don't re-nudge a session more often than this (coalesces a burst into one wake). */
 export const MIN_NUDGE_INTERVAL_MS = 60_000;
+/** How many unseen summaries to carry inline in a nudge (triage without a pull). */
+export const NUDGE_SUMMARY_LIMIT = 3;
+/** Base delay before an UNCHANGED backlog is re-announced; doubles per re-announce (decay). */
+export const REANNOUNCE_BASE_MS = MIN_NUDGE_INTERVAL_MS * 5;
 
 export interface NotificationTickDeps {
   loadTodos?: (project: string) => Todo[];
@@ -29,15 +34,17 @@ export interface NotificationTickDeps {
   now?: () => number;
 }
 
-// Per-project last-seen snapshot + per-(project,session) last-nudge time. In-memory: a
+interface NudgeState { count: number; at: number; reannounces: number }
+
+// Per-project last-seen snapshot + per-(project,session) nudge state. In-memory: a
 // daemon restart just re-seeds (first tick emits nothing), which is the safe default.
 const snapByProject = new Map<string, SnapshotMap>();
-const lastNudgeAt = new Map<string, number>();
+const nudgeState = new Map<string, NudgeState>();
 
 /** Test seam: clear the in-memory snapshot + throttle state. */
 export function __resetTickState(): void {
   snapByProject.clear();
-  lastNudgeAt.clear();
+  nudgeState.clear();
 }
 
 export async function runNotificationTick(
@@ -77,14 +84,29 @@ export async function runNotificationTick(
   const nudged: string[] = [];
   for (const session of [...new Set(subs.map((s) => s.session))]) {
     const count = pendingCount(project, session);
-    if (count === 0) continue;
+    if (count === 0) {
+      const key = `${project}::${session}`;
+      nudgeState.delete(key);
+      continue;
+    }
     const key = `${project}::${session}`;
-    // Default to -Infinity (not 0) so a never-nudged session always passes — else a small
-    // clock could falsely throttle the FIRST nudge (now - 0 < interval).
-    if (now() - (lastNudgeAt.get(key) ?? -Infinity) < MIN_NUDGE_INTERVAL_MS) continue;
+    const st = nudgeState.get(key);
+    const sinceLast = now() - (st?.at ?? -Infinity);
+    if (sinceLast < MIN_NUDGE_INTERVAL_MS) continue;
+    const grew = count > (st?.count ?? 0);
+    const backoff = REANNOUNCE_BASE_MS * Math.pow(2, st?.reannounces ?? 0);
+    const reannounceDue = !!st && sinceLast >= backoff;
+    if (!grew && !reannounceDue) continue;
     const label = project.split('/').pop() || project;
-    const res = await nudge(project, session, `${fireStamp(now())} 📥 ${count} update${count === 1 ? '' : 's'} on ${label} — call inbox()`);
-    if (res === 'sent') { lastNudgeAt.set(key, now()); nudged.push(session); }
+    const items = listPending(project, session, NUDGE_SUMMARY_LIMIT);
+    const head = `${fireStamp(now())} 📥 ${count} update${count === 1 ? '' : 's'} on ${label} — call inbox()`;
+    const lines = items.map((n) => `  • ${n.summary}`).join('\n');
+    const text = lines ? `${head}\n${lines}` : head;
+    const res = await nudge(project, session, text);
+    if (res === 'sent') {
+      nudgeState.set(key, { count, at: now(), reannounces: grew ? 0 : (st?.reannounces ?? 0) + 1 });
+      nudged.push(session);
+    }
   }
 
   return { enqueued: planned.length, nudged };
