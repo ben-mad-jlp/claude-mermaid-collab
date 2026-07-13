@@ -3,7 +3,9 @@
  * Run with `bun test src/services/__tests__/review-citations.test.ts`.
  */
 import { describe, it, expect } from 'bun:test';
-import { parseCriterionResults, extractCitations, citationResolves, validateReviewGrounding } from '../review-citations';
+import { parseCriterionResults, extractCitations, citationResolves, validateReviewGrounding, checkConstraintCitations } from '../review-citations';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 describe('validateReviewGrounding', () => {
   it('vacuous: PASS with no criteria section', () => {
@@ -138,5 +140,55 @@ describe('parseCriterionResults', () => {
 
   it('a/foo.ts does NOT resolve against b/barfoo.ts (segment-anchored)', () => {
     expect(citationResolves('a/foo.ts', ['b/barfoo.ts'])).toBe(false);
+  });
+});
+
+describe('checkConstraintCitations', () => {
+  it('flags a fabricated id', () => {
+    const result = checkConstraintCitations(
+      '- [MET] honors constraint 11111111-1111-1111-1111-111111111111 — src/a.ts:3',
+      ['22222222-2222-2222-2222-222222222222'],
+    );
+    expect(result.fabricated).toContain('11111111-1111-1111-1111-111111111111');
+    expect(result.fabricated.length).toBe(1);
+  });
+
+  it('empty for a real active id', () => {
+    const activeId = '11111111-1111-1111-1111-111111111111';
+    const result = checkConstraintCitations(
+      '- [MET] honors constraint 11111111-1111-1111-1111-111111111111 — src/a.ts:3',
+      [activeId],
+    );
+    expect(result.fabricated).toEqual([]);
+  });
+
+  it('empty for a real active id using leading-8-hex short-id match', () => {
+    const activeId = '11111111-1111-1111-1111-111111111111';
+    // Citation uses only the leading 8 hex, matching via the short-id convention
+    const result = checkConstraintCitations(
+      '- [MET] honors constraint 11111111-XXXX-XXXX-XXXX-XXXXXXXXXXXX — src/a.ts:3',
+      [activeId],
+    );
+    expect(result.fabricated).toEqual([]);
+  });
+
+  it('empty (no finding) for no citation', () => {
+    const result = checkConstraintCitations(
+      '- [MET] does the thing — src/a.ts:12\n\nVERDICT: PASS',
+      ['22222222-2222-2222-2222-222222222222'],
+    );
+    expect(result.fabricated).toEqual([]);
+  });
+
+  it('advisory-only: the review verdict is not a function of the cite-check', () => {
+    const src = readFileSync(join(import.meta.dir, '..', 'leaf-executor.ts'), 'utf8');
+    // The verdict's only inputs stay mech.status + llm — cite-check feeds neither.
+    expect(src).toContain('composeVerdict(mech.status, llm)');
+    expect(src).not.toMatch(/composeVerdict\([^)]*(checkConstraintCitations|citeCheck|constraintCiteNote)/);
+  });
+
+  it('result interface has only fabricated member', () => {
+    const result = checkConstraintCitations('', []);
+    expect(Object.keys(result)).toEqual(['fabricated']);
   });
 });
