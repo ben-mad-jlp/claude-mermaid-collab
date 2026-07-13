@@ -45,7 +45,7 @@ import { getFleetStatus } from '../services/fleet-status';
 import type { ClaimSuppressionReport } from '../services/coordinator-live';
 import { isSupervised, getSupervisorIdentity, getSupervisedLaunchProject, addWatchedProject, removeWatchedProject, removeSupervised } from '../services/supervisor-store.ts';
 import { sendTmuxKeys } from '../services/tmux-send.ts';
-import { lastAssistantTurn } from '../services/transcript-reader.ts';
+import { lastAssistantTurn, recentTurns } from '../services/transcript-reader.ts';
 import {
   listDesignsHandler,
   createDesignHandler,
@@ -3485,6 +3485,43 @@ export async function handleAPI(
     }
     try {
       return Response.json(await lastAssistantTurn(claudeSessionId));
+    } catch (error: any) {
+      return serverError(error);
+    }
+  }
+
+  // GET /api/transcript/recent?project=&session=&limit=  (read-only recent turns)
+  if (path === '/api/transcript/recent' && req.method === 'GET') {
+    const params = getSessionParams(url);
+    if (!params) {
+      return Response.json({ error: 'project and session required' }, { status: 400 });
+    }
+    const limitRaw = url.searchParams.get('limit');
+    const limit = limitRaw ? Math.max(1, Math.min(200, parseInt(limitRaw, 10) || 20)) : 20;
+    try {
+      // Resolve project+session -> claudeSessionId by scanning the /tmp binding files.
+      const fsp2 = await import('node:fs/promises');
+      let claudeSessionId: string | null = null;
+      let entries: string[] = [];
+      try {
+        entries = await fsp2.readdir('/tmp');
+      } catch { entries = []; }
+      for (const name of entries) {
+        if (!name.startsWith('.mermaid-collab-binding-') || !name.endsWith('.json')) continue;
+        try {
+          const raw = await fsp2.readFile(`/tmp/${name}`, 'utf8');
+          const b = JSON.parse(raw) as { project?: string; session?: string; claudeSessionId?: string };
+          if (b.project === params.project && b.session === params.session) {
+            claudeSessionId = b.claudeSessionId
+              ?? name.slice('.mermaid-collab-binding-'.length, -'.json'.length);
+            break;
+          }
+        } catch { /* skip unreadable/malformed binding */ }
+      }
+      if (!claudeSessionId) {
+        return Response.json({ turns: [], found: false });
+      }
+      return Response.json(await recentTurns(claudeSessionId, limit));
     } catch (error: any) {
       return serverError(error);
     }
